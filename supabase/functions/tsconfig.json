@@ -1,0 +1,24 @@
+{
+  "//": "supabase-js is a devDependency for this file alone: the Edge Functions import it from JSR and Deno fetches it at deploy time, but `pnpm typecheck:functions` needs types on disk. The web app no longer imports it. An editor's TypeScript server walks up from a file to the nearest tsconfig. Without this, supabase/functions lands in an inferred project with browser defaults and Deno globals resolve as errors. This is editor-only — `tsc -b` at the repo root does not reference it, and Supabase bundles these functions with Deno.",
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "types": [],
+    "paths": {
+      "jsr:@supabase/supabase-js@2": [
+        "../../node_modules/@supabase/supabase-js/dist/index.d.cts"
+      ]
+    },
+    "noEmit": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
+  },
+  "include": ["**/*.ts"]
+}

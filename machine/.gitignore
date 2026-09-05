@@ -1,0 +1,11 @@
+# This machine's answers and what the installer created.
+profiles/local.toml
+state/applied.json
+state/.lock
+
+# Real values now live at ~/.zsh/secrets.zsh, outside the repo. This guards
+# the old location until `sync` has moved an existing one out of it.
+catalog/zsh/secrets.zsh
+
+__pycache__/
+*.pyc

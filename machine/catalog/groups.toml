@@ -1,0 +1,53 @@
+# What `init` shows, in this order. Edit this file to regroup; nothing in
+# lib/ knows these names.
+#
+#   shell    = ["<file>.zsh", ...]   fragment in ~/.zsh — one switch, whole machine
+#   mcp      = ["<name>", ...]       server in machine/catalog/mcp — per agent
+#   skills   = ["<name>", ...]       directory in machine/catalog/skills — per agent
+#   harness  = true                  the always-on markdown — per agent
+#
+# A group can mix kinds. A name that is not in the catalog yet still shows up,
+# marked, and `sync` steps over it — so you can list something before you write
+# it. An empty group is fine too: it says so when you open it.
+#
+# Anything in the catalog that no group here claims is appended as `other`.
+# That row is a reminder to file it, not a feature — with this file complete,
+# it never appears.
+
+[alias]
+description = "dopa-tps, shell history, grok on PATH"
+shell = [
+    "dopa-tps.zsh",
+    "terminal.zsh",
+    "grok.zsh",
+]
+
+[frontend-mcps]
+description = "drive a real browser, screenshot what changed"
+mcp = ["playwright", "chrome-devtools"]
+
+[general-mcps]
+description = "Linear, Notion"
+mcp = ["linear", "notion"]
+
+# Slack is not here on purpose. https://mcp.slack.com/mcp exists and the URL
+# is right, but Slack requires the *client* to be a registered Slack app with
+# a hardcoded app ID — "Only directory-published apps or internal apps may use
+# MCP. Unlisted apps are prohibited." Claude Code, Codex and Grok are not, so
+# the server registers fine and then never connects. Add it back the day one
+# of them ships as a Slack app.
+
+# One server per project, never one per account. The ref in the URL is what
+# removes `project_id` from every tool, so the agent cannot reach across into
+# the other project — and it is why these are two entries and not one.
+[supabase-mcps]
+description = "read each project's Postgres; writes stay on the sb-* CLI"
+mcp = ["supabase-hub-william", "supabase-sonix-study"]
+
+[harness]
+description = "always-on rules, in context every session"
+harness = true
+
+[skills]
+description = "loaded on demand, when the task matches"
+skills = ["frontend-convention", "frontend-verify", "supabase-remote"]

@@ -1,0 +1,1 @@
+-- Intentionally empty. Register through the app, then approve the profile in Supabase Studio.

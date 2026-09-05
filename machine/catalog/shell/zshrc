@@ -1,0 +1,14 @@
+# Hub William machine harness. ~/.zsh holds one symlink per fragment you
+# picked, each pointing into machine/catalog/zsh — so editing a fragment in
+# the repo changes every new shell, and a fragment you declined is simply not
+# linked. Your own files in ~/.zsh are sourced too.
+#
+# secrets.zsh goes first: the fragments after it read those variables.
+[ -r "$HOME/.zsh/secrets.zsh" ] && source "$HOME/.zsh/secrets.zsh"
+for _hw_fragment in "$HOME"/.zsh/*.zsh; do
+  case "$_hw_fragment" in
+    */secrets.zsh) continue ;;
+  esac
+  [ -r "$_hw_fragment" ] && source "$_hw_fragment"
+done
+unset _hw_fragment

@@ -1,0 +1,23 @@
+# hub-william's Postgres, and the only way in. There is no `sb-*` wrapper any
+# more and no personal access token on this machine; the OAuth grant behind
+# this URL is the whole of it.
+#
+# `project_ref` is what makes two Supabase accounts safe side by side. With it
+# set, the server strips `project_id` out of every tool's parameter schema, so
+# an agent cannot express "apply that to the other project" even by accident.
+# Drop it and the account tools come back and both projects are one call away.
+#
+# Deliberately not read-only. `apply_migration` and `deploy_edge_function` are
+# the write path now, and two things follow from that.
+#
+# `apply_migration` takes {name, query} and the server assigns the version, so
+# the row it writes to supabase_migrations.schema_migrations will not carry the
+# timestamp in the repo's filename. Keep writing the file anyway — it costs
+# nothing and git is the only place the schema stays reviewable — just do not
+# expect `migration list` to ever line up again.
+#
+# It also drops the `rollback` field the Management API accepts. Nothing here
+# can undo a migration, and PITR is off: fix forward with another one.
+
+description = "hub-william Postgres: query, logs, advisors, migrations, edge functions. OAuth: run `./install.sh mcp auth supabase-hub-william`."
+url = "https://mcp.supabase.com/mcp?project_ref=dvepnvntttvstbtoypoy&features=database,debugging,development,functions,docs"

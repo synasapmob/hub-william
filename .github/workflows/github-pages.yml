@@ -1,0 +1,133 @@
+name: Deploy to GitHub Pages
+
+# GitHub Pages serves one site per repository, so both environments live on it
+# side by side: `main` publishes to the root and `dev` to a `dev/` subfolder of
+# the same `gh-pages` branch.
+#
+#   production  https://synasapmob.github.io/hub-william/
+#   preview     https://synasapmob.github.io/hub-william/dev/
+#
+# Repository setup, once: Settings → Pages → Build and deployment → Deploy from
+# a branch → `gh-pages` / `(root)`. The branch is created by this workflow's
+# first successful run.
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  workflow_dispatch:
+
+# The workflow pushes the built site to the gh-pages branch itself, rather than
+# using actions/deploy-pages, because that action publishes a whole site and
+# cannot write into a subfolder — which is what the dev preview needs.
+permissions:
+  contents: write
+
+# One publish at a time. Two runs pushing to gh-pages at once is a lost deploy.
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build and publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # A broken main should not reach the published site, so the checks run
+      # before the build rather than in a separate workflow that can go green
+      # after a deploy has already happened.
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Resolve the environment
+        run: |
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then
+            echo "VITE_BASE_PATH=/hub-william/" >> "$GITHUB_ENV"
+            echo "TARGET_DIR=." >> "$GITHUB_ENV"
+          else
+            echo "VITE_BASE_PATH=/hub-william/dev/" >> "$GITHUB_ENV"
+            echo "TARGET_DIR=dev" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build
+        run: pnpm build
+
+      - name: Publish to gh-pages
+        env:
+          PUBLISH_DIR: ${{ runner.temp }}/pages
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Keep the branch's history, and keep whichever environment this run
+          # is not publishing.
+          git fetch origin gh-pages --depth=1 || true
+          if git rev-parse --verify --quiet origin/gh-pages; then
+            git worktree add "$PUBLISH_DIR" -B gh-pages origin/gh-pages
+          else
+            git worktree add "$PUBLISH_DIR" --orphan gh-pages
+          fi
+
+          if [ "$TARGET_DIR" = "." ]; then
+            find "$PUBLISH_DIR" -mindepth 1 -maxdepth 1 \
+              ! -name .git ! -name dev -exec rm -rf {} +
+            DESTINATION="$PUBLISH_DIR"
+          else
+            rm -rf "${PUBLISH_DIR:?}/$TARGET_DIR"
+            mkdir -p "$PUBLISH_DIR/$TARGET_DIR"
+            DESTINATION="$PUBLISH_DIR/$TARGET_DIR"
+          fi
+
+          # `build/client` is laid out for a server whose document root is the
+          # domain root: assets and public files sit at the top, and the
+          # prerendered HTML sits under the base path because that is the URL it
+          # was rendered for. A Pages project site puts the branch root at the
+          # base path instead, so the two halves are flattened together — first
+          # the assets, then the route HTML over the SPA fallback that shares
+          # its name.
+          PREFIX_DIR="build/client${VITE_BASE_PATH%/}"
+
+          cp build/client/index.html "$DESTINATION/404.html"
+          find build/client -mindepth 1 -maxdepth 1 ! -name hub-william \
+            -exec cp -R {} "$DESTINATION/" \;
+          cp -R "$PREFIX_DIR/." "$DESTINATION/"
+
+          # Pages hides every path beginning with an underscore unless Jekyll is
+          # switched off.
+          touch "$PUBLISH_DIR/.nojekyll"
+
+          cd "$PUBLISH_DIR"
+          git add --all
+          if git diff --cached --quiet; then
+            echo "Nothing changed; skipping the publish commit."
+            exit 0
+          fi
+          git commit -m "Publish ${GITHUB_REF_NAME} from ${GITHUB_SHA}"
+          git push origin gh-pages

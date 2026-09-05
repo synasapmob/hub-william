@@ -1,0 +1,2 @@
+description = "Notion pages and databases. OAuth: run `./install.sh mcp auth notion`."
+url = "https://mcp.notion.com/mcp"
