@@ -88,11 +88,17 @@ jobs:
 
           # Keep the branch's history, and keep whichever environment this run
           # is not publishing.
-          git fetch origin gh-pages --depth=1 || true
+          git fetch origin gh-pages --depth=1 2>/dev/null || true
           if git rev-parse --verify --quiet origin/gh-pages; then
             git worktree add "$PUBLISH_DIR" -B gh-pages origin/gh-pages
           else
-            git worktree add "$PUBLISH_DIR" --orphan gh-pages
+            # Start the branch from an empty root commit rather than
+            # `git worktree add --orphan`: that flag is new, its argument order
+            # is not what it looks like, and this works on every git.
+            empty_tree="$(git hash-object -t tree /dev/null)"
+            root_commit="$(git commit-tree "$empty_tree" -m "Initialise gh-pages")"
+            git branch gh-pages "$root_commit"
+            git worktree add "$PUBLISH_DIR" gh-pages
           fi
 
           if [ "$TARGET_DIR" = "." ]; then
