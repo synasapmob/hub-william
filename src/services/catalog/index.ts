@@ -180,8 +180,17 @@ export function rootLabel(root: CatalogCategory) {
   return groupLabel(root).toUpperCase();
 }
 
-/** Every Markdown file under the catalogue, inlined at build time. */
-const sources = import.meta.glob("/contributors/**/*.md", {
+/**
+ * Every file under the catalogue, inlined at build time.
+ *
+ * Not only the Markdown. A contract that names a `registry.yaml` beside it is
+ * describing a file the catalogue publishes too, and a download offering "all
+ * of harness" has to mean the folder rather than the subset this app happens to
+ * render. Only `.md` becomes an entry — `placeSource` decides that — but
+ * everything here is counted, so the count beside a download button and the
+ * archive the build emits are read off the same tree.
+ */
+const sources = import.meta.glob("/contributors/**/*", {
   query: "?raw",
   import: "default",
   eager: true,
@@ -199,6 +208,21 @@ const SECTION_FOLDERS: Record<string, CatalogSection> = {
   libraries: "library",
   tools: "tools",
 };
+
+/**
+ * The same table read backwards, for building a path to a section's folder.
+ *
+ * A reverse lookup rather than a second table, because `library` living in
+ * `libraries/` is one fact and writing it down twice is how the two stop
+ * agreeing.
+ */
+function sectionFolder(section: CatalogSection) {
+  return (
+    Object.keys(SECTION_FOLDERS).find(
+      (folder) => SECTION_FOLDERS[folder] === section,
+    ) ?? section
+  );
+}
 
 /**
  * Where a source file lands, decided entirely by where it already lives.
@@ -219,6 +243,11 @@ const SECTION_FOLDERS: Record<string, CatalogSection> = {
  * everything below it rather than one more thing to point at.
  */
 function placeSource(path: string): CatalogPlacement | null {
+  // The catalogue publishes every file it holds, but only a Markdown document
+  // is a thing to open: `registry.yaml` is read by the contract beside it, not
+  // by a reader looking for the next contract.
+  if (!path.endsWith(".md")) return null;
+
   const segments = path.replace(/^\//, "").split("/");
 
   if (segments[0] !== CATALOG_ROOT) return null;
@@ -295,11 +324,16 @@ function parseDocument(raw: string): ParsedDocument {
   return { frontMatter, body: raw.slice(match[0].length).trim() };
 }
 
+/** A heading as prose: the punctuation a tag heading uses is not part of it. */
+function plainHeading(heading: string) {
+  return heading.replace(/[`[\]]/g, "").trim();
+}
+
 /** The document's own title, with the punctuation a tag heading uses stripped off. */
 function titleFromBody(body: string, slug: string) {
   const heading = /^#\s+(.+)$/m.exec(body)?.[1];
 
-  if (heading) return heading.replace(/[`[\]]/g, "").trim();
+  if (heading) return plainHeading(heading);
 
   const words = slug.replace(/[-_]/g, " ");
 
@@ -507,28 +541,176 @@ function fileName(entry: CatalogEntry) {
   return `${entry.id.split("/").at(-1)}.md`;
 }
 
-/**
- * One entry as an archive member, keeping the path it has in the catalogue.
- *
- * The path is the point: an agent loads `harness/tags/plan.md` because of where
- * it sits, so an archive that flattened them would be a pile of Markdown rather
- * than something a reader can drop into place.
- */
-function fileFor(entry: CatalogEntry) {
-  return { path: `${entry.id}.md`, contents: entry.source };
-}
-
-/** Every file in one category of one catalogue, ready to be zipped. */
-function filesInCategory(
-  category: CatalogCategory,
-  contributor: string | null = null,
-) {
-  return listEntriesByCategory(category, contributor).map(fileFor);
-}
-
 /** Where a reader goes to read, or to change, one entry. */
 function sourceUrl(entry: CatalogEntry) {
   return `${GITHUB_REPOSITORY_URL}/blob/main/${entry.id}.md`;
+}
+
+/**
+ * The site's own origin, for a command a reader copies into a terminal.
+ *
+ * `import.meta.env.BASE_URL` is the path this build is served from — `/` here,
+ * `/hub-william/` on Pages — and a browser already knows the host in front of
+ * it, so a copied command works on whichever host served the page. The constant
+ * is only what a prerender would use, and a prerender reaches none of this:
+ * every command below is rendered inside a sheet or a popover that opens on a
+ * click. It names the published site rather than a placeholder so that if one
+ * ever does reach the HTML, it is at least true.
+ */
+const PUBLISHED_SITE_URL = "https://synasapmob.github.io";
+
+/** Where the build publishes the catalogue as files rather than as a page. */
+const CATALOG_ENDPOINT = "catalog";
+
+function siteUrl(path: string) {
+  const origin =
+    typeof window === "undefined" ? PUBLISHED_SITE_URL : window.location.origin;
+
+  return `${origin}${import.meta.env.BASE_URL}${CATALOG_ENDPOINT}/${path}`;
+}
+
+/** This document's own bytes, at a URL `curl` can take. */
+function documentUrl(entry: CatalogEntry) {
+  return siteUrl(`${entry.id}.md`);
+}
+
+export interface CatalogArchive {
+  /** What the file is called once it is saved. */
+  name: string;
+  url: string;
+  /** How many files it holds, so the button can say. */
+  fileCount: number;
+}
+
+/**
+ * One folder of the catalogue, as the archive the build emitted for it.
+ *
+ * Nothing is zipped here. The same walk that publishes `/catalog/` writes the
+ * archives, so a button and a `curl` command hand back the identical file, and
+ * neither can quietly hold a different set from the folder it names. The count
+ * is read off the inlined catalogue, which is every file rather than every
+ * entry — a skill's `references/` and a contract's `registry.yaml` are in the
+ * archive, so they are in the number beside it.
+ */
+function archive(folder: string): CatalogArchive {
+  return {
+    name: `${folder.split("/").at(-1)}.zip`,
+    url: siteUrl(`${folder}.zip`),
+    fileCount: Object.keys(sources).filter((path) =>
+      path.startsWith(`/${folder}/`),
+    ).length,
+  };
+}
+
+/**
+ * Everything filed under this entry's root card.
+ *
+ * The folder is read off the entry's own path rather than rebuilt from its
+ * category, because the two can differ: `hooks/` is drawn on the Harnesses card
+ * through `ROOT_ALIASES`, and an archive named for the card would 404 against a
+ * folder that is still called `hooks`.
+ */
+function rootArchive(entry: CatalogEntry) {
+  return archive(entry.id.split("/").slice(0, 4).join("/"));
+}
+
+/** One whole canvas: the catalogue being read, not the open tree. */
+function sectionArchive(
+  section: CatalogSection,
+  contributor: string | null = null,
+) {
+  return archive(
+    `${CATALOG_ROOT}/${contributor ?? SHARED_OWNER}/${sectionFolder(section)}`,
+  );
+}
+
+/** Every catalogue there is, in one file. */
+function catalogArchive() {
+  return archive(CATALOG_ROOT);
+}
+
+/** What an agent fetches to find out what exists, without crawling the site. */
+function indexUrl() {
+  return siteUrl("index.json");
+}
+
+export interface CatalogUsage {
+  /** Where the file has to sit before an agent will read it. */
+  destination: string;
+  /** The literal tokens a reader types to reach it, in the document's order. */
+  invocations: string[];
+  /** What the document covers, for one that nothing is typed to reach. */
+  sections: string[];
+}
+
+const HEADINGS = /^(#{1,6})\s+(.+)$/gm;
+
+/** A tag as its own document writes one: fenced, bracketed, inside a heading. */
+const TAG_TOKEN = /`(\[[^`\]]+\])`/g;
+
+/**
+ * What a reader types to reach this document, taken from the document.
+ *
+ * A tag contract announces its own modes as headings — `plan.md` opens with
+ * `` `[plan]` `` and `delivery.md` heads a section with each delivery mode it
+ * defines — so the list of what an operator can type is already written down,
+ * in the document's own order, maintained by whoever maintains the contract. A
+ * table in here naming the tags would be a second copy of that, and the copy
+ * would be the one that went stale.
+ *
+ * Only headings are read. These contracts quote each other's tags constantly in
+ * prose, and a page listing every tag `delivery.md` mentions would be telling a
+ * reader to type things this document does not define.
+ */
+function invocationsIn(entry: CatalogEntry) {
+  // A skill is addressed by the name its own front matter declares, which is
+  // the name an agent registers it under and the slash command that reaches it.
+  if (entry.category === "skills") return [`/${entry.name}`];
+
+  const found: string[] = [];
+
+  for (const [, , heading] of entry.source.matchAll(HEADINGS)) {
+    for (const [, tag] of heading.matchAll(TAG_TOKEN)) {
+      if (!found.includes(tag)) found.push(tag);
+    }
+  }
+
+  return found;
+}
+
+/**
+ * The document's own second-level sections.
+ *
+ * For a contract nothing is typed to reach, this is the closest thing to a list
+ * of what it does: the installer's headings are what you need, install, where
+ * things land; a template's are the blocks you fill in. Derived rather than
+ * written down here, for the same reason as everything else in this service.
+ */
+function sectionsIn(entry: CatalogEntry) {
+  const found: string[] = [];
+
+  for (const [, hashes, heading] of entry.source.matchAll(HEADINGS)) {
+    if (hashes.length === 2) found.push(plainHeading(heading));
+  }
+
+  return found;
+}
+
+/**
+ * How this document is used once it is on a machine.
+ *
+ * The destination is the entry's own path under the checkout, because that is
+ * literally how the harness addresses it — the dispatcher names
+ * `~/.hub-william/contributors/default/libraries/harness/tags/`, so a download
+ * that lands anywhere else is a file no agent will ever open. It is the one
+ * thing a download page has to say and the one thing a zip cannot.
+ */
+function usage(entry: CatalogEntry): CatalogUsage {
+  return {
+    destination: `~/.hub-william/${entry.id}.md`,
+    invocations: invocationsIn(entry),
+    sections: sectionsIn(entry),
+  };
 }
 
 /**
@@ -539,10 +721,9 @@ function sourceUrl(entry: CatalogEntry) {
  * GitHub already provides.
  */
 function contributeUrl(entry: CatalogEntry) {
-  const section = entry.section === "tools" ? "tools" : "libraries";
   const owner = entry.contributor ?? SHARED_OWNER;
 
-  return `${GITHUB_REPOSITORY_URL}/new/main/${CATALOG_ROOT}/${owner}/${section}/${entry.category}`;
+  return `${GITHUB_REPOSITORY_URL}/new/main/${CATALOG_ROOT}/${owner}/${sectionFolder(entry.section)}/${entry.category}`;
 }
 
 /** What the header counts: the catalogue being read, not the open tree. */
@@ -567,19 +748,24 @@ function groupCount(
 }
 
 const catalogService = {
+  catalogArchive,
   contributors,
   fileName,
-  filesInCategory,
   contributeUrl,
   documentCount,
+  documentUrl,
   findBySlug,
   findCategory,
   groupCount,
   groupsInCategory,
+  indexUrl,
   listEntriesByCategory,
+  rootArchive,
   rootsInSection,
   matchesQuery,
+  sectionArchive,
   sourceUrl,
+  usage,
 };
 
 export default catalogService;

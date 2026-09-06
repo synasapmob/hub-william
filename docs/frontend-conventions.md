@@ -171,8 +171,10 @@ needs no DOM.
 `'unsafe-inline'` because React Router's SPA build inlines its hydration
 bootstrap into `index.html`; the directives that do the work here are
 `img-src`, which bounds where an injected image could reach, and
-`connect-src 'self'`, which is now absolute because the app makes no request at
-all. `font-src 'self' data:` is why the
+`connect-src 'self'`, which is absolute because nothing in the app fetches. A
+download control is an `<a download>` at a file under `/catalog/`, and a
+navigation is not what `connect-src` governs, so the archives leave the
+directive where it is. `font-src 'self' data:` is why the
 two typefaces are self-hosted through `@fontsource-variable/*` rather than
 linked from Google Fonts — a `<link>` to a font CDN is refused by the browser,
 silently, leaving the fallback stack on screen.
@@ -392,9 +394,12 @@ no route is behind an account — is not a convention and is not here. See
   `@import "tailwindcss"` to the browser verbatim and the app would render
   unstyled — the location is only safe because nothing relies on the folder it
   sits in.
-- Components never make raw network calls. Nothing in the app makes one at all:
-  the catalogue is Markdown inlined at build time and the telemetry is fixture
-  data. Services own where content comes from, and a component reads a service.
+- Components never make raw network calls. Nothing in the app fetches: the
+  catalogue is Markdown inlined at build time and the telemetry is fixture data.
+  Services own where content comes from, and a component reads a service. A
+  download control is the one thing that leaves the browser, and it is an
+  `<a download>` pointing at an archive the build emitted — a navigation the
+  reader started, not a component going to the network for its data.
 - Do not create a catch-all `types/` directory. Keep types with the service or feature that owns them.
 
 ## Exports

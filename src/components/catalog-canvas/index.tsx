@@ -181,6 +181,8 @@ export default function CatalogCanvas({
       <CatalogCanvasToolbar
         groupCount={catalogService.groupCount(section, contributor)}
         menu={menu}
+        section={section}
+        contributor={contributor}
         searchPlaceholder={searchPlaceholder}
         documentCount={catalogService.documentCount(section, contributor)}
         expandedCategory={expandedCategory}
@@ -272,7 +274,6 @@ export default function CatalogCanvas({
 
       <CatalogCanvasEntryDetail
         entry={selectedEntry}
-        contributor={contributor}
         onOpenChange={(open) => {
           if (!open) selectEntry(null);
         }}

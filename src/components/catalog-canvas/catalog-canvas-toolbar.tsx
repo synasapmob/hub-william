@@ -18,8 +18,11 @@ import {
   GITHUB_REPOSITORY_URL,
   rootLabel,
   type CatalogCategory,
+  type CatalogSection,
 } from "@/services/catalog";
 import { rootSlots } from "@/utils/utils.tone";
+
+import CatalogCanvasDownload from "./catalog-canvas-download";
 
 /** A glyph where one is known, and a shape where it is not. */
 const rootIcons: Record<string, LucideIcon> = {
@@ -80,6 +83,15 @@ interface CatalogCanvasToolbarProps {
    * the library and means nothing on a canvas of install guides.
    */
   menu?: ReactNode;
+  /**
+   * Which catalogue the header is describing.
+   *
+   * Taking the catalogue away is not a slot like `menu` is: it means the same
+   * thing on both canvases, so the toolbar renders it and only needs to be told
+   * which one it is looking at.
+   */
+  section: CatalogSection;
+  contributor: string | null;
   documentCount: number;
   /** How many folders the catalogue on screen spans. */
   groupCount: number;
@@ -93,6 +105,8 @@ interface CatalogCanvasToolbarProps {
 
 export default function CatalogCanvasToolbar({
   menu,
+  section,
+  contributor,
   searchPlaceholder,
   documentCount,
   groupCount,
@@ -163,6 +177,11 @@ export default function CatalogCanvasToolbar({
           </p>
 
           <Flex className="items-center gap-2 flex-wrap">
+            <CatalogCanvasDownload
+              section={section}
+              contributor={contributor}
+            />
+
             {menu}
 
             {/* Contribution is a pull request, so the control is a link to the

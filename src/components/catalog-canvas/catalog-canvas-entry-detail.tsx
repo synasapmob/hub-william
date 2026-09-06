@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   Check,
   Copy,
@@ -9,7 +9,6 @@ import {
 
 import Flex from "@/components/ui/flex";
 import CopyBlock from "@/components/copy-block";
-import InstallCommands from "@/components/install-commands";
 import MarkdownView from "@/components/markdown";
 import {
   Sheet,
@@ -25,7 +24,10 @@ import catalogService, {
 import { rootSlots } from "@/utils/utils.tone";
 import { copyText } from "@/utils/utils.clipboard";
 
-import CatalogCanvasEntryDownload from "./catalog-canvas-entry-download";
+import CatalogCanvasEntryInstall from "./catalog-canvas-entry-install";
+import CatalogCanvasEntryUsage from "./catalog-canvas-entry-usage";
+
+const panel = "rounded-xl border border-zinc-200/80 bg-zinc-50 p-4";
 
 interface CopySourceButtonProps {
   source: string;
@@ -69,16 +71,38 @@ function CopySourceButton({ source }: CopySourceButtonProps) {
   );
 }
 
+interface EntrySectionProps {
+  label: string;
+  children: ReactNode;
+}
+
+/**
+ * One headed block of the sheet.
+ *
+ * The sheet answers three questions in a fixed order — what is this, how do I
+ * get it onto a machine, what do I type to use it — and a reader who learned
+ * that order should find it again on the next document. Naming the blocks is
+ * what makes the order legible rather than incidental.
+ */
+function EntrySection({ label, children }: EntrySectionProps) {
+  return (
+    <div className="space-y-2.5">
+      <p className="font-mono text-[11px] font-semibold tracking-wider text-zinc-700 uppercase">
+        {label}
+      </p>
+
+      {children}
+    </div>
+  );
+}
+
 interface CatalogCanvasEntryDetailProps {
   entry: CatalogEntry | null;
-  /** Whose catalogue is open, so a bulk download takes that one. */
-  contributor: string | null;
   onOpenChange: (open: boolean) => void;
 }
 
 export default function CatalogCanvasEntryDetail({
   entry,
-  contributor,
   onOpenChange,
 }: CatalogCanvasEntryDetailProps) {
   // The sheet keeps rendering the entry it was opened with while it slides out.
@@ -98,7 +122,13 @@ export default function CatalogCanvasEntryDetail({
   // A template is written to be pasted, and it is mostly `<!-- instructions -->`
   // that a Markdown renderer drops on sight — so it is shown verbatim, as the
   // snippet it is, rather than as a page of bare headings.
-  const isTemplate = shown.category === "TEMPLATES";
+  //
+  // A category is the folder's own name and folders here are lower case; this
+  // read `"TEMPLATES"` and so was never true, which is why every template was
+  // rendering as exactly the page of bare headings the line above warns about.
+  // `rootLabel` is what upper-cases a category for display, and that is the
+  // only place the shouting belongs.
+  const isTemplate = shown.category === "templates";
 
   return (
     <Sheet open={entry !== null} onOpenChange={onOpenChange}>
@@ -148,25 +178,23 @@ export default function CatalogCanvasEntryDetail({
             </Flex>
           </div>
 
-          {/* The catalogue publishes what the machine installs, so the way to
-              use an entry is to install the harness, not to copy a snippet. */}
-          <div className="space-y-3 rounded-xl border border-zinc-200/80 bg-zinc-50 p-4">
-            <p className="font-mono text-[11px] font-semibold tracking-wider text-zinc-700 uppercase">
-              Install this catalogue
-            </p>
+          {/* The document's own opening paragraph, which is where these
+              contracts state their purpose. Printed rather than left to the
+              body below because a reader deciding whether to take a file
+              should not have to start reading it to find out what it is. */}
+          <EntrySection label="Introduction">
+            <p className="text-zinc-600 text-sm/relaxed">{shown.description}</p>
+          </EntrySection>
 
-            <InstallCommands />
+          <EntrySection label="How to install">
+            <div className={panel}>
+              <CatalogCanvasEntryInstall entry={shown} />
+            </div>
+          </EntrySection>
 
-            <CatalogCanvasEntryDownload
-              entry={shown}
-              contributor={contributor}
-            />
-
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              <code className="font-mono">init</code> draws the catalogue as a
-              picker, so this document is one of the boxes you tick.
-            </p>
-          </div>
+          <EntrySection label="How to use">
+            <CatalogCanvasEntryUsage entry={shown} />
+          </EntrySection>
 
           {isTemplate ? (
             <CopyBlock source={shown.source} />
