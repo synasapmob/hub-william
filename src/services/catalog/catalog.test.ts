@@ -176,17 +176,3 @@ describe("documentUrl", () => {
     );
   });
 });
-
-describe("sectionArchive", () => {
-  it("takes the catalogue being read rather than everyone's", () => {
-    expect(
-      catalogService.sectionArchive("library", "synasapmob").url,
-    ).toContain("/catalog/contributors/synasapmob/libraries.zip");
-    expect(catalogService.sectionArchive("library").url).toContain(
-      "/catalog/contributors/default/libraries.zip",
-    );
-    expect(catalogService.sectionArchive("tools").url).toContain(
-      "/catalog/contributors/default/tools.zip",
-    );
-  });
-});

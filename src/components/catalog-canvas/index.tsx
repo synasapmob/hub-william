@@ -181,8 +181,6 @@ export default function CatalogCanvas({
       <CatalogCanvasToolbar
         groupCount={catalogService.groupCount(section, contributor)}
         menu={menu}
-        section={section}
-        contributor={contributor}
         searchPlaceholder={searchPlaceholder}
         documentCount={catalogService.documentCount(section, contributor)}
         expandedCategory={expandedCategory}

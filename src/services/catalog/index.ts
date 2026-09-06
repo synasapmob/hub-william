@@ -614,26 +614,6 @@ function rootArchive(entry: CatalogEntry) {
   return archive(entry.id.split("/").slice(0, 4).join("/"));
 }
 
-/** One whole canvas: the catalogue being read, not the open tree. */
-function sectionArchive(
-  section: CatalogSection,
-  contributor: string | null = null,
-) {
-  return archive(
-    `${CATALOG_ROOT}/${contributor ?? SHARED_OWNER}/${sectionFolder(section)}`,
-  );
-}
-
-/** Every catalogue there is, in one file. */
-function catalogArchive() {
-  return archive(CATALOG_ROOT);
-}
-
-/** What an agent fetches to find out what exists, without crawling the site. */
-function indexUrl() {
-  return siteUrl("index.json");
-}
-
 export interface CatalogUsage {
   /** Where the file has to sit before an agent will read it. */
   destination: string;
@@ -748,7 +728,6 @@ function groupCount(
 }
 
 const catalogService = {
-  catalogArchive,
   contributors,
   fileName,
   contributeUrl,
@@ -758,12 +737,10 @@ const catalogService = {
   findCategory,
   groupCount,
   groupsInCategory,
-  indexUrl,
   listEntriesByCategory,
   rootArchive,
   rootsInSection,
   matchesQuery,
-  sectionArchive,
   sourceUrl,
   usage,
 };
