@@ -1,0 +1,96 @@
+name: Deploy to Vercel
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+      - dev
+
+permissions:
+  contents: read
+
+# Only allow one workflow in this group to run at a time.
+concurrency:
+  group: vercel-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy Production
+    runs-on: ubuntu-latest
+
+    # Skipped in a repository that has no Vercel project configured, so a fork
+    # or a move to GitHub Pages does not fail this workflow on every push. Set
+    # the VERCEL_ENV variable to switch it back on.
+    if: vars.VERCEL_ENV != ''
+
+    environment:
+      name: ${{ github.ref_name == 'dev' && 'dev' || github.ref_name == 'staging' && 'staging' || github.ref_name == 'main' && 'production' }}
+
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_ENV: ${{ vars.VERCEL_ENV }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run checks
+        run: pnpm lint
+
+      - name: Verify Vercel configuration
+        shell: bash
+        run: |
+          for variable in \
+            VERCEL_TOKEN \
+            VERCEL_ORG_ID \
+            VERCEL_PROJECT_ID \
+            VERCEL_ENV
+          do
+            if [ -z "${!variable}" ]; then
+              echo "::error::$variable is missing or empty"
+              exit 1
+            fi
+          done
+
+          echo "VERCEL_TOKEN=$VERCEL_TOKEN"
+          echo "VERCEL_ORG_ID=$VERCEL_ORG_ID"
+          echo "VERCEL_PROJECT_ID=$VERCEL_PROJECT_ID"
+          echo "VERCEL_ENV=$VERCEL_ENV"
+
+      - name: Pull Vercel project settings
+        run: |
+          pnpm dlx vercel@latest pull \
+            --yes \
+            --environment="${VERCEL_ENV}" \
+            --token="${VERCEL_TOKEN}"
+
+      - name: Build project
+        run: |
+          pnpm dlx vercel@latest build \
+            --prod \
+            --token="${VERCEL_TOKEN}"
+
+      - name: Deploy to Vercel
+        run: |
+          pnpm dlx vercel@latest deploy \
+            --prebuilt \
+            --prod \
+            --token="${VERCEL_TOKEN}"

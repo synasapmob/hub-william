@@ -1,0 +1,10 @@
+# sonix-study's Postgres. Same shape as supabase-hub-william.toml, which
+# carries the reasoning; the ref is the only difference that matters.
+#
+# Two entries rather than one account-wide server on purpose: a different
+# `project_ref` means a different URL, which is what stops sync's twin check
+# from folding them into one, and what keeps each OAuth token bound to the one
+# account that owns its project.
+
+description = "sonix-study Postgres: query, logs, advisors, migrations, edge functions. OAuth: run `./install.sh mcp auth supabase-sonix-study`."
+url = "https://mcp.supabase.com/mcp?project_ref=avhktbndxypoccfntkll&features=database,debugging,development,functions,docs"

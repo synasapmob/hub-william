@@ -1,0 +1,62 @@
+name: CI
+
+# Runs on every pull request, which is what makes "require branches to be up to
+# date before merging" mean anything: a rule can only wait for a check that a
+# pull request actually reports.
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Format
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Tailwind classes are canonical
+        run: pnpm check:tailwind
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      # The catalogue is Markdown that the machine installer also reads, so its
+      # own suite guards the contracts this site publishes.
+      - name: Machine harness suite
+        run: python3 -m unittest discover -s tests -p 'test_*.py'
+        working-directory: scripts/machine

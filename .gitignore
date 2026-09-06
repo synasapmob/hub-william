@@ -1,0 +1,45 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+.pnpm-store
+dist
+dist-ssr
+build
+.react-router
+*.local
+.env
+.env.*
+!.env.example
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.vercel
+.codex
+hub-william-cli
+.playwright-mcp
+
+# Regenerated whenever an Edge Function's imports are resolved, and never read
+# by anything we deploy — deploy_edge_function takes the files, not a lockfile.
+deno.lock
+
+# The collector script signs in here so your daily Chrome profile is never
+# locked or copied. It holds real session cookies.
+.playwright-profile/
+
+# Harvests from scripts/collect-social.mjs, for you to look at before deploying.
+collected/
