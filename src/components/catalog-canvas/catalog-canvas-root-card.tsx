@@ -16,7 +16,7 @@ import {
 } from "@/services/catalog";
 import Center from "@/components/ui/center";
 import Flex from "@/components/ui/flex";
-import { groupSlots, rootSlots } from "@/utils/utils.tone";
+import { rootSlots } from "@/utils/utils.tone";
 
 import {
   CATEGORY_CARD_HEIGHT,
@@ -94,10 +94,18 @@ export default function CatalogCanvasRootCard({
       </p>
 
       {/* The same folders the tree headings name, so a closed root already says
-          what opening it will show. */}
+          what opening it will show.
+
+          Grey, and static: this is a list of names, and a card carrying four
+          coloured chips would be four colours arguing with the icon that
+          already says which root this is. The tree below is where this root's
+          hue does its work. */}
       <Flex className="mt-auto items-stretch gap-1.5 flex-wrap">
         {groups.map((group) => (
-          <span key={group} className={groupSlots(group).badge()}>
+          <span
+            key={group}
+            className="flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 font-mono text-[11px] font-semibold text-slate-600"
+          >
             {groupLabel(group)}
           </span>
         ))}

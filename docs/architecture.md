@@ -65,7 +65,13 @@ reads every `.md` under `contributors/default/` and decides three things about e
 
 Both levels are folders on purpose. Renaming `harness/tags/` to
 `harness/labels/` renames the heading on the canvas and nothing else, and a
-folder nobody has seen still groups and still gets a colour.
+folder nobody has seen still groups and still draws.
+
+Colour comes from the category and stops there. A group inherits the hue of the
+root it sits under, so a folder arriving by pull request joins the tree it
+landed in instead of claiming a colour of its own — see `src/utils/utils.tone.ts`.
+A category nobody has given a hue draws neutral, which is a state a reviewer can
+promote rather than a colour nobody chose.
 
 Name and description come from the document's first heading and first
 paragraph. Front matter is honoured only where the format already has it — a

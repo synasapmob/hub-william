@@ -22,7 +22,7 @@ import catalogService, {
   groupLabel,
   type CatalogEntry,
 } from "@/services/catalog";
-import { groupSlots } from "@/utils/utils.tone";
+import { rootSlots } from "@/utils/utils.tone";
 import { copyText } from "@/utils/utils.clipboard";
 
 import CatalogCanvasEntryDownload from "./catalog-canvas-entry-download";
@@ -115,7 +115,7 @@ export default function CatalogCanvasEntryDetail({
             {shown.description}
           </SheetDescription>
 
-          <p className={groupSlots(shown.group).badge()}>
+          <p className={rootSlots(shown.category).badge()}>
             {groupLabel(shown.group)}
           </p>
 
