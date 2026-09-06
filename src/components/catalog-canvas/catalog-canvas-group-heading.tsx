@@ -1,5 +1,9 @@
-import { groupLabel, type CatalogGroup } from "@/services/catalog";
-import { groupSlots } from "@/utils/utils.tone";
+import {
+  groupLabel,
+  type CatalogCategory,
+  type CatalogGroup,
+} from "@/services/catalog";
+import { rootSlots } from "@/utils/utils.tone";
 
 import {
   GROUP_HEADING_HEIGHT,
@@ -9,6 +13,8 @@ import {
 
 interface CatalogCanvasGroupHeadingProps {
   group: CatalogGroup;
+  /** The open tree this heading hangs from, which is where its colour is. */
+  root: CatalogCategory;
   size: number;
   top: number;
 }
@@ -18,15 +24,21 @@ interface CatalogCanvasGroupHeadingProps {
  *
  * It is drawn as HTML rather than SVG text so it can carry the same border,
  * radius and type scale as everything else on the artboard — and because being
- * opaque is the point: the grey trunk runs behind it, so the line reads as
- * arriving at the group rather than sliding past its label.
+ * opaque is the point: the trunk runs behind it, so the line reads as arriving
+ * at the group rather than sliding past its label.
+ *
+ * The label is what separates one heading from the next; the colour says which
+ * tree they are all on. Every heading under one root is that root's hue, so a
+ * folder added by a pull request arrives already matching the tree it landed
+ * in rather than introducing a colour of its own.
  */
 export default function CatalogCanvasGroupHeading({
   group,
+  root,
   size,
   top,
 }: CatalogCanvasGroupHeadingProps) {
-  const { heading, headingCount, headingLabel } = groupSlots(group);
+  const { heading, headingCount, headingLabel } = rootSlots(root);
 
   return (
     <div

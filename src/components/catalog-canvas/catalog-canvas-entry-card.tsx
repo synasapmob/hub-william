@@ -3,7 +3,7 @@ import { tv } from "tailwind-variants";
 
 import Flex from "@/components/ui/flex";
 import { groupLabel, type CatalogEntry } from "@/services/catalog";
-import { groupSlots } from "@/utils/utils.tone";
+import { rootSlots } from "@/utils/utils.tone";
 
 import {
   ENTRY_CARD_HEIGHT,
@@ -39,7 +39,11 @@ export default function CatalogCanvasEntryCard({
   position,
   onSelect,
 }: CatalogCanvasEntryCardProps) {
-  const { badge, portDot, portRing } = groupSlots(entry.group);
+  // The card's colour comes from the tree it hangs in, not from its own folder.
+  // The badge still names the folder — that is the label's job, and the label
+  // is the part that has to keep working when a contributor invents a folder
+  // nothing has a colour for.
+  const { badge, portDot, portRing } = rootSlots(entry.category);
 
   return (
     <button

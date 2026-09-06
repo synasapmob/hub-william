@@ -1,4 +1,5 @@
-import { groupSlots } from "@/utils/utils.tone";
+import { type CatalogCategory } from "@/services/catalog";
+import { rootSlots } from "@/utils/utils.tone";
 
 import {
   categoryTrunkPort,
@@ -12,24 +13,31 @@ import {
 
 interface CatalogCanvasTreeBranchesProps {
   groups: TreeGroup[];
+  /** The open root, which is the only thing on this drawing with a colour. */
+  root: CatalogCategory;
   /** Where the open root sits, so the trunk can leave from under it. */
   rootPosition: CanvasPosition;
 }
 
 /**
- * The wiring under an open root: one neutral trunk, one coloured block per
- * integration.
+ * The wiring under an open root, drawn in that root's one colour.
  *
- * The trunk is deliberately grey. It is the only line that is not about an
- * integration, and colouring it too would leave one more hue in a picture whose
- * whole job is to say "these groups are different things". It runs the full
- * height behind the heading blocks, which are opaque and sit above it, so each
- * heading reads as something the line passes into rather than beside.
+ * The whole fan is one hue at three weights — trunk palest, branches a step up,
+ * nodes solid — because the picture's job is to say "all of this hangs off that
+ * card". Nine hues used to say the opposite, and said it about folders that any
+ * pull request could add, so a tree gained a colour nobody chose every time
+ * somebody made a directory.
+ *
+ * The trunk runs the full height behind the heading blocks, which are opaque
+ * and sit above it, so each heading reads as something the line passes into
+ * rather than beside.
  */
 export default function CatalogCanvasTreeBranches({
   groups,
+  root,
   rootPosition,
 }: CatalogCanvasTreeBranchesProps) {
+  const { branch, node, trunk } = rootSlots(root);
   const trunkPort = categoryTrunkPort(rootPosition);
   const lastGroup = groups.at(-1);
   const spineEnd = lastGroup?.rows.at(-1)?.barY;
@@ -39,7 +47,7 @@ export default function CatalogCanvasTreeBranches({
   return (
     <g>
       {/* Down out of the open root, across to the spine, then down the spine. */}
-      <g className="stroke-slate-300">
+      <g className={trunk()}>
         <line
           x1={trunkPort.x}
           y1={trunkPort.y}
@@ -64,12 +72,11 @@ export default function CatalogCanvasTreeBranches({
       </g>
 
       {groups.map((group) => {
-        const { branch, node } = groupSlots(group.group);
         const headingBottom = group.headingY + GROUP_HEADING_HEIGHT;
 
         return (
           <g key={group.group}>
-            {/* From the heading down into the group's own colour. */}
+            {/* From the heading down to the last row it feeds. */}
             <line
               x1={TREE_SPINE_X}
               y1={headingBottom}
