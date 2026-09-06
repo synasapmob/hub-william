@@ -20,9 +20,12 @@ src/routes/_app.library…  draws it as a canvas
 build/client/**/*.html    real HTML per route, served by anything
 ```
 
-There is no server, no database, no account and no request. The catalogue is
-inlined into the bundle at build time, so what the site publishes is exactly
-what the repository contains at the commit it was built from.
+There is no server, no database, no account and nothing fetched to draw a page.
+The catalogue is inlined into the bundle at build time, so what the site
+publishes is exactly what the repository contains at the commit it was built
+from. The build also writes that catalogue out as files — `/catalog/<path>`,
+`/catalog/<folder>.zip` and `/catalog/index.json` — which is what a download
+button and a `curl` command both fetch, and the only traffic the site has.
 
 ## Why there is no backend
 
@@ -38,7 +41,8 @@ relies on:
   for, so each route can be written to HTML at build time. That is what makes
   the pages readable by a crawler rather than only by a browser running React.
 - **The CSP can be strict.** `connect-src 'self'` is absolute rather than a
-  list, because the app opens no connection at all.
+  list, because the app opens no connection at all. Downloading an archive is a
+  navigation to the site's own origin, which that directive does not govern.
 - **A contribution is a diff.** Adding an entry is adding a file; removing one
   is removing a file. There is no migration, no seed, and no admin screen.
 - **Freshness is a deploy.** The catalogue changes when `main` changes. If that
