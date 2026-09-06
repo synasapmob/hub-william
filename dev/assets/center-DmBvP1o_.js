@@ -1,0 +1,1 @@
+import{t as e}from"./jsx-runtime-D2IZI__9.js";import{n as t}from"./flex-BEAcZW30.js";var n=e();function r({className:e,...r}){return(0,n.jsx)(`div`,{className:t({base:`flex items-center justify-center`})({className:e}),...r})}export{r as t};
