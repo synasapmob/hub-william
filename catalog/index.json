@@ -181,7 +181,7 @@
       "id": "contributors/default/tools/installer/machine-installer",
       "path": "contributors/default/tools/installer/machine-installer.md",
       "url": "/hub-william/catalog/contributors/default/tools/installer/machine-installer.md",
-      "bytes": 2037
+      "bytes": 2045
     },
     {
       "id": "contributors/default/tools/mcp/mcp-servers",
@@ -267,14 +267,14 @@
       "id": "contributors",
       "path": "contributors.zip",
       "url": "/hub-william/catalog/contributors.zip",
-      "bytes": 67023,
+      "bytes": 67029,
       "files": 43
     },
     {
       "id": "contributors/default",
       "path": "contributors/default.zip",
       "url": "/hub-william/catalog/contributors/default.zip",
-      "bytes": 50666,
+      "bytes": 50672,
       "files": 31
     },
     {
@@ -309,14 +309,14 @@
       "id": "contributors/default/tools",
       "path": "contributors/default/tools.zip",
       "url": "/hub-william/catalog/contributors/default/tools.zip",
-      "bytes": 2923,
+      "bytes": 2929,
       "files": 3
     },
     {
       "id": "contributors/default/tools/installer",
       "path": "contributors/default/tools/installer.zip",
       "url": "/hub-william/catalog/contributors/default/tools/installer.zip",
-      "bytes": 2085,
+      "bytes": 2091,
       "files": 2
     },
     {
