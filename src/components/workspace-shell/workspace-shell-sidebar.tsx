@@ -1,9 +1,11 @@
 import { Link, NavLink } from "react-router";
 import { tv } from "tailwind-variants";
 
+import Center from "@/components/ui/center";
+import assetPath from "@/utils/utils.asset-path";
+
 import { navigationItems } from "./workspace-shell-navigation-items";
 import WorkspaceShellRecentUpdates from "./workspace-shell-recent-updates";
-import Center from "../ui/center";
 
 const navigationLinkVariants = tv({
   base: "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-xs font-medium tracking-wide transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden",
@@ -43,8 +45,9 @@ function WorkspaceBrand({ onNavigate }: WorkspaceBrandProps) {
         <Center>
           <Center className="size-10">
             <img
-              src="./logo.png"
-              className="size-16 pointer-events-none object-cover"
+              src={assetPath("logo.png")}
+              alt=""
+              className="pointer-events-none size-16 object-cover"
             />
           </Center>
 

@@ -112,6 +112,11 @@ export interface CatalogCanvasViewportControls {
   zoomOut: () => void;
 }
 
+interface UseCatalogCanvasViewportOptions {
+  /** Whether a modal surface currently owns pointer and wheel interaction. */
+  locked: boolean;
+}
+
 /**
  * Pan and zoom for a fixed artboard, on Figma's contract.
  *
@@ -125,14 +130,22 @@ export interface CatalogCanvasViewportControls {
  * `fitView`, which takes the box to frame as an argument rather than reaching
  * for the entries itself.
  */
-export function useCatalogCanvasViewport(): CatalogCanvasViewportControls {
+export function useCatalogCanvasViewport({
+  locked,
+}: UseCatalogCanvasViewportOptions): CatalogCanvasViewportControls {
   // The surface's own box: every pointer coordinate has to be measured against
   // it, because the canvas does not start at the top-left of the window.
   const surfaceRef = useRef<HTMLElement>(null);
   // Where the pointer grabbed the artboard, or null when nothing is being
   // dragged.
-  const [panGrab, setPanGrab] = useState<CanvasPosition | null>(null);
+  const panGrabRef = useRef<CanvasPosition | null>(null);
   const [viewport, setViewport] = useState<CanvasViewport>(DEFAULT_VIEW);
+  const lockedRef = useRef(locked);
+
+  useEffect(() => {
+    lockedRef.current = locked;
+    if (locked) panGrabRef.current = null;
+  }, [locked]);
 
   /**
    * The wheel is a native listener rather than `onWheel` because React
@@ -149,6 +162,8 @@ export function useCatalogCanvasViewport(): CatalogCanvasViewportControls {
     if (!surface) return;
 
     function handleWheel(event: globalThis.WheelEvent) {
+      if (lockedRef.current) return;
+
       event.preventDefault();
 
       const deltaY = wheelDeltaPixels(event.deltaY, event.deltaMode);
@@ -221,6 +236,8 @@ export function useCatalogCanvasViewport(): CatalogCanvasViewportControls {
   }
 
   function handleMouseDown(event: MouseEvent<HTMLElement>) {
+    if (locked) return;
+
     // Cards, controls and the toolbar handle their own pointers. Without this
     // the whole artboard would slide the moment someone reached for a button.
     if (
@@ -231,14 +248,16 @@ export function useCatalogCanvasViewport(): CatalogCanvasViewportControls {
       return;
     }
 
-    setPanGrab({
+    panGrabRef.current = {
       x: event.clientX - viewport.pan.x,
       y: event.clientY - viewport.pan.y,
-    });
+    };
   }
 
   function handleMouseMove(event: MouseEvent<HTMLElement>) {
-    if (!panGrab) return;
+    const panGrab = panGrabRef.current;
+
+    if (locked || !panGrab) return;
 
     setViewport((previous) => ({
       ...previous,
@@ -247,7 +266,7 @@ export function useCatalogCanvasViewport(): CatalogCanvasViewportControls {
   }
 
   function releaseGrab() {
-    setPanGrab(null);
+    panGrabRef.current = null;
   }
 
   return {

@@ -176,3 +176,34 @@ describe("documentUrl", () => {
     );
   });
 });
+
+describe("findMarkdownReference", () => {
+  const reportTag = harnessEntries.find((entry) =>
+    entry.id.endsWith("/tags/report"),
+  )!;
+
+  it("resolves a reference relative to the document that contains it", () => {
+    expect(
+      catalogService.findMarkdownReference(reportTag, "../github/gh-cli.md")
+        ?.id,
+    ).toBe("contributors/default/libraries/harness/github/gh-cli");
+  });
+
+  it("normalizes a vendored contributor path to its catalogue identity", () => {
+    expect(
+      catalogService.findMarkdownReference(
+        reportTag,
+        "../../../contributors/synasapmob/contributors/default/libraries/harness/linear/creation-policy.md",
+      )?.id,
+    ).toBe("contributors/synasapmob/libraries/harness/linear/creation-policy");
+  });
+
+  it("does not rewrite an external URL that happens to mention contributors", () => {
+    expect(
+      catalogService.findMarkdownReference(
+        reportTag,
+        "https://example.com/contributors/default/libraries/harness/github/gh-cli.md",
+      ),
+    ).toBeNull();
+  });
+});

@@ -474,6 +474,46 @@ function findBySlug(slug: string | null) {
   return catalogEntries.find((entry) => entry.slug === slug) ?? null;
 }
 
+/**
+ * A Markdown path as it appears inside an installed catalogue contract.
+ *
+ * Contracts are read both in this repository and below `~/.hub-william`, and
+ * older contributed contracts can carry their vendored source path as
+ * `contributors/<owner>/contributors/default/...`. The catalogue owns that
+ * translation: a renderer should only need to ask whether a reference names a
+ * document it already knows.
+ */
+function findMarkdownReference(entry: CatalogEntry, reference: string) {
+  const path = reference.split(/[?#]/, 1)[0]?.replace(/\\/g, "/") ?? "";
+
+  if (!path.endsWith(".md") || /^[a-z][a-z\d+.-]*:/i.test(path)) return null;
+
+  const contributed =
+    /(?:^|\/)contributors\/([^/]+)\/(?:contributors\/default\/)?(.+)$/.exec(
+      path,
+    );
+  const candidate = contributed
+    ? `contributors/${contributed[1]}/${contributed[2]}`
+    : `${entry.id.split("/").slice(0, -1).join("/")}/${path}`;
+  const segments: string[] = [];
+
+  for (const segment of candidate.split("/")) {
+    if (!segment || segment === "." || segment === "~") continue;
+
+    if (segment === "..") {
+      segments.pop();
+    } else {
+      segments.push(segment);
+    }
+  }
+
+  const id = segments.join("/").replace(/\.md$/, "");
+
+  return (
+    catalogEntries.find((candidateEntry) => candidateEntry.id === id) ?? null
+  );
+}
+
 /** The root a `?tab=` parameter names within one canvas, or null. */
 function findCategory(
   tab: string | null,
@@ -734,6 +774,7 @@ const catalogService = {
   documentCount,
   documentUrl,
   findBySlug,
+  findMarkdownReference,
   findCategory,
   groupCount,
   groupsInCategory,
