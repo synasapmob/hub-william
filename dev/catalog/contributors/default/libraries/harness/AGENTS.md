@@ -52,7 +52,7 @@ a stale remembered contract.
 | Tag or tag family | Required file |
 |---|---|
 | `[answer]`, `[answer-step-by-step]`, `[answer-priority]` | `tags/answer.md` |
-| `[report-today]`, `[report-yesterday]` | `tags/report.md` |
+| `[report]`, `[report-today]`, `[report-yesterday]` | `tags/report.md` |
 | `[plan]` | `tags/plan.md` |
 | `[delivery-local]`, `[delivery-ete]`, `[delivery-linear-<ISSUE-ID>]` | `tags/delivery.md` |
 | `[delivery-verify-linear-<ISSUE-ID>]` | `tags/delivery-verify.md` |
@@ -70,10 +70,10 @@ Load implied contracts as well as explicitly tagged ones:
 
 - `[delivery-ete]` loads `delivery.md`, `linear.md`, `worktree.md` and
   `playwright.md`.
-- `[delivery-linear-<ISSUE-ID>]` loads `delivery.md`, `linear.md`,
+- `[delivery-linear-<ISSUE-ID>]` loads `delivery.md`, `report.md`, `linear.md`,
   `worktree.md`, `playwright.md` and `../../contributors/synasapmob/contributors/default/libraries/harness/linear/delivery-readiness.md`.
 - `[delivery-verify-linear-<ISSUE-ID>]` loads `delivery.md`,
-  `delivery-verify.md`, `linear.md`, `worktree.md`, `playwright.md`,
+  `delivery-verify.md`, `report.md`, `linear.md`, `worktree.md`, `playwright.md`,
   `../../contributors/synasapmob/contributors/default/libraries/harness/linear/delivery-readiness.md`, `../../contributors/synasapmob/contributors/default/libraries/harness/linear/requirements-freshness.md` and
   `../../contributors/synasapmob/contributors/default/libraries/harness/linear/freshness-report-summary.md`.
 - `[delivery-local]` loads only `delivery.md` unless another compatible tag is
@@ -89,37 +89,42 @@ Load implied contracts as well as explicitly tagged ones:
    modes and win over every action tag. A styled answer tag wins over plain
    `[answer]`; if both styled answer tags appear, ask which one to keep and do
    not perform actions.
-2. `[report-today]` and `[report-yesterday]` are report-only and suppress every
+2. `[report]` is a composable output modifier. It authorizes no action and
+   requests the structured execution handoff defined in `tags/report.md`.
+   `[delivery-linear-<ISSUE-ID>]` and
+   `[delivery-verify-linear-<ISSUE-ID>]` imply it by default.
+3. `[report-today]` and `[report-yesterday]` are report-only and suppress every
    action tag. They never emit a delivery summary. If both appear, ask which
-   calendar day to report and perform no action; answer-only modes still win.
-3. `[plan]` forbids implementation; `[linear]` is its only allowed write.
-4. `[delivery-linear-<ISSUE-ID>]` targets that exact existing Linear issue and
+   calendar day to report and perform no action; they also suppress `[report]`,
+   and answer-only modes still win.
+4. `[plan]` forbids implementation; `[linear]` is its only allowed write.
+5. `[delivery-linear-<ISSUE-ID>]` targets that exact existing Linear issue and
    implies `[linear]`, `[worktree]` and `[playwright]`.
    `[delivery-verify-linear-<ISSUE-ID>]` does the same only after its mandatory
    requirements-freshness gate passes; `[ignore]` cannot skip that gate.
-5. `[delivery-ete]` creates a new Linear issue and implies `[linear]`,
+6. `[delivery-ete]` creates a new Linear issue and implies `[linear]`,
    `[worktree]` and `[playwright]`.
-6. `[delivery-local]` conflicts with every PR-producing delivery mode. It does
+7. `[delivery-local]` conflicts with every PR-producing delivery mode. It does
    not use Linear, GitHub, commits, Playwright or a worktree by default.
    `[worktree] [delivery-local]` and `[delivery-local] [worktree]` explicitly
    opt local delivery into an isolated worktree.
-7. `[dopa-tps]` is a dopamint-arena-only runtime modifier. It may run alone
+8. `[dopa-tps]` is a dopamint-arena-only runtime modifier. It may run alone
    or with delivery and implies `[playwright]` for a user-visible browser flow.
    It conflicts with `[plan]`; answer-only modes still win.
-8. `[rebase]` may run alone against one unambiguous current PR, or compose
+9. `[rebase]` may run alone against one unambiguous current PR, or compose
    with `[delivery-ete]`, `[delivery-linear-<ISSUE-ID>]` or
    `[delivery-verify-linear-<ISSUE-ID>]`. It conflicts with `[delivery-local]`
    and `[plan]`; answer-only modes still win.
-9. `[draft]` is valid only when the request creates or updates a PR. With
+10. `[draft]` is valid only when the request creates or updates a PR. With
    delivery, use it with `[delivery-ete]` or
    `[delivery-linear-<ISSUE-ID>]` or
    `[delivery-verify-linear-<ISSUE-ID>]`. It conflicts with
    `[delivery-local]`, `[mergeable]` and `[merge]`.
-10. `[mergeable]` may run alone against one unambiguous current PR, or compose
+11. `[mergeable]` may run alone against one unambiguous current PR, or compose
    with `[delivery-ete]`, `[delivery-linear-<ISSUE-ID>]` or
    `[delivery-verify-linear-<ISSUE-ID>]`. It conflicts with
    `[delivery-local]`, `[plan]` and `[draft]`; answer-only modes still win.
-11. `[merge]` is valid only with a PR-producing delivery mode:
+12. `[merge]` is valid only with a PR-producing delivery mode:
    `[delivery-ete]`, `[delivery-linear-<ISSUE-ID>]` or
    `[delivery-verify-linear-<ISSUE-ID>]`. It conflicts with `[delivery-local]`
    and `[draft]`, and does not override an answer-only mode or `[plan]`.
@@ -173,20 +178,20 @@ Read the applicable supporting files completely before the related action:
 - Before implementing or changing code, read `evidence/approach-history.md`.
   Maintain its shared append-only per-task `approach.md` for meaningful
   implementation phases and approach revisions without logging trivial steps.
-- Before the final response for any turn that implemented code, materially read
-  or changed an external system, or produced verification artifacts, identify
-  every touched domain and read its report contract: `../../contributors/synasapmob/contributors/default/libraries/harness/linear/report-summary.md`
+- Before the final response when `[report]` is explicit or implied, identify
+  every touched domain and read its report contract:
+  `../../contributors/synasapmob/contributors/default/libraries/harness/linear/report-summary.md`
   for Linear, `github/report-summary.md` for GitHub/Git,
   `evidence/report-summary.md` for test evidence, and
-  `../../contributors/synasapmob/contributors/default/libraries/harness/playwright/report-summary.md` for browser evidence. End with one compact
-  `## Delivery summary`: start with `Touched:`, add a `CODE:` section when code
-  changed, then include each loaded domain's uppercase section. Under every
-  section use Markdown list items: one bullet per independent fact group, with
-  nested bullets only for directly related details. Never collapse unrelated
-  results, flows, artifacts, defects and cleanup into one paragraph. Omit
-  untouched domains; report `FAIL`, `BLOCKED` and `INCOMPLETE` outcomes
-  honestly. Every answer mode is exempt and must not emit any delivery/report
-  summary.
+  `../../contributors/synasapmob/contributors/default/libraries/harness/playwright/report-summary.md`
+  for browser evidence. Follow `tags/report.md` and emit its six flat `##`
+  headings with Markdown list items; do not add a `Delivery summary` wrapper,
+  `Touched:` line, `CODE:` section or separate `PLAYWRIGHT:`/`FRESHNESS:`
+  section. Keep every heading and use `N/A` when its domain was untouched.
+  Without an active structured report, answer naturally and do not append a
+  report-summary block, while still stating material failures, blockers and
+  required human action. Answer modes and calendar work reports never emit the
+  structured execution handoff.
 - Before any Supabase query, log read, migration, Edge Function deploy or other
   Supabase call, read
   `~/.hub-william/contributors/synasapmob/libraries/hooks/supabase-routing.md`,

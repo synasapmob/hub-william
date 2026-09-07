@@ -49,16 +49,17 @@ coverage gaps instead of treating logs as proof of everything.
 
 ## Compact handoff
 
-When evidence was created or updated, include a compact `EVIDENCE:` subsection
-inside the final `## Delivery summary` and follow
-`evidence/report-summary.md`. Include only the applicable backend/frontend
-entries. Each entry links the absolute `manifest.md` path and states the latest
-honest status (`PASS`, `FAIL`, `BLOCKED` or `INCOMPLETE`) plus a short
-description of what was verified. Add at most one brief overall summary
-sentence describing what changed and what the evidence proves.
+When evidence was created or updated and a structured `[report]` handoff is
+active, include it under `## EVIDENCE` and follow `evidence/report-summary.md`.
+Include only the applicable backend/frontend entries. Each entry links the
+absolute `manifest.md` path and states the latest honest status (`PASS`, `FAIL`,
+`BLOCKED` or `INCOMPLETE`) plus a short description of what was verified. Add
+at most one brief overall summary sentence describing what changed and what the
+evidence proves.
 
 Do not repeat commands, long logs, stack traces, run-by-run history or detailed
 diagnosis in the final response; those belong in the linked manifest and run
 artifacts. Do not claim `PASS` when any required applicable run is still failing
-or incomplete. If no backend/frontend evidence was produced, do not invent an
-`EVIDENCE:` subsection; state any required-but-unrun verification gap normally.
+or incomplete. In an active structured report, use `N/A` when no
+backend/frontend evidence was produced and expose required-but-unrun
+verification under `## Risky`; otherwise state material gaps naturally.

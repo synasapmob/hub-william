@@ -7,25 +7,25 @@
       "id": "contributors/default/libraries/harness/AGENTS",
       "path": "contributors/default/libraries/harness/AGENTS.md",
       "url": "/hub-william/dev/catalog/contributors/default/libraries/harness/AGENTS.md",
-      "bytes": 12595
+      "bytes": 12817
     },
     {
       "id": "contributors/default/libraries/harness/evidence/approach-history",
       "path": "contributors/default/libraries/harness/evidence/approach-history.md",
       "url": "/hub-william/dev/catalog/contributors/default/libraries/harness/evidence/approach-history.md",
-      "bytes": 4009
+      "bytes": 4027
     },
     {
       "id": "contributors/default/libraries/harness/evidence/report-summary",
       "path": "contributors/default/libraries/harness/evidence/report-summary.md",
       "url": "/hub-william/dev/catalog/contributors/default/libraries/harness/evidence/report-summary.md",
-      "bytes": 1374
+      "bytes": 1460
     },
     {
       "id": "contributors/default/libraries/harness/evidence/test-evidence",
       "path": "contributors/default/libraries/harness/evidence/test-evidence.md",
       "url": "/hub-william/dev/catalog/contributors/default/libraries/harness/evidence/test-evidence.md",
-      "bytes": 3421
+      "bytes": 3466
     },
     {
       "id": "contributors/default/libraries/harness/github/clickable-references",
@@ -43,13 +43,13 @@
       "id": "contributors/default/libraries/harness/github/report-summary",
       "path": "contributors/default/libraries/harness/github/report-summary.md",
       "url": "/hub-william/dev/catalog/contributors/default/libraries/harness/github/report-summary.md",
-      "bytes": 1281
+      "bytes": 1306
     },
     {
       "id": "contributors/default/libraries/harness/tags/answer",
       "path": "contributors/default/libraries/harness/tags/answer.md",
       "url": "/hub-william/dev/catalog/contributors/default/libraries/harness/tags/answer.md",
-      "bytes": 1826
+      "bytes": 1793
     },
     {
       "id": "contributors/default/libraries/harness/tags/delivery-verify",
@@ -61,7 +61,7 @@
       "id": "contributors/default/libraries/harness/tags/delivery",
       "path": "contributors/default/libraries/harness/tags/delivery.md",
       "url": "/hub-william/dev/catalog/contributors/default/libraries/harness/tags/delivery.md",
-      "bytes": 3976
+      "bytes": 4207
     },
     {
       "id": "contributors/default/libraries/harness/tags/draft",
@@ -115,7 +115,7 @@
       "id": "contributors/default/libraries/harness/tags/report",
       "path": "contributors/default/libraries/harness/tags/report.md",
       "url": "/hub-william/dev/catalog/contributors/default/libraries/harness/tags/report.md",
-      "bytes": 5572
+      "bytes": 8495
     },
     {
       "id": "contributors/default/libraries/harness/tags/worktree",
@@ -193,25 +193,25 @@
       "id": "contributors/synasapmob/libraries/harness/linear/creation-policy",
       "path": "contributors/synasapmob/libraries/harness/linear/creation-policy.md",
       "url": "/hub-william/dev/catalog/contributors/synasapmob/libraries/harness/linear/creation-policy.md",
-      "bytes": 3574
+      "bytes": 3587
     },
     {
       "id": "contributors/synasapmob/libraries/harness/linear/delivery-readiness",
       "path": "contributors/synasapmob/libraries/harness/linear/delivery-readiness.md",
       "url": "/hub-william/dev/catalog/contributors/synasapmob/libraries/harness/linear/delivery-readiness.md",
-      "bytes": 2736
+      "bytes": 2752
     },
     {
       "id": "contributors/synasapmob/libraries/harness/linear/freshness-report-summary",
       "path": "contributors/synasapmob/libraries/harness/linear/freshness-report-summary.md",
       "url": "/hub-william/dev/catalog/contributors/synasapmob/libraries/harness/linear/freshness-report-summary.md",
-      "bytes": 957
+      "bytes": 979
     },
     {
       "id": "contributors/synasapmob/libraries/harness/linear/report-summary",
       "path": "contributors/synasapmob/libraries/harness/linear/report-summary.md",
       "url": "/hub-william/dev/catalog/contributors/synasapmob/libraries/harness/linear/report-summary.md",
-      "bytes": 1662
+      "bytes": 1683
     },
     {
       "id": "contributors/synasapmob/libraries/harness/linear/requirements-freshness",
@@ -223,7 +223,7 @@
       "id": "contributors/synasapmob/libraries/harness/playwright/report-summary",
       "path": "contributors/synasapmob/libraries/harness/playwright/report-summary.md",
       "url": "/hub-william/dev/catalog/contributors/synasapmob/libraries/harness/playwright/report-summary.md",
-      "bytes": 1930
+      "bytes": 2027
     },
     {
       "id": "contributors/synasapmob/libraries/harness/projects/registry.yaml",
@@ -261,28 +261,28 @@
       "id": "contributors",
       "path": "contributors.zip",
       "url": "/hub-william/dev/catalog/contributors.zip",
-      "bytes": 63776,
+      "bytes": 65288,
       "files": 42
     },
     {
       "id": "contributors/default",
       "path": "contributors/default.zip",
       "url": "/hub-william/dev/catalog/contributors/default.zip",
-      "bytes": 47539,
+      "bytes": 48931,
       "files": 30
     },
     {
       "id": "contributors/default/libraries",
       "path": "contributors/default/libraries.zip",
       "url": "/hub-william/dev/catalog/contributors/default/libraries.zip",
-      "bytes": 44638,
+      "bytes": 46030,
       "files": 27
     },
     {
       "id": "contributors/default/libraries/harness",
       "path": "contributors/default/libraries/harness.zip",
       "url": "/hub-william/dev/catalog/contributors/default/libraries/harness.zip",
-      "bytes": 33786,
+      "bytes": 35178,
       "files": 20
     },
     {
@@ -324,21 +324,21 @@
       "id": "contributors/synasapmob",
       "path": "contributors/synasapmob.zip",
       "url": "/hub-william/dev/catalog/contributors/synasapmob.zip",
-      "bytes": 16259,
+      "bytes": 16379,
       "files": 12
     },
     {
       "id": "contributors/synasapmob/libraries",
       "path": "contributors/synasapmob/libraries.zip",
       "url": "/hub-william/dev/catalog/contributors/synasapmob/libraries.zip",
-      "bytes": 16259,
+      "bytes": 16379,
       "files": 12
     },
     {
       "id": "contributors/synasapmob/libraries/harness",
       "path": "contributors/synasapmob/libraries/harness.zip",
       "url": "/hub-william/dev/catalog/contributors/synasapmob/libraries/harness.zip",
-      "bytes": 13483,
+      "bytes": 13603,
       "files": 9
     },
     {

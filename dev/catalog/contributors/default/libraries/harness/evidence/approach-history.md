@@ -82,10 +82,11 @@ field rather than inventing content.
 
 ## Handoff and concurrency
 
-Verify the appended heading is unique and every linked artifact exists. In the
-final `CODE:` subsection of `## Delivery summary`, link `approach.md` and name
-the entry or entries appended in this turn as their own Markdown list item.
-Report `Approach history: N/A` only when no code was implemented or changed.
+Verify the appended heading is unique and every linked artifact exists. When a
+structured `[report]` handoff is active, link `approach.md` under
+`## What we changed` and name the entry or entries appended in this turn as
+their own Markdown list item. Do not force an approach-history line into an
+ordinary unstructured response.
 
 Before writing, re-read the current file because another agent may have
 appended to the same task. Preserve its bytes and append against the newest

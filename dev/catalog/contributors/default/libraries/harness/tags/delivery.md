@@ -38,6 +38,11 @@ an unassigned issue to the verified operator and set an unset estimate using the
 verified team scale. Preserve either field when already populated; both final
 values must be re-read and verified.
 
+`[delivery-linear-<ISSUE-ID>]` and
+`[delivery-verify-linear-<ISSUE-ID>]` imply `[report]`. Their final handoff must
+use the six-heading structured report in `report.md` without requiring the
+operator to add `[report]` explicitly.
+
 Once the owning Linear issue exists, read it back through Linear MCP and treat
 its `gitBranchName` as the canonical Git branch name. This applies both after
 creating a new issue for `[delivery-ete]` and when binding an existing issue

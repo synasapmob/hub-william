@@ -1,10 +1,9 @@
 # Answer tags
 
-All answer modes suppress execution handoffs. Never append a
-`## Delivery summary` block, `Touched:`, or any `LINEAR:`, `GITHUB:`,
-`EVIDENCE:`, `PLAYWRIGHT:` or other report-summary subsection. This remains
-true when an answer tag is combined with action tags because answer precedence
-prevents those actions.
+All answer modes suppress execution handoffs. Never append the structured
+`[report]` headings or any legacy delivery-summary/report-summary block. This
+remains true when an answer tag is combined with action tags or `[report]`
+because answer precedence prevents those actions.
 
 ## `[answer]`
 

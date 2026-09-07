@@ -1,8 +1,8 @@
 # Requirements freshness report summary
 
-For `[delivery-verify-linear-<ISSUE-ID>]`, include a compact `FRESHNESS:`
-subsection in the final `## Delivery summary`. Use separate Markdown list
-items for:
+For `[delivery-verify-linear-<ISSUE-ID>]`, include a compact `Freshness` item
+under `## EVIDENCE`. Do not emit a standalone `FRESHNESS` heading. Use nested
+Markdown list items for:
 
 - `Verdict` — the final overall freshness verdict and whether delivery
   continued, required no implementation, or stopped before code.
