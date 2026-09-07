@@ -3,12 +3,9 @@ import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import assetPath from "@/utils/utils.asset-path";
 import "../public/css/index.css";
 import type { Route } from "./+types/root";
-
-function assetPath(file: string) {
-  return `${import.meta.env.BASE_URL}${file}`;
-}
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const links: Route.LinksFunction = () => [
