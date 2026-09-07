@@ -563,6 +563,8 @@ class TestHarnessAndZsh(MachineTest):
             self.assertTrue(self.m.read(link).startswith(
                 "<!-- hub-william-generated: DO NOT EDIT;"
             ))
+            self.assertIn("## Decision authority gate", self.m.read(link))
+            self.assertIn("`[guess]`", self.m.read(link))
             self.assertFalse(os.stat(link).st_mode & 0o222)
 
     def test_a_previous_global_harness_is_replaced_and_backed_up(self):
@@ -626,7 +628,7 @@ class TestHarnessAndZsh(MachineTest):
         tag_files = (
             "answer.md", "report.md", "plan.md", "delivery.md",
             "delivery-verify.md", "worktree.md", "ignore.md", "linear.md", "rebase.md", "draft.md",
-            "mergeable.md", "merge.md", "playwright.md",
+            "mergeable.md", "merge.md", "playwright.md", "guess.md",
         )
         tag_dir = self.m.library("harness", "tags")
         self.assertEqual(
@@ -687,8 +689,16 @@ class TestHarnessAndZsh(MachineTest):
                     "[delivery-verify-linear-DOPAN-1722]", "[worktree]", "[ignore]",
                     "[linear]", "[playwright]", "[linear-DOPAN-1645]",
                     "[rebase]", "[draft]", "[mergeable]",
-                    "[merge]", "[dopa-tps]"):
+                    "[merge]", "[guess]", "[dopa-tps]"):
             self.assertIn(tag, text)
+        self.assertIn("## Decision authority gate", root_text)
+        self.assertIn("The default is no-guess", root_text)
+        self.assertIn("ordinary conversation never implies permission to guess", root_text)
+        guess_text = self.m.read(os.path.join(tag_dir, "guess.md"))
+        guess_contract = " ".join(guess_text.split())
+        self.assertIn("non-superseded authority still wins", guess_contract)
+        self.assertIn("make and act on the best-supported hypothesis", guess_contract)
+        self.assertIn("changes decision latitude only", guess_contract)
         self.assertIn("## Tag dispatcher", root_text)
         self.assertIn("read every resolved file", root_text)
         self.assertIn("missing or unreadable", root_text)
@@ -1073,8 +1083,10 @@ class TestHarnessAndZsh(MachineTest):
                     "[delivery-linear-DOPAN-1645]",
                     "[delivery-verify-linear-DOPAN-1722]",
                     "[answer-step-by-step]", "[answer-priority]",
-                    "[report-today]", "[report-yesterday]"):
+                    "[report-today]", "[report-yesterday]", "[guess]"):
             self.assertIn(tag, guide)
+        self.assertIn("No-guess is the default for every chat", guide)
+        self.assertIn("## Decision authority", guide)
         self.assertNotRegex(
             guide, r"(?m)^- `\[delivery\] \[(ete|local|linear-)"
         )
