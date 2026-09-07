@@ -57,22 +57,28 @@ under the owning task or is reported as a `not created` suggestion. Never split
 acceptance criteria into surprise child tasks, and never mark the current task
 blocked merely because a follow-up could exist.
 
-After implementation, an external-system action or artifact-producing
-verification, finish with one `## Delivery summary`. Start with `Touched:`, then
-use only the applicable uppercase sections such as `LINEAR:`, `FRESHNESS:`,
-`GITHUB:`, `EVIDENCE:` and `PLAYWRIGHT:`. State created/updated/read/verified actions,
-their final outcome and compact counts; link the detailed evidence. Each domain
-reads its own `report-summary.md`; the root dispatcher only assembles the one
-final block. Under every domain use Markdown list items, with one bullet per
-independent fact group and nested bullets only for related details. Never render
-a domain as one wall-of-text paragraph. Omit untouched systems, report
-failures/blockers honestly, and keep every issue, PR and commit clickable
-through the reference contract.
+`[report]` is an opt-in structured execution handoff; it authorizes no side
+effects. `[delivery-linear-<ISSUE-ID>]` and
+`[delivery-verify-linear-<ISSUE-ID>]` imply it by default. Other execution
+turns answer naturally unless `[report]` is explicit, while still exposing
+material failures and blockers.
 
-`PLAYWRIGHT:` specifically separates `Result`, `Flow`, `Screenshots`, `Defects`
-and `Cleanup` into their own bullets. `LINEAR:` uses one top-level item per
-issue, `GITHUB:` one per PR/independent Git action, and `EVIDENCE:` separate
-Backend and Frontend items.
+The structured report has exactly six flat headings in order: `## What we
+changed`, `## Files touched`, `## Risky`, `## EVIDENCE`, `## GITHUB` and
+`## LINEAR`. There is no `Delivery summary`, `Touched:` or `CODE:` wrapper.
+Keep every heading and use `N/A` for untouched domains. `Files touched` marks
+each task-owned path `(old)`, `(new)`, `(deleted)` or `(renamed)`. `Risky`
+states evidence-backed risk, impact, affected cases, out-of-scope reason and
+required human review; suggested follow-ups are `not created` and the human
+decides whether to create a task. A delivery-invalidating defect is `BLOCKED`,
+not deferred.
+
+Tests, lint, type checking, builds, benchmarks, requirements freshness and
+browser verification all live under `EVIDENCE`; do not add standalone
+`FRESHNESS` or `PLAYWRIGHT` headings. `LINEAR` uses one top-level item per
+issue, `GITHUB` one per PR/independent Git action, and `EVIDENCE` separate
+Backend, Frontend, Freshness and Browser items when applicable. Keep every
+issue, PR and commit clickable through the reference contract.
 
 Clickable reference status uses these canonical UI tokens:
 
@@ -119,7 +125,7 @@ Only an exceptional project may define `delivery_base_override`.
 ### Full ETE from an existing Linear issue
 
 - `[delivery-linear-DOPAN-1645]` — deliver exactly that existing issue through
-  the same worktree, verification, GitHub and CI flow.
+  the same worktree, verification, GitHub and CI flow; `[report]` is implied.
 - Add the same compatible modifiers as `[delivery-ete]`.
 
 ### Verified ETE from an existing Linear issue
@@ -128,6 +134,7 @@ Only an exceptional project may define `delivery_base_override`.
   audit, compare the exact issue against ADR/PRD/docs, code/tests at the latest
   fetched `origin/dev` (remote default only when `origin/dev` is absent) and
   relevant PR decisions, then deliver only after authority is resolved.
+- `[report]` is implied for this mode too.
 - Trace every requirement/AC to an exact source and current implementation
   state. Save the append-only audit at
   `/Users/synasapmob/orca/histories/<project>/DOPAN-1722/freshness.md`.
@@ -194,8 +201,8 @@ implement, commit, push, create a PR or deploy.
   expected outcome.
 
 Every answer tag wins over action tags. A styled answer wins over plain
-`[answer]`; do not combine both styled formats. No answer mode emits a
-`Delivery summary`, `Touched:` line or domain report section.
+`[answer]`; do not combine both styled formats. No answer mode emits the six
+structured `[report]` headings or a legacy delivery-summary block.
 
 ## Work report
 
@@ -212,9 +219,9 @@ nearby same-subsystem work, and suggests follow-up Linear tasks only when a
 concrete gap is evidenced.
 
 Both tags are report-only: no code, worktree, tests, browser, commit, comment,
-issue/PR update or task creation, and no appended `Delivery summary`. Answer
-modes win over them; they suppress action tags. If both report tags appear,
-choose one before collecting the report.
+issue/PR update or task creation, and no appended structured execution report.
+Answer modes win over them; they suppress action tags and `[report]`. If both
+calendar report tags appear, choose one before collecting the report.
 
 ## `[worktree]`
 

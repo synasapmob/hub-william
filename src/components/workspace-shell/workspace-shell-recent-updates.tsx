@@ -33,18 +33,18 @@ interface CatalogUpdate {
 const catalogUpdates: CatalogUpdate[] = [
   {
     login: "synasapmob",
-    slug: "contrib-synasapmob-harness-dopa-tps",
+    slug: "contributors-default-libraries-harness-tags-report",
+    updatedAgo: "today",
+  },
+  {
+    login: "synasapmob",
+    slug: "contributors-synasapmob-libraries-harness-dopa-tps",
     updatedAgo: "2 days ago",
   },
   {
     login: "synasapmob",
-    slug: "harness-projects-routing",
+    slug: "contributors-synasapmob-libraries-harness-projects-routing",
     updatedAgo: "4 days ago",
-  },
-  {
-    login: "synasapmob",
-    slug: "harness-tags-delivery-verify",
-    updatedAgo: "5 days ago",
   },
 ];
 
