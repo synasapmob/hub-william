@@ -1,9 +1,9 @@
 # GitHub report summary
 
-When Git or GitHub was materially read or changed during an execution turn,
-include a compact `GITHUB:` subsection in the final `## Delivery summary`.
-Distinguish read/verified actions from created, updated, commented, pushed,
-rebased, merged or otherwise mutated actions.
+When a structured `[report]` handoff is active, summarize material Git or
+GitHub reads and changes under `## GITHUB`. Distinguish read/verified actions
+from created, updated, commented, pushed, rebased, merged or otherwise mutated
+actions. If Git/GitHub was untouched, write `N/A` with the reason.
 
 Report every affected PR and commit, the PR's verified Draft/review/merged and
 mergeability state, required-CI result, comments added and their purpose,

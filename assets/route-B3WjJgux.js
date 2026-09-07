@@ -1,4 +1,4 @@
-import{s as e,t}from"./jsx-runtime-D2IZI__9.js";import{t as n}from"./lib-EH9hmNVR.js";import{i as r,n as i,s as a,t as o}from"./install-commands-DrAQT8LZ.js";import{t as s}from"./layers-BUkg39TO.js";import{t as c}from"./flex-BEAcZW30.js";import{t as l}from"./catalog-B7CnHfSC.js";var u=t(),d=`contributors/<your-github-login>/
+import{s as e,t}from"./jsx-runtime-D2IZI__9.js";import{t as n}from"./lib-EH9hmNVR.js";import{i as r,n as i,s as a,t as o}from"./install-commands-BPSZAZcq.js";import{t as s}from"./layers-BUkg39TO.js";import{t as c}from"./flex-BEAcZW30.js";import{t as l}from"./catalog-DBobmoj5.js";var u=t(),d=`contributors/<your-github-login>/
 ├── libraries/
 │   ├── harness/<name>.md          an execution mode
 │   ├── skills/<name>/SKILL.md     a skill, with YAML front matter

@@ -44,7 +44,7 @@ denied, report the exact external blocker and do not claim the delivery
 contract complete. Never guess a member, invent a point scale or create a
 replacement issue as a workaround.
 
-In the final `LINEAR:` summary, use separate nested list items:
+In the structured report's `## LINEAR` section, use separate nested list items:
 
 - `Assignee` — `assigned to operator` or `preserved existing <name>`.
 - `Estimate` — `set to <points>` with the scale/basis, or

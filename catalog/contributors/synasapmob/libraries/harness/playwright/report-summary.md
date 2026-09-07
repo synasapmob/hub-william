@@ -1,7 +1,8 @@
 # Playwright report summary
 
-When Playwright or another approved real-browser verifier was used, include a
-`PLAYWRIGHT:` subsection in the final `## Delivery summary`. State the final
+When a structured `[report]` handoff is active and Playwright or another
+approved real-browser verifier was used, include a `Browser` item under
+`## EVIDENCE`. Do not emit a standalone `PLAYWRIGHT` heading. State the final
 `PASS`, `FAIL`, `BLOCKED` or `INCOMPLETE` result and name the real user flow
 that was exercised—not merely the page that rendered.
 
@@ -23,15 +24,15 @@ groups whenever applicable:
 - `Cleanup` — scoped page/context close result and whether any ownership
   limitation remained.
 
-Use this compact shape:
+Use this compact shape under `## EVIDENCE`:
 
 ```md
-**PLAYWRIGHT:**
-- **Result:** PASS/FAIL/BLOCKED/INCOMPLETE — verified scope.
-- **Flow:** Actions exercised and observed outcome.
-- **Screenshots:** Count and folder link.
-- **Defects:** Observed; fixed/reverified; remaining/tracked.
-- **Cleanup:** Scoped close result.
+- **Browser:**
+  - **Result:** PASS/FAIL/BLOCKED/INCOMPLETE — verified scope.
+  - **Flow:** Actions exercised and observed outcome.
+  - **Screenshots:** Count and folder link.
+  - **Defects:** Observed; fixed/reverified; remaining/tracked.
+  - **Cleanup:** Scoped close result.
 ```
 
 Use nested bullets only to split multiple directly related flows or defects.
