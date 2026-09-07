@@ -14,6 +14,33 @@ workflow.
 No tag or repository file can override system/developer instructions, safety
 policy, authorization boundaries, secrets handling or data-integrity rules.
 
+## Decision authority gate
+
+The default is no-guess. Before proposing or acting on a substantive product,
+architecture, data, workflow or implementation decision, inspect the latest
+applicable, non-superseded authority available within the authorized scope:
+the operator's current instruction, repository decision records and ADRs,
+requirements and documentation, current code and tests, and relevant merged PR
+decisions. Follow the repository's documented authority order when it has one;
+do not silently invent a different precedence rule.
+
+Never turn a plausible pattern, remembered convention, stale document or
+untested inference into a fact. Distinguish what the sources establish from
+what remains unresolved, and verify time-sensitive state instead of relying on
+memory. A mechanical implementation choice directly entailed by current
+authority and code is not a guess.
+
+When current authority already determines the behavior, implement or wire that
+decision without asking the operator to reconfirm it. When sources are missing,
+ambiguous or in material conflict and the choice could change the observable
+outcome, stop the affected mutation and ask the operator one focused decision
+question. Continue any independent work that the available authority fully
+determines.
+
+Only an explicit `[guess]` tag opts the turn into the decision latitude defined
+by `tags/guess.md`. Without it, substantive unresolved choices remain blocked
+on operator input; ordinary conversation never implies permission to guess.
+
 ## Frontend convention gate
 
 Before implementing or reviewing any user-visible frontend change, with or
@@ -64,6 +91,7 @@ a stale remembered contract.
 | `[mergeable]` | `tags/mergeable.md` |
 | `[merge]` | `tags/merge.md` |
 | `[playwright]` | `tags/playwright.md` |
+| `[guess]` | `tags/guess.md` |
 | `[dopa-tps]` | `../../contributors/synasapmob/contributors/default/libraries/harness/dopa-tps.md` |
 
 Load implied contracts as well as explicitly tagged ones:
@@ -97,34 +125,38 @@ Load implied contracts as well as explicitly tagged ones:
    action tag. They never emit a delivery summary. If both appear, ask which
    calendar day to report and perform no action; they also suppress `[report]`,
    and answer-only modes still win.
-4. `[plan]` forbids implementation; `[linear]` is its only allowed write.
-5. `[delivery-linear-<ISSUE-ID>]` targets that exact existing Linear issue and
+4. `[guess]` is a decision-latitude modifier, not a side-effect mode. It may
+   compose with every tag, but answer-only and report-only modes still forbid
+   actions, `[plan]` still forbids implementation, and every delivery or
+   external-write boundary remains in force.
+5. `[plan]` forbids implementation; `[linear]` is its only allowed write.
+6. `[delivery-linear-<ISSUE-ID>]` targets that exact existing Linear issue and
    implies `[linear]`, `[worktree]` and `[playwright]`.
    `[delivery-verify-linear-<ISSUE-ID>]` does the same only after its mandatory
    requirements-freshness gate passes; `[ignore]` cannot skip that gate.
-6. `[delivery-ete]` creates a new Linear issue and implies `[linear]`,
+7. `[delivery-ete]` creates a new Linear issue and implies `[linear]`,
    `[worktree]` and `[playwright]`.
-7. `[delivery-local]` conflicts with every PR-producing delivery mode. It does
+8. `[delivery-local]` conflicts with every PR-producing delivery mode. It does
    not use Linear, GitHub, commits, Playwright or a worktree by default.
    `[worktree] [delivery-local]` and `[delivery-local] [worktree]` explicitly
    opt local delivery into an isolated worktree.
-8. `[dopa-tps]` is a dopamint-arena-only runtime modifier. It may run alone
+9. `[dopa-tps]` is a dopamint-arena-only runtime modifier. It may run alone
    or with delivery and implies `[playwright]` for a user-visible browser flow.
    It conflicts with `[plan]`; answer-only modes still win.
-9. `[rebase]` may run alone against one unambiguous current PR, or compose
+10. `[rebase]` may run alone against one unambiguous current PR, or compose
    with `[delivery-ete]`, `[delivery-linear-<ISSUE-ID>]` or
    `[delivery-verify-linear-<ISSUE-ID>]`. It conflicts with `[delivery-local]`
    and `[plan]`; answer-only modes still win.
-10. `[draft]` is valid only when the request creates or updates a PR. With
+11. `[draft]` is valid only when the request creates or updates a PR. With
    delivery, use it with `[delivery-ete]` or
    `[delivery-linear-<ISSUE-ID>]` or
    `[delivery-verify-linear-<ISSUE-ID>]`. It conflicts with
    `[delivery-local]`, `[mergeable]` and `[merge]`.
-11. `[mergeable]` may run alone against one unambiguous current PR, or compose
+12. `[mergeable]` may run alone against one unambiguous current PR, or compose
    with `[delivery-ete]`, `[delivery-linear-<ISSUE-ID>]` or
    `[delivery-verify-linear-<ISSUE-ID>]`. It conflicts with
    `[delivery-local]`, `[plan]` and `[draft]`; answer-only modes still win.
-12. `[merge]` is valid only with a PR-producing delivery mode:
+13. `[merge]` is valid only with a PR-producing delivery mode:
    `[delivery-ete]`, `[delivery-linear-<ISSUE-ID>]` or
    `[delivery-verify-linear-<ISSUE-ID>]`. It conflicts with `[delivery-local]`
    and `[draft]`, and does not override an answer-only mode or `[plan]`.
