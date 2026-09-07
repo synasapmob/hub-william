@@ -108,9 +108,10 @@ keeps the shared one worth reading.
    ---
    ```
 
-4. Open a pull request. CI runs formatting, linting, type checking, tests, a
-   production build and the catalogue's own suite. Once it merges, your page is
-   prerendered and deployed — nobody has to register it anywhere.
+4. Open a pull request into `dev`. CI runs formatting, linting, type checking,
+   tests, a production build and the catalogue's own suite. Once it merges, the
+   preview site updates. Production is `main`, which moves only by merging
+   `dev`. Nobody has to register the page anywhere.
 
 Changing a shared document is the same flow without step 2. Say in the pull
 request why the rule should apply to everybody rather than to you; that is the

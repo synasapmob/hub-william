@@ -117,7 +117,7 @@ export default function MarkdownRenderer({
 }: MarkdownRendererProps) {
   return (
     <MarkdownEntryContext value={entry}>
-      <div className="prose prose-sm prose-zinc max-w-none prose-headings:tracking-tight prose-a:text-indigo-600 prose-code:before:content-none prose-code:after:content-none">
+      <div className="prose prose-sm prose-zinc prose-invert max-w-none prose-headings:tracking-tight prose-a:text-indigo-400 prose-code:before:content-none prose-code:after:content-none">
         <Markdown
           remarkPlugins={[remarkGfm]}
           rehypePlugins={[[rehypeSanitize, documentSchema]]}

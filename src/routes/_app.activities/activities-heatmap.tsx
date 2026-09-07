@@ -21,7 +21,7 @@ const heatCell = tv({
   variants: {
     tone: { volume: "", errors: "" },
     intensity: {
-      0: "bg-zinc-100 hover:ring-1 hover:ring-zinc-300",
+      0: "bg-zinc-800 hover:ring-1 hover:ring-zinc-600",
       1: "",
       2: "",
       3: "",
@@ -32,12 +32,12 @@ const heatCell = tv({
     {
       tone: "volume",
       intensity: 1,
-      class: "bg-indigo-100 hover:ring-1 hover:ring-indigo-300",
+      class: "bg-indigo-950 hover:ring-1 hover:ring-indigo-800",
     },
     {
       tone: "volume",
       intensity: 2,
-      class: "bg-indigo-300 hover:ring-1 hover:ring-indigo-400",
+      class: "bg-indigo-800 hover:ring-1 hover:ring-indigo-600",
     },
     {
       tone: "volume",
@@ -47,27 +47,27 @@ const heatCell = tv({
     {
       tone: "volume",
       intensity: 4,
-      class: "bg-indigo-700 hover:ring-1 hover:ring-indigo-800",
+      class: "bg-indigo-400 hover:ring-1 hover:ring-indigo-300",
     },
     {
       tone: "errors",
       intensity: 1,
-      class: "bg-amber-200 hover:ring-1 hover:ring-amber-400",
+      class: "bg-amber-900 hover:ring-1 hover:ring-amber-700",
     },
     {
       tone: "errors",
       intensity: 2,
-      class: "bg-amber-400 hover:ring-1 hover:ring-amber-500",
+      class: "bg-amber-700 hover:ring-1 hover:ring-amber-500",
     },
     {
       tone: "errors",
       intensity: 3,
-      class: "bg-rose-400 hover:ring-1 hover:ring-rose-500",
+      class: "bg-rose-600 hover:ring-1 hover:ring-rose-500",
     },
     {
       tone: "errors",
       intensity: 4,
-      class: "bg-rose-600 hover:ring-1 hover:ring-rose-700",
+      class: "bg-rose-400 hover:ring-1 hover:ring-rose-300",
     },
   ],
 });
@@ -76,8 +76,8 @@ const filterPill = tv({
   base: "rounded-lg px-2.5 py-1 font-mono text-xs font-medium transition-all focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden",
   variants: {
     active: {
-      true: "bg-zinc-900 text-white shadow-xs",
-      false: "text-muted-foreground hover:text-zinc-800",
+      true: "bg-primary text-primary-foreground shadow-xs",
+      false: "text-muted-foreground hover:text-foreground",
     },
   },
 });
@@ -130,8 +130,8 @@ export default function ActivitiesHeatmap({
   const totalTokens = days.reduce((total, day) => total + day.tokens, 0);
 
   return (
-    <div className="relative rounded-2xl border border-zinc-200/90 bg-card p-5 text-left shadow-xs select-none">
-      <div className="flex flex-col justify-between gap-4 border-b border-zinc-100 pb-4 sm:flex-row sm:items-center">
+    <div className="relative rounded-2xl border border-border bg-card p-5 text-left shadow-xs select-none">
+      <div className="flex flex-col justify-between gap-4 border-b border-border pb-4 sm:flex-row sm:items-center">
         <div>
           <h3 className="text-sm font-semibold tracking-tight">
             {filter === "Tokens"
@@ -139,12 +139,12 @@ export default function ActivitiesHeatmap({
               : `${totalRuns.toLocaleString()} agent runs in the last year`}
           </h3>
 
-          <p className="mt-0.5 font-mono text-[11px] text-slate-400">
+          <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
             Sep 2025 – Sep 2026 · daily agent telemetry
           </p>
         </div>
 
-        <div className="flex items-center gap-1 self-start overflow-x-auto rounded-xl border border-zinc-200/80 bg-zinc-50 p-0.5 sm:self-auto">
+        <div className="flex items-center gap-1 self-start overflow-x-auto rounded-xl border border-border bg-muted p-0.5 sm:self-auto">
           {ACTIVITY_METRIC_FILTERS.map((option) => (
             <button
               key={option}
@@ -164,7 +164,7 @@ export default function ActivitiesHeatmap({
               plus a 3px gap — so the row stays pinned to the grid below it
               rather than stretching across whatever width the card happens to
               have and drifting a month out by the right-hand edge. */}
-          <div className="flex pb-1.5 pl-6 font-mono text-[10px] text-slate-400">
+          <div className="flex pb-1.5 pl-6 font-mono text-[10px] text-muted-foreground">
             {monthLabels.map((label, index) => (
               <p key={`${label}-${index}`} className="w-14 shrink-0 text-left">
                 {label}
@@ -173,7 +173,7 @@ export default function ActivitiesHeatmap({
           </div>
 
           <div className="flex items-start">
-            <div className="flex h-22 flex-col justify-between pr-2 font-mono text-[9px] text-slate-400">
+            <div className="flex h-22 flex-col justify-between pr-2 font-mono text-[9px] text-muted-foreground">
               <p>Mon</p>
               <p>Wed</p>
               <p>Fri</p>
@@ -204,10 +204,10 @@ export default function ActivitiesHeatmap({
             </div>
           </div>
 
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-zinc-100 pt-3 text-xs text-muted-foreground">
-            <p className="font-mono text-[11px] text-slate-400">
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-xs text-muted-foreground">
+            <p className="font-mono text-[11px] text-muted-foreground">
               Active telemetry channel:{" "}
-              <span className="text-zinc-700">cluster-asia-prod</span>
+              <span className="text-foreground">cluster-asia-prod</span>
             </p>
 
             <Flex className="items-center gap-2 font-mono text-xs">
@@ -235,9 +235,9 @@ export default function ActivitiesHeatmap({
       {hovered ? (
         <div
           style={{ left: `${hovered.x}px`, top: `${hovered.y - 8}px` }}
-          className="pointer-events-none fixed z-50 min-w-50 -translate-x-1/2 -translate-y-full rounded-lg border border-zinc-800 bg-zinc-900 p-2.5 text-left text-white shadow-xl"
+          className="pointer-events-none fixed z-50 min-w-50 -translate-x-1/2 -translate-y-full rounded-lg border border-border bg-popover p-2.5 text-left text-popover-foreground shadow-xl"
         >
-          <div className="mb-1.5 flex justify-between border-b border-zinc-800 pb-1 font-mono text-[10px] text-slate-400">
+          <div className="mb-1.5 flex justify-between border-b border-border pb-1 font-mono text-[10px] text-muted-foreground">
             <span>
               {new Date(hovered.day.date).toLocaleDateString("en-US", {
                 month: "short",
@@ -252,19 +252,19 @@ export default function ActivitiesHeatmap({
 
           <dl className="space-y-1 font-mono text-xs">
             <div className="flex justify-between">
-              <dt className="text-slate-400">Agent runs</dt>
+              <dt className="text-muted-foreground">Agent runs</dt>
               <dd className="font-medium">{hovered.day.runs}</dd>
             </div>
 
             <div className="flex justify-between">
-              <dt className="text-slate-400">Tokens</dt>
+              <dt className="text-muted-foreground">Tokens</dt>
               <dd className="font-medium">
                 {(hovered.day.tokens / 1000).toFixed(1)}k
               </dd>
             </div>
 
             <div className="flex justify-between">
-              <dt className="text-slate-400">Tool calls</dt>
+              <dt className="text-muted-foreground">Tool calls</dt>
               <dd className="font-medium">{hovered.day.toolCalls}</dd>
             </div>
 
@@ -275,8 +275,8 @@ export default function ActivitiesHeatmap({
               </div>
             ) : null}
 
-            <div className="flex justify-between border-t border-zinc-800 pt-1">
-              <dt className="text-slate-400">Est. cost</dt>
+            <div className="flex justify-between border-t border-border pt-1">
+              <dt className="text-muted-foreground">Est. cost</dt>
               <dd className="font-medium text-emerald-400">
                 ${hovered.day.cost.toFixed(2)}
               </dd>

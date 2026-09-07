@@ -1,10 +1,10 @@
 import Flex from "@/components/ui/flex";
 import catalogService, { type CatalogEntry } from "@/services/catalog";
 
-const prose = "text-zinc-600 text-xs/relaxed";
+const prose = "text-muted-foreground text-xs/relaxed";
 
 const token =
-  "rounded-lg border border-zinc-200/80 bg-card px-2 py-1 font-mono text-[11px] text-zinc-800";
+  "rounded-lg border border-border bg-card px-2 py-1 font-mono text-[11px] text-foreground";
 
 interface CatalogCanvasEntryUsageProps {
   entry: CatalogEntry;
@@ -46,7 +46,7 @@ export default function CatalogCanvasEntryUsage({
       <div className="space-y-2">
         <p className={prose}>What it covers:</p>
 
-        <ul className="list-disc space-y-1 pl-4 marker:text-zinc-300">
+        <ul className="list-disc space-y-1 pl-4 marker:text-muted-foreground">
           {sections.map((section) => (
             <li key={section} className={prose}>
               {section}

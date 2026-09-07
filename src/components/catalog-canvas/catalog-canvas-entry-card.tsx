@@ -18,7 +18,7 @@ const cardVariants = tv({
   variants: {
     selected: {
       true: "border-indigo-500 shadow-md ring-2 ring-indigo-500/20",
-      false: "border-slate-200/90 hover:border-slate-300 hover:shadow-md",
+      false: "border-border hover:border-zinc-600 hover:shadow-md",
     },
   },
 });
@@ -65,16 +65,16 @@ export default function CatalogCanvasEntryCard({
         <div className={portDot()} />
       </div>
 
-      <Flex className="items-center justify-between gap-1.5 flex-wrap mb-2 border-b border-slate-200 pb-2">
+      <Flex className="items-center justify-between gap-1.5 flex-wrap mb-2 border-b border-border pb-2">
         <span className={badge()}>{groupLabel(entry.group)}</span>
 
-        <span className="flex items-center gap-1 font-mono text-[11px] text-slate-400">
+        <span className="flex items-center gap-1 font-mono text-[11px] text-muted-foreground">
           <FileText aria-hidden="true" className="size-3" />
           {entry.lineCount} lines
         </span>
       </Flex>
 
-      <h3 className="line-clamp-2 text-base font-semibold tracking-tight transition-colors group-hover:text-indigo-600">
+      <h3 className="line-clamp-2 text-base font-semibold tracking-tight transition-colors group-hover:text-indigo-400">
         {entry.name}
       </h3>
 
@@ -86,7 +86,7 @@ export default function CatalogCanvasEntryCard({
           path sits on the bottom edge whether the description ran to one line
           or three. `truncate` because a long id set to `break-all` was the
           other thing that changed a card's height. */}
-      <div className="mt-auto border-t border-slate-200 pt-3 font-mono text-xs text-muted-foreground">
+      <div className="mt-auto border-t border-border pt-3 font-mono text-xs text-muted-foreground">
         <span className="block truncate">{entry.id}.md</span>
       </div>
     </button>

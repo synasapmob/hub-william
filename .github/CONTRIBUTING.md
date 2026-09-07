@@ -4,19 +4,31 @@ Thanks for helping make agent workflows easier to read, review, and reuse.
 Contributions can add or improve catalogue documents, the web app, or the
 machine installer.
 
+## Branching
+
+Contributions land on `dev`. Production is `main`, and it moves only by merging
+`dev` into `main`.
+
+- Branch from `dev` and open the pull request into `dev`.
+- A maintainer promotes a verified `dev` to production with a pull request
+  into `main`. Do not open a feature pull request against `main`.
+
+`dev` deploys to the preview site; `main` deploys to production. See
+[architecture.md](../docs/architecture.md).
+
 ## Add a catalogue document
 
 Start with the [catalogue contribution guide](../README.md#how-to-contribute).
 In short:
 
-1. Fork the repository and create a branch from `main`.
+1. Fork the repository and create a branch from `dev`.
 2. Add the Markdown file under `contributors/<your-github-login>/` when it is
    specific to your own workspace, accounts, or infrastructure. Change a file
    under `contributors/default/` only when the rule should be shared by every
    user.
 3. Keep the existing folder shape. The path determines where the document
    appears on the library or tools canvas.
-4. Open a pull request into `main` and explain why the document belongs in its
+4. Open a pull request into `dev` and explain why the document belongs in its
    chosen shared or contributor-owned location.
 
 Do not include credentials, tokens, private endpoints, customer data, or other

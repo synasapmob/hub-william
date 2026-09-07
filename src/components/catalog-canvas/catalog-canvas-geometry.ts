@@ -51,11 +51,11 @@ export const GROUP_HEADING_HEIGHT = 58;
  * The card is given this height rather than measured for it. Guessing at a
  * rendered height is how the trunk ended up leaving from 63 units below the
  * card it was supposed to hang off: the constant said 268 and the card drew
- * 205. Pinning the element to the constant makes the two true by construction,
- * and it is also what keeps every root the same height as the others when one
- * of them carries more folder chips.
+ * 205. Pinning the element to the constant makes the two true by construction.
+ * Folder chips used to live on the card; they filter the open tree from the
+ * toolbar now, so this is the title-and-summary stack, not a chip row.
  */
-export const CATEGORY_CARD_HEIGHT = 205;
+export const CATEGORY_CARD_HEIGHT = 168;
 
 const CATEGORY_CARD_GAP = 32;
 const CATEGORY_ROW_Y = 120;
@@ -165,8 +165,8 @@ function chunk<Item>(items: Item[], size: number): Item[][] {
  * One category's entries, as a stack of headed groups.
  *
  * The order is the caller's, not this function's: the service decides it once
- * so the canvas, the root card's chip row and anything else counting groups all
- * agree. Layout only walks that order and turns it into positions.
+ * so the canvas, the toolbar's group filter and anything else counting groups
+ * all agree. Layout only walks that order and turns it into positions.
  */
 export function treeGroups(
   entries: CatalogEntry[],

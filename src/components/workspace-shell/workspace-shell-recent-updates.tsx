@@ -100,14 +100,14 @@ export default function WorkspaceShellRecentUpdates({
             <Link
               to={entryHref(entry)}
               onClick={onNavigate}
-              className="flex w-full items-start gap-2.5 rounded-lg transition-colors p-2 hover:bg-zinc-100/80 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+              className="flex w-full items-start gap-2.5 rounded-lg transition-colors p-2 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
             >
               <Avatar size="sm" className="mt-0.5">
                 <AvatarImage
                   src={`https://github.com/${login}.png?size=64`}
                   alt=""
                 />
-                <AvatarFallback className="bg-zinc-100 text-zinc-700">
+                <AvatarFallback className="bg-muted text-muted-foreground">
                   {login.charAt(0).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
@@ -121,7 +121,7 @@ export default function WorkspaceShellRecentUpdates({
                   </span>
                 </p>
 
-                <p className="mt-0.5 font-mono text-[10px] text-zinc-400">
+                <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
                   {updatedAgo}
                 </p>
               </div>
