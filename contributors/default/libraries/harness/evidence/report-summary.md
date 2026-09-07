@@ -1,8 +1,8 @@
 # Evidence report summary
 
-When backend or frontend evidence was created or updated, include an
-`EVIDENCE:` subsection in the final `## Delivery summary`. Separate `Backend`
-and `Frontend`; for each applicable entry, link the absolute `manifest.md`,
+When a structured `[report]` handoff is active, summarize created or updated
+backend/frontend evidence under `## EVIDENCE`. Separate `Backend` and
+`Frontend`; for each applicable entry, link the absolute `manifest.md`,
 state its latest honest `PASS`, `FAIL`, `BLOCKED` or `INCOMPLETE` status, the
 verified test/check count when known, and the scope covered.
 
@@ -21,6 +21,7 @@ one surface, keep directly related status, test count, failure/fix history,
 scope and manifest link together as short nested items when necessary. Never
 combine both surfaces or an unrelated benchmark into one prose paragraph.
 
-If no backend/frontend evidence was produced, omit `EVIDENCE:` rather than
-inventing it, and state any required-but-unrun verification gap elsewhere in
-the handoff.
+Also include requirements-freshness and real-browser results under this heading
+when their contracts apply. If no evidence was produced, retain `## EVIDENCE`
+and write `N/A` with the reason. State any required-but-unrun verification gap
+under `## Risky`.

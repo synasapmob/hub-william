@@ -681,7 +681,7 @@ class TestHarnessAndZsh(MachineTest):
             root_text + "\n" + tag_text + "\n" + contrib_text + "\n" + support_text
         )
         for tag in ("[answer]", "[answer-step-by-step]", "[answer-priority]",
-                    "[report-today]", "[report-yesterday]",
+                    "[report]", "[report-today]", "[report-yesterday]",
                     "[plan]", "[delivery-local]", "[delivery-ete]",
                     "[delivery-linear-DOPAN-1645]",
                     "[delivery-verify-linear-DOPAN-1722]", "[worktree]", "[ignore]",
@@ -733,9 +733,20 @@ class TestHarnessAndZsh(MachineTest):
         self.assertIn("`Ưu tiên 1 (Critical)`", text)
         self.assertIn("`Ưu tiên 2 (High)`", text)
         self.assertIn("All answer modes suppress execution handoffs", text)
-        self.assertIn("`## Delivery summary` block", text)
-        self.assertIn("answer mode is exempt", root_text)
-        self.assertIn("# Work report tags", text)
+        self.assertIn("structured\n`[report]` headings", text)
+        self.assertIn("Answer modes and calendar work reports never emit", root_text)
+        self.assertIn("# Report tags", text)
+        self.assertIn("`[report]` is a composable output modifier", text)
+        for heading in (
+            "## What we changed", "## Files touched", "## Risky",
+            "## EVIDENCE", "## GITHUB", "## LINEAR",
+        ):
+            self.assertIn(heading, text)
+        for lifecycle in ("`(old)`", "`(new)`", "`(deleted)`", "`(renamed)`"):
+            self.assertIn(lifecycle, text)
+        self.assertIn("human to create it if they decide", text)
+        self.assertIn("No known out-of-scope risks identified.", text)
+        self.assertIn("imply `[report]` by default", text)
         self.assertIn("calendar-day windows, not a rolling", text)
         self.assertIn("local `00:00:00` at the start of today", text)
         self.assertIn("local `00:00:00` at the start of yesterday", text)
@@ -786,7 +797,8 @@ class TestHarnessAndZsh(MachineTest):
         self.assertIn("BLOCKED-CONFLICT", text)
         self.assertIn("do not create", text)
         self.assertIn("/freshness.md", text)
-        self.assertIn("`FRESHNESS:`", text)
+        self.assertIn("`Freshness` item", text)
+        self.assertIn("Do not emit a standalone `FRESHNESS` heading", text)
         for retired in (
             "[delivery-local-auto]", "[delivery-ete-auto]",
             "[delivery-auto-linear-DOPAN-1645]",
@@ -921,26 +933,26 @@ class TestHarnessAndZsh(MachineTest):
         self.assertIn("candidate run under the same command", text)
         self.assertIn("Capture complete stdout/stderr", text)
         self.assertIn("## Compact handoff", text)
-        self.assertIn("links the absolute `manifest.md` path", text)
+        self.assertIn("link the absolute `manifest.md`", text)
         self.assertIn("at most one brief overall summary", text)
         self.assertIn("Do not repeat commands, long logs", text)
         self.assertIn("# GitHub report summary", text)
         self.assertIn("# Linear report summary", text)
         self.assertIn("# Evidence report summary", text)
         self.assertIn("# Playwright report summary", text)
-        self.assertIn("`## Delivery summary`", text)
-        self.assertIn("start with `Touched:`", text)
-        self.assertIn("`LINEAR:`", text)
-        self.assertIn("`GITHUB:`", text)
-        self.assertIn("`EVIDENCE:`", text)
-        self.assertIn("`PLAYWRIGHT:`", text)
-        self.assertIn("Omit", text)
-        self.assertIn("domains; report `FAIL`", text)
+        self.assertIn("structured `[report]` handoff", text)
+        self.assertIn("under `## LINEAR`", text)
+        self.assertIn("under `## GITHUB`", text)
+        self.assertIn("under `## EVIDENCE`", text)
+        self.assertIn("Do not emit a standalone `PLAYWRIGHT` heading", text)
+        self.assertIn("retain `## EVIDENCE`", text)
+        self.assertIn("`FAIL`, `BLOCKED` or `INCOMPLETE`", text)
         self.assertIn("every issue created or updated", text)
         self.assertIn("fail-to-fix-to-pass history", text)
         self.assertIn("failed update to make the summary look complete", text)
         self.assertIn("verified lifecycle-bearing clickable label", text)
-        self.assertIn("one bullet per independent fact group", root_text)
+        self.assertIn("six flat `##`", root_text)
+        self.assertIn("headings with Markdown list items", root_text)
         self.assertIn("one top-level Markdown list item per PR", text)
         self.assertIn("one top-level Markdown list item per Linear issue", text)
         self.assertIn("separate top-level Markdown list items", text)
@@ -1057,7 +1069,7 @@ class TestHarnessAndZsh(MachineTest):
         guide = self.m.read(
             os.path.join(self.m.machine, "harness_guiline.md")
         )
-        for tag in ("[delivery-ete]", "[delivery-local]",
+        for tag in ("[delivery-ete]", "[delivery-local]", "[report]",
                     "[delivery-linear-DOPAN-1645]",
                     "[delivery-verify-linear-DOPAN-1722]",
                     "[answer-step-by-step]", "[answer-priority]",
@@ -1072,8 +1084,8 @@ class TestHarnessAndZsh(MachineTest):
         self.assertIn("`Mergeability blocker` PR comment", guide)
         self.assertIn("Never fail silently", guide)
         self.assertIn("root cause/fix → pass", guide)
-        self.assertIn("No answer mode emits a", guide)
-        self.assertIn("`Delivery summary`, `Touched:`", guide)
+        self.assertIn("No answer mode emits the six", guide)
+        self.assertIn("structured `[report]` headings", guide)
         self.assertIn("## Work report", guide)
         self.assertIn("not a rolling 24-hour window", guide)
         self.assertIn("`TEAM OVERLAP`", guide)
@@ -1099,14 +1111,17 @@ class TestHarnessAndZsh(MachineTest):
         self.assertIn("contributors/synasapmob/contributors/default/libraries/harness/projects/routing.md", guide)
         self.assertIn("contributors/synasapmob/contributors/default/libraries/harness/projects/registry.yaml", guide)
         self.assertIn("contributors/synasapmob/libraries/hooks/supabase-routing.md", guide)
-        self.assertIn("finish with one `## Delivery summary`", guide)
-        self.assertIn("Start with `Touched:`", guide)
-        self.assertIn("`LINEAR:`", guide)
-        self.assertIn("`GITHUB:`", guide)
-        self.assertIn("`EVIDENCE:`", guide)
-        self.assertIn("`PLAYWRIGHT:`", guide)
-        self.assertIn("one bullet per", guide)
-        self.assertIn("`Result`, `Flow`, `Screenshots`, `Defects`", guide)
+        self.assertIn("`[report]` is an opt-in structured execution handoff", guide)
+        self.assertIn("`## What we", guide)
+        self.assertIn("`## Files touched`", guide)
+        self.assertIn("`## Risky`", guide)
+        self.assertIn("`## EVIDENCE`", guide)
+        self.assertIn("`## GITHUB`", guide)
+        self.assertIn("`## LINEAR`", guide)
+        self.assertIn("There is no `Delivery summary`, `Touched:` or `CODE:` wrapper", guide)
+        self.assertIn("`(old)`, `(new)`, `(deleted)` or `(renamed)`", guide)
+        self.assertIn("suggested follow-ups are `not created`", guide)
+        self.assertIn("`LINEAR` uses one top-level item per", guide)
         self.assertIn("one top-level item per", guide)
         self.assertIn("Linear issue creation is default-deny", guide)
         self.assertIn("may create exactly one", guide)

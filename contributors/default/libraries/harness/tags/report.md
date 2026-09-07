@@ -1,4 +1,82 @@
-# Work report tags
+# Report tags
+
+## `[report]`
+
+`[report]` is a composable output modifier for an execution turn. It grants no
+permission to edit, test, browse, create a worktree, write Linear, touch GitHub,
+deploy or merge; those actions still require the surrounding request or active
+workflow contract. `[delivery-linear-<ISSUE-ID>]` and
+`[delivery-verify-linear-<ISSUE-ID>]` imply `[report]` by default.
+
+When active, replace the ordinary execution handoff with exactly these flat
+headings in this order; do not wrap them in `## Delivery summary` or add a
+`Touched:`/`CODE:` section:
+
+```md
+## What we changed
+
+## Files touched
+
+## Risky
+
+## EVIDENCE
+
+## GITHUB
+
+## LINEAR
+```
+
+Keep all six headings even when a domain was untouched and write `N/A` with a
+short reason instead of silently omitting it. Under each heading use Markdown
+list items with one independent fact group per top-level bullet and nested
+bullets only for directly related detail.
+
+### What we changed
+
+Describe the delivered behavior and material implementation decisions, using a
+compact before-to-after comparison rather than a chronological activity log.
+When approach history was written, link its absolute `approach.md` and name the
+entry appended during the turn.
+
+### Files touched
+
+List every task-owned changed file once with its repository-relative path, a
+short purpose and exactly one lifecycle marker:
+
+- `(old)` — an existing file was modified.
+- `(new)` — a file was created.
+- `(deleted)` — a file was removed.
+- `(renamed)` — show both the old and new paths.
+
+Do not include unrelated pre-existing working-tree changes or describe an
+existing modified file as new.
+
+### Risky
+
+List only evidence-backed regression risks, affected adjacent cases,
+out-of-scope defects and material verification gaps. For each risk state the
+risk, likely impact, affected cases, why it remains out of scope, and the exact
+human review or decision required. Label every suggested follow-up `not
+created` and tell the human to create it if they decide to proceed; discovery
+never authorizes the agent to scale the delivery into another task.
+
+If no supported risk exists, write `No known out-of-scope risks identified.`
+Do not invent generic warnings. A defect that invalidates the current delivery
+is `BLOCKED`, not a deferred suggestion.
+
+### Domain evidence
+
+Use `## EVIDENCE` for tests, lint, type checking, builds, benchmarks,
+requirements freshness and real-browser verification. Fold Playwright and
+freshness results into this heading instead of creating standalone headings.
+Use `## GITHUB` and `## LINEAR` for their respective verified external actions.
+Report `PASS`, `FAIL`, `BLOCKED` and `INCOMPLETE` honestly and preserve the
+clickable-reference rules.
+
+Answer modes suppress `[report]`. Calendar work reports also suppress it
+because their shaped report is already the final output.
+
+## `[report-today]` and `[report-yesterday]`
 
 `[report-today]` and `[report-yesterday]` are report-only modes. They may read
 the active repository, Git history, GitHub through `gh` and Linear through its
@@ -8,9 +86,10 @@ perform any other mutation. The work report is already the final handoff, so
 never append `## Delivery summary`, `Touched:` or domain report-summary
 sections.
 
-Answer modes take precedence over report modes. A report mode suppresses every
-action tag rather than authorizing its side effects. If both report tags appear,
-ask the operator to choose one and do not collect or mutate anything.
+Answer modes take precedence over calendar report modes. A calendar report
+mode suppresses every action tag and `[report]` rather than authorizing side
+effects. If both calendar report tags appear, ask the operator to choose one
+and do not collect or mutate anything.
 
 ## Calendar windows
 

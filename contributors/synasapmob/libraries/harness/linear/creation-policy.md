@@ -60,9 +60,9 @@ a separate issue or relationship.
 
 ## Handoff accountability
 
-In the final `LINEAR:` summary, list every issue actually created or updated,
-its action and verified result. When any issue was created, include the number
-created and the authorization source. A count above the resolved budget is a
-contract failure and must be reported, never hidden. Suggested-but-uncreated
-follow-ups belong under remaining gaps or suggestions and must be clearly
-labeled `not created`.
+When a structured report is active, list every issue actually created or
+updated under `## LINEAR`, including its action and verified result. When any
+issue was created, include the number created and the authorization source. A
+count above the resolved budget is a contract failure and must be reported,
+never hidden. Suggested-but-uncreated follow-ups belong under `## Risky` and
+must be clearly labeled `not created`.

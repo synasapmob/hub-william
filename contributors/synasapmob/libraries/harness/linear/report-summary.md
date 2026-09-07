@@ -1,8 +1,8 @@
 # Linear report summary
 
-When Linear was materially read or changed during an execution turn, include a
-compact `LINEAR:` subsection in the final `## Delivery summary`. Distinguish a
-read/verification from an actual create or update.
+When a structured `[report]` handoff is active, summarize material Linear reads
+and changes under `## LINEAR`. Distinguish a read/verification from an actual
+create or update. If Linear was untouched, write `N/A` with the reason.
 
 List every issue created or updated. For updates, state only fields and
 relationships that actually changed, including status, estimate, assignee,
