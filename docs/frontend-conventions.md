@@ -92,9 +92,9 @@ Export it only when something outside the file needs it.
 
 - **`slots` is for parts that share a variant.** When one flag drives several
   elements, name them as slots on a single `tv` so the state reads in one place —
-  `groupTone` in `src/utils/utils.tone.ts` does this because a badge,
-  a heading, a branch and a port are all fed from the same `entry.group`. A part
-  with its own independent flag gets its own table.
+  `rootTone` in `src/utils/utils.tone.ts` does this because a card, a tab, a
+  trunk, a heading, a branch and a port are all fed from the same
+  `entry.category`. A part with its own independent flag gets its own table.
 - **Reach for a layout primitive before writing flex classes by hand.** Three
   choices, in order of how much each one claims:
 
@@ -171,8 +171,10 @@ needs no DOM.
 `'unsafe-inline'` because React Router's SPA build inlines its hydration
 bootstrap into `index.html`; the directives that do the work here are
 `img-src`, which bounds where an injected image could reach, and
-`connect-src 'self'`, which is now absolute because the app makes no request at
-all. `font-src 'self' data:` is why the
+`connect-src 'self'`, which is absolute because nothing in the app fetches. A
+download control is an `<a download>` at a file under `/catalog/`, and a
+navigation is not what `connect-src` governs, so the archives leave the
+directive where it is. `font-src 'self' data:` is why the
 two typefaces are self-hosted through `@fontsource-variable/*` rather than
 linked from Google Fonts — a `<link>` to a font CDN is refused by the browser,
 silently, leaving the fallback stack on screen.
@@ -366,7 +368,7 @@ no route is behind an account — is not a convention and is not here. See
   This governs the exported subject of a file, not everything it exports:
 
   - **Named data exports keep their own domain names.** `CANVAS_WORLD`,
-    `TREE_SPINE_X`, `treeGroups`, `groupTone`, `CatalogEntry`. They are named
+    `TREE_SPINE_X`, `treeGroups`, `rootTone`, `CatalogEntry`. They are named
     for what they are, and `LIBRARY_CANVAS_WORLD` is noise. The test is whether
     the file exists to provide that one thing.
   - **Data types are not components.** `src/utils/utils.activities.ts` exports
@@ -382,8 +384,8 @@ no route is behind an account — is not a convention and is not here. See
 - Import across ownership boundaries with `@/`. Use `./` only inside the same owner folder. Any `../` import is migration debt — replace it when you next touch the file.
 - **`src/utils/` holds focused pure helpers, one concern per `utils.*.ts` file** — `utils.class-names.ts`, `utils.format.ts`. There is no `src/utils/index.ts`, and there is no `src/lib`.
 - **A class table more than one file reads lives in `src/utils/utils.*.ts`.**
-  `utils.tone.ts` holds the tables the canvas shares because a badge, a heading,
-  a branch and a port all colour from the same `entry.group`. A table only one
+  `utils.tone.ts` holds the table the canvas shares because a card, a heading, a
+  branch and a port all colour from the same `entry.category`. A table only one
   component reads stays in that component, at module scope — moving it out buys
   an import and loses the sight of it.
 - **There is one stylesheet, and it is `public/css/index.css`.** `src/root.tsx`
@@ -392,9 +394,12 @@ no route is behind an account — is not a convention and is not here. See
   `@import "tailwindcss"` to the browser verbatim and the app would render
   unstyled — the location is only safe because nothing relies on the folder it
   sits in.
-- Components never make raw network calls. Nothing in the app makes one at all:
-  the catalogue is Markdown inlined at build time and the telemetry is fixture
-  data. Services own where content comes from, and a component reads a service.
+- Components never make raw network calls. Nothing in the app fetches: the
+  catalogue is Markdown inlined at build time and the telemetry is fixture data.
+  Services own where content comes from, and a component reads a service. A
+  download control is the one thing that leaves the browser, and it is an
+  `<a download>` pointing at an archive the build emitted — a navigation the
+  reader started, not a component going to the network for its data.
 - Do not create a catch-all `types/` directory. Keep types with the service or feature that owns them.
 
 ## Exports

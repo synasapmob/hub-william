@@ -208,6 +208,7 @@ export default function CatalogCanvas({
           {expandedCategory ? (
             <CatalogCanvasTreeBranches
               groups={groups}
+              root={expandedCategory}
               rootPosition={positions[expandedCategory]}
             />
           ) : null}
@@ -230,28 +231,35 @@ export default function CatalogCanvas({
           />
         ))}
 
-        {groups.map((group) => (
-          <Fragment key={group.group}>
-            <CatalogCanvasGroupHeading
-              group={group.group}
-              size={group.size}
-              top={group.headingY}
-            />
-
-            {group.rows.map((row) =>
-              row.placed.map((placed) => (
-                <CatalogCanvasEntryCard
-                  key={placed.entry.id}
-                  entry={placed.entry}
-                  isDimmed={!placed.isMatch}
-                  isSelected={selectedEntry?.id === placed.entry.id}
-                  position={placed.position}
-                  onSelect={selectEntry}
+        {/* `groups` is empty unless a root is open, so the guard draws nothing
+            the map would not have. It is here to say the open root out loud:
+            every heading and card below is coloured by the tree it hangs in,
+            and that tree is this one. */}
+        {expandedCategory
+          ? groups.map((group) => (
+              <Fragment key={group.group}>
+                <CatalogCanvasGroupHeading
+                  group={group.group}
+                  root={expandedCategory}
+                  size={group.size}
+                  top={group.headingY}
                 />
-              )),
-            )}
-          </Fragment>
-        ))}
+
+                {group.rows.map((row) =>
+                  row.placed.map((placed) => (
+                    <CatalogCanvasEntryCard
+                      key={placed.entry.id}
+                      entry={placed.entry}
+                      isDimmed={!placed.isMatch}
+                      isSelected={selectedEntry?.id === placed.entry.id}
+                      position={placed.position}
+                      onSelect={selectEntry}
+                    />
+                  )),
+                )}
+              </Fragment>
+            ))
+          : null}
       </div>
 
       <CatalogCanvasControls
@@ -264,7 +272,6 @@ export default function CatalogCanvas({
 
       <CatalogCanvasEntryDetail
         entry={selectedEntry}
-        contributor={contributor}
         onOpenChange={(open) => {
           if (!open) selectEntry(null);
         }}
