@@ -16,7 +16,7 @@ import { GITHUB_REPOSITORY_URL } from "@/services/catalog";
  */
 const installCommands = [
   `git clone ${GITHUB_REPOSITORY_URL}.git`,
-  "cd hub-william/machine",
+  "cd hub-william/scripts/machine",
   "./install.sh init",
 ];
 

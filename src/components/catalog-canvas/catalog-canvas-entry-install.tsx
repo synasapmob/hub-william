@@ -8,9 +8,9 @@ import catalogService, { type CatalogEntry } from "@/services/catalog";
 import { downloadText } from "@/utils/utils.download";
 
 const action =
-  "flex items-center gap-1.5 rounded-lg border border-zinc-200/80 bg-card px-2.5 py-1.5 font-mono text-[11px] text-zinc-700 transition-colors hover:bg-zinc-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden";
+  "flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 font-mono text-[11px] text-foreground/80 transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden";
 
-const prose = "text-zinc-600 text-xs/relaxed";
+const prose = "text-muted-foreground text-xs/relaxed";
 
 interface InstallOptionProps {
   /** Its place in the list, because these are alternatives rather than steps. */
@@ -22,8 +22,8 @@ interface InstallOptionProps {
 function InstallOption({ index, title, children }: InstallOptionProps) {
   return (
     <div className="space-y-2">
-      <p className="font-mono text-[11px] font-medium text-zinc-500">
-        <span className="text-zinc-400">{index}.</span> {title}
+      <p className="font-mono text-[11px] font-medium text-muted-foreground">
+        <span className="text-muted-foreground/70">{index}.</span> {title}
       </p>
 
       {children}
@@ -97,7 +97,7 @@ export default function CatalogCanvasEntryInstall({
       <div className="space-y-2">
         <p className={prose}>
           Either way it is read from{" "}
-          <code className="font-mono text-[11px] break-all text-zinc-800">
+          <code className="font-mono text-[11px] break-all text-foreground">
             {destination}
           </code>
           , so an archive goes back to the checkout it came from:

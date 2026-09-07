@@ -67,9 +67,9 @@ export function toneForRoot(root: CatalogCategory): ToneSlot {
  * would make a caller pass them the same root.
  *
  * Depth is the other axis and it is spelled into the slots rather than into a
- * variant: a slot already knows how deep it sits. The ladder runs pale to
- * saturated on the way out — trunk at 300, branches at 400, nodes and ports at
- * 500 — so a tree reads as one thing with structure rather than as a stack of
+ * variant: a slot already knows how deep it sits. The ladder runs dim to
+ * bright on the way out — trunk at 500, branches at 400, nodes and ports at
+ * 400 — so a tree reads as one thing with structure rather than as a stack of
  * unrelated lines.
  */
 export const rootTone = tv({
@@ -102,61 +102,62 @@ export const rootTone = tv({
   variants: {
     tone: {
       indigo: {
-        iconChip: "border-indigo-200 bg-indigo-50 text-indigo-600",
-        tab: "bg-indigo-600 hover:bg-indigo-700",
-        trunk: "stroke-indigo-300",
-        heading: "border-indigo-300",
-        headingLabel: "text-indigo-700",
-        headingCount: "border-indigo-200 bg-indigo-50 text-indigo-700",
+        iconChip: "border-indigo-500/30 bg-indigo-500/10 text-indigo-300",
+        tab: "bg-indigo-600 hover:bg-indigo-500",
+        trunk: "stroke-indigo-500",
+        heading: "border-indigo-500/50",
+        headingLabel: "text-indigo-300",
+        headingCount: "border-indigo-500/30 bg-indigo-500/10 text-indigo-300",
         branch: "stroke-indigo-400",
-        node: "fill-indigo-500",
-        badge: "border-indigo-200 bg-indigo-50 text-indigo-700",
-        portDot: "bg-indigo-500",
-        portRing: "border-indigo-500",
+        node: "fill-indigo-400",
+        badge: "border-indigo-500/30 bg-indigo-500/10 text-indigo-300",
+        portDot: "bg-indigo-400",
+        portRing: "border-indigo-400",
       },
       teal: {
-        iconChip: "border-teal-200 bg-teal-50 text-teal-600",
-        tab: "bg-teal-600 hover:bg-teal-700",
-        trunk: "stroke-teal-300",
-        heading: "border-teal-300",
-        headingLabel: "text-teal-700",
-        headingCount: "border-teal-200 bg-teal-50 text-teal-700",
+        iconChip: "border-teal-500/30 bg-teal-500/10 text-teal-300",
+        tab: "bg-teal-600 hover:bg-teal-500",
+        trunk: "stroke-teal-500",
+        heading: "border-teal-500/50",
+        headingLabel: "text-teal-300",
+        headingCount: "border-teal-500/30 bg-teal-500/10 text-teal-300",
         branch: "stroke-teal-400",
-        node: "fill-teal-500",
-        badge: "border-teal-200 bg-teal-50 text-teal-700",
-        portDot: "bg-teal-500",
-        portRing: "border-teal-500",
+        node: "fill-teal-400",
+        badge: "border-teal-500/30 bg-teal-500/10 text-teal-300",
+        portDot: "bg-teal-400",
+        portRing: "border-teal-400",
       },
       fuchsia: {
-        iconChip: "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-600",
-        tab: "bg-fuchsia-600 hover:bg-fuchsia-700",
-        trunk: "stroke-fuchsia-300",
-        heading: "border-fuchsia-300",
-        headingLabel: "text-fuchsia-700",
-        headingCount: "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700",
+        iconChip: "border-fuchsia-500/30 bg-fuchsia-500/10 text-fuchsia-300",
+        tab: "bg-fuchsia-600 hover:bg-fuchsia-500",
+        trunk: "stroke-fuchsia-500",
+        heading: "border-fuchsia-500/50",
+        headingLabel: "text-fuchsia-300",
+        headingCount:
+          "border-fuchsia-500/30 bg-fuchsia-500/10 text-fuchsia-300",
         branch: "stroke-fuchsia-400",
-        node: "fill-fuchsia-500",
-        badge: "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700",
-        portDot: "bg-fuchsia-500",
-        portRing: "border-fuchsia-500",
+        node: "fill-fuchsia-400",
+        badge: "border-fuchsia-500/30 bg-fuchsia-500/10 text-fuchsia-300",
+        portDot: "bg-fuchsia-400",
+        portRing: "border-fuchsia-400",
       },
       slate: {
-        iconChip: "border-slate-200 bg-slate-50 text-slate-600",
-        tab: "bg-slate-600 hover:bg-slate-700",
-        trunk: "stroke-slate-300",
-        heading: "border-slate-300",
-        headingLabel: "text-slate-700",
-        headingCount: "border-slate-200 bg-slate-50 text-slate-700",
+        iconChip: "border-slate-500/30 bg-slate-500/10 text-slate-300",
+        tab: "bg-slate-600 hover:bg-slate-500",
+        trunk: "stroke-slate-500",
+        heading: "border-slate-500/50",
+        headingLabel: "text-slate-300",
+        headingCount: "border-slate-500/30 bg-slate-500/10 text-slate-300",
         branch: "stroke-slate-400",
-        node: "fill-slate-500",
-        badge: "border-slate-200 bg-slate-50 text-slate-700",
-        portDot: "bg-slate-500",
-        portRing: "border-slate-500",
+        node: "fill-slate-400",
+        badge: "border-slate-500/30 bg-slate-500/10 text-slate-300",
+        portDot: "bg-slate-400",
+        portRing: "border-slate-400",
       },
     },
     expanded: {
       false: {
-        card: "border-slate-200/90 hover:border-slate-300 hover:shadow-md",
+        card: "border-border hover:border-zinc-600 hover:shadow-md",
       },
       true: {},
     },

@@ -23,7 +23,7 @@ const mobileTabVariants = tv({
   base: "rounded-md px-2.5 py-1 transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden",
   variants: {
     active: {
-      true: "bg-white font-semibold text-foreground shadow-xs",
+      true: "bg-background font-semibold text-foreground shadow-xs",
       false: "text-muted-foreground",
     },
     // `pointer-events-none` is safe here in a way it would not be on a link:
@@ -85,9 +85,9 @@ export default function WorkspaceShellMobile() {
 
         <Link
           to="/"
-          className="flex items-center gap-1.5 rounded-md text-xs font-bold tracking-wider uppercase transition-colors hover:text-indigo-600 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+          className="flex items-center gap-1.5 rounded-md text-xs font-bold tracking-wider uppercase transition-colors hover:text-indigo-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
         >
-          <Center className="size-5 rounded bg-zinc-900 font-mono text-[10px] text-white">
+          <Center className="size-5 rounded bg-primary font-mono text-[10px] text-primary-foreground">
             W
           </Center>
           Hub-William
@@ -96,7 +96,7 @@ export default function WorkspaceShellMobile() {
 
       <nav
         aria-label="Workspace sections"
-        className="flex items-center gap-1 rounded-lg bg-zinc-100 p-0.5 text-[11px] font-medium"
+        className="flex items-center gap-1 rounded-lg bg-muted p-0.5 text-[11px] font-medium"
       >
         {navigationItems.map((item) =>
           // A span, not a dimmed NavLink: a link that only looks disabled is

@@ -143,5 +143,6 @@ site root, `dev` to a `dev/` subfolder. `VITE_BASE_PATH` threads the same prefix
 through Vite's `base` and React Router's `basename`, because a project site is
 served from `/<repository>/` rather than the domain root.
 
-`main` is protected: no direct pushes, and a branch must be up to date with a
-green `checks` run before it merges.
+Contributions merge into `dev`. Production is `main`, and it moves only by
+merging `dev` into `main`. `main` is protected: no direct pushes, and a branch
+must be up to date with a green `checks` run before it merges.

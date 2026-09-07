@@ -11,8 +11,8 @@ const navigationLinkVariants = tv({
   base: "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-xs font-medium tracking-wide transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden",
   variants: {
     active: {
-      true: "bg-zinc-900 text-white shadow-xs",
-      false: "text-muted-foreground hover:bg-zinc-100/80 hover:text-foreground",
+      true: "bg-primary text-primary-foreground shadow-xs",
+      false: "text-muted-foreground hover:bg-accent hover:text-foreground",
     },
     // `pointer-events-none` is safe here in a way it would not be on a link:
     // this renders as a span, so there is nothing to focus and nothing Enter
@@ -26,7 +26,7 @@ const navigationLinkVariants = tv({
 const navigationIconVariants = tv({
   base: "size-4",
   variants: {
-    active: { true: "text-white", false: "text-zinc-500" },
+    active: { true: "text-primary-foreground", false: "text-muted-foreground" },
   },
 });
 
@@ -54,7 +54,7 @@ function WorkspaceBrand({ onNavigate }: WorkspaceBrandProps) {
           <p className="text-xs">Hub-William</p>
         </Center>
 
-        <div className="rounded border border-zinc-200/80 bg-zinc-100 px-1.5 py-0.5 font-mono text-[11px] text-zinc-700">
+        <div className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
           v1.4
         </div>
       </Center>
@@ -86,7 +86,10 @@ function WorkspaceNavigation({ onNavigate }: WorkspaceNavigationProps) {
                 aria-disabled="true"
                 className={navigationLinkVariants({ disabled: true })}
               >
-                <Icon aria-hidden={true} className="size-4 text-zinc-300" />
+                <Icon
+                  aria-hidden={true}
+                  className="size-4 text-muted-foreground/40"
+                />
                 <span>{item.label}</span>
               </span>
             );
@@ -136,7 +139,7 @@ export default function WorkspaceShellSidebar({
 }: WorkspaceShellSidebarProps) {
   return (
     <div className="flex h-full flex-col p-4">
-      <div className="mb-4 border-b border-zinc-100 pb-6">
+      <div className="mb-4 border-b border-border pb-6">
         <WorkspaceBrand onNavigate={onNavigate} />
       </div>
 

@@ -4,7 +4,7 @@ import Flex from "@/components/ui/flex";
 import { Separator } from "@/components/ui/separator";
 
 const CONTROL_CLASS =
-  "rounded-xl p-2 text-muted-foreground transition-colors hover:bg-slate-100 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden";
+  "rounded-xl p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden";
 
 interface CatalogCanvasControlsProps {
   zoom: number;
@@ -24,7 +24,7 @@ export default function CatalogCanvasControls({
   return (
     <Flex
       data-canvas-overlay
-      className="items-center absolute bottom-6 left-6 z-20 gap-1.5 rounded-2xl border border-slate-200/90 bg-card/95 p-1.5 shadow-sm backdrop-blur-md"
+      className="items-center absolute bottom-6 left-6 z-20 gap-1.5 rounded-2xl border border-border bg-card/95 p-1.5 shadow-sm backdrop-blur-md"
     >
       <button
         type="button"
@@ -50,7 +50,7 @@ export default function CatalogCanvasControls({
         type="button"
         aria-label="Reset zoom"
         onClick={onResetView}
-        className="rounded-xl px-2.5 py-1 font-mono text-sm text-zinc-700 transition-colors hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+        className="rounded-xl px-2.5 py-1 font-mono text-sm text-foreground/80 transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
       >
         {Math.round(zoom * 100)}%
       </button>

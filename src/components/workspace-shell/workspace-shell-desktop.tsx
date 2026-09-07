@@ -9,7 +9,7 @@ import WorkspaceShellSidebar from "./workspace-shell-sidebar";
  */
 export default function WorkspaceShellDesktop() {
   return (
-    <aside className="sticky top-0 hidden h-svh w-64 shrink-0 border-r border-zinc-200/80 bg-card md:flex md:flex-col">
+    <aside className="sticky top-0 hidden h-svh w-64 shrink-0 border-r border-border bg-card md:flex md:flex-col">
       <WorkspaceShellSidebar />
     </aside>
   );

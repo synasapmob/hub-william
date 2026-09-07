@@ -34,6 +34,7 @@ export const meta: Route.MetaFunction = () => {
         "width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1",
     },
     { charSet: "utf-8" },
+    { name: "color-scheme", content: "dark" },
 
     // Open Graph / Facebook / Slack / Discord
     { property: "og:type", content: "website" },
@@ -51,7 +52,7 @@ export const meta: Route.MetaFunction = () => {
 
 export function Layout({ children }: PropsWithChildren) {
   return (
-    <html lang="en">
+    <html lang="en" className="dark">
       <head>
         <Meta />
 

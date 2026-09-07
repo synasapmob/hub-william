@@ -1,5 +1,6 @@
 import {
   Fragment,
+  useLayoutEffect,
   useState,
   useSyncExternalStore,
   type ReactNode,
@@ -9,6 +10,7 @@ import { useSearchParams } from "react-router";
 import catalogService, {
   type CatalogCategory,
   type CatalogEntry,
+  type CatalogGroup,
   type CatalogSection,
 } from "@/services/catalog";
 
@@ -16,6 +18,7 @@ import {
   CANVAS_WORLD,
   drawnBounds,
   rootPositions,
+  TREE_SPINE_X,
   treeGroups,
   type TreeGroup,
 } from "./catalog-canvas-geometry";
@@ -35,6 +38,7 @@ function subscribeToNothing() {
 
 const TAB_PARAM = "tab";
 const NODE_PARAM = "node";
+const GROUP_PARAM = "group";
 /** What `?tab=` says when the reader closed the open tree on purpose. */
 const CLOSED_TAB = "none";
 
@@ -82,10 +86,10 @@ export default function CatalogCanvas({
     () => false,
   );
 
-  // Which tree is open and which document is being read live in the URL rather
-  // than in state, so a canvas can be linked to, bookmarked, walked back
-  // through with the browser's own back button, and pasted to an agent that
-  // will read the same page a person did.
+  // Which tree is open, which folder of it is in focus, and which document is
+  // being read live in the URL rather than in state, so a canvas can be linked
+  // to, bookmarked, walked back through with the browser's own back button, and
+  // pasted to an agent that will read the same page a person did.
   //
   // One tree at a time: several fans of branches over the same rows would leave
   // a reader unable to tell which trunk a card hangs from. An unknown or absent
@@ -104,16 +108,35 @@ export default function CatalogCanvas({
   // Panning, zooming and the surface's own measurements. None of that is about
   // the catalogue, so none of it is in here. The open sheet owns the viewport
   // while it is visible, including the canvas area behind its overlay.
-  const { pan, zoom, surface, fitView, resetView, zoomIn, zoomOut } =
+  const { pan, zoom, surface, fitView, panTo, resetView, zoomIn, zoomOut } =
     useCatalogCanvasViewport({ locked: selectedEntry !== null });
+
+  const categoryGroups: CatalogGroup[] = expandedCategory
+    ? catalogService.groupsInCategory(expandedCategory, contributor)
+    : [];
+  const groupParam = hydrated ? searchParams.get(GROUP_PARAM) : null;
+  const selectedGroup: CatalogGroup | null =
+    groupParam && categoryGroups.includes(groupParam) ? groupParam : null;
 
   const groups: TreeGroup[] = expandedCategory
     ? treeGroups(
         catalogService.listEntriesByCategory(expandedCategory, contributor),
-        catalogService.groupsInCategory(expandedCategory, contributor),
-        (entry) => catalogService.matchesQuery(entry, searchQuery),
+        categoryGroups,
+        (entry) =>
+          catalogService.matchesQuery(entry, searchQuery) &&
+          (selectedGroup === null || entry.group === selectedGroup),
       )
     : [];
+
+  const selectedHeadingY = selectedGroup
+    ? groups.find((group) => group.group === selectedGroup)?.headingY
+    : undefined;
+
+  useLayoutEffect(() => {
+    if (selectedHeadingY == null) return;
+
+    panTo({ x: TREE_SPINE_X, y: selectedHeadingY });
+  }, [panTo, selectedHeadingY]);
 
   /**
    * Searching opens the tree that holds the hits.
@@ -154,6 +177,23 @@ export default function CatalogCanvas({
     // clears whatever was open rather than leaving a `node` the canvas no
     // longer draws.
     next.delete(NODE_PARAM);
+    next.delete(GROUP_PARAM);
+    setSearchParams(next);
+  }
+
+  function selectGroup(group: CatalogGroup | null) {
+    const next = new URLSearchParams(searchParams);
+
+    if (group) {
+      next.set(GROUP_PARAM, group);
+    } else {
+      next.delete(GROUP_PARAM);
+    }
+
+    if (group && selectedEntry && selectedEntry.group !== group) {
+      next.delete(NODE_PARAM);
+    }
+
     setSearchParams(next);
   }
 
@@ -173,7 +213,7 @@ export default function CatalogCanvas({
     <section
       {...surface}
       aria-labelledby="library-title"
-      className="canvas-grid-dots relative min-h-0 flex-1 cursor-default overflow-hidden bg-slate-50 select-none"
+      className="canvas-grid-dots relative min-h-0 flex-1 cursor-default overflow-hidden bg-background select-none"
     >
       <h2 id="library-title" className="sr-only">
         Agent catalogue canvas
@@ -185,10 +225,13 @@ export default function CatalogCanvas({
         searchPlaceholder={searchPlaceholder}
         documentCount={catalogService.documentCount(section, contributor)}
         expandedCategory={expandedCategory}
+        groups={categoryGroups}
+        selectedGroup={selectedGroup}
         roots={roots}
         searchQuery={searchQuery}
         onSearchQueryChange={handleSearchQueryChange}
         onSelectCategory={selectCategory}
+        onSelectGroup={selectGroup}
       />
 
       <div
@@ -218,7 +261,6 @@ export default function CatalogCanvas({
         {roots.map((category) => (
           <CatalogCanvasRootCard
             key={category}
-            groups={catalogService.groupsInCategory(category, contributor)}
             category={category}
             entryCount={
               catalogService.listEntriesByCategory(category, contributor).length
@@ -241,6 +283,9 @@ export default function CatalogCanvas({
               <Fragment key={group.group}>
                 <CatalogCanvasGroupHeading
                   group={group.group}
+                  isDimmed={
+                    selectedGroup !== null && selectedGroup !== group.group
+                  }
                   root={expandedCategory}
                   size={group.size}
                   top={group.headingY}

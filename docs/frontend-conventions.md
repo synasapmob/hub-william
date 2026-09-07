@@ -118,17 +118,21 @@ Export it only when something outside the file needs it.
   Trading a semantic element for a layout primitive is a worse deal than
   repeating four utilities. The same holds where flex is incidental to layout
   the primitive does not own, such as an absolutely positioned canvas node.
-- **Preserve the graphite-paper theme.** The workspace is light only: a
-  near-white `#fafbfc` page, zinc for every surface and every word, and indigo
-  reserved for the one thing worth acting on. `--primary` is near-black on
-  purpose — the specification's own buttons are ink, and an indigo button beside
-  an indigo link makes neither mean anything. Emerald and amber are domain
-  signals (backend, hooks), not accents to reach for.
-- **There is no dark mode.** `root.tsx` sets no `dark` class and
-  `@custom-variant dark (&:is(.dark *))` pins `dark:` to a class the app never
-  sets, so the `dark:` utilities inside the generated shadcn primitives stay
-  inert. Deleting that line would hand them to `prefers-color-scheme` and paint
-  half the app dark against light tokens.
+- **Preserve the graphite-paper theme.** The workspace is dark only: a near-black
+  cool graphite page, zinc for every surface and every word, and indigo reserved
+  for the one thing worth acting on. `--primary` is near-white on purpose — the
+  specification's own buttons are paper, and an indigo button beside an indigo
+  link makes neither mean anything. Emerald and amber are domain signals
+  (backend, hooks), not accents to reach for.
+- **There is no light mode and no theme toggle.** `root.tsx` sets `class="dark"`
+  on `<html>` and `color-scheme: dark`. `@custom-variant dark (&:is(.dark *))`
+  pins `dark:` to that class so the utilities inside the generated shadcn
+  primitives apply without following the reader's OS preference. Deleting the
+  class or the pin would hand them to `prefers-color-scheme` and paint half the
+  app light against dark tokens. Hardcoded pale zinc/slate fills (`zinc-50`,
+  `bg-white`, `indigo-50`) are light-mode leftovers — use semantic tokens
+  (`bg-background`, `bg-card`, `bg-muted`, `border-border`, `text-foreground`,
+  `text-muted-foreground`) or a hue at `/10` and `/30` on dark paper.
 - Keep motion restrained. `public/css/index.css` neutralises animation
   and transition durations globally under `prefers-reduced-motion: reduce`; do
   not reintroduce per-class exceptions.

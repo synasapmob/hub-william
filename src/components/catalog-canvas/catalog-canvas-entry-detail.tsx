@@ -27,7 +27,7 @@ import { copyText } from "@/utils/utils.clipboard";
 import CatalogCanvasEntryInstall from "./catalog-canvas-entry-install";
 import CatalogCanvasEntryUsage from "./catalog-canvas-entry-usage";
 
-const panel = "rounded-xl border border-zinc-200/80 bg-zinc-50 p-4";
+const panel = "rounded-xl border border-border bg-muted p-4";
 
 interface CopySourceButtonProps {
   source: string;
@@ -59,10 +59,10 @@ function CopySourceButton({ source }: CopySourceButtonProps) {
     <button
       type="button"
       onClick={() => void copy()}
-      className="flex items-center gap-1.5 rounded-lg border border-border bg-zinc-50 px-2.5 py-1 font-mono text-[11px] text-zinc-700 transition-colors hover:bg-zinc-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+      className="flex items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 py-1 font-mono text-[11px] text-foreground/80 transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
     >
       {copied ? (
-        <Check aria-hidden="true" className="size-3.5 text-emerald-600" />
+        <Check aria-hidden="true" className="size-3.5 text-emerald-400" />
       ) : (
         <Copy aria-hidden="true" className="size-3.5" />
       )}
@@ -87,7 +87,7 @@ interface EntrySectionProps {
 function EntrySection({ label, children }: EntrySectionProps) {
   return (
     <div className="space-y-2.5">
-      <p className="font-mono text-[11px] font-semibold tracking-wider text-zinc-700 uppercase">
+      <p className="font-mono text-[11px] font-semibold tracking-wider text-foreground/80 uppercase">
         {label}
       </p>
 
@@ -139,7 +139,7 @@ export default function CatalogCanvasEntryDetail({
         // it on specificity rather than being merged away.
         className="flex w-full flex-col gap-0 p-0 data-[side=right]:md:max-w-160"
       >
-        <SheetHeader className="flex-row items-center gap-2 border-b border-zinc-100 bg-zinc-50/50 px-6 py-4 pr-14">
+        <SheetHeader className="flex-row items-center gap-2 border-b border-border bg-muted/50 px-6 py-4 pr-14">
           <SheetTitle className="sr-only">{shown.name}</SheetTitle>
           <SheetDescription className="sr-only">
             {shown.description}
@@ -149,7 +149,9 @@ export default function CatalogCanvasEntryDetail({
             {groupLabel(shown.group)}
           </p>
 
-          <p className="font-mono text-xs text-slate-400">{shown.category}</p>
+          <p className="font-mono text-xs text-muted-foreground">
+            {shown.category}
+          </p>
         </SheetHeader>
 
         <div className="flex-1 space-y-6 overflow-y-auto p-6">
@@ -166,7 +168,7 @@ export default function CatalogCanvasEntryDetail({
                 href={catalogService.sourceUrl(shown)}
                 target="_blank"
                 rel="noreferrer"
-                className="flex items-center gap-1 text-indigo-600 hover:underline"
+                className="flex items-center gap-1 text-indigo-400 hover:underline"
               >
                 {shown.id}.md
                 <ExternalLink aria-hidden="true" className="size-3.5" />
@@ -183,7 +185,9 @@ export default function CatalogCanvasEntryDetail({
               body below because a reader deciding whether to take a file
               should not have to start reading it to find out what it is. */}
           <EntrySection label="Introduction">
-            <p className="text-zinc-600 text-sm/relaxed">{shown.description}</p>
+            <p className="text-muted-foreground text-sm/relaxed">
+              {shown.description}
+            </p>
           </EntrySection>
 
           <EntrySection label="How to install">
@@ -203,12 +207,12 @@ export default function CatalogCanvasEntryDetail({
           )}
         </div>
 
-        <Flex className="items-center gap-2 flex-wrap border-t border-zinc-100 bg-zinc-50/50 px-6 py-4 text-xs text-muted-foreground">
+        <Flex className="items-center gap-2 flex-wrap border-t border-border bg-muted/50 px-6 py-4 text-xs text-muted-foreground">
           <a
             href={catalogService.contributeUrl(shown)}
             target="_blank"
             rel="noreferrer"
-            className="flex items-center gap-1.5 font-mono text-[11px] text-indigo-600 hover:underline"
+            className="flex items-center gap-1.5 font-mono text-[11px] text-indigo-400 hover:underline"
           >
             <GitPullRequest aria-hidden="true" className="size-3.5" />
             Contribute one of your own

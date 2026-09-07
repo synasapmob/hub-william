@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type MouseEvent, type Ref } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+  type Ref,
+} from "react";
 
 import type { CanvasBounds, CanvasPosition } from "./catalog-canvas-geometry";
 
@@ -11,7 +18,7 @@ const ZOOM_STEP = 0.15;
 // below it rather than behind it. "Fit view" measures the toolbar instead; this
 // is the one place a number has to stand in for that measurement, because it is
 // the state the canvas mounts in.
-const DEFAULT_VIEW = { pan: { x: 60, y: 95 }, zoom: 0.7 } as const;
+const DEFAULT_VIEW = { pan: { x: 60, y: 140 }, zoom: 0.7 } as const;
 /** Breathing room left around the tree when fitting it to the surface. */
 const FIT_MARGIN = 24;
 
@@ -107,6 +114,13 @@ export interface CatalogCanvasViewportControls {
   surface: CatalogCanvasSurfaceProps;
   /** Frame a box of canvas units against the surface as it is measured now. */
   fitView: (box: CanvasBounds) => void;
+  /**
+   * Put a canvas point just below the toolbar, centred horizontally.
+   *
+   * A group filter that did not move the artboard would hide the heading it
+   * just named behind whatever the reader was already looking at.
+   */
+  panTo: (point: CanvasPosition) => void;
   resetView: () => void;
   zoomIn: () => void;
   zoomOut: () => void;
@@ -235,6 +249,23 @@ export function useCatalogCanvasViewport({
     });
   }
 
+  const panTo = useCallback((point: CanvasPosition) => {
+    const surface = surfaceRef.current;
+
+    if (!surface) return;
+
+    const overlay = surface.querySelector("[data-canvas-overlay]");
+    const topInset = (overlay?.getBoundingClientRect().height ?? 0) + 40;
+
+    setViewport((previous) => ({
+      zoom: previous.zoom,
+      pan: {
+        x: surface.clientWidth / 2 - point.x * previous.zoom,
+        y: topInset + FIT_MARGIN - point.y * previous.zoom,
+      },
+    }));
+  }, []);
+
   function handleMouseDown(event: MouseEvent<HTMLElement>) {
     if (locked) return;
 
@@ -280,6 +311,7 @@ export function useCatalogCanvasViewport({
       onMouseLeave: releaseGrab,
     },
     fitView,
+    panTo,
     resetView: () => setViewport(DEFAULT_VIEW),
     zoomIn: () =>
       setViewport((previous) =>
