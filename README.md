@@ -18,12 +18,12 @@ cross, and nothing that fires when it tries.
 
 So the boundary gets written down, in four kinds of document:
 
-|               | What it is                                                                                                                                                               |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Harnesses** | Execution modes. A tag you type — `[plan]`, `[delivery-local]` — and the contract the agent must load before it plans, mutates, or writes anywhere outside the checkout. |
-| **Skills**    | One discipline's rules, loaded when the task matches, so they are in context when they apply and absent when they do not.                                                |
-| **Hooks**     | Contracts that fire around an action — before a GitHub write, before a Linear issue, before evidence is claimed — whether or not a tag asked for them.                   |
-| **Templates** | The shapes the work is written into: pull requests, issues, approach histories, test evidence. Two agents produce the same artefact.                                     |
+|               | What it is                                                                                                                                                                                                          |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Harnesses** | Execution modes and modifiers. A tag you type — `[plan]`, `[delivery-local]`, `[report]` — and the contract the agent must load before it plans, mutates, writes outside the checkout, or shapes its final handoff. |
+| **Skills**    | One discipline's rules, loaded when the task matches, so they are in context when they apply and absent when they do not.                                                                                           |
+| **Hooks**     | Contracts that fire around an action — before a GitHub write, before a Linear issue, before evidence is claimed — whether or not a tag asked for them.                                                              |
+| **Templates** | The shapes the work is written into: pull requests, issues, approach histories, test evidence. Two agents produce the same artefact.                                                                                |
 
 None of that is a framework. Every one of them is a Markdown file in this
 repository, which is the point: a boundary you can read, review in a diff, and
