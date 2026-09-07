@@ -29,7 +29,7 @@ interface InlineCodeProps {
 
 function InlineCode({ children }: InlineCodeProps) {
   return (
-    <code className="rounded border border-zinc-200 bg-zinc-100 px-1 py-0.5 font-mono text-[0.85em] text-zinc-800">
+    <code className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[0.85em] text-foreground">
       {children}
     </code>
   );
@@ -66,7 +66,7 @@ export default function WhitepaperRoute() {
       className="mx-auto w-full max-w-4xl space-y-12 px-6 pt-12 pb-24 text-left"
     >
       <header className="space-y-4 border-b border-border pb-10">
-        <p className="flex items-center gap-2 font-mono text-xs font-medium tracking-wider text-indigo-600 uppercase">
+        <p className="flex items-center gap-2 font-mono text-xs font-medium tracking-wider text-indigo-400 uppercase">
           <Boxes aria-hidden="true" className="size-4" />
           White paper &amp; system architecture
         </p>
@@ -96,7 +96,7 @@ export default function WhitepaperRoute() {
         index="01. The problem"
         title="Why prompting harder does not fix it"
       >
-        <div className="space-y-3 text-zinc-700 text-sm/relaxed">
+        <div className="space-y-3 text-foreground/80 text-sm/relaxed">
           <p>
             Contemporary AI coding agents suffer from fundamental systemic
             limitations: prompt bloat, memory degradation across long contexts,
@@ -111,7 +111,7 @@ export default function WhitepaperRoute() {
             conventions, and opens a pull request nobody can review.
           </p>
 
-          <p className="rounded-xl border border-amber-200/80 bg-amber-50/70 p-4 font-mono text-amber-900 text-xs/relaxed">
+          <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 font-mono text-amber-200 text-xs/relaxed">
             <strong>Core hypothesis:</strong> the failure is not a wording
             problem, so it does not have a wording fix. An agent needs a
             boundary written down where it can be read — harnesses it executes
@@ -125,14 +125,14 @@ export default function WhitepaperRoute() {
         index="02. How to contribute"
         title="Everything is a Markdown file, so a contribution is a pull request"
       >
-        <div className="space-y-4 text-zinc-700 text-sm/relaxed">
+        <div className="space-y-4 text-foreground/80 text-sm/relaxed">
           <p>
             Everything on the canvas is a Markdown file, so contributing is
             opening a pull request that adds one. There is no upload, no
             account, and nothing to run.
           </p>
 
-          <ol className="list-decimal space-y-4 pl-5 marker:font-mono marker:text-zinc-400">
+          <ol className="list-decimal space-y-4 pl-5 marker:font-mono marker:text-muted-foreground">
             <li>Fork the repository.</li>
 
             <li className="space-y-3">
@@ -181,7 +181,7 @@ export default function WhitepaperRoute() {
           <Flex className="items-center gap-3 flex-wrap pt-1">
             <Link
               to="/library"
-              className="flex items-center gap-2 rounded-lg bg-zinc-900 px-3 py-2 text-xs font-medium tracking-tight text-white shadow-xs transition-colors hover:bg-zinc-800 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+              className="flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-xs font-medium tracking-tight text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
             >
               <Layers aria-hidden="true" className="size-3.5" />
               Read the catalogue
@@ -191,7 +191,7 @@ export default function WhitepaperRoute() {
               href={GITHUB_REPOSITORY_URL}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-medium tracking-tight text-zinc-700 transition-colors hover:bg-zinc-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+              className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-medium tracking-tight text-foreground/80 transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
             >
               synasapmob/hub-william on GitHub
               <ExternalLink aria-hidden="true" className="size-3.5" />
@@ -204,7 +204,7 @@ export default function WhitepaperRoute() {
         index="03. How to use"
         title="Install the catalogue on your machine"
       >
-        <div className="space-y-4 text-zinc-700 text-sm/relaxed">
+        <div className="space-y-4 text-foreground/80 text-sm/relaxed">
           <p>
             There is deliberately no wrapper command to install first. A wrapper
             is one more thing that has to be present and correct before you can
@@ -216,11 +216,11 @@ export default function WhitepaperRoute() {
           <InstallCommands />
 
           <div className="space-y-2">
-            <p className="font-mono text-xs font-semibold tracking-wider text-zinc-700 uppercase">
+            <p className="font-mono text-xs font-semibold tracking-wider text-foreground/80 uppercase">
               What it needs on the machine
             </p>
 
-            <ul className="list-disc space-y-1.5 pl-5 marker:text-zinc-400">
+            <ul className="list-disc space-y-1.5 pl-5 marker:text-muted-foreground">
               <li>
                 <InlineCode>python3</InlineCode> 3.8 or newer on{" "}
                 <InlineCode>PATH</InlineCode>. macOS ships one at{" "}

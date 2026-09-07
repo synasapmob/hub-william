@@ -16,7 +16,7 @@ which is the only reason it is worth trusting.
 
 ```bash
 git clone https://github.com/synasapmob/hub-william.git
-cd hub-william/machine
+cd hub-william/scripts/machine
 ./install.sh init
 ```
 

@@ -1,3 +1,5 @@
+import { tv } from "tailwind-variants";
+
 import {
   groupLabel,
   type CatalogCategory,
@@ -11,8 +13,18 @@ import {
   TREE_SPINE_X,
 } from "./catalog-canvas-geometry";
 
+const headingDim = tv({
+  variants: {
+    dimmed: {
+      true: "opacity-45",
+    },
+  },
+});
+
 interface CatalogCanvasGroupHeadingProps {
   group: CatalogGroup;
+  /** A group filter is on, and this heading is not the one being read. */
+  isDimmed: boolean;
   /** The open tree this heading hangs from, which is where its colour is. */
   root: CatalogCategory;
   size: number;
@@ -34,6 +46,7 @@ interface CatalogCanvasGroupHeadingProps {
  */
 export default function CatalogCanvasGroupHeading({
   group,
+  isDimmed,
   root,
   size,
   top,
@@ -48,7 +61,7 @@ export default function CatalogCanvasGroupHeading({
         width: `${GROUP_HEADING_WIDTH}px`,
         height: `${GROUP_HEADING_HEIGHT}px`,
       }}
-      className={heading()}
+      className={heading({ class: headingDim({ dimmed: isDimmed }) })}
     >
       <p className={headingLabel()}>{groupLabel(group)}</p>
       <p className={headingCount()}>{size}</p>

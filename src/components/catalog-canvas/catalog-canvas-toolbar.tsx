@@ -16,8 +16,10 @@ import Flex from "@/components/ui/flex";
 import { Input } from "@/components/ui/input";
 import {
   GITHUB_REPOSITORY_URL,
+  groupLabel,
   rootLabel,
   type CatalogCategory,
+  type CatalogGroup,
 } from "@/services/catalog";
 import { rootSlots } from "@/utils/utils.tone";
 
@@ -32,12 +34,23 @@ const rootIcons: Record<string, LucideIcon> = {
 
 /** The tab reads its own root and its own state; the colour comes from the same
  *  table the root card uses, so a tab and its card cannot disagree. */
+const groupFilterChip = tv({
+  base: "rounded-md border px-2 py-0.5 font-mono text-[11px] font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden",
+  variants: {
+    active: {
+      true: "border-transparent bg-primary text-primary-foreground shadow-xs",
+      false:
+        "border-border bg-muted text-muted-foreground hover:bg-accent hover:text-foreground",
+    },
+  },
+});
+
 const categoryTab = tv({
   base: "flex items-center gap-1.5 rounded-xl px-3 py-2 font-mono text-sm font-medium shadow-xs transition-all focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden",
   variants: {
     expanded: {
       false:
-        "border border-slate-200/80 bg-slate-100 text-slate-700 hover:bg-slate-200",
+        "border border-border bg-muted text-muted-foreground hover:bg-accent",
       true: "text-white",
     },
   },
@@ -84,11 +97,16 @@ interface CatalogCanvasToolbarProps {
   /** How many folders the catalogue on screen spans. */
   groupCount: number;
   expandedCategory: CatalogCategory | null;
+  /** Folders of the open tree, in the order the tree draws them. */
+  groups: CatalogGroup[];
+  /** Which folder the open tree is filtered to, or null for every folder. */
+  selectedGroup: CatalogGroup | null;
   /** The root cards this canvas draws, in order. */
   roots: CatalogCategory[];
   searchQuery: string;
   onSearchQueryChange: (query: string) => void;
   onSelectCategory: (category: CatalogCategory) => void;
+  onSelectGroup: (group: CatalogGroup | null) => void;
 }
 
 export default function CatalogCanvasToolbar({
@@ -97,10 +115,13 @@ export default function CatalogCanvasToolbar({
   documentCount,
   groupCount,
   expandedCategory,
+  groups,
+  selectedGroup,
   roots,
   searchQuery,
   onSearchQueryChange,
   onSelectCategory,
+  onSelectGroup,
 }: CatalogCanvasToolbarProps) {
   // `data-canvas-overlay` is read by the canvas's own mousedown handler, which
   // must not start a pan when the pointer went down on the toolbar.
@@ -109,12 +130,12 @@ export default function CatalogCanvasToolbar({
       data-canvas-overlay
       className="pointer-events-none absolute inset-x-5 top-5 z-30"
     >
-      <div className="pointer-events-auto flex w-full flex-col gap-4 rounded-2xl border border-slate-200/90 bg-card/95 px-4 py-3.5 shadow-sm backdrop-blur-md lg:flex-row lg:items-center lg:justify-between">
+      <div className="pointer-events-auto flex w-full flex-col gap-4 rounded-2xl border border-border bg-card/95 px-4 py-3.5 shadow-sm backdrop-blur-md lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-col gap-3">
           <div className="relative">
             <Search
               aria-hidden="true"
-              className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400"
+              className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
             />
 
             <Input
@@ -123,7 +144,7 @@ export default function CatalogCanvasToolbar({
               aria-label="Search the catalogue"
               placeholder={searchPlaceholder}
               onChange={(event) => onSearchQueryChange(event.target.value)}
-              className="h-10 w-full rounded-xl bg-slate-50 pr-8 pl-9 text-sm lg:w-120"
+              className="h-10 w-full rounded-xl bg-muted pr-8 pl-9 text-sm lg:w-120 [&::-webkit-search-cancel-button]:hidden"
             />
 
             {searchQuery ? (
@@ -131,7 +152,7 @@ export default function CatalogCanvasToolbar({
                 type="button"
                 aria-label="Clear search"
                 onClick={() => onSearchQueryChange("")}
-                className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-slate-400 transition-colors hover:text-slate-600 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+                className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
               >
                 <X aria-hidden="true" className="size-3.5" />
               </button>
@@ -148,6 +169,33 @@ export default function CatalogCanvasToolbar({
               />
             ))}
           </Flex>
+
+          {expandedCategory && groups.length > 0 ? (
+            <Flex className="items-center gap-1.5 flex-wrap">
+              <button
+                type="button"
+                aria-pressed={selectedGroup === null}
+                className={groupFilterChip({ active: selectedGroup === null })}
+                onClick={() => onSelectGroup(null)}
+              >
+                All
+              </button>
+
+              {groups.map((group) => (
+                <button
+                  type="button"
+                  key={group}
+                  aria-pressed={selectedGroup === group}
+                  className={groupFilterChip({
+                    active: selectedGroup === group,
+                  })}
+                  onClick={() => onSelectGroup(group)}
+                >
+                  {groupLabel(group)}
+                </button>
+              ))}
+            </Flex>
+          ) : null}
         </div>
 
         <div className="flex flex-col gap-3 lg:items-end">
@@ -157,9 +205,10 @@ export default function CatalogCanvasToolbar({
               would need a GitHub API call and a CSP entry to be true, so no
               number here claims it. */}
           <p className="font-mono text-xs text-muted-foreground">
-            <strong className="text-zinc-800">{documentCount}</strong> documents
+            <strong className="text-foreground">{documentCount}</strong>{" "}
+            documents
             {" · "}
-            <strong className="text-zinc-800">{groupCount}</strong> groups
+            <strong className="text-foreground">{groupCount}</strong> groups
           </p>
 
           <Flex className="items-center gap-2 flex-wrap">
@@ -171,7 +220,7 @@ export default function CatalogCanvasToolbar({
               href={GITHUB_REPOSITORY_URL}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-1.5 rounded-xl bg-zinc-900 px-3 py-2 font-mono text-sm font-medium text-white shadow-xs transition-colors hover:bg-zinc-800 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+              className="flex items-center gap-1.5 rounded-xl bg-primary px-3 py-2 font-mono text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
             >
               <GitPullRequest aria-hidden="true" className="size-4" />
               Contribute

@@ -25,12 +25,12 @@ describe("useCatalogCanvasViewport", () => {
 
     fireEvent.mouseDown(surface, { clientX: 100, clientY: 140 });
     fireEvent.mouseMove(surface, { clientX: 140, clientY: 180 });
-    expect(position).toHaveTextContent("100,135");
+    expect(position).toHaveTextContent("100,180");
 
     rerender(<ViewportHarness locked />);
     fireEvent.mouseDown(surface, { clientX: 200, clientY: 240 });
     fireEvent.mouseMove(surface, { clientX: 260, clientY: 300 });
-    expect(position).toHaveTextContent("100,135");
+    expect(position).toHaveTextContent("100,180");
   });
 
   it("does not pan from a wheel while its sheet is open", () => {
@@ -39,10 +39,10 @@ describe("useCatalogCanvasViewport", () => {
     const position = container.querySelector("output")!;
 
     fireEvent.wheel(surface, { deltaX: 10, deltaY: 20 });
-    expect(position).toHaveTextContent("50,75");
+    expect(position).toHaveTextContent("50,120");
 
     rerender(<ViewportHarness locked />);
     fireEvent.wheel(surface, { deltaX: 20, deltaY: 40 });
-    expect(position).toHaveTextContent("50,75");
+    expect(position).toHaveTextContent("50,120");
   });
 });

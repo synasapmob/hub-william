@@ -10,10 +10,10 @@ const metricIcon = tv({
   base: "size-3.5",
   variants: {
     tone: {
-      runs: "text-indigo-600",
-      tokens: "text-amber-600",
-      calls: "text-emerald-600",
-      cost: "text-zinc-700",
+      runs: "text-indigo-400",
+      tokens: "text-amber-400",
+      calls: "text-emerald-400",
+      cost: "text-muted-foreground",
     },
   },
 });
@@ -72,14 +72,14 @@ export default function ActivitiesSummary({ stats }: ActivitiesSummaryProps) {
         return (
           <div
             key={metric.label}
-            className="rounded-xl border border-zinc-200/90 bg-card p-3.5 shadow-xs"
+            className="rounded-xl border border-border bg-card p-3.5 shadow-xs"
           >
             <Flex className="items-center justify-between gap-2 mb-1">
               <dt className="font-mono text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
                 {metric.label}
               </dt>
 
-              <div className="rounded-md border border-zinc-100 bg-zinc-50 p-1">
+              <div className="rounded-md border border-border bg-muted p-1">
                 <Icon
                   aria-hidden="true"
                   className={metricIcon({ tone: metric.tone })}
@@ -91,7 +91,7 @@ export default function ActivitiesSummary({ stats }: ActivitiesSummaryProps) {
               {metric.value}
             </dd>
 
-            <dd className="mt-0.5 font-mono text-[10px] text-slate-400">
+            <dd className="mt-0.5 font-mono text-[10px] text-muted-foreground">
               {metric.detail}
             </dd>
           </div>

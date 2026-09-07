@@ -17,8 +17,8 @@ const menuItem = tv({
   base: "flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden",
   variants: {
     current: {
-      true: "bg-slate-100 font-medium text-foreground",
-      false: "text-muted-foreground hover:bg-slate-50 hover:text-foreground",
+      true: "bg-muted font-medium text-foreground",
+      false: "text-muted-foreground hover:bg-accent hover:text-foreground",
     },
   },
 });
@@ -72,12 +72,12 @@ export default function CatalogCanvasMenu({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-slate-100 px-3 py-2 font-mono text-sm font-medium text-slate-700 transition-colors hover:bg-slate-200 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+          className="flex items-center gap-1.5 rounded-xl border border-border bg-muted px-3 py-2 font-mono text-sm font-medium text-foreground/80 transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
         >
           <Boxes aria-hidden="true" className="size-4" />
-          Catalogue
+          Contributors
           <span className="text-muted-foreground">
-            {contributor ? `@${contributor}` : "All"}
+            {contributor ? `@${contributor}` : "@Default"}
           </span>
           <ChevronDown aria-hidden="true" className="size-3.5" />
         </button>
@@ -87,7 +87,7 @@ export default function CatalogCanvasMenu({
         <div className="relative">
           <Search
             aria-hidden="true"
-            className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-slate-400"
+            className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
           />
 
           <Input
@@ -96,7 +96,7 @@ export default function CatalogCanvasMenu({
             aria-label="Search catalogues"
             placeholder="Search contributors..."
             onChange={(event) => setQuery(event.target.value)}
-            className="h-9 rounded-lg bg-slate-50 pl-8 text-sm"
+            className="h-9 rounded-lg bg-muted pl-8 text-sm"
           />
         </div>
 
@@ -109,7 +109,7 @@ export default function CatalogCanvasMenu({
             className={menuItem({ current: contributor === null })}
           >
             <Avatar size="sm">
-              <AvatarFallback className="bg-indigo-50 text-indigo-600">
+              <AvatarFallback className="bg-indigo-500/10 text-indigo-300">
                 <Boxes aria-hidden="true" className="size-3" />
               </AvatarFallback>
             </Avatar>
@@ -122,7 +122,7 @@ export default function CatalogCanvasMenu({
             </span>
 
             {contributor === null ? (
-              <Check aria-hidden="true" className="size-3.5 text-indigo-600" />
+              <Check aria-hidden="true" className="size-3.5 text-indigo-400" />
             ) : null}
           </Link>
 
@@ -144,7 +144,7 @@ export default function CatalogCanvasMenu({
                   src={`https://github.com/${name}.png?size=64`}
                   alt=""
                 />
-                <AvatarFallback className="bg-zinc-100 text-zinc-700">
+                <AvatarFallback className="bg-muted text-muted-foreground">
                   {name.charAt(0).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
@@ -158,7 +158,7 @@ export default function CatalogCanvasMenu({
               {contributor === name ? (
                 <Check
                   aria-hidden="true"
-                  className="size-3.5 text-indigo-600"
+                  className="size-3.5 text-indigo-400"
                 />
               ) : null}
             </Link>
