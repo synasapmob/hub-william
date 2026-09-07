@@ -1,7 +1,10 @@
 import { lazy, Suspense, type ReactNode } from "react";
 
+import type { CatalogEntry } from "@/services/catalog";
+
 interface MarkdownViewProps {
   source: string;
+  entry: CatalogEntry;
 }
 
 // react-markdown, remark-gfm and the sanitiser are ~51 kB gzipped and only the
@@ -24,10 +27,13 @@ function MarkdownFallback() {
  * that renders "just a preview" is worse than none, because it shows an author
  * something safe while the published page shows something else.
  */
-export default function MarkdownView({ source }: MarkdownViewProps): ReactNode {
+export default function MarkdownView({
+  source,
+  entry,
+}: MarkdownViewProps): ReactNode {
   return (
     <Suspense fallback={<MarkdownFallback />}>
-      <MarkdownRenderer source={source} />
+      <MarkdownRenderer source={source} entry={entry} />
     </Suspense>
   );
 }

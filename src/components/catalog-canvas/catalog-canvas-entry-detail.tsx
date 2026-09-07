@@ -199,7 +199,7 @@ export default function CatalogCanvasEntryDetail({
           {isTemplate ? (
             <CopyBlock source={shown.source} />
           ) : (
-            <MarkdownView source={shown.body} />
+            <MarkdownView source={shown.body} entry={shown} />
           )}
         </div>
 
