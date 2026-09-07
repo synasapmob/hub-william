@@ -11,7 +11,8 @@ Full tag rules live under `contributors/default/libraries/harness/tags/`:
 
 - `delivery.md`, `delivery-verify.md`, `answer.md`, `report.md`, `plan.md`,
   `linear.md`
-- `worktree.md`, `playwright.md`, `contrib/synasapmob/harness/dopa-tps.md`, `ignore.md`
+- `worktree.md`, `playwright.md`, `guess.md`,
+  `contrib/synasapmob/harness/dopa-tps.md`, `ignore.md`
 - `rebase.md`, `draft.md`, `mergeable.md`, `merge.md`
 
 The dispatcher must read every matched tag file and implied dependency
@@ -48,6 +49,23 @@ tags containing an `auto` segment are unsupported and perform no action.
   migrations, deploys and token/CLI restrictions.
 
 These files apply whenever their action occurs, even without a workflow tag.
+
+## Decision authority
+
+No-guess is the default for every chat. Before making a substantive decision,
+read the latest applicable, non-superseded ADRs and decision records,
+requirements/docs, current code/tests and relevant merged PR decisions. If
+those sources already decide the behavior, wire it without asking again. If a
+material choice is still missing, ambiguous or conflicting, ask the operator
+one focused decision question before the affected mutation.
+
+`[guess]` opts one turn into decision latitude for genuine authority gaps. It
+lets the agent choose the best-supported hypothesis, think through downstream
+effects and pursue adjacent next decisions needed for a coherent result without
+asking first. Material assumptions stay explicit, observable consequences must
+be verified, existing authority still wins, and all safety, authorization and
+side-effect boundaries remain unchanged. `[plan] [guess]` may speculate only in
+the plan; answer-only and report-only modes still perform no actions.
 
 Linear issue creation is default-deny. `[delivery-ete]` may create exactly one
 owning issue; `[plan] [linear]` may create exactly one
@@ -167,6 +185,8 @@ an unresolved metadata write is an explicit completion blocker.
 - `[worktree] [delivery-local]` or `[delivery-local] [worktree]` — same local
   restrictions, but use an isolated worktree.
 - Add `[playwright]`, `[dopa-tps]` or `[ignore]` when needed.
+- Add `[guess]` only when the agent should decide unresolved behavior without
+  waiting for operator confirmation.
 
 Choose exactly one delivery tag. `[delivery-local]` cannot combine with
 `[linear]`, `[rebase]`, `[draft]`, `[mergeable]` or `[merge]`. `[draft]` cannot
