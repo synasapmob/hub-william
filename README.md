@@ -6,7 +6,10 @@ published as a canvas you can read, and as Markdown a machine can install.
 **[synasapmob.github.io/hub-william](https://synasapmob.github.io/hub-william/)**
 
 📖 [Architecture](docs/architecture.md) ·
-[Frontend conventions](docs/frontend-conventions.md)
+[Frontend conventions](docs/frontend-conventions.md) ·
+[Contributing](.github/CONTRIBUTING.md) ·
+[Security](.github/SECURITY.md) ·
+[MIT License](LICENSE)
 
 ## What problem this solves
 
