@@ -1,13 +1,13 @@
 {
   "description": "Every document in the Hub William catalogue. Fetch `url` for the file exactly as it is in the repository, or an archive's `url` for a whole folder — its members keep these same paths, so unzipping into a checkout puts them where an agent reads them.",
   "repository": "https://github.com/synasapmob/hub-william",
-  "count": 42,
+  "count": 43,
   "documents": [
     {
       "id": "contributors/default/libraries/harness/AGENTS",
       "path": "contributors/default/libraries/harness/AGENTS.md",
       "url": "/hub-william/dev/catalog/contributors/default/libraries/harness/AGENTS.md",
-      "bytes": 12817
+      "bytes": 14639
     },
     {
       "id": "contributors/default/libraries/harness/evidence/approach-history",
@@ -68,6 +68,12 @@
       "path": "contributors/default/libraries/harness/tags/draft.md",
       "url": "/hub-william/dev/catalog/contributors/default/libraries/harness/tags/draft.md",
       "bytes": 1115
+    },
+    {
+      "id": "contributors/default/libraries/harness/tags/guess",
+      "path": "contributors/default/libraries/harness/tags/guess.md",
+      "url": "/hub-william/dev/catalog/contributors/default/libraries/harness/tags/guess.md",
+      "bytes": 1601
     },
     {
       "id": "contributors/default/libraries/harness/tags/ignore",
@@ -261,29 +267,29 @@
       "id": "contributors",
       "path": "contributors.zip",
       "url": "/hub-william/dev/catalog/contributors.zip",
-      "bytes": 65288,
-      "files": 42
+      "bytes": 67023,
+      "files": 43
     },
     {
       "id": "contributors/default",
       "path": "contributors/default.zip",
       "url": "/hub-william/dev/catalog/contributors/default.zip",
-      "bytes": 48931,
-      "files": 30
+      "bytes": 50666,
+      "files": 31
     },
     {
       "id": "contributors/default/libraries",
       "path": "contributors/default/libraries.zip",
       "url": "/hub-william/dev/catalog/contributors/default/libraries.zip",
-      "bytes": 46030,
-      "files": 27
+      "bytes": 47765,
+      "files": 28
     },
     {
       "id": "contributors/default/libraries/harness",
       "path": "contributors/default/libraries/harness.zip",
       "url": "/hub-william/dev/catalog/contributors/default/libraries/harness.zip",
-      "bytes": 35178,
-      "files": 20
+      "bytes": 36913,
+      "files": 21
     },
     {
       "id": "contributors/default/libraries/skills",
