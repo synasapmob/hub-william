@@ -333,7 +333,7 @@ does not permit lying about a test, check or result. Requirements of the other
 active personal tags remain in force: for example, \`[delivery-ete] [ignore]\`
 still creates its Linear issue and PR, runs applicable Playwright verification,
 and waits for required CI/CD.
-`,f=`# Linear tags
+`,ee=`# Linear tags
 
 ## \`[linear]\`
 
@@ -410,7 +410,7 @@ The selector alone does not authorize a Linear write or imply delivery.
 writes; add the separate \`[linear]\` tag only when the operator explicitly wants
 the plan to update the existing issue. Answer-only modes still suppress every
 write.
-`,ee=`# \`[merge]\`
+`,f=`# \`[merge]\`
 
 Finish the PR-producing delivery and merge its PR before reporting successful
 completion. Use \`[merge]\` only with \`[delivery-ete]\`,
@@ -542,7 +542,7 @@ and why the PR is now ready. Link the earlier blocker comment when present.
 Repeat that concise before/after account in the handoff. Do not stop successfully
 while an actionable failure remains or the PR is Draft, dirty, behind,
 conflicted, blocked, pending or failing.
-`,ne=`# \`[plan]\`
+`,p=`# \`[plan]\`
 
 Discuss, investigate read-only, offer options and build a reviewable plan with
 the operator. Do not edit code or configuration, run mutating commands, commit,
@@ -553,7 +553,7 @@ solutions, explain the trade-offs and offer concrete options rather than
 silently choosing. \`[worktree] [plan]\` may create the worktree first, then all
 work inside it remains planning/read-only. \`[plan] [linear]\` may also create or
 update the Linear issue described in \`linear.md\`, then stops without coding.
-`,re=`# \`[playwright]\`
+`,m=`# \`[playwright]\`
 
 Use the configured Playwright MCP server only. Do not substitute a Playwright
 shell script, Chrome DevTools, a generic browser tool or manual screenshots. If
@@ -594,7 +594,7 @@ this task or whose ownership is uncertain. If the available MCP exposes only a
 browser-wide close and the agent cannot prove that browser belongs exclusively
 to this task, leave it running and report the cleanup limitation instead of
 risking another session. Browser cleanup never deletes screenshot evidence.
-`,ie="# `[rebase]`\n\nUpdate exactly one current PR branch onto its latest real base and collapse all\ncommits belonging only to that branch into one commit. `[rebase]` is opt-in;\nwithout it, delivery may legitimately produce one or multiple commits. It may\nrun as a standalone request or compose with `[delivery-ete]`,\n`[delivery-linear-<ISSUE-ID>]` and\n`[delivery-verify-linear-<ISSUE-ID>]`. It conflicts with `[delivery-local]` and\n`[plan]`, and it may compose with `[draft]` or `[merge]`.\n\nResolve the target from an explicit PR reference first, otherwise from the PR\nattached to the current branch, otherwise from one exact PR established by the\nactive conversation. Confirm the repository, PR number, head branch and base\nbranch through `gh` before rewriting anything. Never guess between multiple PRs\nor mutate a similarly named branch. If the target is missing or ambiguous, ask.\n\nFor an existing PR, its actual `baseRefName` is authoritative; do not substitute\n`dev` or the repository default branch. When `[rebase]` is part of delivery\nbefore a PR exists, use that delivery worktree's recorded base: latest\n`origin/dev`, falling back to the remote default branch only when `dev` does not\nexist. Fetch and prune the remote, use the remote-tracking base directly, and do\nnot use a blind `git pull` to decide the base.\n\nRequire a clean worktree before standalone history rewriting. Record the old\nhead SHA, rebase the branch onto the fetched base, resolve conflicts without\ndiscarding either side's required behavior, then squash the branch-only range\ninto one meaningful non-merge commit. Preserve the post-rebase tree exactly\nduring the squash. Verify all of the following before pushing:\n\n- The fetched PR base is an ancestor of the rewritten head.\n- `git rev-list --count <remote-base>..HEAD` is exactly `1`.\n- The final diff still satisfies every requirement and contains no lost change.\n- Required tests and browser verification pass again for the rewritten SHA.\n\nWhen the remote head already exists, push only with `--force-with-lease`, never\nplain `--force`, and fail safely if the lease changed or branch protection\nrejects the rewrite. Re-read the PR through `gh`, verify its new head SHA, and\nwait for required checks for that SHA. `[rebase]` alone does not create or merge\na PR; `[merge]` may continue only after this rewritten head is fully verified.\n",ae=`# Report tags
+`,h="# `[rebase]`\n\nUpdate exactly one current PR branch onto its latest real base and collapse all\ncommits belonging only to that branch into one commit. `[rebase]` is opt-in;\nwithout it, delivery may legitimately produce one or multiple commits. It may\nrun as a standalone request or compose with `[delivery-ete]`,\n`[delivery-linear-<ISSUE-ID>]` and\n`[delivery-verify-linear-<ISSUE-ID>]`. It conflicts with `[delivery-local]` and\n`[plan]`, and it may compose with `[draft]` or `[merge]`.\n\nResolve the target from an explicit PR reference first, otherwise from the PR\nattached to the current branch, otherwise from one exact PR established by the\nactive conversation. Confirm the repository, PR number, head branch and base\nbranch through `gh` before rewriting anything. Never guess between multiple PRs\nor mutate a similarly named branch. If the target is missing or ambiguous, ask.\n\nFor an existing PR, its actual `baseRefName` is authoritative; do not substitute\n`dev` or the repository default branch. When `[rebase]` is part of delivery\nbefore a PR exists, use that delivery worktree's recorded base: latest\n`origin/dev`, falling back to the remote default branch only when `dev` does not\nexist. Fetch and prune the remote, use the remote-tracking base directly, and do\nnot use a blind `git pull` to decide the base.\n\nRequire a clean worktree before standalone history rewriting. Record the old\nhead SHA, rebase the branch onto the fetched base, resolve conflicts without\ndiscarding either side's required behavior, then squash the branch-only range\ninto one meaningful non-merge commit. Preserve the post-rebase tree exactly\nduring the squash. Verify all of the following before pushing:\n\n- The fetched PR base is an ancestor of the rewritten head.\n- `git rev-list --count <remote-base>..HEAD` is exactly `1`.\n- The final diff still satisfies every requirement and contains no lost change.\n- Required tests and browser verification pass again for the rewritten SHA.\n\nWhen the remote head already exists, push only with `--force-with-lease`, never\nplain `--force`, and fail safely if the lease changed or branch protection\nrejects the rewrite. Re-read the PR through `gh`, verify its new head SHA, and\nwait for required checks for that SHA. `[rebase]` alone does not create or merge\na PR; `[merge]` may continue only after this rewritten head is fully verified.\n",g=`# Report tags
 
 ## \`[report]\`
 
@@ -781,7 +781,7 @@ Keep the report skimmable and use these sections:
 Omit empty detail, not required headings: use \`None verified\` where a section
 has no supported items. Never fabricate completeness, ownership, task status,
 relationships or overlap from partial source coverage.
-`,p=`# \`[worktree]\`
+`,ne=`# \`[worktree]\`
 
 Create all worktrees under:
 
@@ -798,7 +798,7 @@ The directory slug is not the Git branch name; Linear-tracked ETE work uses the
 exact canonical \`gitBranchName\` contract in \`delivery.md\`. Never alter or clean
 the operator's current tree. Do not auto-delete the worktree or branch; cleanup
 requires an explicit request.
-`,m=`---
+`,re=`---
 name: frontend-convention
 description: Discover and apply the active repository's frontend conventions before implementing or reviewing a user-visible frontend change. Use for UI components, routes, styling, interaction, responsive behavior, and frontend accessibility; not for server-only or non-UI work.
 ---
@@ -843,7 +843,7 @@ found. Explicitly check all five personal-baseline headings and mark a heading
 not applicable only when the changed surface genuinely does not use that
 concern. List the convention sources used. Browser verification is governed by
 the active delivery/Playwright tags in the personal harness.
-`,h=`# Frontend convention baseline
+`,ie=`# Frontend convention baseline
 
 These five sections are the personal baseline. Repository-specific
 frontend instructions may refine them for the active project.
@@ -1069,7 +1069,7 @@ failure, fired far more often.
   enough state, child components, or ownership boundaries to benefit from a
   public entry point. The Profile header keeps its own folder, while its two
   standalone learning visualizations remain flat beside the route.
-`,g=`---
+`,ae=`---
 name: frontend-verify
 description: Verify a user-visible frontend change by driving it in a real browser through the Playwright or Chrome DevTools MCP server, before calling it done.
 ---
@@ -1096,7 +1096,7 @@ If the dev server will not start, the route 404s, or the MCP browser is not
 available, that is the result. Say which step failed and what the error was.
 Do not substitute a screenshot of an unrelated page or a reading of the source
 for having run the flow.
-`,_=`---
+`,oe=`---
 name: supabase-remote
 description: Work with a remote Supabase project through its own MCP server — query, migrate and deploy edge functions without a personal access token or the CLI, keeping two project accounts independent.
 ---
@@ -1154,7 +1154,7 @@ text column is a place a stranger can write instructions.
 \`db push\`, \`db diff\`, \`db reset\`, \`secrets set\` and the local stack are not
 available and cannot be worked around from here. Say which one is needed and
 stop, rather than reintroducing a token to reach it.
-`,v=`# Approach history
+`,se=`# Approach history
 
 Append entries chronologically. Never edit, reorder or delete an earlier entry.
 Reuse an existing date heading instead of creating a duplicate.
@@ -1180,7 +1180,7 @@ Reuse an existing date heading instead of creating a duplicate.
 - BE evidence: N/A
 - Remaining gaps: None verified
 - Suggested follow-ups: None supported
-`,y=`# Requirements freshness history
+`,_=`# Requirements freshness history
 
 Append entries chronologically. Never edit, reorder or delete an earlier audit.
 Reuse an existing date heading instead of creating a duplicate.
@@ -1216,7 +1216,7 @@ Reuse an existing date heading instead of creating a duplicate.
 - Issue/docs/code reconciled:
 - Verification evidence:
 - Remaining owner decision or gap: None
-`,b=`# Test evidence
+`,v=`# Test evidence
 
 ## Identity
 
@@ -1272,7 +1272,7 @@ Complete only when a comparison is claimed.
 - Final passing run and artifact:
 - What this evidence proves:
 - What this evidence does not prove:
-`,x=`# Downloading a document instead
+`,y=`# Downloading a document instead
 
 Every document on the canvas can be saved from its own panel — one file, or the
 whole category as a zip that keeps each file's path.
@@ -1301,7 +1301,7 @@ something points at it.
 Because of the paragraph above. Paths, names, per-agent differences and removal
 are the whole job, and doing them by hand once is fine while doing them on three
 machines is not.
-`,S="# Machine installer\n\nThe program that puts this catalogue where an agent will actually read it. It\nis in this repository, in `machine/`, so you can read it before you run it —\nwhich is the only reason it is worth trusting.\n\n## What you need\n\n- `python3` 3.8 or newer on `PATH`. macOS and most Linux distributions ship\n  one; `install.sh` finds it and exits with a clear message if it cannot.\n- At least one agent CLI on `PATH`: `claude`, `codex` or `grok`. With none of\n  them installed the installer stops at `no agent CLI on PATH`.\n- `git`.\n\n## Install\n\n```bash\ngit clone https://github.com/synasapmob/hub-william.git\ncd hub-william/machine\n./install.sh init\n```\n\n`init` draws the catalogue as a picker — arrow keys move, space toggles, enter\napplies — and then shows you the plan before it writes anything. Nothing lands\non disk until you accept it.\n\n## Where things land\n\n| What | Where |\n| --- | --- |\n| Claude's always-on instructions | `~/.claude/CLAUDE.md` |\n| Codex | `~/.codex/AGENTS.md` |\n| Grok | `~/.grok/AGENTS.md` |\n| Skills | `~/.claude/skills/<name>/` |\n| MCP servers | `~/.claude.json`, `~/.codex/config.toml`, `~/.grok/config.toml` |\n| What was installed | `machine/state/applied.json` |\n| What you picked | `machine/profiles/local.toml` |\n\nInstalled documents are read-only copies carrying a\n`hub-william-generated` header, not symlinks into the catalogue. Opening\n`~/.codex/AGENTS.md` in an editor therefore cannot edit the catalogue by\naccident. To change a contract, change it in `machine/registries/` and run\n`./install.sh sync` — each sync repairs whatever has drifted.\n\n## Changing your mind\n\n```bash\n./install.sh sync      # re-apply: adds what you ticked, removes what you did not\n./install.sh status    # what is installed, what is pending\n./install.sh update    # git pull, then sync\n```\n\n`applied.json` is the ownership record, so a removal takes exactly what the\ninstaller put there and nothing else. A symlink you made, a config block you\nedited by hand, and a real `secrets.zsh` are left alone.\n",C=`# MCP servers
+`,b="# Machine installer\n\nThe program that puts this catalogue where an agent will actually read it. It\nis in this repository, in `machine/`, so you can read it before you run it —\nwhich is the only reason it is worth trusting.\n\n## What you need\n\n- `python3` 3.8 or newer on `PATH`. macOS and most Linux distributions ship\n  one; `install.sh` finds it and exits with a clear message if it cannot.\n- At least one agent CLI on `PATH`: `claude`, `codex` or `grok`. With none of\n  them installed the installer stops at `no agent CLI on PATH`.\n- `git`.\n\n## Install\n\n```bash\ngit clone https://github.com/synasapmob/hub-william.git\ncd hub-william/machine\n./install.sh init\n```\n\n`init` draws the catalogue as a picker — arrow keys move, space toggles, enter\napplies — and then shows you the plan before it writes anything. Nothing lands\non disk until you accept it.\n\n## Where things land\n\n| What | Where |\n| --- | --- |\n| Claude's always-on instructions | `~/.claude/CLAUDE.md` |\n| Codex | `~/.codex/AGENTS.md` |\n| Grok | `~/.grok/AGENTS.md` |\n| Skills | `~/.claude/skills/<name>/` |\n| MCP servers | `~/.claude.json`, `~/.codex/config.toml`, `~/.grok/config.toml` |\n| What was installed | `machine/state/applied.json` |\n| What you picked | `machine/profiles/local.toml` |\n\nInstalled documents are read-only copies carrying a\n`hub-william-generated` header, not symlinks into the catalogue. Opening\n`~/.codex/AGENTS.md` in an editor therefore cannot edit the catalogue by\naccident. To change a contract, change it in `machine/registries/` and run\n`./install.sh sync` — each sync repairs whatever has drifted.\n\n## Changing your mind\n\n```bash\n./install.sh sync      # re-apply: adds what you ticked, removes what you did not\n./install.sh status    # what is installed, what is pending\n./install.sh update    # git pull, then sync\n```\n\n`applied.json` is the ownership record, so a removal takes exactly what the\ninstaller put there and nothing else. A symlink you made, a config block you\nedited by hand, and a real `secrets.zsh` are left alone.\n",x=`# MCP servers
 
 Model Context Protocol servers are registered per agent, in each agent's own
 configuration format. The installer writes those blocks so the three formats
@@ -1348,7 +1348,7 @@ have credentials and which do not; it never stores a token itself.
 
 A block this installer does not own is left alone unless you pass \`--force-mcp\`,
 so a server you registered by hand is safe.
-`,w="# `[dopa-tps]`\n\nBoot and verify dopamint-arena's production-shaped, worktree-scoped local stack\nso backend services, Docker infrastructure, local Sui and the real frontends\nare available for end-to-end verification. `[dopa-tps]` is a tag, not a shell\ncommand. Use only the current dopamint-arena worktree's repository-owned\nscripts. If the repository root is not dopamint-arena or the required scripts\nare absent, stop without starting or cleaning anything.\n\nAt runtime, read the current worktree's `docs/rules/common/local-dev.md`,\n`docs/guide/local-dopa-llm-topology.md`,\n`docs/guide/local-chain-harnesses.md`, and `./infra/local-llm/stack --help`.\nThose project docs and scripts are authoritative when their commands evolve.\nNever copy environment files or stack state from another worktree.\n\nUse this normal startup sequence from the target worktree:\n\n1. Confirm Docker is reachable with `docker info`; report a block rather than\n   installing, reconfiguring or restarting Docker without authorization.\n2. Run `./scripts/init-worktree-dev.sh` first. It owns worktree identity,\n   dependencies, environment files, port offsets and service configuration.\n3. Run `./infra/local-llm/stack start`. This starts the worktree's Docker\n   infrastructure, selected local Sui stack, backend services and frontends.\n4. Run `./infra/local-llm/stack status` and require the stack's own health\n   gates to pass. Use the URLs printed by the stack or its worktree environment;\n   never assume a fixed port.\n5. For millionTPS localnet flows, run\n   `./scripts/dev/milliontps-network.sh --network localnet --check` before the\n   browser proof. Verify the requested backend/API health and then exercise the\n   real UI flow through Playwright MCP, saving screenshots under the normal\n   `[playwright]` evidence root.\n\nFor a user-visible flow, `[dopa-tps]` implies `[playwright]`. It may run alone\nto prepare/verify the stack or compose with `[delivery-local]`,\n`[delivery-ete]`, `[delivery-linear-<ISSUE-ID>]`,\n`[delivery-verify-linear-<ISSUE-ID>]`, `[ignore]`, `[draft]`, `[rebase]` or\n`[merge]` when those tags are otherwise compatible.\nIt conflicts with `[plan]` because starting a stack mutates local state.\n\nDiagnose before cleaning. Inspect `stack status` and scoped `stack logs\n[service]`, and preserve the failure evidence. Use this recovery order:\n\n1. For attributable leftovers, run `./infra/local-llm/stack reclaim --dry-run`,\n   review its exact scope, then `./infra/local-llm/stack reclaim` if warranted.\n2. When a running service is stale after a Rust or service change, use\n   `./infra/local-llm/stack stop` followed by `start`; `start` intentionally\n   reuses an already-live runtime and does not restart a stale relay.\n3. Use `./infra/local-llm/stack reset` only for this worktree when contract\n   source drift requires republishing or scoped stack state is proven corrupt.\n   State that it discards this worktree's chain and local volumes, then rerun\n   `./scripts/init-worktree-dev.sh` and `stack start`.\n\nNever automatically run `tps-fresh clear`, `tps-fresh clear --all`, a global\nDocker prune, blanket process kill, or delete `.local/devstack`. In particular,\n`clear --all` can wipe every dopamint-arena worktree stack and every Docker\nimage on the machine. It requires an explicit operator request after reporting\nthe resolved targets and impact; it is not ordinary bug recovery.\n\nThe `infra/local-llm` stack is deliberately persistent and may remain running\nfor review; report its status and URLs at handoff. Stop every ad-hoc service the\ntask started outside that persistent stack. If the real flow cannot complete,\nreport the observed status/log/browser failure rather than claiming that a\nrendered page proves the services work.\n",T=`# Linear issue creation policy
+`,S="# `[dopa-tps]`\n\nBoot and verify dopamint-arena's production-shaped, worktree-scoped local stack\nso backend services, Docker infrastructure, local Sui and the real frontends\nare available for end-to-end verification. `[dopa-tps]` is a tag, not a shell\ncommand. Use only the current dopamint-arena worktree's repository-owned\nscripts. If the repository root is not dopamint-arena or the required scripts\nare absent, stop without starting or cleaning anything.\n\nAt runtime, read the current worktree's `docs/rules/common/local-dev.md`,\n`docs/guide/local-dopa-llm-topology.md`,\n`docs/guide/local-chain-harnesses.md`, and `./infra/local-llm/stack --help`.\nThose project docs and scripts are authoritative when their commands evolve.\nNever copy environment files or stack state from another worktree.\n\nUse this normal startup sequence from the target worktree:\n\n1. Confirm Docker is reachable with `docker info`; report a block rather than\n   installing, reconfiguring or restarting Docker without authorization.\n2. Run `./scripts/init-worktree-dev.sh` first. It owns worktree identity,\n   dependencies, environment files, port offsets and service configuration.\n3. Run `./infra/local-llm/stack start`. This starts the worktree's Docker\n   infrastructure, selected local Sui stack, backend services and frontends.\n4. Run `./infra/local-llm/stack status` and require the stack's own health\n   gates to pass. Use the URLs printed by the stack or its worktree environment;\n   never assume a fixed port.\n5. For millionTPS localnet flows, run\n   `./scripts/dev/milliontps-network.sh --network localnet --check` before the\n   browser proof. Verify the requested backend/API health and then exercise the\n   real UI flow through Playwright MCP, saving screenshots under the normal\n   `[playwright]` evidence root.\n\nFor a user-visible flow, `[dopa-tps]` implies `[playwright]`. It may run alone\nto prepare/verify the stack or compose with `[delivery-local]`,\n`[delivery-ete]`, `[delivery-linear-<ISSUE-ID>]`,\n`[delivery-verify-linear-<ISSUE-ID>]`, `[ignore]`, `[draft]`, `[rebase]` or\n`[merge]` when those tags are otherwise compatible.\nIt conflicts with `[plan]` because starting a stack mutates local state.\n\nDiagnose before cleaning. Inspect `stack status` and scoped `stack logs\n[service]`, and preserve the failure evidence. Use this recovery order:\n\n1. For attributable leftovers, run `./infra/local-llm/stack reclaim --dry-run`,\n   review its exact scope, then `./infra/local-llm/stack reclaim` if warranted.\n2. When a running service is stale after a Rust or service change, use\n   `./infra/local-llm/stack stop` followed by `start`; `start` intentionally\n   reuses an already-live runtime and does not restart a stale relay.\n3. Use `./infra/local-llm/stack reset` only for this worktree when contract\n   source drift requires republishing or scoped stack state is proven corrupt.\n   State that it discards this worktree's chain and local volumes, then rerun\n   `./scripts/init-worktree-dev.sh` and `stack start`.\n\nNever automatically run `tps-fresh clear`, `tps-fresh clear --all`, a global\nDocker prune, blanket process kill, or delete `.local/devstack`. In particular,\n`clear --all` can wipe every dopamint-arena worktree stack and every Docker\nimage on the machine. It requires an explicit operator request after reporting\nthe resolved targets and impact; it is not ordinary bug recovery.\n\nThe `infra/local-llm` stack is deliberately persistent and may remain running\nfor review; report its status and URLs at handoff. Stop every ad-hoc service the\ntask started outside that persistent stack. If the real flow cannot complete,\nreport the observed status/log/browser failure rather than claiming that a\nrendered page proves the services work.\n",C=`# Linear issue creation policy
 
 Focus on the one owning task. New Linear issue creation is default-deny: finding
 a bug, gap, TODO, deferred acceptance criterion, dependency, failing test,
@@ -1416,7 +1416,7 @@ issue was created, include the number created and the authorization source. A
 count above the resolved budget is a contract failure and must be reported,
 never hidden. Suggested-but-uncreated follow-ups belong under \`## Risky\` and
 must be clearly labeled \`not created\`.
-`,E=`# Existing Linear delivery readiness
+`,w=`# Existing Linear delivery readiness
 
 Apply this contract to \`[delivery-linear-<ISSUE-ID>]\` and
 \`[delivery-verify-linear-<ISSUE-ID>]\`. It applies only to the exact selected
@@ -1470,7 +1470,7 @@ In the structured report's \`## LINEAR\` section, use separate nested list items
 
 Distinguish a field that was changed from one that was only read and preserved.
 Re-read after every write and report only the verified final values.
-`,D="# Requirements freshness report summary\n\nFor `[delivery-verify-linear-<ISSUE-ID>]`, include a compact `Freshness` item\nunder `## EVIDENCE`. Do not emit a standalone `FRESHNESS` heading. Use nested\nMarkdown list items for:\n\n- `Verdict` — the final overall freshness verdict and whether delivery\n  continued, required no implementation, or stopped before code.\n- `Sources` — the authoritative ADR/PRD/docs/code/PR sources that determined\n  the outcome; link or name exact sections without dumping the full matrix.\n- `Reconciliation` — stale issue/docs/code corrected in this turn, or `None`.\n- `Conflicts` — unresolved authority conflict and required owner decision, or\n  `None`.\n- `Artifact` — a clickable local link to the task's `freshness.md`.\n\nDo not collapse these independent facts into one paragraph. Do not claim a\nfreshness pass when any acceptance criterion lacks a cited authority/current\nstate or when the final base/source set differs from the audited one.\n",O=`# Linear report summary
+`,T="# Requirements freshness report summary\n\nFor `[delivery-verify-linear-<ISSUE-ID>]`, include a compact `Freshness` item\nunder `## EVIDENCE`. Do not emit a standalone `FRESHNESS` heading. Use nested\nMarkdown list items for:\n\n- `Verdict` — the final overall freshness verdict and whether delivery\n  continued, required no implementation, or stopped before code.\n- `Sources` — the authoritative ADR/PRD/docs/code/PR sources that determined\n  the outcome; link or name exact sections without dumping the full matrix.\n- `Reconciliation` — stale issue/docs/code corrected in this turn, or `None`.\n- `Conflicts` — unresolved authority conflict and required owner decision, or\n  `None`.\n- `Artifact` — a clickable local link to the task's `freshness.md`.\n\nDo not collapse these independent facts into one paragraph. Do not claim a\nfreshness pass when any acceptance criterion lacks a cited authority/current\nstate or when the final base/source set differs from the audited one.\n",E=`# Linear report summary
 
 When a structured \`[report]\` handoff is active, summarize material Linear reads
 and changes under \`## LINEAR\`. Distinguish a read/verification from an actual
@@ -1498,7 +1498,7 @@ Linear action ended \`FAIL\`, \`BLOCKED\` or \`INCOMPLETE\`, keep it visible wit
 exact blocker; never omit a failed update to make the summary look complete.
 When issues were created, state the verified count and explicit authorization
 source. Keep suggested follow-ups separate and label them \`not created\`.
-`,k=`# Existing Linear requirements freshness gate
+`,D=`# Existing Linear requirements freshness gate
 
 Apply this contract before implementation for
 \`[delivery-verify-linear-<ISSUE-ID>]\`. The gate is read/audit first; it permits
@@ -1584,7 +1584,7 @@ contract when present), then rerun applicable verification and the complete
 freshness audit against the new base. A changed base, new accepted decision,
 updated task or relevant merged PR invalidates the old freshness conclusion;
 append a new audit and reconcile again before claiming the PR is ready.
-`,A=`# Playwright report summary
+`,O=`# Playwright report summary
 
 When a structured \`[report]\` handoff is active and Playwright or another
 approved real-browser verifier was used, include a \`Browser\` item under
@@ -1626,7 +1626,26 @@ Never combine result, flow, screenshots, defects and browser cleanup into one
 paragraph. Never omit an unsuccessful step, missing screenshot or browser
 blocker. Keep the detailed before/action/result trail in screenshot evidence
 and make this subsection quick to scan.
-`,j=`# Project routing preflight
+`,k=`version: 1
+
+projects:
+  CommandOSSLabs/dopamint-arena:
+    github_url: https://github.com/CommandOSSLabs/dopamint-arena
+    linear:
+      status: enabled
+      workspace_url: https://linear.app/commandoss
+      team_key: DOPAN
+
+  Southern-Discoveries/hub-william:
+    github_url: https://github.com/Southern-Discoveries/hub-william
+    linear:
+      status: disabled
+
+  Southern-Discoveries/sonix-study:
+    github_url: https://github.com/Southern-Discoveries/sonix-study
+    linear:
+      status: unconfigured
+`,A=`# Project routing preflight
 
 Before the first GitHub or Linear read or write, resolve the active project and
 read the complete direct registry at:
@@ -1717,7 +1736,7 @@ Before an external write, retain a concise preflight in the task evidence or
 handoff: canonical project key, resolved worktree/root, verified GitHub URL,
 Linear status/workspace/team when applicable, exact issue when selected, and
 delivery base ref plus full SHA. Do not include tokens or remote credentials.
-`,M=`# Supabase routing
+`,j=`# Supabase routing
 
 Each project is reached through its own Supabase MCP server, and that is the
 only access path. Check the repository before the first call:
@@ -1742,7 +1761,7 @@ Never run \`supabase login\`, restore a plaintext access token, use the Supabase
 CLI/local stack, or try to reconcile MCP-assigned migration versions with file
 timestamps. If a required operation is unavailable through the project MCP,
 report the block and stop.
-`,N=`## Context
+`,M=`## Context
 
 Linear: <!-- Required: Linear URL or issue ID matching the branch. -->
 
@@ -1779,7 +1798,7 @@ criticality, mitigation, residual risk, and any security or trust-boundary issue
 Required. Describe the meaningful automated scenarios and test level, give
 reproducible commands or CI evidence, and state the passing result.
 -->
-`,P=`# Linear delivery issue template
+`,N=`# Linear delivery issue template
 
 <!--
 Use this structure for \`[linear]\`, \`[delivery-ete]\` and applicable
@@ -1838,6 +1857,6 @@ commands, browser evidence, CI checks, results, and the verified commit SHA. -->
 <!-- Structural provenance only:
 https://linear.app/commandoss/issue/DOPAN-175/tps-stream-live-run-telemetry-and-conformance-state
 -->
-`,F=`contributors`,I=`default`,L=`https://github.com/synasapmob/hub-william`,R=[`harness`,`skills`,`templates`],z={hooks:`harness`},B={github:`GitHub`,mcp:`MCP`,harness:`Harnesses`};function V(e){let t=B[e];if(t)return t;let n=e.replace(/[-_]/g,` `);return n.charAt(0).toUpperCase()+n.slice(1)}var H={harness:`Execution modes and the contracts around them. A tag the operator types, or a supporting contract that fires before a write leaves the checkout, whether or not a tag asked for it.`,skills:`Cognitive capabilities loaded on demand. A skill carries the rules for one discipline and the reading order that makes them apply.`,templates:`The shapes the workspace writes into: approach histories, test evidence, pull requests and issues, so two agents produce the same artefact.`,installer:`Getting the catalogue onto a machine, and what happens to it afterwards. The program is in this repository so you can read it before you run it.`,mcp:`Registering Model Context Protocol servers across the agents that use them, in each agent's own configuration format.`};function U(e){return H[e]??``}function W(e){return V(e).toUpperCase()}var G=Object.assign({"/contributors/default/libraries/harness/AGENTS.md":e,"/contributors/default/libraries/harness/evidence/approach-history.md":t,"/contributors/default/libraries/harness/evidence/report-summary.md":n,"/contributors/default/libraries/harness/evidence/test-evidence.md":r,"/contributors/default/libraries/harness/github/clickable-references.md":i,"/contributors/default/libraries/harness/github/gh-cli.md":a,"/contributors/default/libraries/harness/github/report-summary.md":o,"/contributors/default/libraries/harness/tags/answer.md":s,"/contributors/default/libraries/harness/tags/delivery-verify.md":c,"/contributors/default/libraries/harness/tags/delivery.md":l,"/contributors/default/libraries/harness/tags/draft.md":u,"/contributors/default/libraries/harness/tags/ignore.md":d,"/contributors/default/libraries/harness/tags/linear.md":f,"/contributors/default/libraries/harness/tags/merge.md":ee,"/contributors/default/libraries/harness/tags/mergeable.md":te,"/contributors/default/libraries/harness/tags/plan.md":ne,"/contributors/default/libraries/harness/tags/playwright.md":re,"/contributors/default/libraries/harness/tags/rebase.md":ie,"/contributors/default/libraries/harness/tags/report.md":ae,"/contributors/default/libraries/harness/tags/worktree.md":p,"/contributors/default/libraries/skills/frontend-convention/SKILL.md":m,"/contributors/default/libraries/skills/frontend-convention/references/frontend-conventions.md":h,"/contributors/default/libraries/skills/frontend-verify/SKILL.md":g,"/contributors/default/libraries/skills/supabase-remote/SKILL.md":_,"/contributors/default/libraries/templates/approach-history.md":v,"/contributors/default/libraries/templates/requirements-freshness.md":y,"/contributors/default/libraries/templates/test-evidence.md":b,"/contributors/default/tools/installer/download-and-inject.md":x,"/contributors/default/tools/installer/machine-installer.md":S,"/contributors/default/tools/mcp/mcp-servers.md":C,"/contributors/synasapmob/libraries/harness/dopa-tps.md":w,"/contributors/synasapmob/libraries/harness/linear/creation-policy.md":T,"/contributors/synasapmob/libraries/harness/linear/delivery-readiness.md":E,"/contributors/synasapmob/libraries/harness/linear/freshness-report-summary.md":D,"/contributors/synasapmob/libraries/harness/linear/report-summary.md":O,"/contributors/synasapmob/libraries/harness/linear/requirements-freshness.md":k,"/contributors/synasapmob/libraries/harness/playwright/report-summary.md":A,"/contributors/synasapmob/libraries/harness/projects/routing.md":j,"/contributors/synasapmob/libraries/hooks/supabase-routing.md":M,"/contributors/synasapmob/libraries/templates/github-pull-request.md":N,"/contributors/synasapmob/libraries/templates/linear-issue.md":P}),K={libraries:`library`,tools:`tools`};function q(e){let t=e.replace(/^\//,``).split(`/`);if(t[0]!==F)return null;let n=t[1]??``;if(!n)return null;let r=n===I?null:n,i=t.slice(2),a=K[i[0]??``],o=i[1]??``;if(!a||!o)return null;let s=z[o]??o,c=i.slice(2);return c.length===0?null:s===`skills`?c.length!==2||c.at(-1)!==`SKILL.md`?null:{section:a,category:s,group:o,contributor:r}:c.length===1&&c[0]===`AGENTS.md`?null:{section:a,category:s,group:c.length===1?o:c[0]??o,contributor:r}}var J=/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;function oe(e){let t=J.exec(e);if(!t)return{frontMatter:{},body:e.trim()};let n={};for(let e of t[1].split(`
-`)){let t=e.indexOf(`:`);t!==-1&&(n[e.slice(0,t).trim()]=e.slice(t+1).trim())}return{frontMatter:n,body:e.slice(t[0].length).trim()}}function se(e,t){let n=/^#\s+(.+)$/m.exec(e)?.[1];if(n)return n.replace(/[`[\]]/g,``).trim();let r=t.replace(/[-_]/g,` `);return r.charAt(0).toUpperCase()+r.slice(1)}function ce(e){let t=e.replace(/^#\s+.+\n/,``).split(/\n\s*\n/).map(e=>e.trim()).filter(e=>e.length>0);return(t.find(e=>!/^(#{1,6}\s|\||```|[-*]\s|\d+\.\s|`)/.test(e))??t[0]??``).replace(/\s+/g,` `)}function le(e){return e.replace(/^#\s+.+(\r?\n)+/,``)}function ue(){let e=[];for(let[t,n]of Object.entries(G)){let r=q(t);if(!r)continue;let i=t.replace(/^\//,``).replace(/\.md$/,``),{body:a,frontMatter:o}=oe(n),s=i.split(`/`).at(-1)??i;e.push({id:i,slug:i.replace(/\//g,`-`),name:o.name??se(a,s),description:o.description??ce(a),section:r.section,category:r.category,group:r.group,contributor:r.contributor,body:le(a),source:n,lineCount:a.split(`
-`).length})}return e.sort((e,t)=>e.id.localeCompare(t.id))}var Y=ue();function X(e,t=null){return Y.filter(n=>n.category===e&&n.contributor===t)}function Z(e,t=null){let n=[...new Set(Y.filter(n=>n.section===e&&n.contributor===t).map(e=>e.category))];return e===`library`?[...R.filter(e=>n.includes(e)),...n.filter(e=>!R.includes(e))]:n.sort()}function de(e){return[...new Set(Y.filter(t=>!e||t.section===e).map(e=>e.contributor).filter(e=>e!==null))].sort()}function fe(e){return e?Y.find(t=>t.slug===e)??null:null}function pe(e,t=`library`,n=null){let r=e?.toLowerCase();return Z(t,n).find(e=>e.toLowerCase()===r)??null}function me(e,t=null){let n=e;return[...new Set(X(e,t).map(e=>e.group))].sort((e,t)=>e===n?-1:t===n?1:e.localeCompare(t))}function Q(e,t){let n=t.trim().toLowerCase();return!n||e.name.toLowerCase().includes(n)||e.description.toLowerCase().includes(n)||e.group.toLowerCase().includes(n)||e.id.toLowerCase().includes(n)}function he(e){return`${e.id.split(`/`).at(-1)}.md`}function ge(e){return{path:`${e.id}.md`,contents:e.source}}function _e(e,t=null){return X(e,t).map(ge)}function ve(e){return`${L}/blob/main/${e.id}.md`}function ye(e){let t=e.section===`tools`?`tools`:`libraries`;return`${L}/new/main/${F}/${e.contributor??I}/${t}/${e.category}`}function $(e,t){return Y.filter(n=>n.section===e&&n.contributor===t)}function be(e=`library`,t=null){return $(e,t).length}function xe(e=`library`,t=null){return new Set($(e,t).map(e=>e.group)).size}var Se={contributors:de,fileName:he,filesInCategory:_e,contributeUrl:ye,documentCount:be,findBySlug:fe,findCategory:pe,groupCount:xe,groupsInCategory:me,listEntriesByCategory:X,rootsInSection:Z,matchesQuery:Q,sourceUrl:ve};export{U as a,W as i,Se as n,V as r,L as t};
+`,P=`contributors`,F=`default`,I=`https://github.com/synasapmob/hub-william`,L=[`harness`,`skills`,`templates`],R={hooks:`harness`},z={github:`GitHub`,mcp:`MCP`,harness:`Harnesses`};function B(e){let t=z[e];if(t)return t;let n=e.replace(/[-_]/g,` `);return n.charAt(0).toUpperCase()+n.slice(1)}var V={harness:`Execution modes and the contracts around them. A tag the operator types, or a supporting contract that fires before a write leaves the checkout, whether or not a tag asked for it.`,skills:`Cognitive capabilities loaded on demand. A skill carries the rules for one discipline and the reading order that makes them apply.`,templates:`The shapes the workspace writes into: approach histories, test evidence, pull requests and issues, so two agents produce the same artefact.`,installer:`Getting the catalogue onto a machine, and what happens to it afterwards. The program is in this repository so you can read it before you run it.`,mcp:`Registering Model Context Protocol servers across the agents that use them, in each agent's own configuration format.`};function H(e){return V[e]??``}function U(e){return B(e).toUpperCase()}var W=Object.assign({"/contributors/default/libraries/harness/AGENTS.md":e,"/contributors/default/libraries/harness/evidence/approach-history.md":t,"/contributors/default/libraries/harness/evidence/report-summary.md":n,"/contributors/default/libraries/harness/evidence/test-evidence.md":r,"/contributors/default/libraries/harness/github/clickable-references.md":i,"/contributors/default/libraries/harness/github/gh-cli.md":a,"/contributors/default/libraries/harness/github/report-summary.md":o,"/contributors/default/libraries/harness/tags/answer.md":s,"/contributors/default/libraries/harness/tags/delivery-verify.md":c,"/contributors/default/libraries/harness/tags/delivery.md":l,"/contributors/default/libraries/harness/tags/draft.md":u,"/contributors/default/libraries/harness/tags/ignore.md":d,"/contributors/default/libraries/harness/tags/linear.md":ee,"/contributors/default/libraries/harness/tags/merge.md":f,"/contributors/default/libraries/harness/tags/mergeable.md":te,"/contributors/default/libraries/harness/tags/plan.md":p,"/contributors/default/libraries/harness/tags/playwright.md":m,"/contributors/default/libraries/harness/tags/rebase.md":h,"/contributors/default/libraries/harness/tags/report.md":g,"/contributors/default/libraries/harness/tags/worktree.md":ne,"/contributors/default/libraries/skills/frontend-convention/SKILL.md":re,"/contributors/default/libraries/skills/frontend-convention/references/frontend-conventions.md":ie,"/contributors/default/libraries/skills/frontend-verify/SKILL.md":ae,"/contributors/default/libraries/skills/supabase-remote/SKILL.md":oe,"/contributors/default/libraries/templates/approach-history.md":se,"/contributors/default/libraries/templates/requirements-freshness.md":_,"/contributors/default/libraries/templates/test-evidence.md":v,"/contributors/default/tools/installer/download-and-inject.md":y,"/contributors/default/tools/installer/machine-installer.md":b,"/contributors/default/tools/mcp/mcp-servers.md":x,"/contributors/synasapmob/libraries/harness/dopa-tps.md":S,"/contributors/synasapmob/libraries/harness/linear/creation-policy.md":C,"/contributors/synasapmob/libraries/harness/linear/delivery-readiness.md":w,"/contributors/synasapmob/libraries/harness/linear/freshness-report-summary.md":T,"/contributors/synasapmob/libraries/harness/linear/report-summary.md":E,"/contributors/synasapmob/libraries/harness/linear/requirements-freshness.md":D,"/contributors/synasapmob/libraries/harness/playwright/report-summary.md":O,"/contributors/synasapmob/libraries/harness/projects/registry.yaml":k,"/contributors/synasapmob/libraries/harness/projects/routing.md":A,"/contributors/synasapmob/libraries/hooks/supabase-routing.md":j,"/contributors/synasapmob/libraries/templates/github-pull-request.md":M,"/contributors/synasapmob/libraries/templates/linear-issue.md":N}),G={libraries:`library`,tools:`tools`};function K(e){return Object.keys(G).find(t=>G[t]===e)??e}function ce(e){if(!e.endsWith(`.md`))return null;let t=e.replace(/^\//,``).split(`/`);if(t[0]!==P)return null;let n=t[1]??``;if(!n)return null;let r=n===F?null:n,i=t.slice(2),a=G[i[0]??``],o=i[1]??``;if(!a||!o)return null;let s=R[o]??o,c=i.slice(2);return c.length===0?null:s===`skills`?c.length!==2||c.at(-1)!==`SKILL.md`?null:{section:a,category:s,group:o,contributor:r}:c.length===1&&c[0]===`AGENTS.md`?null:{section:a,category:s,group:c.length===1?o:c[0]??o,contributor:r}}var le=/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;function ue(e){let t=le.exec(e);if(!t)return{frontMatter:{},body:e.trim()};let n={};for(let e of t[1].split(`
+`)){let t=e.indexOf(`:`);t!==-1&&(n[e.slice(0,t).trim()]=e.slice(t+1).trim())}return{frontMatter:n,body:e.slice(t[0].length).trim()}}function q(e){return e.replace(/[`[\]]/g,``).trim()}function de(e,t){let n=/^#\s+(.+)$/m.exec(e)?.[1];if(n)return q(n);let r=t.replace(/[-_]/g,` `);return r.charAt(0).toUpperCase()+r.slice(1)}function fe(e){let t=e.replace(/^#\s+.+\n/,``).split(/\n\s*\n/).map(e=>e.trim()).filter(e=>e.length>0);return(t.find(e=>!/^(#{1,6}\s|\||```|[-*]\s|\d+\.\s|`)/.test(e))??t[0]??``).replace(/\s+/g,` `)}function pe(e){return e.replace(/^#\s+.+(\r?\n)+/,``)}function me(){let e=[];for(let[t,n]of Object.entries(W)){let r=ce(t);if(!r)continue;let i=t.replace(/^\//,``).replace(/\.md$/,``),{body:a,frontMatter:o}=ue(n),s=i.split(`/`).at(-1)??i;e.push({id:i,slug:i.replace(/\//g,`-`),name:o.name??de(a,s),description:o.description??fe(a),section:r.section,category:r.category,group:r.group,contributor:r.contributor,body:pe(a),source:n,lineCount:a.split(`
+`).length})}return e.sort((e,t)=>e.id.localeCompare(t.id))}var J=me();function Y(e,t=null){return J.filter(n=>n.category===e&&n.contributor===t)}function X(e,t=null){let n=[...new Set(J.filter(n=>n.section===e&&n.contributor===t).map(e=>e.category))];return e===`library`?[...L.filter(e=>n.includes(e)),...n.filter(e=>!L.includes(e))]:n.sort()}function he(e){return[...new Set(J.filter(t=>!e||t.section===e).map(e=>e.contributor).filter(e=>e!==null))].sort()}function ge(e){return e?J.find(t=>t.slug===e)??null:null}function _e(e,t=`library`,n=null){let r=e?.toLowerCase();return X(t,n).find(e=>e.toLowerCase()===r)??null}function ve(e,t=null){let n=e;return[...new Set(Y(e,t).map(e=>e.group))].sort((e,t)=>e===n?-1:t===n?1:e.localeCompare(t))}function ye(e,t){let n=t.trim().toLowerCase();return!n||e.name.toLowerCase().includes(n)||e.description.toLowerCase().includes(n)||e.group.toLowerCase().includes(n)||e.id.toLowerCase().includes(n)}function be(e){return`${e.id.split(`/`).at(-1)}.md`}function xe(e){return`${I}/blob/main/${e.id}.md`}var Se=`https://synasapmob.github.io`,Ce=`catalog`;function Z(e){return`${typeof window>`u`?Se:window.location.origin}/hub-william/${Ce}/${e}`}function we(e){return Z(`${e.id}.md`)}function Te(e){return{name:`${e.split(`/`).at(-1)}.zip`,url:Z(`${e}.zip`),fileCount:Object.keys(W).filter(t=>t.startsWith(`/${e}/`)).length}}function Ee(e){return Te(e.id.split(`/`).slice(0,4).join(`/`))}var Q=/^(#{1,6})\s+(.+)$/gm,De=/`(\[[^`\]]+\])`/g;function Oe(e){if(e.category===`skills`)return[`/${e.name}`];let t=[];for(let[,,n]of e.source.matchAll(Q))for(let[,e]of n.matchAll(De))t.includes(e)||t.push(e);return t}function ke(e){let t=[];for(let[,n,r]of e.source.matchAll(Q))n.length===2&&t.push(q(r));return t}function Ae(e){return{destination:`~/.hub-william/${e.id}.md`,invocations:Oe(e),sections:ke(e)}}function je(e){return`${I}/new/main/${P}/${e.contributor??F}/${K(e.section)}/${e.category}`}function $(e,t){return J.filter(n=>n.section===e&&n.contributor===t)}function Me(e=`library`,t=null){return $(e,t).length}function Ne(e=`library`,t=null){return new Set($(e,t).map(e=>e.group)).size}var Pe={contributors:he,fileName:be,contributeUrl:je,documentCount:Me,documentUrl:we,findBySlug:ge,findCategory:_e,groupCount:Ne,groupsInCategory:ve,listEntriesByCategory:Y,rootArchive:Ee,rootsInSection:X,matchesQuery:ye,sourceUrl:xe,usage:Ae};export{H as a,U as i,Pe as n,B as r,I as t};
