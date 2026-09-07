@@ -67,10 +67,6 @@ export default function CatalogCanvas({
   const positions = rootPositions(roots);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchParams, setSearchParams] = useSearchParams();
-  // Panning, zooming and the surface's own measurements. None of that is about
-  // the catalogue, so none of it is in here.
-  const { pan, zoom, surface, fitView, resetView, zoomIn, zoomOut } =
-    useCatalogCanvasViewport();
   // Every route is prerendered to static HTML, and a prerendered page has no
   // query string. Reading one during the first client render would therefore
   // disagree with the HTML that shipped, and React reports that as a hydration
@@ -105,6 +101,11 @@ export default function CatalogCanvas({
   const selectedEntry = catalogService.findBySlug(
     hydrated ? searchParams.get(NODE_PARAM) : null,
   );
+  // Panning, zooming and the surface's own measurements. None of that is about
+  // the catalogue, so none of it is in here. The open sheet owns the viewport
+  // while it is visible, including the canvas area behind its overlay.
+  const { pan, zoom, surface, fitView, resetView, zoomIn, zoomOut } =
+    useCatalogCanvasViewport({ locked: selectedEntry !== null });
 
   const groups: TreeGroup[] = expandedCategory
     ? treeGroups(
