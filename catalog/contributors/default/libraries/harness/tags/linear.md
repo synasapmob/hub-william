@@ -6,7 +6,7 @@ Permit the Linear write for this turn. Use the configured Linear MCP server
 only and discover its current tools and schemas at runtime. Never call Linear's
 REST/GraphQL API with curl or another fallback. Re-read the issue after every
 write and report its identifier and URL. Before writing, load and obey
-`../../../contributors/synasapmob/contributors/default/libraries/harness/linear/creation-policy.md`; `[linear]` is not unlimited permission to create
+`../../../../synasapmob/libraries/harness/linear/creation-policy.md`; `[linear]` is not unlimited permission to create
 follow-ups or decompose the owning task.
 
 `[plan] [linear]` means: turn the agreed plan into a Linear issue, attach the
@@ -24,7 +24,7 @@ directory or attach secrets.
 Before creating or updating a delivery issue, read and follow this local
 template at runtime:
 
-`/Users/synasapmob/.hub-william/contributors/synasapmob/contributors/default/libraries/templates/linear-issue.md`
+`/Users/synasapmob/.hub-william/contributors/synasapmob/libraries/templates/linear-issue.md`
 
 The local template is authoritative and contains the required headings. Its
 DOPAN-175 link records structural provenance only; never fetch that issue to
@@ -48,9 +48,9 @@ missing or inaccessible.
 The delivery selectors `[delivery-linear-DOPAN-1645]` and
 `[delivery-verify-linear-DOPAN-1722]` use the same exact-ID validation but also
 select an ETE delivery mode. Accept only one issue ID across standalone and
-delivery selector forms. Both load `../../../contributors/synasapmob/contributors/default/libraries/harness/linear/delivery-readiness.md` to fill only
+delivery selector forms. Both load `../../../../synasapmob/libraries/harness/linear/delivery-readiness.md` to fill only
 missing assignee/estimate metadata on the selected issue before implementation.
-Verified delivery additionally loads `../../../contributors/synasapmob/contributors/default/libraries/harness/linear/requirements-freshness.md` and
+Verified delivery additionally loads `../../../../synasapmob/libraries/harness/linear/requirements-freshness.md` and
 may not code until its audit resolves the current authority.
 
 Use the configured Linear MCP server only. Read the exact issue before doing

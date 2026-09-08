@@ -1,13 +1,13 @@
 {
   "description": "Every document in the Hub William catalogue. Fetch `url` for the file exactly as it is in the repository, or an archive's `url` for a whole folder — its members keep these same paths, so unzipping into a checkout puts them where an agent reads them.",
   "repository": "https://github.com/synasapmob/hub-william",
-  "count": 43,
+  "count": 49,
   "documents": [
     {
       "id": "contributors/default/libraries/harness/AGENTS",
       "path": "contributors/default/libraries/harness/AGENTS.md",
       "url": "/hub-william/catalog/contributors/default/libraries/harness/AGENTS.md",
-      "bytes": 14639
+      "bytes": 14497
     },
     {
       "id": "contributors/default/libraries/harness/evidence/approach-history",
@@ -37,7 +37,7 @@
       "id": "contributors/default/libraries/harness/github/gh-cli",
       "path": "contributors/default/libraries/harness/github/gh-cli.md",
       "url": "/hub-william/catalog/contributors/default/libraries/harness/github/gh-cli.md",
-      "bytes": 1089
+      "bytes": 1068
     },
     {
       "id": "contributors/default/libraries/harness/github/report-summary",
@@ -55,13 +55,13 @@
       "id": "contributors/default/libraries/harness/tags/delivery-verify",
       "path": "contributors/default/libraries/harness/tags/delivery-verify.md",
       "url": "/hub-william/catalog/contributors/default/libraries/harness/tags/delivery-verify.md",
-      "bytes": 2738
+      "bytes": 2707
     },
     {
       "id": "contributors/default/libraries/harness/tags/delivery",
       "path": "contributors/default/libraries/harness/tags/delivery.md",
       "url": "/hub-william/catalog/contributors/default/libraries/harness/tags/delivery.md",
-      "bytes": 4207
+      "bytes": 4145
     },
     {
       "id": "contributors/default/libraries/harness/tags/draft",
@@ -85,7 +85,7 @@
       "id": "contributors/default/libraries/harness/tags/linear",
       "path": "contributors/default/libraries/harness/tags/linear.md",
       "url": "/hub-william/catalog/contributors/default/libraries/harness/tags/linear.md",
-      "bytes": 4453
+      "bytes": 4339
     },
     {
       "id": "contributors/default/libraries/harness/tags/merge",
@@ -121,7 +121,7 @@
       "id": "contributors/default/libraries/harness/tags/report",
       "path": "contributors/default/libraries/harness/tags/report.md",
       "url": "/hub-william/catalog/contributors/default/libraries/harness/tags/report.md",
-      "bytes": 8495
+      "bytes": 8464
     },
     {
       "id": "contributors/default/libraries/harness/tags/worktree",
@@ -190,6 +190,36 @@
       "bytes": 1415
     },
     {
+      "id": "contributors/synasapmob/libraries/agents/codex/hub-reviewer.toml",
+      "path": "contributors/synasapmob/libraries/agents/codex/hub-reviewer.toml",
+      "url": "/hub-william/catalog/contributors/synasapmob/libraries/agents/codex/hub-reviewer.toml",
+      "bytes": 1109
+    },
+    {
+      "id": "contributors/synasapmob/libraries/agents/codex/hub-scout.toml",
+      "path": "contributors/synasapmob/libraries/agents/codex/hub-scout.toml",
+      "url": "/hub-william/catalog/contributors/synasapmob/libraries/agents/codex/hub-scout.toml",
+      "bytes": 851
+    },
+    {
+      "id": "contributors/synasapmob/libraries/agents/codex/hub-verifier.toml",
+      "path": "contributors/synasapmob/libraries/agents/codex/hub-verifier.toml",
+      "url": "/hub-william/catalog/contributors/synasapmob/libraries/agents/codex/hub-verifier.toml",
+      "bytes": 1003
+    },
+    {
+      "id": "contributors/synasapmob/libraries/harness/AGENTS",
+      "path": "contributors/synasapmob/libraries/harness/AGENTS.md",
+      "url": "/hub-william/catalog/contributors/synasapmob/libraries/harness/AGENTS.md",
+      "bytes": 1345
+    },
+    {
+      "id": "contributors/synasapmob/libraries/harness/codex-policy",
+      "path": "contributors/synasapmob/libraries/harness/codex-policy.md",
+      "url": "/hub-william/catalog/contributors/synasapmob/libraries/harness/codex-policy.md",
+      "bytes": 3020
+    },
+    {
       "id": "contributors/synasapmob/libraries/harness/dopa-tps",
       "path": "contributors/synasapmob/libraries/harness/dopa-tps.md",
       "url": "/hub-william/catalog/contributors/synasapmob/libraries/harness/dopa-tps.md",
@@ -235,13 +265,13 @@
       "id": "contributors/synasapmob/libraries/harness/projects/registry.yaml",
       "path": "contributors/synasapmob/libraries/harness/projects/registry.yaml",
       "url": "/hub-william/catalog/contributors/synasapmob/libraries/harness/projects/registry.yaml",
-      "bytes": 511
+      "bytes": 631
     },
     {
       "id": "contributors/synasapmob/libraries/harness/projects/routing",
       "path": "contributors/synasapmob/libraries/harness/projects/routing.md",
       "url": "/hub-william/catalog/contributors/synasapmob/libraries/harness/projects/routing.md",
-      "bytes": 4659
+      "bytes": 4638
     },
     {
       "id": "contributors/synasapmob/libraries/hooks/supabase-routing",
@@ -260,6 +290,12 @@
       "path": "contributors/synasapmob/libraries/templates/linear-issue.md",
       "url": "/hub-william/catalog/contributors/synasapmob/libraries/templates/linear-issue.md",
       "bytes": 1670
+    },
+    {
+      "id": "contributors/synasapmob/tools/installer/codex-workflow",
+      "path": "contributors/synasapmob/tools/installer/codex-workflow.md",
+      "url": "/hub-william/catalog/contributors/synasapmob/tools/installer/codex-workflow.md",
+      "bytes": 2985
     }
   ],
   "archives": [
@@ -267,28 +303,28 @@
       "id": "contributors",
       "path": "contributors.zip",
       "url": "/hub-william/catalog/contributors.zip",
-      "bytes": 67029,
-      "files": 43
+      "bytes": 73575,
+      "files": 49
     },
     {
       "id": "contributors/default",
       "path": "contributors/default.zip",
       "url": "/hub-william/catalog/contributors/default.zip",
-      "bytes": 50672,
+      "bytes": 50704,
       "files": 31
     },
     {
       "id": "contributors/default/libraries",
       "path": "contributors/default/libraries.zip",
       "url": "/hub-william/catalog/contributors/default/libraries.zip",
-      "bytes": 47765,
+      "bytes": 47797,
       "files": 28
     },
     {
       "id": "contributors/default/libraries/harness",
       "path": "contributors/default/libraries/harness.zip",
       "url": "/hub-william/catalog/contributors/default/libraries/harness.zip",
-      "bytes": 36913,
+      "bytes": 36945,
       "files": 21
     },
     {
@@ -330,22 +366,29 @@
       "id": "contributors/synasapmob",
       "path": "contributors/synasapmob.zip",
       "url": "/hub-william/catalog/contributors/synasapmob.zip",
-      "bytes": 16379,
-      "files": 12
+      "bytes": 22893,
+      "files": 18
     },
     {
       "id": "contributors/synasapmob/libraries",
       "path": "contributors/synasapmob/libraries.zip",
       "url": "/hub-william/catalog/contributors/synasapmob/libraries.zip",
-      "bytes": 16379,
-      "files": 12
+      "bytes": 21231,
+      "files": 17
+    },
+    {
+      "id": "contributors/synasapmob/libraries/agents",
+      "path": "contributors/synasapmob/libraries/agents.zip",
+      "url": "/hub-william/catalog/contributors/synasapmob/libraries/agents.zip",
+      "bytes": 2293,
+      "files": 3
     },
     {
       "id": "contributors/synasapmob/libraries/harness",
       "path": "contributors/synasapmob/libraries/harness.zip",
       "url": "/hub-william/catalog/contributors/synasapmob/libraries/harness.zip",
-      "bytes": 13603,
-      "files": 9
+      "bytes": 16184,
+      "files": 11
     },
     {
       "id": "contributors/synasapmob/libraries/hooks",
@@ -360,6 +403,20 @@
       "url": "/hub-william/catalog/contributors/synasapmob/libraries/templates.zip",
       "bytes": 1941,
       "files": 2
+    },
+    {
+      "id": "contributors/synasapmob/tools",
+      "path": "contributors/synasapmob/tools.zip",
+      "url": "/hub-william/catalog/contributors/synasapmob/tools.zip",
+      "bytes": 1684,
+      "files": 1
+    },
+    {
+      "id": "contributors/synasapmob/tools/installer",
+      "path": "contributors/synasapmob/tools/installer.zip",
+      "url": "/hub-william/catalog/contributors/synasapmob/tools/installer.zip",
+      "bytes": 1684,
+      "files": 1
     }
   ]
 }

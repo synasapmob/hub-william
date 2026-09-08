@@ -67,6 +67,11 @@ Tag contracts are modular files under:
 
 `~/.hub-william/contributors/default/libraries/harness/tags/`
 
+Relative paths in this installed entrypoint resolve against
+`~/.hub-william/contributors/default/libraries/harness/`; bare tag filenames in
+the implied lists resolve from its `tags/` directory. Each loaded supporting
+contract resolves its own relative paths from its actual source directory.
+
 Before any planning, mutation, external write or browser action, resolve every
 recognized tag through the source map below and read every resolved file
 completely. Apply all loaded contracts together. A tag file is part of this
@@ -92,18 +97,18 @@ a stale remembered contract.
 | `[merge]` | `tags/merge.md` |
 | `[playwright]` | `tags/playwright.md` |
 | `[guess]` | `tags/guess.md` |
-| `[dopa-tps]` | `../../contributors/synasapmob/contributors/default/libraries/harness/dopa-tps.md` |
+| `[dopa-tps]` | `../../../synasapmob/libraries/harness/dopa-tps.md` |
 
 Load implied contracts as well as explicitly tagged ones:
 
 - `[delivery-ete]` loads `delivery.md`, `linear.md`, `worktree.md` and
   `playwright.md`.
 - `[delivery-linear-<ISSUE-ID>]` loads `delivery.md`, `report.md`, `linear.md`,
-  `worktree.md`, `playwright.md` and `../../contributors/synasapmob/contributors/default/libraries/harness/linear/delivery-readiness.md`.
+  `worktree.md`, `playwright.md` and `../../../synasapmob/libraries/harness/linear/delivery-readiness.md`.
 - `[delivery-verify-linear-<ISSUE-ID>]` loads `delivery.md`,
   `delivery-verify.md`, `report.md`, `linear.md`, `worktree.md`, `playwright.md`,
-  `../../contributors/synasapmob/contributors/default/libraries/harness/linear/delivery-readiness.md`, `../../contributors/synasapmob/contributors/default/libraries/harness/linear/requirements-freshness.md` and
-  `../../contributors/synasapmob/contributors/default/libraries/harness/linear/freshness-report-summary.md`.
+  `../../../synasapmob/libraries/harness/linear/delivery-readiness.md`, `../../../synasapmob/libraries/harness/linear/requirements-freshness.md` and
+  `../../../synasapmob/libraries/harness/linear/freshness-report-summary.md`.
 - `[delivery-local]` loads only `delivery.md` unless another compatible tag is
   explicit; it does not imply a worktree or Playwright.
 - `[merge]` loads both `merge.md` and `mergeable.md`.
@@ -174,28 +179,28 @@ Supporting contracts are modular files under:
 
 - `~/.hub-william/contributors/default/libraries/harness/github/`
 - `~/.hub-william/contributors/default/libraries/harness/evidence/`
-- `~/.hub-william/contributors/synasapmob/contributors/default/libraries/harness/linear/`
-- `~/.hub-william/contributors/synasapmob/contributors/default/libraries/harness/playwright/`
-- `~/.hub-william/contributors/synasapmob/contributors/default/libraries/harness/projects/`
+- `~/.hub-william/contributors/synasapmob/libraries/harness/linear/`
+- `~/.hub-william/contributors/synasapmob/libraries/harness/playwright/`
+- `~/.hub-william/contributors/synasapmob/libraries/harness/projects/`
 
 Read the applicable supporting files completely before the related action:
 
 - Before the first GitHub or Linear read or write, read
-  `../../contributors/synasapmob/contributors/default/libraries/harness/projects/routing.md` and `../../contributors/synasapmob/contributors/default/libraries/harness/projects/registry.yaml`. Resolve the project from
+  `../../../synasapmob/libraries/harness/projects/routing.md` and `../../../synasapmob/libraries/harness/projects/registry.yaml`. Resolve the project from
   its normalized Git `origin`, verify its direct GitHub and Linear destinations,
   and stop the affected writes on missing or mismatched routing. A disabled or
   unconfigured Linear route blocks Linear, not an independently valid GitHub
   action; a delivery mode that requires Linear remains blocked as a whole.
 
-- Before any Linear write, read `../../contributors/synasapmob/contributors/default/libraries/harness/linear/creation-policy.md`. New issue creation
+- Before any Linear write, read `../../../synasapmob/libraries/harness/linear/creation-policy.md`. New issue creation
   is default-deny and limited to the exact count explicitly authorized by the
   active tag or operator request; discovered follow-ups remain suggestions.
 - Before delivery from an existing Linear issue, read
-  `../../contributors/synasapmob/contributors/default/libraries/harness/linear/delivery-readiness.md`; fill a missing assignee with the verified
+  `../../../synasapmob/libraries/harness/linear/delivery-readiness.md`; fill a missing assignee with the verified
   operator and a missing estimate from the verified team scale, preserving
   existing values.
 - Before verified delivery from an existing Linear issue, read
-  `../../contributors/synasapmob/contributors/default/libraries/harness/linear/requirements-freshness.md`; trace its issue, ADR/PRD/docs, latest
+  `../../../synasapmob/libraries/harness/linear/requirements-freshness.md`; trace its issue, ADR/PRD/docs, latest
   code and relevant PR decisions before code. Preserve the append-only
   `freshness.md` audit and stop on unresolved authority conflicts.
 - Before any GitHub read or write, including PR creation, inspection, comments,
@@ -212,10 +217,10 @@ Read the applicable supporting files completely before the related action:
   implementation phases and approach revisions without logging trivial steps.
 - Before the final response when `[report]` is explicit or implied, identify
   every touched domain and read its report contract:
-  `../../contributors/synasapmob/contributors/default/libraries/harness/linear/report-summary.md`
+  `../../../synasapmob/libraries/harness/linear/report-summary.md`
   for Linear, `github/report-summary.md` for GitHub/Git,
   `evidence/report-summary.md` for test evidence, and
-  `../../contributors/synasapmob/contributors/default/libraries/harness/playwright/report-summary.md`
+  `../../../synasapmob/libraries/harness/playwright/report-summary.md`
   for browser evidence. Follow `tags/report.md` and emit its six flat `##`
   headings with Markdown list items; do not add a `Delivery summary` wrapper,
   `Touched:` line, `CODE:` section or separate `PLAYWRIGHT:`/`FRESHNESS:`
