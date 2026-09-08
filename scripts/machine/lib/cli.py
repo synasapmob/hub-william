@@ -34,6 +34,8 @@ usage: ./install.sh <command>
   mcp auth   [<name>] [--agent ...]       log in to the OAuth servers
 
 options
+  --contributor <name>  select a contributor's optional harness and Codex roles;
+                        saved in this machine's profile (default: default)
   --agent <list>   comma-separated, no spaces. Naming agents is explicit: an
                    add lifts a previous deny for exactly those agents and a
                    remove writes one. Omitting --agent means every agent on
@@ -41,6 +43,7 @@ options
   --dry-run        print the plan, change nothing
   --force-mcp      overwrite an MCP block this installer does not own
   --no-plugins     skip the vendor `plugin install` steps
+  --no-shared      leave shared shell configuration untouched
   --adopt          (sync) allow every catalog item nobody has decided on
   --yes            skip the questions: `init` takes the prefilled answers and
                    neither command asks before applying

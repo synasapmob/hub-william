@@ -702,7 +702,7 @@ class TestHarnessAndZsh(MachineTest):
         self.assertIn("## Tag dispatcher", root_text)
         self.assertIn("read every resolved file", root_text)
         self.assertIn("missing or unreadable", root_text)
-        self.assertIn("`../../contributors/synasapmob/contributors/default/libraries/harness/dopa-tps.md`", root_text)
+        self.assertIn("`../../../synasapmob/libraries/harness/dopa-tps.md`", root_text)
         self.assertIn("`tags/report.md`", root_text)
         self.assertIn("## Supporting contract dispatcher", root_text)
         self.assertIn("`github/gh-cli.md`", root_text)
@@ -711,14 +711,14 @@ class TestHarnessAndZsh(MachineTest):
         self.assertIn("`evidence/approach-history.md`", root_text)
         self.assertIn("`evidence/test-evidence.md`", root_text)
         self.assertIn("`evidence/report-summary.md`", root_text)
-        self.assertIn("`../../contributors/synasapmob/contributors/default/libraries/harness/linear/creation-policy.md`", root_text)
-        self.assertIn("`../../contributors/synasapmob/contributors/default/libraries/harness/linear/delivery-readiness.md`", root_text)
-        self.assertIn("`../../contributors/synasapmob/contributors/default/libraries/harness/linear/requirements-freshness.md`", root_text)
-        self.assertIn("`../../contributors/synasapmob/contributors/default/libraries/harness/linear/freshness-report-summary.md`", root_text)
-        self.assertIn("`../../contributors/synasapmob/contributors/default/libraries/harness/linear/report-summary.md`", root_text)
-        self.assertIn("`../../contributors/synasapmob/contributors/default/libraries/harness/playwright/report-summary.md`", root_text)
-        self.assertIn("`../../contributors/synasapmob/contributors/default/libraries/harness/projects/routing.md`", root_text)
-        self.assertIn("`../../contributors/synasapmob/contributors/default/libraries/harness/projects/registry.yaml`", root_text)
+        self.assertIn("`../../../synasapmob/libraries/harness/linear/creation-policy.md`", root_text)
+        self.assertIn("`../../../synasapmob/libraries/harness/linear/delivery-readiness.md`", root_text)
+        self.assertIn("`../../../synasapmob/libraries/harness/linear/requirements-freshness.md`", root_text)
+        self.assertIn("`../../../synasapmob/libraries/harness/linear/freshness-report-summary.md`", root_text)
+        self.assertIn("`../../../synasapmob/libraries/harness/linear/report-summary.md`", root_text)
+        self.assertIn("`../../../synasapmob/libraries/harness/playwright/report-summary.md`", root_text)
+        self.assertIn("`../../../synasapmob/libraries/harness/projects/routing.md`", root_text)
+        self.assertIn("`../../../synasapmob/libraries/harness/projects/registry.yaml`", root_text)
         self.assertIn("contributors/synasapmob/libraries/hooks/supabase-routing.md", root_text)
         self.assertNotIn("## `[delivery-local]`", root_text)
         self.assertNotIn("## `[answer]`", root_text)
@@ -1006,12 +1006,12 @@ class TestHarnessAndZsh(MachineTest):
         )
         self.assertIn(
             "/Users/synasapmob/.hub-william/contributors/"
-            "synasapmob/contributors/default/libraries/templates/linear-issue.md",
+            "synasapmob/libraries/templates/linear-issue.md",
             text,
         )
         self.assertIn(
             "/Users/synasapmob/.hub-william/contributors/"
-            "synasapmob/contributors/default/libraries/templates/github-pull-request.md",
+            "synasapmob/libraries/templates/github-pull-request.md",
             text,
         )
         self.assertNotIn(
@@ -1111,17 +1111,17 @@ class TestHarnessAndZsh(MachineTest):
         self.assertIn("harness/github/gh-cli.md", guide)
         self.assertIn("harness/github/clickable-references.md", guide)
         self.assertIn("harness/github/report-summary.md", guide)
-        self.assertIn("contributors/synasapmob/contributors/default/libraries/harness/linear/creation-policy.md", guide)
-        self.assertIn("contributors/synasapmob/contributors/default/libraries/harness/linear/delivery-readiness.md", guide)
-        self.assertIn("contributors/synasapmob/contributors/default/libraries/harness/linear/requirements-freshness.md", guide)
-        self.assertIn("contributors/synasapmob/contributors/default/libraries/harness/linear/freshness-report-summary.md", guide)
-        self.assertIn("contributors/synasapmob/contributors/default/libraries/harness/linear/report-summary.md", guide)
+        self.assertIn("contributors/synasapmob/libraries/harness/linear/creation-policy.md", guide)
+        self.assertIn("contributors/synasapmob/libraries/harness/linear/delivery-readiness.md", guide)
+        self.assertIn("contributors/synasapmob/libraries/harness/linear/requirements-freshness.md", guide)
+        self.assertIn("contributors/synasapmob/libraries/harness/linear/freshness-report-summary.md", guide)
+        self.assertIn("contributors/synasapmob/libraries/harness/linear/report-summary.md", guide)
         self.assertIn("harness/evidence/test-evidence.md", guide)
         self.assertIn("harness/evidence/approach-history.md", guide)
         self.assertIn("harness/evidence/report-summary.md", guide)
-        self.assertIn("contributors/synasapmob/contributors/default/libraries/harness/playwright/report-summary.md", guide)
-        self.assertIn("contributors/synasapmob/contributors/default/libraries/harness/projects/routing.md", guide)
-        self.assertIn("contributors/synasapmob/contributors/default/libraries/harness/projects/registry.yaml", guide)
+        self.assertIn("contributors/synasapmob/libraries/harness/playwright/report-summary.md", guide)
+        self.assertIn("contributors/synasapmob/libraries/harness/projects/routing.md", guide)
+        self.assertIn("contributors/synasapmob/libraries/harness/projects/registry.yaml", guide)
         self.assertIn("contributors/synasapmob/libraries/hooks/supabase-routing.md", guide)
         self.assertIn("`[report]` is an opt-in structured execution handoff", guide)
         self.assertIn("`## What we", guide)

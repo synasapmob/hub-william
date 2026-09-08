@@ -17,28 +17,31 @@ MARKER = "hub-william-generated"
 TREE_MARKER = ".hub-william-generated.json"
 
 
-def markdown(source, source_label):
+def document(source, source_label):
     body = atomic.read_text(source)
     if body is None:
         raise IOError("generated source is missing: %s" % source)
-    header = "<!-- %s: DO NOT EDIT; source=%s -->\n\n" % (MARKER, source_label)
+    if source.endswith('.toml'):
+        header = "# %s: DO NOT EDIT; source=%s\n\n" % (MARKER, source_label)
+    else:
+        header = "<!-- %s: DO NOT EDIT; source=%s -->\n\n" % (MARKER, source_label)
     return header + body
 
 
-def is_markdown(path):
+def is_document(path):
     if os.path.islink(path) or not os.path.isfile(path):
         return False
     first = atomic.read_text(path, default="") or ""
-    return first.startswith("<!-- %s:" % MARKER)
+    return first.startswith(("<!-- %s:" % MARKER, "# %s:" % MARKER))
 
 
-def markdown_matches(path, desired):
-    if not is_markdown(path):
+def document_matches(path, desired):
+    if not is_document(path):
         return False
     return atomic.read_text(path) == desired and not (os.stat(path).st_mode & 0o222)
 
 
-def write_markdown(path, desired):
+def write_document(path, desired):
     """Atomically replace a path itself, never the destination of a symlink."""
     atomic.ensure_dir(os.path.dirname(os.path.abspath(path)))
     tmp = "%s.hw-generated-%d" % (path, os.getpid())

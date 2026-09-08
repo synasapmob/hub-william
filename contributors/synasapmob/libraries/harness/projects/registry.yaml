@@ -1,6 +1,11 @@
 version: 1
 
 projects:
+  synasapmob/hub-william:
+    github_url: https://github.com/synasapmob/hub-william
+    linear:
+      status: disabled
+
   CommandOSSLabs/dopamint-arena:
     github_url: https://github.com/CommandOSSLabs/dopamint-arena
     linear:
