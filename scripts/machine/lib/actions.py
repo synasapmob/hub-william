@@ -26,9 +26,11 @@ class Args(object):
 
     def __init__(self):
         self.agent = None
+        self.contributor = None
         self.dry_run = False
         self.force_mcp = False
         self.plugins = True
+        self.shared = True
         self.adopt = False
         self.delete_catalog = False
         self.keep_catalog = False
@@ -41,7 +43,7 @@ class Args(object):
         self.command = []
 
 
-_FLAGS_WITH_VALUE = ("--agent", "--url", "--description", "--env")
+_FLAGS_WITH_VALUE = ("--agent", "--contributor", "--url", "--description", "--env")
 _BOOL_FLAGS = {
     "--dry-run": "dry_run",
     "--force-mcp": "force_mcp",
@@ -78,6 +80,8 @@ def parse_flags(tokens, stop_at_positional=False):
                 setattr(args, _BOOL_FLAGS[name], True)
             elif name == "--no-plugins":
                 args.plugins = False
+            elif name == "--no-shared":
+                args.shared = False
             elif name == "--help":
                 raise HelpRequest("")
             else:
@@ -103,6 +107,8 @@ def parse_flags(tokens, stop_at_positional=False):
 def _set_valued(args, name, value):
     if name == "--agent":
         args.agent = value
+    elif name == '--contributor':
+        args.contributor = value
     elif name == "--url":
         args.url = value
     elif name == "--description":
@@ -116,7 +122,7 @@ def _set_valued(args, name, value):
 
 def options_from(args):
     return sync.Options(
-        force_mcp=args.force_mcp, plugins=args.plugins, adopt=args.adopt
+        force_mcp=args.force_mcp, plugins=args.plugins, shared=args.shared, adopt=args.adopt
     )
 
 
@@ -130,6 +136,8 @@ def run_sync(args, subtitle="sync", quiet_banner=False, profile=None, extra=(),
     if not quiet_banner:
         banner.show(subtitle)
     profile = profile if profile is not None else profile_mod.Profile.load()
+    if args.contributor is not None:
+        profile.contributor = args.contributor
     state = state_mod.State.load()
     if args.adopt:
         adopt_undecided(profile, agents)
@@ -151,6 +159,8 @@ def run_sync(args, subtitle="sync", quiet_banner=False, profile=None, extra=(),
             ui.say("nothing changed")
             return 0
     failures = reconciler.apply(changes)
+    if args.contributor is not None and not failures:
+        profile.save()
     for change in failures:
         ui.warn("%s %s %s: %s" % (change.verb, change.kind, change.name, change.error))
     report_auth_hint(changes, failures)
@@ -322,6 +332,7 @@ def status(args):
     where = (paths.tilde(paths.local_profile()) if profile.source == "local"
              else "none yet  (run ./install.sh init)")
     ui.head("profile  " + where)
+    ui.say('  contributor  ' + profile.contributor)
     for agent_name in AGENT_NAMES:
         entry = profile.agent(agent_name)
         ui.say("  %-8s harness %s" % (agent_name, "on" if entry.harness else "off"))

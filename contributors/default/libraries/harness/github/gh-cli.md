@@ -11,7 +11,7 @@ Every `[delivery-ete]`, `[delivery-linear-<ISSUE-ID>]` or
 `[delivery-verify-linear-<ISSUE-ID>]` PR must read and follow this local
 template at runtime:
 
-`/Users/synasapmob/.hub-william/contributors/synasapmob/contributors/default/libraries/templates/github-pull-request.md`
+`/Users/synasapmob/.hub-william/contributors/synasapmob/libraries/templates/github-pull-request.md`
 
 Preserve and accurately fill its sections: Context, What's included, Design
 and implementation, Risks, concerns, and gaps, and Testing. Remove placeholder

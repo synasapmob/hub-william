@@ -100,7 +100,8 @@ class AgentProfile(object):
 
 
 class Profile(object):
-    def __init__(self, agents=None, shared=None, source="empty", legacy_shell=False):
+    def __init__(self, agents=None, shared=None, source="empty", legacy_shell=False,
+                 contributor="default"):
         self.agents = agents or dict(
             (name, AgentProfile(name)) for name in AGENT_NAMES
         )
@@ -112,6 +113,7 @@ class Profile(object):
         # so the first sync after upgrading does not tear down a working shell.
         self.legacy_shell = bool(legacy_shell)
         self.source = source
+        self.contributor = contributor
 
     # -- loading ----------------------------------------------------------
     @classmethod
@@ -130,6 +132,7 @@ class Profile(object):
             },
             source,
             legacy_shell=not per_fragment and bool(shared.get("zsh", False)),
+            contributor=(data.get('catalog') or {}).get('contributor', 'default'),
         )
 
     # -- shell fragments: one switch for the machine -----------------------
@@ -216,6 +219,8 @@ class Profile(object):
     # -- saving -----------------------------------------------------------
     def render(self):
         chunks = [HEADER]
+        if self.contributor != 'default':
+            chunks.append(tomlfile.render_table(('catalog',), {'contributor': self.contributor}))
         for name in AGENT_NAMES:
             chunks.append(tomlfile.render_table((name,), self.agent(name).to_toml_map()))
         if self.legacy_shell and not self.shared["shell_allow"] \

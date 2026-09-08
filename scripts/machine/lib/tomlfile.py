@@ -72,10 +72,11 @@ class Table(object):
 
 
 class Document(object):
-    def __init__(self, text, data, tables):
+    def __init__(self, text, data, tables, root_values=None):
         self.text = text
         self.data = data
         self.tables = tables
+        self.root_values = root_values or {}
 
     def find(self, path):
         """First standard table at `path`, or None."""
@@ -365,6 +366,7 @@ class _Parser(object):
         current = root
         current_table = None
         tables = []
+        root_values = {}
 
         while True:
             self.skip_blank()
@@ -388,20 +390,27 @@ class _Parser(object):
                 current_table.value_end = self.i
                 tables.append(current_table)
                 continue
+            assignment_start = self.i
             key = self.parse_key()
             self.skip_ws()
             if self.peek() != "=":
                 self.fail("expected '=' after key")
             self.i += 1
             self.skip_ws()
+            value_start = self.i
             value = self.parse_value()
+            value_end = self.i
             _assign(current, key, value, self)
             self.expect_line_end()
+            if current_table is None and len(key) == 1:
+                if key[0] in root_values:
+                    self.fail("duplicate root key %r" % key[0])
+                root_values[key[0]] = (assignment_start, value_start, value_end, self.i)
             if current_table is not None:
                 current_table.value_end = self.i
 
         self._close_spans(tables)
-        return Document(self.t, root, tables)
+        return Document(self.t, root, tables, root_values)
 
     def _close_spans(self, tables):
         """A block runs until the next block's span begins.
@@ -586,6 +595,22 @@ def _split(text):
 
 def _join(lines):
     return "".join(lines)
+
+
+def upsert_root_value(text, key, value):
+    """Replace one parsed root value; preserve all neighbouring source bytes."""
+    document = loads(text)
+    span = document.root_values.get(key)
+    if span is None:
+        if key in document.data:
+            raise TomlError("root key %r is not a scalar assignment" % key)
+        return "%s = %s\n%s" % (quote_key(key), dump_value(value), text)
+    return text[:span[1]] + dump_value(value) + text[span[2]:]
+
+
+def remove_root_value(text, key):
+    span = loads(text).root_values.get(key)
+    return text[:span[0]] + text[span[3]:] if span else text
 
 
 def table_text(text, path):

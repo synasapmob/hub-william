@@ -5,11 +5,23 @@ fragments and one always-on personal harness markdown. Claude, Codex and Grok
 each get only what you selected for them.
 
 There is exactly one harness source to maintain:
-`system/contributors/default/libraries/harness/AGENTS.md`. `init`, `sync`, and `update` generate a read-only
+`contributors/default/libraries/harness/AGENTS.md`. `init`, `sync`, and `update` generate a read-only
 copy under the filename each agent expects. They replace a previous global
 harness at those exact home paths after moving it to a timestamped backup. They
 never remove a repository's own `AGENTS.md` or `CLAUDE.md`; those project files
 remain available for project-specific rules such as Linear routing.
+
+A contributor can optionally supply `libraries/harness/AGENTS.md` to append
+personal instructions, `libraries/harness/codex-policy.md` for native Codex
+`developer_instructions`, and `libraries/agents/codex/*.toml` for personal
+Codex roles. Select one with `sync --contributor <login>`; the selection is
+saved in this machine's profile. `default` installs no contributor extras.
+Existing user instructions and unrelated config remain intact. Only owned
+roles and the managed policy block are removed when changing contributors or
+turning the Codex harness off. Foreign role files are preserved and reported.
+
+For the operator-specific workflow and live verification, see
+[the synasapmob contribution](../../contributors/synasapmob/tools/installer/codex-workflow.md).
 
 The delivery templates are local too:
 `contributors/synasapmob/templates/github-pull-request.md` and
