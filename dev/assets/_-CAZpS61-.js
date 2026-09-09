@@ -1,1 +1,0 @@
-import{n as e,s as t,t as n}from"./jsx-runtime-D2IZI__9.js";var r=n(),i=t(function(){return(0,r.jsx)(e,{replace:!0,to:`/`})});export{i as default};

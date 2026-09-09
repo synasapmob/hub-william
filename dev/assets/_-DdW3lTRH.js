@@ -1,0 +1,1 @@
+import{n as e,s as t,t as n}from"./jsx-runtime-Cjbcb6-c.js";var r=n(),i=t(function(){return(0,r.jsx)(e,{replace:!0,to:`/`})});export{i as default};

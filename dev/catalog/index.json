@@ -175,19 +175,19 @@
       "id": "contributors/default/tools/installer/download-and-inject",
       "path": "contributors/default/tools/installer/download-and-inject.md",
       "url": "/hub-william/dev/catalog/contributors/default/tools/installer/download-and-inject.md",
-      "bytes": 1166
+      "bytes": 1497
     },
     {
       "id": "contributors/default/tools/installer/machine-installer",
       "path": "contributors/default/tools/installer/machine-installer.md",
       "url": "/hub-william/dev/catalog/contributors/default/tools/installer/machine-installer.md",
-      "bytes": 2045
+      "bytes": 2437
     },
     {
       "id": "contributors/default/tools/mcp/mcp-servers",
       "path": "contributors/default/tools/mcp/mcp-servers.md",
       "url": "/hub-william/dev/catalog/contributors/default/tools/mcp/mcp-servers.md",
-      "bytes": 1415
+      "bytes": 1881
     },
     {
       "id": "contributors/synasapmob/libraries/harness/dopa-tps",
@@ -267,14 +267,14 @@
       "id": "contributors",
       "path": "contributors.zip",
       "url": "/hub-william/dev/catalog/contributors.zip",
-      "bytes": 67029,
+      "bytes": 67534,
       "files": 43
     },
     {
       "id": "contributors/default",
       "path": "contributors/default.zip",
       "url": "/hub-william/dev/catalog/contributors/default.zip",
-      "bytes": 50672,
+      "bytes": 51177,
       "files": 31
     },
     {
@@ -309,21 +309,21 @@
       "id": "contributors/default/tools",
       "path": "contributors/default/tools.zip",
       "url": "/hub-william/dev/catalog/contributors/default/tools.zip",
-      "bytes": 2929,
+      "bytes": 3434,
       "files": 3
     },
     {
       "id": "contributors/default/tools/installer",
       "path": "contributors/default/tools/installer.zip",
       "url": "/hub-william/dev/catalog/contributors/default/tools/installer.zip",
-      "bytes": 2091,
+      "bytes": 2404,
       "files": 2
     },
     {
       "id": "contributors/default/tools/mcp",
       "path": "contributors/default/tools/mcp.zip",
       "url": "/hub-william/dev/catalog/contributors/default/tools/mcp.zip",
-      "bytes": 860,
+      "bytes": 1052,
       "files": 1
     },
     {
@@ -358,6 +358,99 @@
       "id": "contributors/synasapmob/libraries/templates",
       "path": "contributors/synasapmob/libraries/templates.zip",
       "url": "/hub-william/dev/catalog/contributors/synasapmob/libraries/templates.zip",
+      "bytes": 1941,
+      "files": 2
+    }
+  ],
+  "collections": [
+    {
+      "id": "default/library/evidences",
+      "path": "collections/default/library/evidences.zip",
+      "url": "/hub-william/dev/catalog/collections/default/library/evidences.zip",
+      "bytes": 5233,
+      "files": 3
+    },
+    {
+      "id": "default/library/github",
+      "path": "collections/default/library/github.zip",
+      "url": "/hub-william/dev/catalog/collections/default/library/github.zip",
+      "bytes": 11052,
+      "files": 7
+    },
+    {
+      "id": "default/library/skills",
+      "path": "collections/default/library/skills.zip",
+      "url": "/hub-william/dev/catalog/collections/default/library/skills.zip",
+      "bytes": 8616,
+      "files": 4
+    },
+    {
+      "id": "default/library/tags",
+      "path": "collections/default/library/tags.zip",
+      "url": "/hub-william/dev/catalog/collections/default/library/tags.zip",
+      "bytes": 20672,
+      "files": 11
+    },
+    {
+      "id": "default/library/templates",
+      "path": "collections/default/library/templates.zip",
+      "url": "/hub-william/dev/catalog/collections/default/library/templates.zip",
+      "bytes": 2280,
+      "files": 3
+    },
+    {
+      "id": "default/tools/documents",
+      "path": "collections/default/tools/documents.zip",
+      "url": "/hub-william/dev/catalog/collections/default/tools/documents.zip",
+      "bytes": 2404,
+      "files": 2
+    },
+    {
+      "id": "default/tools/mcp",
+      "path": "collections/default/tools/mcp.zip",
+      "url": "/hub-william/dev/catalog/collections/default/tools/mcp.zip",
+      "bytes": 1052,
+      "files": 1
+    },
+    {
+      "id": "synasapmob/library/harness",
+      "path": "collections/synasapmob/library/harness.zip",
+      "url": "/hub-william/dev/catalog/collections/synasapmob/library/harness.zip",
+      "bytes": 1923,
+      "files": 1
+    },
+    {
+      "id": "synasapmob/library/hooks",
+      "path": "collections/synasapmob/library/hooks.zip",
+      "url": "/hub-william/dev/catalog/collections/synasapmob/library/hooks.zip",
+      "bytes": 879,
+      "files": 1
+    },
+    {
+      "id": "synasapmob/library/linear",
+      "path": "collections/synasapmob/library/linear.zip",
+      "url": "/hub-william/dev/catalog/collections/synasapmob/library/linear.zip",
+      "bytes": 7694,
+      "files": 5
+    },
+    {
+      "id": "synasapmob/library/playwright",
+      "path": "collections/synasapmob/library/playwright.zip",
+      "url": "/hub-william/dev/catalog/collections/synasapmob/library/playwright.zip",
+      "bytes": 1294,
+      "files": 1
+    },
+    {
+      "id": "synasapmob/library/projects",
+      "path": "collections/synasapmob/library/projects.zip",
+      "url": "/hub-william/dev/catalog/collections/synasapmob/library/projects.zip",
+      "bytes": 2758,
+      "files": 2
+    },
+    {
+      "id": "synasapmob/library/templates",
+      "path": "collections/synasapmob/library/templates.zip",
+      "url": "/hub-william/dev/catalog/collections/synasapmob/library/templates.zip",
       "bytes": 1941,
       "files": 2
     }

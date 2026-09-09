@@ -9,10 +9,10 @@
    first time a contributor used one nobody had thought of. */
 @plugin "@tailwindcss/typography";
 
-/* The workspace is dark only. `root.tsx` sets `class="dark"` on `<html>`, and
-   this pins `dark:` to that class so the utilities baked into the generated
-   shadcn primitives apply without following the reader's OS preference into a
-   half-light page the tokens below were never written for. */
+/* The workspace is light only. This pins `dark:` to a class the app never sets,
+   so the `dark:` utilities baked into the generated shadcn primitives stay
+   inert instead of following the reader's OS preference into a half-dark page
+   the tokens below were never written for. */
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -60,31 +60,31 @@
 }
 
 /**
- * The graphite paper palette, dark only.
+ * The graphite paper palette.
  *
  * Zinc carries every surface and every word; indigo is reserved for the one
  * thing on a screen the reader should act on, which is why `--primary` is near
- * white rather than indigo — the specification's own buttons are paper, and an
+ * black rather than indigo — the specification's own buttons are ink, and an
  * indigo button beside an indigo link makes neither mean anything.
  */
 :root {
-  --background: oklch(0.17 0.008 247);
-  --foreground: oklch(0.93 0.006 286);
-  --card: oklch(0.205 0.006 247);
-  --card-foreground: oklch(0.93 0.006 286);
-  --popover: oklch(0.205 0.006 247);
-  --popover-foreground: oklch(0.93 0.006 286);
-  --primary: oklch(0.93 0.006 286);
-  --primary-foreground: oklch(0.17 0.008 247);
-  --secondary: oklch(0.26 0.006 286);
-  --secondary-foreground: oklch(0.93 0.006 286);
-  --muted: oklch(0.26 0.006 286);
-  --muted-foreground: oklch(0.7 0.016 286);
-  --accent: oklch(0.26 0.006 286);
-  --accent-foreground: oklch(0.93 0.006 286);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(0.32 0.008 286);
-  --input: oklch(0.32 0.008 286);
+  --background: oklch(0.985 0.002 247);
+  --foreground: oklch(0.21 0.006 285.885);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.006 285.885);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.006 285.885);
+  --primary: oklch(0.21 0.006 285.885);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.967 0.001 286.375);
+  --secondary-foreground: oklch(0.274 0.006 286.033);
+  --muted: oklch(0.967 0.001 286.375);
+  --muted-foreground: oklch(0.552 0.016 285.938);
+  --accent: oklch(0.967 0.001 286.375);
+  --accent-foreground: oklch(0.21 0.006 285.885);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.92 0.004 286.32);
+  --input: oklch(0.92 0.004 286.32);
   --ring: oklch(0.585 0.233 277.117);
   --chart-1: oklch(0.585 0.233 277.117);
   --chart-2: oklch(0.696 0.17 162.48);
@@ -92,13 +92,13 @@
   --chart-4: oklch(0.685 0.169 237.323);
   --chart-5: oklch(0.645 0.246 16.439);
   --radius: 0.625rem;
-  --sidebar: oklch(0.19 0.006 247);
-  --sidebar-foreground: oklch(0.93 0.006 286);
-  --sidebar-primary: oklch(0.93 0.006 286);
-  --sidebar-primary-foreground: oklch(0.17 0.008 247);
-  --sidebar-accent: oklch(0.26 0.006 286);
-  --sidebar-accent-foreground: oklch(0.93 0.006 286);
-  --sidebar-border: oklch(0.32 0.008 286);
+  --sidebar: oklch(1 0 0);
+  --sidebar-foreground: oklch(0.21 0.006 285.885);
+  --sidebar-primary: oklch(0.21 0.006 285.885);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.967 0.001 286.375);
+  --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
+  --sidebar-border: oklch(0.92 0.004 286.32);
   --sidebar-ring: oklch(0.585 0.233 277.117);
 }
 
@@ -111,7 +111,6 @@
     @apply font-sans;
     min-width: 320px;
     background: var(--background);
-    color-scheme: dark;
   }
 
   body {
@@ -131,7 +130,7 @@
   }
 
   ::selection {
-    @apply bg-indigo-500/25 text-indigo-100;
+    @apply bg-indigo-500/15 text-indigo-900;
   }
 
   /* The library canvas is one long scroll inside a page that also scrolls, so a
@@ -146,11 +145,11 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply rounded-full bg-zinc-700;
+    @apply rounded-full bg-zinc-200;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-zinc-600;
+    @apply bg-zinc-300;
   }
 }
 
@@ -164,7 +163,7 @@
   background-size: 24px 24px;
   background-image: radial-gradient(
     circle,
-    var(--color-zinc-700) 1px,
+    var(--color-slate-300) 1px,
     transparent 1px
   );
 }
@@ -182,4 +181,17 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* Hides the clear/cancel button */
+input[type="search"]::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  display: none;
+}
+
+/* Optional: Hides additional decorative search icons/results buttons */
+input[type="search"]::-webkit-search-decoration,
+input[type="search"]::-webkit-search-results-button,
+input[type="search"]::-webkit-search-results-decoration {
+  display: none;
 }
