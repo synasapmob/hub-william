@@ -70,12 +70,12 @@ describe("collections", () => {
     );
   });
 
-  it("reduces Tools to Documents and MCP", () => {
+  it("reduces Tools to Documents, Gateway, and MCP", () => {
     expect(
       catalogService
         .collectionsInSection("tools")
         .map((collection) => collection.id),
-    ).toEqual(["documents", "mcp"]);
+    ).toEqual(["documents", "gateway", "mcp"]);
   });
 
   it("derives the five MCP products and keeps Supabase project-scoped", () => {

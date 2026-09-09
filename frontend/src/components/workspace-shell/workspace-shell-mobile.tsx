@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { Menu } from "lucide-react";
-import { Link, NavLink, type NavLinkRenderProps } from "react-router";
-import { tv } from "tailwind-variants";
+import { LogIn, Menu } from "lucide-react";
+import { Link } from "react-router";
 
 import Center from "@/components/ui/center";
 import Flex from "@/components/ui/flex";
@@ -15,25 +14,8 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 
-import { navigationItems } from "./workspace-shell-navigation-items";
 import WorkspaceShellSidebar from "./workspace-shell-sidebar";
-
-/** The mobile header's two-up switcher. Its own table: no sidebar link shares this state. */
-const mobileTabVariants = tv({
-  base: "rounded-md px-2.5 py-1 transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden",
-  variants: {
-    active: {
-      true: "bg-white font-semibold text-foreground shadow-xs",
-      false: "text-muted-foreground",
-    },
-    // `pointer-events-none` is safe here in a way it would not be on a link:
-    // this renders as a span, so there is nothing to focus and nothing Enter
-    // can follow — the attribute only has to stop the pointer.
-    disabled: {
-      true: "pointer-events-none cursor-default text-muted-foreground/50",
-    },
-  },
-});
+import { useWorkspaceSession } from "./workspace-shell-session-context";
 
 /**
  * The header below `md`, and the drawer it opens.
@@ -43,6 +25,8 @@ const mobileTabVariants = tv({
  * pass through a state change that only a phone can cause.
  */
 export default function WorkspaceShellMobile() {
+  const session = useWorkspaceSession();
+
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
 
   return (
@@ -94,34 +78,16 @@ export default function WorkspaceShellMobile() {
         </Link>
       </Flex>
 
-      <nav
-        aria-label="Workspace sections"
-        className="flex items-center gap-1 rounded-lg bg-zinc-100 p-0.5 text-[11px] font-medium"
+      <Button
+        type="button"
+        variant="outline"
+        className="w-24"
+        disabled={session.status === "loading"}
+        onClick={session.openAuth}
       >
-        {navigationItems.map((item) =>
-          // A span, not a dimmed NavLink: a link that only looks disabled is
-          // still focusable and still followed by Enter.
-          item.isDisabled ? (
-            <span
-              key={item.href}
-              aria-disabled="true"
-              className={mobileTabVariants({ disabled: true })}
-            >
-              {item.label}
-            </span>
-          ) : (
-            <NavLink
-              key={item.href}
-              to={item.href}
-              className={({ isActive }: NavLinkRenderProps) =>
-                mobileTabVariants({ active: isActive })
-              }
-            >
-              {item.label}
-            </NavLink>
-          ),
-        )}
-      </nav>
+        <LogIn aria-hidden="true" data-icon="inline-start" />
+        {session.status === "loading" ? "Checking session…" : "Login"}
+      </Button>
     </header>
   );
 }

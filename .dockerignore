@@ -1,0 +1,11 @@
+.git
+.github
+**/.DS_Store
+**/.env
+**/.env.*
+!**/.env.example
+**/build
+**/node_modules
+**/target
+frontend/__pycache__
+frontend/public/__pycache__

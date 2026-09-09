@@ -5,12 +5,25 @@ edition = "2024"
 publish = false
 
 [dependencies]
+aes-gcm = "0.10.3"
+argon2 = "0.5.3"
 axum = "0.8.9"
+axum-extra = { version = "0.12.5", features = ["cookie"] }
+base64 = "0.22.1"
+chrono = { version = "0.4.42", features = ["serde"] }
+email_address = "0.2.9"
+rand = "0.8.5"
+reqwest = { version = "0.12.24", default-features = false, features = ["json", "rustls-tls", "stream"] }
 serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+sha2 = "0.10.9"
+sqlx = { version = "0.8.6", features = ["chrono", "migrate", "postgres", "runtime-tokio-rustls", "uuid"] }
 tokio = { version = "1.53.1", features = ["macros", "net", "rt-multi-thread", "signal"] }
-utoipa = { version = "5.5.0", features = ["axum_extras"] }
+tower-http = { version = "0.6.6", features = ["cors"] }
+time = "0.3.44"
+utoipa = { version = "5.5.0", features = ["axum_extras", "chrono", "uuid"] }
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum", "vendored"] }
+uuid = { version = "1.18.1", features = ["serde", "v4"] }
 
 [dev-dependencies]
-serde_json = "1.0.149"
 tower = { version = "0.5.3", features = ["util"] }

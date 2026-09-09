@@ -1,5 +1,7 @@
-use std::{env, net::Ipv4Addr};
+use std::{env, net::Ipv6Addr, time::Duration};
 
+use reqwest::Client;
+use sqlx::postgres::PgPoolOptions;
 use tokio::{net::TcpListener, signal};
 
 const DEFAULT_PORT: u16 = 8080;
@@ -14,15 +16,29 @@ fn port() -> Result<u16, Box<dyn std::error::Error>> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let address = (Ipv4Addr::UNSPECIFIED, port()?);
+    let database_url = env::var("DATABASE_URL")?;
+    let pool = PgPoolOptions::new()
+        .max_connections(10)
+        .connect(&database_url)
+        .await?;
+    sqlx::migrate!("./migrations").run(&pool).await?;
+
+    let address = (Ipv6Addr::UNSPECIFIED, port()?);
     let listener = TcpListener::bind(address).await?;
+    let config = hub_william_backend::AppConfig::from_env()?;
+    let http = Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
+        .user_agent(concat!("hub-william/", env!("CARGO_PKG_VERSION")))
+        .build()?;
+    let state = hub_william_backend::AppState { config, http, pool };
 
     println!(
         "hub-william-backend listening on {}",
         listener.local_addr()?
     );
 
-    axum::serve(listener, hub_william_backend::app())
+    axum::serve(listener, hub_william_backend::app(state))
         .with_graceful_shutdown(shutdown_signal())
         .await?;
 

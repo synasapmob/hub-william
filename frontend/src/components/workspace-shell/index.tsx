@@ -2,6 +2,7 @@ import { Outlet } from "react-router";
 
 import WorkspaceShellDesktop from "./workspace-shell-desktop";
 import WorkspaceShellMobile from "./workspace-shell-mobile";
+import WorkspaceShellSession from "./workspace-shell-session";
 
 /**
  * The frame every page under `_app` renders inside.
@@ -14,16 +15,18 @@ import WorkspaceShellMobile from "./workspace-shell-mobile";
  */
 export default function WorkspaceShell() {
   return (
-    <div className="flex h-svh w-full overflow-hidden bg-background text-foreground">
-      <WorkspaceShellDesktop />
+    <WorkspaceShellSession>
+      <div className="flex h-svh w-full overflow-hidden bg-background text-foreground">
+        <WorkspaceShellDesktop />
 
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
-        <WorkspaceShellMobile />
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
+          <WorkspaceShellMobile />
 
-        <div className="flex min-h-0 flex-1 flex-col">
-          <Outlet />
-        </div>
-      </main>
-    </div>
+          <div className="flex min-h-0 flex-1 flex-col">
+            <Outlet />
+          </div>
+        </main>
+      </div>
+    </WorkspaceShellSession>
   );
 }

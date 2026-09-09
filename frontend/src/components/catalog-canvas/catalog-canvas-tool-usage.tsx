@@ -26,6 +26,17 @@ function bootstrapCommand(origin: string, arguments_: string) {
   return `curl -fsSL ${catalogService.installerUrl(origin)} | python3 -${suffix}`;
 }
 
+function gatewayCommand(origin: string) {
+  const apiBaseUrl =
+    import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+  const gatewayOrigin = new URL(apiBaseUrl, `${origin}/`)
+    .toString()
+    .replace(/\/$/, "");
+  const installerUrl = new URL("gateway.py", `${origin}/`).toString();
+
+  return `curl -fsSL ${installerUrl} | HUB_WILLIAM_GATEWAY_URL=${gatewayOrigin} python3 -`;
+}
+
 /** Real bootstrap commands for the two tool collections. */
 export default function CatalogCanvasToolUsage({
   collection,
@@ -59,6 +70,22 @@ export default function CatalogCanvasToolUsage({
           <CopyCommand
             command={bootstrapCommand(siteOrigin, '--path "$PWD"')}
           />
+        </div>
+      </div>
+    );
+  }
+
+  if (collection.id === "gateway") {
+    return (
+      <div className={container()}>
+        <div className={section()}>
+          <p className={label()}>Interactive install</p>
+          <p className={description()}>
+            Select Codex, Claude Code, or Grok with the arrow keys and Space.
+            Enter prompts for your gateway key, then updates only the selected
+            agent configs; Escape exits without changes.
+          </p>
+          <CopyCommand command={gatewayCommand(siteOrigin)} />
         </div>
       </div>
     );

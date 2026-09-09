@@ -38,6 +38,11 @@ const COLLECTION_PRESENTATION: Record<string, CatalogCollectionPresentation> = {
     summary:
       "Git, pull request and GitHub contracts, including merge, mergeability, draft and rebase workflows.",
   },
+  gateway: {
+    label: "Gateway",
+    summary:
+      "Point Codex, Claude Code and Grok at Hub William with one interactive installer.",
+  },
   mcp: {
     label: "MCP",
     summary:
@@ -62,7 +67,7 @@ const COLLECTION_PRESENTATION: Record<string, CatalogCollectionPresentation> = {
 
 const COLLECTION_ORDER: Record<CatalogCollectionSection, string[]> = {
   library: ["evidences", "github", "tags", "skills", "templates"],
-  tools: ["documents", "mcp"],
+  tools: ["documents", "gateway", "mcp"],
 };
 
 function fileStem(path: string) {

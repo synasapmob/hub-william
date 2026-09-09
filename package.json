@@ -3,8 +3,9 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
+    "api:generate": "pnpm --dir frontend api:generate",
     "dev": "pnpm --dir frontend dev",
-    "backend:dev": "cargo run --manifest-path backend/Cargo.toml",
+    "backend:dev": "cargo run --manifest-path backend/Cargo.toml --bin hub-william-backend",
     "format": "pnpm --dir frontend exec prettier --write . ../README.md ../docs ../infra ../backend/README.md ../package.json ../pnpm-workspace.yaml ../vercel.json ../.github && cargo fmt --manifest-path backend/Cargo.toml",
     "format:check": "pnpm --dir frontend exec prettier --check . ../README.md ../docs ../infra ../backend/README.md ../package.json ../pnpm-workspace.yaml ../vercel.json ../.github && cargo fmt --manifest-path backend/Cargo.toml -- --check",
     "lint": "pnpm --dir frontend lint && cargo clippy --manifest-path backend/Cargo.toml --all-targets -- -D warnings",

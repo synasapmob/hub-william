@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import { Activity, Layers, Wrench } from "lucide-react";
+import { Activity, Bot, Layers, Wrench } from "lucide-react";
 
 export interface NavigationItem {
   href: string;
@@ -38,6 +38,11 @@ export const navigationItems: NavigationItem[] = [
     href: "/tools",
     icon: Wrench,
     label: "Tools",
+  },
+  {
+    href: "/agents",
+    icon: Bot,
+    label: "Agents",
   },
   {
     href: "/activities",

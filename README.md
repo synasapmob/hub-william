@@ -1,8 +1,8 @@
 # Hub William
 
 A monorepo for the Hub William agent workspace: the public catalogue frontend,
-the machine-installable contracts behind it, and the Rust API boundary that
-will host agent pools, payments, and gateway traffic.
+the machine-installable contracts behind it, and the Rust control plane and
+streaming gateway for connected agent accounts.
 
 **[synasapmob.github.io/hub-william](https://synasapmob.github.io/hub-william/)**
 
@@ -130,9 +130,14 @@ frontend/scripts/machine/        machine installer and its tests
 infra/                           deployment ownership and future provider config
 ```
 
-The structural backend currently exposes only `/health`, generated OpenAPI, and
-Swagger UI. Pool, payment, database, Telegram, and gateway behavior will arrive
-as explicit follow-up changes rather than placeholders in this bootstrap.
+The backend exposes username/password auth, rotating PostgreSQL-backed browser
+sessions, encrypted ChatGPT/Claude/Grok connections, public connected-account
+pools, durable join decisions, revocable gateway keys, provider routing,
+`/health`, generated OpenAPI, and Swagger UI.
+
+An accepted pool membership authorizes that user's own gateway key to route
+through the shared provider account. Provider credentials remain encrypted in
+the backend and are never returned to the member's browser or local agent.
 
 ## Working in the monorepo
 
@@ -203,13 +208,9 @@ Tailwind CSS 4 · Rust · Axum · Utoipa/OpenAPI · Vitest · Oxlint · Prettier
 
 ## What remains fixture data
 
-**The dates are not.** `/activities` is fixture telemetry behind
-`frontend/src/utils/utils.activities.ts`, and so is the sidebar's "Recent
-updates" list in
-`frontend/src/components/workspace-shell/workspace-shell-recent-updates.tsx`. Nothing in
-the build reads git history and `import.meta.glob` hands the catalogue service
-the bytes of a file rather than its modification time, so there is no timestamp
-anywhere to derive an update from. Each row does resolve a real document out of
-the catalogue and link to it; it is the author and the "2 days ago" beside it
-that are written down rather than measured. That stays true until a build-time
-git step exists.
+`/activities` remains fixture telemetry behind
+`frontend/src/utils/utils.activities.ts`. `/agents` reads connected accounts,
+memberships, and request decisions from the backend with no mock fallback.
+Provider usage metrics remain empty until a provider-specific usage contract is
+verified; the browser never fabricates them. The sidebar's former Recent
+updates fixture has been removed.

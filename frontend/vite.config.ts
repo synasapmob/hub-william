@@ -11,6 +11,9 @@ export default defineConfig({
   // the router and the asset URLs disagree about where the site lives.
   base: process.env.VITE_BASE_PATH ?? "/",
   plugins: [tailwindcss(), reactRouter(), catalogEndpoint()],
+  preview: {
+    host: "127.0.0.1",
+  },
   resolve: {
     alias: {
       "@": new URL("./src", import.meta.url).pathname,

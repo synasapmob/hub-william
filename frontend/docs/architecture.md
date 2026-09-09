@@ -1,9 +1,10 @@
 # Architecture
 
-Hub William is a monorepo with a static catalogue frontend and a Rust backend
-boundary. The frontend is the production surface today; the backend bootstrap
-currently exposes health and OpenAPI documentation only. Agent pools, payment,
-database, Telegram, and gateway behavior remain follow-up work.
+Hub William is a monorepo with a mostly static catalogue frontend and a Rust
+control-plane and streaming gateway. The backend owns username/password auth,
+rotating PostgreSQL-backed sessions, encrypted provider connections,
+PostgreSQL-backed agent pools and join decisions, and user-scoped gateway keys
+alongside health and OpenAPI documentation.
 
 ## The shape
 
@@ -21,16 +22,29 @@ frontend/src/routes/…          renders functional collection nodes
         ▼
 frontend/build/client/**/*.html  real HTML per route
 
-backend/src                     Axum health and generated OpenAPI boundary
+frontend/src/services           calls auth, pool, connection and key contracts
+        │
+        │  production: same-origin /api proxy
+        ▼
+backend/src                     Axum control plane, provider OAuth and gateway
+        │
+        ▼
+Railway PostgreSQL              users, opaque key hashes and encrypted tokens
 ```
 
-There is no production database or account system yet, and nothing is fetched
-to draw the current frontend. The catalogue is inlined into the bundle at build
+The catalogue needs no fetch to render and is inlined into the bundle at build
 time, so what the site publishes is exactly what the repository contains at the
-commit it was built from. The build also writes that catalogue out as files — `/catalog/<path>`,
+commit it was built from. Pools are public API data derived only from connected
+provider accounts; join requests and owner decisions are session-gated and
+persisted in PostgreSQL. A shared session provider checks the Rust backend;
+account-bound actions, provider OAuth and gateway keys use that live boundary.
+An accepted pool member can create a user-scoped key and route through the
+owner's shared provider without receiving the provider token.
+The build also writes that catalogue
+out as files — `/catalog/<path>`,
 `/catalog/<folder>.zip`, `/catalog/collections/<owner>/<section>/<name>.zip`
 and `/catalog/index.json` — which is what a download button and a `curl` command
-both fetch, and the only traffic the site has.
+both fetch. Runtime account traffic stays on the same origin under `/api`.
 
 ## Why the catalogue remains static
 
@@ -42,24 +56,24 @@ writes that a pull request already gates.
 The consequences are worth naming, because each one is something the code now
 relies on:
 
-- **Every route prerenders.** Nothing is fetched, so there is nothing to wait
-  for, so each route can be written to HTML at build time. That is what makes
-  the pages readable by a crawler rather than only by a browser running React.
-- **The CSP can be strict.** `connect-src 'self'` is absolute rather than a
-  list, because the app opens no connection at all. Downloading an archive is a
-  navigation to the site's own origin, which that directive does not govern.
+- **Every route prerenders.** Catalogue content needs no runtime fetch, so each
+  route can be written to HTML at build time. Dynamic `/agents` data hydrates
+  from the same-origin API after the public shell renders.
+- **The CSP can be strict.** `connect-src 'self'` covers the same-origin `/api`
+  proxy without exposing a separate browser-visible backend origin. Downloading
+  an archive remains a navigation to the site's own origin.
 - **A contribution is a diff.** Adding an entry is adding a file; removing one
   is removing a file. There is no migration, no seed, and no admin screen.
 - **Freshness is a deploy.** The catalogue changes when `main` changes. If that
   ever becomes too slow, the answer is a build hook, not a database.
-- **No route is behind an account.** There is nothing to protect in the current
-  public specification, catalogue, and fixture telemetry. Account-bound
-  behavior will deliberately cross the new backend boundary when it exists.
+- **No route is behind an account.** The specification, catalogue, telemetry,
+  and pool discovery stay public. Requesting or managing pool membership crosses
+  the backend auth boundary without redirecting the reader away from a route.
 
-`/activities`, and the sidebar's recent-updates list, are fixture data behind
-`frontend/src/utils/utils.activities.ts` and the `_app/` route folder respectively. They are shaped
-like the real thing so that the day either becomes rows, only the service
-changes.
+`/activities` remains fixture telemetry. `/agents` has no runtime fixture
+fallback: an account appears only after its provider connection is stored as
+connected by the backend. The former sidebar recent-updates fixture was removed
+when that space became the session control.
 
 ## The catalogue
 
@@ -133,14 +147,11 @@ catch it.
 
 ## Deployment
 
-GitHub Actions builds and publishes to one `gh-pages` branch: `main` to the
-site root, `dev` to a `dev/` subfolder. `VITE_BASE_PATH` threads the same prefix
-through Vite's `base` and React Router's `basename`, because a project site is
-served from `/<repository>/` rather than the domain root.
-
-`backend/` is prepared for a later Railway deployment, but this structural
-change does not create or mutate remote infrastructure. `infra/README.md`
-records that boundary until a real deployment owns provider-specific config.
+Railway hosts the production application. Its public Nginx frontend serves the
+prerendered SPA and proxies `/api` to a private, IPv6-listening Rust service;
+only the frontend has a public domain. Local development calls the Rust service
+directly on port 8080. GitHub Pages can continue publishing the static catalogue,
+but authenticated runtime flows require the Railway deployment.
 
 `main` is protected: no direct pushes, and a branch must be up to date with a
 green `checks` run before it merges.

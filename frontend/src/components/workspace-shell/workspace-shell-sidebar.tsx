@@ -4,8 +4,8 @@ import { tv } from "tailwind-variants";
 import Center from "@/components/ui/center";
 import assetPath from "@/utils/utils.asset-path";
 
+import WorkspaceShellAccount from "./workspace-shell-account";
 import { navigationItems } from "./workspace-shell-navigation-items";
-import WorkspaceShellRecentUpdates from "./workspace-shell-recent-updates";
 
 const navigationLinkVariants = tv({
   base: "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-xs font-medium tracking-wide transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden",
@@ -142,7 +142,7 @@ export default function WorkspaceShellSidebar({
 
       <WorkspaceNavigation onNavigate={onNavigate} />
 
-      <WorkspaceShellRecentUpdates onNavigate={onNavigate} />
+      <WorkspaceShellAccount onNavigate={onNavigate} />
     </div>
   );
 }
