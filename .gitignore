@@ -1,6 +1,8 @@
 # Logs
 logs
 *.log
+__pycache__/
+*.pyc
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -13,6 +15,7 @@ dist
 dist-ssr
 build
 .react-router
+target
 *.local
 .env
 .env.*

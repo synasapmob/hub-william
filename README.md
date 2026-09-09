@@ -1,12 +1,14 @@
 # Hub William
 
-A catalogue of the contracts that keep AI coding agents inside the lines —
-published as a canvas you can read, and as Markdown a machine can install.
+A monorepo for the Hub William agent workspace: the public catalogue frontend,
+the machine-installable contracts behind it, and the Rust API boundary that
+will host agent pools, payments, and gateway traffic.
 
 **[synasapmob.github.io/hub-william](https://synasapmob.github.io/hub-william/)**
 
-📖 [Architecture](docs/architecture.md) ·
-[Frontend conventions](docs/frontend-conventions.md) ·
+📖 [Architecture](frontend/docs/architecture.md) ·
+[Frontend conventions](frontend/docs/frontend-conventions.md) ·
+[Decisions](docs/decisions/README.md) ·
 [Contributing](.github/CONTRIBUTING.md) ·
 [Security](.github/SECURITY.md) ·
 [MIT License](LICENSE)
@@ -57,11 +59,13 @@ contributors/
     ├── libraries/
     └── tools/
 
-scripts/machine/                 the installer, and its own test suite
+frontend/scripts/machine/        the installer, and its own test suite
 ```
 
-`/library` shows `libraries/`, `/tools` shows `tools/`, and both read the same
-tree — so a contributor's page is the same page over a different folder.
+`/library` groups documents by the job they do rather than duplicating the
+source tree. A GitHub workflow tag such as `mergeable` therefore appears in the
+same `GITHUB` collection as `gh-cli.md`, while both keep their original paths.
+`/tools` reduces installation to two collections: `DOCUMENTS` and `MCP`.
 
 **Start from these, and change what does not fit.** They are written for one
 operator's machine and one set of tools; a repository with different CI, a
@@ -116,15 +120,31 @@ Changing a shared document is the same flow without step 2. Say in the pull
 request why the rule should apply to everybody rather than to you; that is the
 whole difference between the two folders.
 
-## Working on the site
+## Repository layout
+
+```text
+backend/                         Rust API, OpenAPI and future gateway runtime
+frontend/                        React Router frontend and public web assets
+contributors/                    installable contracts published by the frontend
+frontend/scripts/machine/        machine installer and its tests
+infra/                           deployment ownership and future provider config
+```
+
+The structural backend currently exposes only `/health`, generated OpenAPI, and
+Swagger UI. Pool, payment, database, Telegram, and gateway behavior will arrive
+as explicit follow-up changes rather than placeholders in this bootstrap.
+
+## Working in the monorepo
 
 ```bash
 pnpm install
-pnpm dev
+pnpm dev             # frontend
+pnpm backend:dev     # Rust API on :8080
 ```
 
-No environment variables, no services, nothing to configure — the catalogue is
-read from disk at build time.
+The frontend needs no environment variables or services; the catalogue is read
+from disk at build time. The backend accepts an optional `PORT` and otherwise
+listens on `8080`.
 
 ```bash
 pnpm format         # prettier
@@ -132,42 +152,61 @@ pnpm lint           # oxlint, then eslint
 pnpm check:tailwind # canonical Tailwind class lists (--write to fix)
 pnpm typecheck      # tsc -b
 pnpm test           # vitest
-pnpm build          # prerenders every route to HTML
-bash scripts/machine/tests/run.sh    # the installer's suite, which pins the catalogue's layout
+pnpm build          # prerenders the frontend and compiles the backend
+bash frontend/scripts/machine/tests/run.sh # installer suite; pins the catalogue layout
 ```
 
-Read [frontend conventions](docs/frontend-conventions.md) before changing
+Read [frontend conventions](frontend/docs/frontend-conventions.md) before changing
 anything user-visible. They are review criteria, not suggestions.
+
+## Installing it
+
+The public bootstrap clones or updates the catalogue and opens the terminal
+picker. Its default scope is the whole machine:
+
+```bash
+curl -fsSL https://synasapmob.github.io/hub-william/install.py | python3 -
+```
+
+Install a managed copy into one project, preserving its existing instruction
+files:
+
+```bash
+curl -fsSL https://synasapmob.github.io/hub-william/install.py | python3 - --path "$PWD"
+```
+
+MCP servers can be installed together or by product:
+
+```bash
+curl -fsSL https://synasapmob.github.io/hub-william/install.py | python3 - --mcp all
+curl -fsSL https://synasapmob.github.io/hub-william/install.py | python3 - --mcp linear,playwright
+```
 
 ## Reading it as an agent
 
 The site is prerendered, so fetching a page gives real text rather than an empty
 shell. For the files themselves there is no need to scrape anything:
 
-| URL                   | What it is                                             |
-| --------------------- | ------------------------------------------------------ |
-| `/catalog/index.json` | Every document: id, repository path, URL, size         |
-| `/catalog/<id>.md`    | One document, byte for byte as it is in the repository |
+| URL                                                 | What it is                                             |
+| --------------------------------------------------- | ------------------------------------------------------ |
+| `/catalog/index.json`                               | Every document: id, repository path, URL, size         |
+| `/catalog/<id>.md`                                  | One document, byte for byte as it is in the repository |
+| `/catalog/collections/<owner>/<section>/<name>.zip` | One functional collection with source paths preserved  |
 
-Both are static files under the site's base path, so an agent can read the
+They are static files under the site's base path, so an agent can read the
 index, pick a contract and fetch it without an API, a token, or HTML parsing.
 
 ## Stack
 
 React 19 · TypeScript · Vite 8 · React Router 8 (SPA, prerendered) ·
-Tailwind CSS 4 · shadcn/ui · tailwind-variants · Vitest · Oxlint · Prettier
+Tailwind CSS 4 · Rust · Axum · Utoipa/OpenAPI · Vitest · Oxlint · Prettier
 
-## Not yet true
-
-**The install commands on the site are real.** The specification page and the
-catalogue sheet both print the clone and `./install.sh init` flow above, and
-there is no `npx hub-william` — or any other `npx` — command left anywhere under
-`src/`. Nothing is published to a package registry, so nothing on the page
-pretends otherwise.
+## What remains fixture data
 
 **The dates are not.** `/activities` is fixture telemetry behind
-`src/services/activities`, and so is the sidebar's "Recent updates" list in
-`src/components/workspace-shell/workspace-shell-recent-updates.tsx`. Nothing in
+`frontend/src/utils/utils.activities.ts`, and so is the sidebar's "Recent
+updates" list in
+`frontend/src/components/workspace-shell/workspace-shell-recent-updates.tsx`. Nothing in
 the build reads git history and `import.meta.glob` hands the catalogue service
 the bytes of a file rather than its modification time, so there is no timestamp
 anywhere to derive an update from. Each row does resolve a real document out of

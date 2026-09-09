@@ -1,0 +1,12 @@
+dist
+node_modules
+pnpm-lock.yaml
+build
+.react-router
+supabase/.temp
+
+# The machine catalogue is contract text, not source. Agents read these files as
+# instructions and `services/catalog` publishes them verbatim, so `pnpm format`
+# realigning a table is a diff against a contract for no reason.
+scripts/machine
+contributors

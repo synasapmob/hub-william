@@ -31,8 +31,8 @@ pnpm install
 pnpm dev
 ```
 
-Read [the frontend conventions](../docs/frontend-conventions.md) before a
-user-visible change. The [architecture guide](../docs/architecture.md) explains
+Read [the frontend conventions](../frontend/docs/frontend-conventions.md) before a
+user-visible change. The [architecture guide](../frontend/docs/architecture.md) explains
 the static catalogue and the boundaries between the site and installer.
 
 Before opening a pull request, run the same checks as CI:
@@ -44,7 +44,7 @@ pnpm check:tailwind
 pnpm typecheck
 pnpm test
 pnpm build
-bash scripts/machine/tests/run.sh
+bash frontend/scripts/machine/tests/run.sh
 ```
 
 Keep a pull request focused on one outcome, add regression coverage for changed

@@ -1,8 +1,8 @@
 # Machine installer
 
-The program that puts this catalogue where an agent will actually read it. It
-is in this repository, in `machine/`, so you can read it before you run it —
-which is the only reason it is worth trusting.
+The program that puts this catalogue where an agent will actually read it. Its
+public Python bootstrap maintains a sparse checkout and then hands control to
+the installer in `frontend/scripts/machine/`.
 
 ## What you need
 
@@ -10,14 +10,12 @@ which is the only reason it is worth trusting.
   one; `install.sh` finds it and exits with a clear message if it cannot.
 - At least one agent CLI on `PATH`: `claude`, `codex` or `grok`. With none of
   them installed the installer stops at `no agent CLI on PATH`.
-- `git`.
+- `git` and network access to the public repository.
 
 ## Install
 
 ```bash
-git clone https://github.com/synasapmob/hub-william.git
-cd hub-william/machine
-./install.sh init
+curl -fsSL https://synasapmob.github.io/hub-william/install.py | python3 -
 ```
 
 `init` draws the catalogue as a picker — arrow keys move, space toggles, enter
@@ -33,14 +31,24 @@ on disk until you accept it.
 | Grok | `~/.grok/AGENTS.md` |
 | Skills | `~/.claude/skills/<name>/` |
 | MCP servers | `~/.claude.json`, `~/.codex/config.toml`, `~/.grok/config.toml` |
-| What was installed | `machine/state/applied.json` |
-| What you picked | `machine/profiles/local.toml` |
+| What was installed | `~/.hub-william/frontend/scripts/machine/state/applied.json` |
+| What you picked | `~/.hub-william/frontend/scripts/machine/profiles/local.toml` |
 
 Installed documents are read-only copies carrying a
 `hub-william-generated` header, not symlinks into the catalogue. Opening
 `~/.codex/AGENTS.md` in an editor therefore cannot edit the catalogue by
-accident. To change a contract, change it in `machine/registries/` and run
-`./install.sh sync` — each sync repairs whatever has drifted.
+accident. To change a contract, change it in the checkout and run
+`~/.hub-william/frontend/scripts/machine/install.sh sync` — each sync repairs whatever
+has drifted.
+
+## Install into one project
+
+```bash
+curl -fsSL https://synasapmob.github.io/hub-william/install.py | python3 - --path "$PWD"
+```
+
+The project copy lives below `.agents/rules/hub-william`. Existing `AGENTS.md`
+and `CLAUDE.md` content is preserved around one replaceable managed block.
 
 ## Changing your mind
 
