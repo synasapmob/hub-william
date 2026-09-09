@@ -58,6 +58,10 @@ pub fn app(state: AppState) -> Router {
         for origin in [
             "http://localhost:5173".parse().expect("valid local origin"),
             "http://127.0.0.1:5173".parse().expect("valid local origin"),
+            "http://localhost:5174".parse().expect("valid local origin"),
+            "http://127.0.0.1:5174".parse().expect("valid local origin"),
+            "http://localhost:3000".parse().expect("valid local origin"),
+            "http://127.0.0.1:3000".parse().expect("valid local origin"),
         ] {
             if !browser_origins.contains(&origin) {
                 browser_origins.push(origin);
@@ -153,5 +157,67 @@ mod tests {
 
         assert_eq!(payload["status"], "ok");
         assert_eq!(payload["service"], "hub-william-backend");
+    }
+
+    #[tokio::test]
+    async fn local_cors_allows_only_the_supported_development_origins() {
+        let config = AppConfig {
+            cookie_secure: false,
+            ..AppConfig::default()
+        };
+        let state = AppState {
+            config,
+            http: Client::new(),
+            pool: PgPoolOptions::new()
+                .connect_lazy("postgres://localhost/hub_william_test")
+                .expect("test database URL should parse"),
+        };
+        let service = app(state);
+
+        for origin in [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:5174",
+            "http://127.0.0.1:5174",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ] {
+            let response = service
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("OPTIONS")
+                        .uri("/agent-pools")
+                        .header("origin", origin)
+                        .header("access-control-request-method", "GET")
+                        .body(Body::empty())
+                        .expect("CORS preflight request should be valid"),
+                )
+                .await
+                .expect("CORS preflight should respond");
+
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.headers()["access-control-allow-origin"], origin);
+        }
+
+        let response = service
+            .oneshot(
+                Request::builder()
+                    .method("OPTIONS")
+                    .uri("/agent-pools")
+                    .header("origin", "http://localhost:9999")
+                    .header("access-control-request-method", "GET")
+                    .body(Body::empty())
+                    .expect("unsupported-origin request should be valid"),
+            )
+            .await
+            .expect("unsupported-origin preflight should respond");
+
+        assert!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .is_none()
+        );
     }
 }
