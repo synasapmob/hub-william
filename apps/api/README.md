@@ -4,8 +4,9 @@ Rust control-plane and streaming gateway service for Hub William. It owns
 username/password registration, rotating PostgreSQL-backed browser sessions,
 ChatGPT/Claude/Grok authorization, encrypted provider credentials, user-scoped
 gateway keys, runtime health, and generated OpenAPI documentation. Pool
-persistence and join requests are live; provider usage ingestion and Telegram
-commerce remain later changes.
+persistence, join requests, and private Telegram contacts, orders and payments
+are live; provider usage ingestion and post-payment fulfilment remain later
+changes.
 
 ```bash
 cargo run --manifest-path apps/api/Cargo.toml
@@ -32,6 +33,16 @@ populated values in the runtime secret store.
 - `/gateway/openai/v1/responses`: Codex/OpenAI Responses streaming gateway.
 - `/gateway/claude/v1/messages`: Claude Messages streaming gateway.
 - `/gateway/grok/v1/*`: Grok OpenAI-compatible gateway.
+- `/internal/telegram/*`: contacts, their language preference, their orders, and
+  SePay bank transactions. Reachable only over Railway private networking and
+  only with `TELEGRAM_SERVICE_TOKEN`; never exposed through the frontend proxy.
+
+A Telegram order is created with a unique reference and settles when a SePay
+transfer arrives whose note contains that reference and whose amount covers the
+total. Matching takes the row `FOR UPDATE SKIP LOCKED`, so two transfers landing
+together cannot settle the same order, and `telegram_payments` is unique by
+SePay's transaction id, so a retried webhook is recorded once. A transfer that
+matches nothing is still stored for manual reconciliation.
 
 Gateway keys are shown once and stored only as hashes. A key can route through
 every connected account the user owns and every pool where their join request

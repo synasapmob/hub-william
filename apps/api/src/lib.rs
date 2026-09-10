@@ -6,6 +6,7 @@ mod error;
 mod gateway;
 mod health;
 mod openapi;
+mod telegram;
 
 use axum::{
     Router,
@@ -13,7 +14,7 @@ use axum::{
         Method,
         header::{AUTHORIZATION, CONTENT_TYPE},
     },
-    routing::{get, post},
+    routing::{get, post, put},
 };
 use reqwest::Client;
 use sqlx::PgPool;
@@ -48,6 +49,11 @@ use gateway::{
 pub use health::HealthResponse;
 use health::health;
 pub use openapi::ApiDoc;
+pub use telegram::{CreateTelegramOrder, SepayResult, SepayTransaction, TelegramOrder};
+use telegram::{
+    cancel_order, create_order, get_contact, get_order, list_orders, observe_contact,
+    record_sepay_payment, set_contact_language,
+};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -85,6 +91,31 @@ pub fn app(state: AppState) -> Router {
         .route("/auth/session", get(session))
         .route("/auth/logout", post(logout))
         .route("/auth/refresh", post(refresh))
+        .route("/internal/telegram/contacts", post(observe_contact))
+        .route(
+            "/internal/telegram/contacts/{telegram_user_id}",
+            get(get_contact),
+        )
+        .route(
+            "/internal/telegram/contacts/{telegram_user_id}/language",
+            put(set_contact_language),
+        )
+        .route(
+            "/internal/telegram/contacts/{telegram_user_id}/orders",
+            get(list_orders).post(create_order),
+        )
+        .route(
+            "/internal/telegram/contacts/{telegram_user_id}/orders/{reference}",
+            get(get_order),
+        )
+        .route(
+            "/internal/telegram/contacts/{telegram_user_id}/orders/{reference}/cancel",
+            post(cancel_order),
+        )
+        .route(
+            "/internal/telegram/payments/sepay",
+            post(record_sepay_payment),
+        )
         .route("/agent-pools", get(list_agent_pools))
         .route(
             "/agent-pools/{connection_id}/requests",

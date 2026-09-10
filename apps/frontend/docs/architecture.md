@@ -161,9 +161,10 @@ but authenticated runtime flows require the Railway deployment.
 
 The provider streaming code remains `apps/api/src/gateway.rs` until it has a
 real independent service contract. That future `apps/gateway` service will be
-public for local agent clients, while `apps/api`, a future `apps/telegram`, and
-a future `apps/worker` can use Railway private networking for control-plane
-work.
+public for local agent clients. `apps/api` and a future `apps/worker` use
+Railway private networking for control-plane work; `apps/telegram` has a
+separate public HTTPS webhook solely for Telegram, then calls the API through
+that same private network.
 
 `main` is protected: no direct pushes, and a branch must be up to date with a
 green `checks` run before it merges.

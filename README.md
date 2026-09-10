@@ -125,6 +125,7 @@ whole difference between the two folders.
 ```text
 apps/api/                         Rust business API, OpenAPI and gateway module
 apps/frontend/                    React Router frontend and public web assets
+apps/telegram/                    Telegram webhook adapter for the private business API
 contributors/                    installable contracts published by the frontend
 apps/frontend/scripts/machine/        machine installer and its tests
 infra/                           deployment ownership and future provider config
@@ -145,6 +146,7 @@ the API and are never returned to the member's browser or local agent.
 pnpm install
 pnpm dev             # frontend
 pnpm api:dev         # Rust API on :8080
+pnpm telegram:dev    # Telegram webhook adapter on :8090
 ```
 
 The frontend needs no environment variables or services; the catalogue is read

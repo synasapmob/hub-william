@@ -8,6 +8,7 @@ pub struct AppConfig {
     pub cookie_secure: bool,
     pub credential_encryption_key: [u8; 32],
     pub frontend_origin: HeaderValue,
+    pub telegram_service_token: Option<Vec<u8>>,
     pub codex_issuer: String,
     pub claude_authorize_url: String,
     pub claude_redirect_url: String,
@@ -61,6 +62,10 @@ impl AppConfig {
             cookie_secure,
             credential_encryption_key,
             frontend_origin,
+            telegram_service_token: env::var("TELEGRAM_SERVICE_TOKEN")
+                .ok()
+                .filter(|token| !token.trim().is_empty())
+                .map(String::into_bytes),
             codex_issuer: env::var("CODEX_AUTH_ISSUER")
                 .unwrap_or_else(|_| "https://auth.openai.com".to_owned()),
             claude_authorize_url: env::var("CLAUDE_AUTHORIZE_URL")
@@ -82,6 +87,7 @@ impl Default for AppConfig {
             cookie_secure: false,
             credential_encryption_key: [7; 32],
             frontend_origin: HeaderValue::from_static("http://localhost:5173"),
+            telegram_service_token: None,
             codex_issuer: "https://auth.openai.com".to_owned(),
             claude_authorize_url: "https://claude.com/cai/oauth/authorize".to_owned(),
             claude_redirect_url: "https://platform.claude.com/oauth/code/callback".to_owned(),
