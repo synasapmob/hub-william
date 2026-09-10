@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::{
     AppState,
-    auth::{authenticated_user_id, optional_authenticated_user_id},
+    auth::{authenticated_user_id, normalize_username, optional_authenticated_user_id},
     error::ApiError,
 };
 
@@ -47,10 +47,25 @@ pub enum AgentPoolRequestStatus {
     Rejected,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentPoolAvailabilityStatus {
+    Active,
+    RateLimited,
+    HalfOpen,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AgentPoolAvailability {
+    pub retry_at: Option<DateTime<Utc>>,
+    pub status: AgentPoolAvailabilityStatus,
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AgentPool {
     pub account_label: String,
     pub agent: String,
+    pub availability: AgentPoolAvailability,
     pub capacity: i32,
     pub created_at: DateTime<Utc>,
     pub id: Uuid,
@@ -72,9 +87,15 @@ pub struct DecideAgentPoolJoinRequest {
     pub status: AgentPoolRequestStatus,
 }
 
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct InviteAgentPoolMember {
+    pub username: String,
+}
+
 #[derive(FromRow)]
 struct PoolRow {
     account_label: Option<String>,
+    availability_status: String,
     capacity: i32,
     created_at: DateTime<Utc>,
     id: Uuid,
@@ -82,6 +103,7 @@ struct PoolRow {
     owner_username: String,
     plan: Option<String>,
     provider: String,
+    rate_limited_until: Option<DateTime<Utc>>,
 }
 
 #[derive(FromRow)]
@@ -107,6 +129,7 @@ pub async fn list(
     let rows = sqlx::query_as::<_, PoolRow>(
         "SELECT connections.id, connections.user_id AS owner_id, users.username AS owner_username,
                 connections.provider, connections.account_label, connections.plan,
+                connections.availability_status, connections.rate_limited_until,
                 connections.capacity, connections.created_at
          FROM agent_connections AS connections
          JOIN users ON users.id = connections.user_id
@@ -150,6 +173,10 @@ pub async fn list(
                 .account_label
                 .unwrap_or_else(|| "connected account".to_owned()),
             agent: provider_label(&row.provider)?.to_owned(),
+            availability: availability_from_values(
+                &row.availability_status,
+                row.rate_limited_until,
+            )?,
             capacity: row.capacity,
             created_at: row.created_at,
             id: row.id,
@@ -162,6 +189,174 @@ pub async fn list(
     }
 
     Ok(Json(pools))
+}
+
+#[utoipa::path(
+    post,
+    path = "/agent-pools/{connection_id}/members",
+    params(("connection_id" = Uuid, Path, description = "Connected account identifier")),
+    request_body = InviteAgentPoolMember,
+    responses(
+        (status = 201, description = "Member invited", body = AgentPoolPerson),
+        (status = 403, description = "Pool ownership required", body = crate::ErrorResponse),
+        (status = 422, description = "Invite rejected", body = crate::ErrorResponse)
+    ),
+    tag = "agent pools"
+)]
+pub async fn invite_member(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path(connection_id): Path<Uuid>,
+    Json(payload): Json<InviteAgentPoolMember>,
+) -> Result<(StatusCode, Json<AgentPoolPerson>), ApiError> {
+    let owner_id = authenticated_user_id(&state, &jar).await?;
+    let username = normalize_username(&payload.username)?;
+    let mut transaction = state.pool.begin().await.map_err(database_error)?;
+    let pool = sqlx::query_as::<_, (Uuid, i32)>(
+        "SELECT user_id, capacity FROM agent_connections
+         WHERE id = $1 AND status = 'connected' FOR UPDATE",
+    )
+    .bind(connection_id)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(database_error)?
+    .ok_or(ApiError::NotFound)?;
+    if pool.0 != owner_id {
+        return Err(ApiError::Forbidden);
+    }
+    let member_id = sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE username = $1")
+        .bind(&username)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(database_error)?
+        .ok_or(ApiError::NotFound)?;
+    if member_id == owner_id {
+        return Err(ApiError::Validation("You already own this account pool."));
+    }
+    let existing_status = sqlx::query_scalar::<_, String>(
+        "SELECT status FROM agent_pool_join_requests
+         WHERE connection_id = $1 AND requester_user_id = $2",
+    )
+    .bind(connection_id)
+    .bind(member_id)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(database_error)?;
+    if existing_status.as_deref() == Some("accepted") {
+        return Err(ApiError::Validation("That user is already a member."));
+    }
+    ensure_pool_capacity(&mut transaction, connection_id, pool.1).await?;
+    sqlx::query(
+        "INSERT INTO agent_pool_join_requests
+            (id, connection_id, requester_user_id, telegram, reason, status)
+         VALUES ($1, $2, $3, '', 'Invited by pool owner.', 'accepted')
+         ON CONFLICT (connection_id, requester_user_id) DO UPDATE
+         SET status = 'accepted', updated_at = NOW()",
+    )
+    .bind(Uuid::new_v4())
+    .bind(connection_id)
+    .bind(member_id)
+    .execute(&mut *transaction)
+    .await
+    .map_err(database_error)?;
+    transaction.commit().await.map_err(database_error)?;
+
+    Ok((StatusCode::CREATED, Json(person(&username))))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/agent-pools/{connection_id}/members/{username}",
+    params(
+        ("connection_id" = Uuid, Path, description = "Connected account identifier"),
+        ("username" = String, Path, description = "Hub William username")
+    ),
+    responses(
+        (status = 204, description = "Member removed"),
+        (status = 403, description = "Pool ownership required", body = crate::ErrorResponse),
+        (status = 404, description = "Membership not found", body = crate::ErrorResponse)
+    ),
+    tag = "agent pools"
+)]
+pub async fn remove_member(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path((connection_id, username)): Path<(Uuid, String)>,
+) -> Result<StatusCode, ApiError> {
+    let owner_id = authenticated_user_id(&state, &jar).await?;
+    let username = normalize_username(&username)?;
+    let owns_pool = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM agent_connections
+         WHERE id = $1 AND user_id = $2 AND status = 'connected')",
+    )
+    .bind(connection_id)
+    .bind(owner_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(database_error)?;
+    if !owns_pool {
+        return Err(ApiError::Forbidden);
+    }
+    let result = sqlx::query(
+        "DELETE FROM agent_pool_join_requests AS requests
+         USING users
+         WHERE requests.connection_id = $1
+           AND requests.requester_user_id = users.id
+           AND users.username = $2
+           AND requests.status = 'accepted'",
+    )
+    .bind(connection_id)
+    .bind(username)
+    .execute(&state.pool)
+    .await
+    .map_err(database_error)?;
+    if result.rows_affected() == 0 {
+        return Err(ApiError::NotFound);
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    post,
+    path = "/agent-pools/{connection_id}/retry",
+    params(("connection_id" = Uuid, Path, description = "Connected account identifier")),
+    responses(
+        (status = 200, description = "Pool armed for the next real gateway request", body = AgentPoolAvailability),
+        (status = 403, description = "Pool ownership required", body = crate::ErrorResponse)
+    ),
+    tag = "agent pools"
+)]
+pub async fn retry_pool(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path(connection_id): Path<Uuid>,
+) -> Result<Json<AgentPoolAvailability>, ApiError> {
+    let owner_id = authenticated_user_id(&state, &jar).await?;
+    let values = sqlx::query_as::<_, (String, Option<DateTime<Utc>>)>(
+        "UPDATE agent_connections
+         SET availability_status = CASE
+               WHEN availability_status = 'active' THEN 'active'
+               ELSE 'half_open'
+             END,
+             rate_limited_until = CASE
+               WHEN availability_status = 'active' THEN rate_limited_until
+               ELSE NULL
+             END,
+             retry_claimed_at = CASE
+               WHEN availability_status = 'rate_limited' THEN NULL
+               ELSE retry_claimed_at
+             END,
+             updated_at = NOW()
+         WHERE id = $1 AND user_id = $2 AND status = 'connected'
+         RETURNING availability_status, rate_limited_until",
+    )
+    .bind(connection_id)
+    .bind(owner_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(database_error)?
+    .ok_or(ApiError::Forbidden)?;
+    Ok(Json(availability_from_values(&values.0, values.1)?))
 }
 
 #[utoipa::path(
@@ -276,16 +471,7 @@ pub async fn decide_request(
         return Err(ApiError::Forbidden);
     }
     if matches!(payload.status, AgentPoolRequestStatus::Accepted) {
-        let accepted = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM agent_pool_join_requests WHERE connection_id = $1 AND status = 'accepted'",
-        )
-        .bind(pool.0)
-        .fetch_one(&mut *transaction)
-        .await
-        .map_err(database_error)?;
-        if accepted + 1 >= i64::from(pool.2) {
-            return Err(ApiError::Validation("This account pool is full."));
-        }
+        ensure_pool_capacity(&mut transaction, pool.0, pool.2).await?;
     }
     let status = status_value(payload.status);
     let row = sqlx::query_as::<_, RequestRow>(
@@ -302,6 +488,38 @@ pub async fn decide_request(
     .map_err(database_error)?;
     transaction.commit().await.map_err(database_error)?;
     Ok(Json(request_from_row(row)?))
+}
+
+async fn ensure_pool_capacity(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    connection_id: Uuid,
+    capacity: i32,
+) -> Result<(), ApiError> {
+    let accepted = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM agent_pool_join_requests
+         WHERE connection_id = $1 AND status = 'accepted'",
+    )
+    .bind(connection_id)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(database_error)?;
+    if accepted + 1 >= i64::from(capacity) {
+        return Err(ApiError::Validation("This account pool is full."));
+    }
+    Ok(())
+}
+
+fn availability_from_values(
+    status: &str,
+    retry_at: Option<DateTime<Utc>>,
+) -> Result<AgentPoolAvailability, ApiError> {
+    let status = match status {
+        "active" => AgentPoolAvailabilityStatus::Active,
+        "rate_limited" => AgentPoolAvailabilityStatus::RateLimited,
+        "half_open" => AgentPoolAvailabilityStatus::HalfOpen,
+        _ => return Err(ApiError::Internal),
+    };
+    Ok(AgentPoolAvailability { retry_at, status })
 }
 
 async fn request_rows(

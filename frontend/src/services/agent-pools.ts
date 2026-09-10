@@ -5,6 +5,13 @@ import type { components, paths } from "./api.generated";
 export type AgentProvider = "ChatGPT" | "Claude" | "Grok";
 export type AgentPoolRequestStatus =
   components["schemas"]["AgentPoolRequestStatus"];
+export type AgentPoolAvailabilityStatus =
+  components["schemas"]["AgentPoolAvailabilityStatus"];
+
+export interface AgentPoolAvailability {
+  retryAt?: string;
+  status: AgentPoolAvailabilityStatus;
+}
 
 export interface AgentPoolPerson {
   avatarLabel: string;
@@ -27,6 +34,7 @@ export interface AgentPoolJoinRequest extends AgentPoolPerson {
 export interface AgentPool {
   accountLabel: string;
   agent: AgentProvider;
+  availability: AgentPoolAvailability;
   capacity: number;
   createdAt: string;
   id: string;
@@ -79,6 +87,10 @@ function poolFromApi(pool: ApiAgentPool): AgentPool {
   return {
     accountLabel: pool.account_label,
     agent: pool.agent as AgentProvider,
+    availability: {
+      retryAt: pool.availability.retry_at ?? undefined,
+      status: pool.availability.status,
+    },
     capacity: pool.capacity,
     createdAt: pool.created_at,
     id: pool.id,
@@ -162,6 +174,66 @@ async function decide(
   }
 }
 
+async function invite(poolId: string, username: string) {
+  try {
+    let result = await client.POST("/agent-pools/{connection_id}/members", {
+      body: { username },
+      params: { path: { connection_id: poolId } },
+    });
+    if (result.response.status === 401 && (await refreshHubSession())) {
+      result = await client.POST("/agent-pools/{connection_id}/members", {
+        body: { username },
+        params: { path: { connection_id: poolId } },
+      });
+    }
+    if (!result.data) throw serviceError(result.error);
+    return personFromApi(result.data);
+  } catch (error) {
+    if (error instanceof AgentPoolServiceError) throw error;
+    throw new AgentPoolServiceError("The member could not be invited.");
+  }
+}
+
+async function removeMember(poolId: string, username: string) {
+  try {
+    let result = await client.DELETE(
+      "/agent-pools/{connection_id}/members/{username}",
+      { params: { path: { connection_id: poolId, username } } },
+    );
+    if (result.response.status === 401 && (await refreshHubSession())) {
+      result = await client.DELETE(
+        "/agent-pools/{connection_id}/members/{username}",
+        { params: { path: { connection_id: poolId, username } } },
+      );
+    }
+    if (!result.response.ok) throw serviceError(result.error);
+  } catch (error) {
+    if (error instanceof AgentPoolServiceError) throw error;
+    throw new AgentPoolServiceError("The member could not be removed.");
+  }
+}
+
+async function retry(poolId: string) {
+  try {
+    let result = await client.POST("/agent-pools/{connection_id}/retry", {
+      params: { path: { connection_id: poolId } },
+    });
+    if (result.response.status === 401 && (await refreshHubSession())) {
+      result = await client.POST("/agent-pools/{connection_id}/retry", {
+        params: { path: { connection_id: poolId } },
+      });
+    }
+    if (!result.data) throw serviceError(result.error);
+    return {
+      retryAt: result.data.retry_at ?? undefined,
+      status: result.data.status,
+    } satisfies AgentPoolAvailability;
+  } catch (error) {
+    if (error instanceof AgentPoolServiceError) throw error;
+    throw new AgentPoolServiceError("The pool could not be refreshed.");
+  }
+}
+
 function createdLabel(createdAt: string) {
   return new Intl.DateTimeFormat("en", {
     day: "2-digit",
@@ -174,9 +246,12 @@ function createdLabel(createdAt: string) {
 const agentPoolsService = {
   createdLabel,
   decide,
+  invite,
   list,
   queryKey: ["agent-pools"] as const,
   requestJoin,
+  removeMember,
+  retry,
 };
 
 export default agentPoolsService;

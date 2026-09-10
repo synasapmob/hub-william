@@ -36,7 +36,10 @@ populated values in the runtime secret store.
 Gateway keys are shown once and stored only as hashes. A key can route through
 every connected account the user owns and every pool where their join request
 is accepted. Candidate pools are filtered strictly by the requested provider;
-owned accounts are tried first, and an unusable credential or upstream `429`
-advances to the next same-provider pool. Provider token payloads are AES-256-GCM
+an unusable credential advances to the next candidate. An upstream `429`
+persists a 30-minute cooldown, skips that pool during the wait, and advances to
+the next same-provider pool. The first real request after the timer is an
+atomic half-open probe; owners can arm the exact pool early through the pool
+management API. Provider token payloads are AES-256-GCM
 encrypted. Do not log request authorization headers, OAuth codes, device codes,
 callback URLs, or provider response bodies.

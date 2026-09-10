@@ -26,8 +26,9 @@ const pendingRequest = {
 
 function poolFixture(requests: Array<Record<string, unknown>> = []) {
   return {
-    account_label: "duy*******@googlemal.com",
+    account_label: "duy**@**.com",
     agent: "ChatGPT",
+    availability: { retry_at: null as string | null, status: "active" },
     capacity: 6,
     created_at: "2026-09-04T08:30:00.000Z",
     id: "44444444-4444-4444-8444-444444444444",
@@ -99,6 +100,36 @@ function renderRoute(user?: SessionFixture, initialPools = [poolFixture()]) {
         ];
         return jsonResponse(accepted);
       }
+      if (url.endsWith("/members") && method === "POST") {
+        const invited = { avatar_label: "Wil", username: "william" };
+        pools = [
+          {
+            ...pools[0],
+            members: [...pools[0].members, invited],
+          },
+        ];
+        return jsonResponse(invited, 201);
+      }
+      if (url.includes("/members/") && method === "DELETE") {
+        pools = [
+          {
+            ...pools[0],
+            members: pools[0].members.filter(
+              (member) => member.username !== "huycodes",
+            ),
+          },
+        ];
+        return new Response(null, { status: 204 });
+      }
+      if (url.endsWith("/retry") && method === "POST") {
+        pools = [
+          {
+            ...pools[0],
+            availability: { retry_at: null, status: "half_open" },
+          },
+        ];
+        return jsonResponse({ retry_at: null, status: "half_open" });
+      }
       if (url.endsWith("/agent-connections") || url.endsWith("/gateway-keys")) {
         return jsonResponse([]);
       }
@@ -133,7 +164,7 @@ describe("AgentsRoute", () => {
       "href",
       "/tools?node=gateway",
     );
-    expect(await screen.findByText("duy*******@googlemal.com")).toBeVisible();
+    expect(await screen.findByText("duy**@**.com")).toBeVisible();
     expect(
       fetchMock.mock.calls.some(
         ([request]) =>
@@ -147,9 +178,7 @@ describe("AgentsRoute", () => {
     renderRoute(undefined, []);
 
     expect(await screen.findByText("No connected accounts yet.")).toBeVisible();
-    expect(
-      screen.queryByText("duy*******@googlemal.com"),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText("duy**@**.com")).not.toBeInTheDocument();
   });
 
   it("shows provider metadata and dynamic usage from the API", async () => {
@@ -214,9 +243,55 @@ describe("AgentsRoute", () => {
     expect(screen.getByText("@huycodes")).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "Accept" }));
-    expect(await screen.findByText("accepted")).toBeVisible();
     await waitFor(() =>
       expect(screen.getAllByText("Huy").length).toBeGreaterThan(0),
     );
+  });
+
+  it("lets the owner invite and remove pool members", async () => {
+    const user = userEvent.setup();
+    renderRoute({ id: "owner-1", username: "synasapmob" }, [
+      {
+        ...poolFixture(),
+        members: [
+          { avatar_label: "Syn", username: "synasapmob" },
+          { avatar_label: "Huy", username: "huycodes" },
+        ],
+      },
+    ]);
+
+    await user.click(
+      await screen.findByRole("button", { name: /check request/i }),
+    );
+    await user.type(screen.getByLabelText("Hub William username"), "william");
+    await user.click(screen.getByRole("button", { name: "Invite" }));
+    expect(await screen.findByText("william")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Remove huycodes" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Remove huycodes" }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it("arms an unavailable pool for its next real gateway request", async () => {
+    const user = userEvent.setup();
+    renderRoute({ id: "owner-1", username: "synasapmob" }, [
+      {
+        ...poolFixture(),
+        availability: {
+          retry_at: "2026-09-10T04:00:00.000Z",
+          status: "rate_limited",
+        },
+      },
+    ]);
+
+    await user.click(
+      await screen.findByRole("button", { name: /check request/i }),
+    );
+    expect(screen.getByText("Cooling down")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(await screen.findByText("Ready to retry")).toBeVisible();
   });
 });

@@ -5,6 +5,7 @@ set -euo pipefail
 task_tmp=$(mktemp -d)
 task_username="integration$(date +%s)"
 task_requester_username="requester$(date +%s)"
+task_invited_username="invited$(date +%s)"
 task_password="Test-only-password-2026"
 task_railway_vars=$(railway variables --service Postgres --json)
 task_pg_user=$(jq -rn --arg value "$(jq -r '.PGUSER' <<< "$task_railway_vars")" '$value|@uri')
@@ -16,7 +17,7 @@ task_db_url="postgresql://${task_pg_user}:${task_pg_password}@${task_pg_host}:${
 
 cleanup() {
   psql "$task_db_url" -v ON_ERROR_STOP=1 -q \
-    -c "DELETE FROM users WHERE username IN ('${task_username}', '${task_requester_username}')" >/dev/null 2>&1 || true
+    -c "DELETE FROM users WHERE username IN ('${task_username}', '${task_requester_username}', '${task_invited_username}')" >/dev/null 2>&1 || true
   rm -rf -- "$task_tmp"
 }
 trap cleanup EXIT
@@ -94,10 +95,10 @@ fi
 
 task_connection_id=$(uuidgen | tr '[:upper:]' '[:lower:]')
 task_connection_id=$(psql "$task_db_url" -v ON_ERROR_STOP=1 -Atq -c \
-  "INSERT INTO agent_connections (id, user_id, provider, status, account_label, plan) VALUES ('${task_connection_id}', '${task_user_id}', 'grok', 'connected', 'int*******@example.com', 'K12') RETURNING id")
+  "INSERT INTO agent_connections (id, user_id, provider, status, account_label, plan) VALUES ('${task_connection_id}', '${task_user_id}', 'grok', 'connected', 'int**@**.com', 'K12') RETURNING id")
 task_connection_id_two=$(uuidgen | tr '[:upper:]' '[:lower:]')
 task_connection_id_two=$(psql "$task_db_url" -v ON_ERROR_STOP=1 -Atq -c \
-  "INSERT INTO agent_connections (id, user_id, provider, status, account_label, plan) VALUES ('${task_connection_id_two}', '${task_user_id}', 'grok', 'connected', 'sec*******@example.com', 'Plus') RETURNING id")
+  "INSERT INTO agent_connections (id, user_id, provider, status, account_label, plan) VALUES ('${task_connection_id_two}', '${task_user_id}', 'grok', 'connected', 'sec**@**.com', 'Plus') RETURNING id")
 same_provider_connection_count=$(psql "$task_db_url" -v ON_ERROR_STOP=1 -Atq -c \
   "SELECT COUNT(*) FROM agent_connections WHERE user_id = '${task_user_id}' AND provider = 'grok' AND status = 'connected'")
 [[ "$same_provider_connection_count" == "2" ]]
@@ -114,6 +115,35 @@ requester_register_status=$(curl -sS -c "$task_tmp/requester-cookies.txt" \
   --data "{\"username\":\"${task_requester_username}\",\"password\":\"${task_password}\",\"recovery_email\":null}" \
   http://127.0.0.1:8080/auth/register)
 [[ "$requester_register_status" == "201" ]]
+
+invited_register_status=$(curl -sS -c "$task_tmp/invited-cookies.txt" \
+  -o "$task_tmp/invited-register.json" -w '%{http_code}' -H 'content-type: application/json' \
+  --data "{\"username\":\"${task_invited_username}\",\"password\":\"${task_password}\",\"recovery_email\":null}" \
+  http://127.0.0.1:8080/auth/register)
+[[ "$invited_register_status" == "201" ]]
+
+invite_status=$(curl -sS -b "$task_tmp/cookies.txt" -o "$task_tmp/invite.json" \
+  -w '%{http_code}' -H 'content-type: application/json' \
+  --data "{\"username\":\"${task_invited_username}\"}" \
+  "http://127.0.0.1:8080/agent-pools/${task_connection_id}/members")
+[[ "$invite_status" == "201" ]]
+[[ "$(jq -r '.username' "$task_tmp/invite.json")" == "$task_invited_username" ]]
+invited_key_status=$(curl -sS -b "$task_tmp/invited-cookies.txt" -o "$task_tmp/invited-key.json" \
+  -w '%{http_code}' -X POST http://127.0.0.1:8080/gateway-keys)
+[[ "$invited_key_status" == "201" ]]
+task_invited_gateway_key=$(jq -r '.key' "$task_tmp/invited-key.json")
+invited_models_status=$(curl -sS -o "$task_tmp/invited-models.json" -w '%{http_code}' \
+  -H "authorization: Bearer ${task_invited_gateway_key}" \
+  http://127.0.0.1:8080/gateway/grok/v1/models)
+[[ "$invited_models_status" == "200" ]]
+kick_status=$(curl -sS -b "$task_tmp/cookies.txt" -o /dev/null -w '%{http_code}' \
+  -X DELETE "http://127.0.0.1:8080/agent-pools/${task_connection_id}/members/${task_invited_username}")
+[[ "$kick_status" == "204" ]]
+kicked_models_status=$(curl -sS -o "$task_tmp/kicked-models.json" -w '%{http_code}' \
+  -H "authorization: Bearer ${task_invited_gateway_key}" \
+  http://127.0.0.1:8080/gateway/grok/v1/models)
+[[ "$kicked_models_status" == "403" ]]
+echo "owner membership: direct invite grants gateway access; kick removes it immediately"
 
 request_status=$(curl -sS -b "$task_tmp/requester-cookies.txt" -o "$task_tmp/request.json" \
   -w '%{http_code}' -H 'content-type: application/json' \
@@ -171,6 +201,22 @@ cross_provider_membership_count=$(psql "$task_db_url" -v ON_ERROR_STOP=1 -Atq -c
   "SELECT COUNT(*) FROM agent_pool_join_requests AS requests JOIN agent_connections AS connections ON connections.id = requests.connection_id WHERE requests.requester_user_id = (SELECT id FROM users WHERE username = '${task_requester_username}') AND requests.status = 'accepted' AND connections.provider = 'claude'")
 [[ "$cross_provider_membership_count" == "0" ]]
 echo "multiple memberships: requester accepted into two Grok pools; Claude candidate set remains empty"
+
+psql "$task_db_url" -v ON_ERROR_STOP=1 -q -c \
+  "UPDATE agent_connections SET availability_status = 'rate_limited', rate_limited_until = NOW() + INTERVAL '30 minutes' WHERE id = '${task_connection_id_two}'"
+cooldown_status=$(curl -sS -b "$task_tmp/cookies.txt" -o "$task_tmp/cooldown-pools.json" \
+  -w '%{http_code}' http://127.0.0.1:8080/agent-pools)
+[[ "$cooldown_status" == "200" ]]
+[[ "$(jq -r --arg id "$task_connection_id_two" '.[] | select(.id == $id) | .availability.status' "$task_tmp/cooldown-pools.json")" == "rate_limited" ]]
+[[ "$(jq -r --arg id "$task_connection_id_two" '.[] | select(.id == $id) | .availability.retry_at != null' "$task_tmp/cooldown-pools.json")" == "true" ]]
+retry_status=$(curl -sS -b "$task_tmp/cookies.txt" -o "$task_tmp/retry.json" \
+  -w '%{http_code}' -X POST "http://127.0.0.1:8080/agent-pools/${task_connection_id_two}/retry")
+[[ "$retry_status" == "200" ]]
+[[ "$(jq -r '.status' "$task_tmp/retry.json")" == "half_open" ]]
+retry_database_state=$(psql "$task_db_url" -v ON_ERROR_STOP=1 -Atq -c \
+  "SELECT availability_status || '|' || (rate_limited_until IS NULL)::text || '|' || (retry_claimed_at IS NULL)::text FROM agent_connections WHERE id = '${task_connection_id_two}'")
+[[ "$retry_database_state" == "half_open|true|true" ]]
+echo "pool cooldown: persisted retry time; owner refresh arms exact pool for one real request"
 
 requester_key_status=$(curl -sS -b "$task_tmp/requester-cookies.txt" -o "$task_tmp/requester-key.json" \
   -w '%{http_code}' -X POST http://127.0.0.1:8080/gateway-keys)

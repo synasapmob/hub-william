@@ -31,6 +31,11 @@ interface DecideRequestVariables {
   status: Exclude<AgentPoolRequestStatus, "pending">;
 }
 
+interface PoolMemberVariables {
+  poolId: string;
+  username: string;
+}
+
 export default function AgentsRoute() {
   const session = useWorkspaceSession();
   const queryClient = useQueryClient();
@@ -52,10 +57,31 @@ export default function AgentsRoute() {
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: agentPoolsService.queryKey }),
   });
+  const inviteMutation = useMutation({
+    mutationFn: ({ poolId, username }: PoolMemberVariables) =>
+      agentPoolsService.invite(poolId, username),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: agentPoolsService.queryKey }),
+  });
+  const removeMemberMutation = useMutation({
+    mutationFn: ({ poolId, username }: PoolMemberVariables) =>
+      agentPoolsService.removeMember(poolId, username),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: agentPoolsService.queryKey }),
+  });
+  const retryMutation = useMutation({
+    mutationFn: (poolId: string) => agentPoolsService.retry(poolId),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: agentPoolsService.queryKey }),
+  });
   const pools = poolsQuery.data ?? [];
   const requestPool = pools.find((pool) => pool.id === requestPoolId) ?? null;
   const reviewPool = pools.find((pool) => pool.id === reviewPoolId) ?? null;
-  const routeError = poolsQuery.error ?? decisionMutation.error;
+  const routeError =
+    poolsQuery.error ??
+    decisionMutation.error ??
+    removeMemberMutation.error ??
+    retryMutation.error;
   const errorMessage = routeError
     ? routeError instanceof AgentPoolServiceError
       ? routeError.message
@@ -84,6 +110,24 @@ export default function AgentsRoute() {
   ) {
     if (!reviewPool) return;
     decisionMutation.mutate({ requestId, status });
+  }
+
+  async function inviteMember(username: string) {
+    if (!reviewPool) return;
+    await inviteMutation.mutateAsync({ poolId: reviewPool.id, username });
+  }
+
+  async function removeMember(username: string) {
+    if (!reviewPool) return;
+    await removeMemberMutation.mutateAsync({
+      poolId: reviewPool.id,
+      username,
+    });
+  }
+
+  async function refreshPool() {
+    if (!reviewPool) return;
+    await retryMutation.mutateAsync(reviewPool.id);
   }
 
   return (
@@ -197,11 +241,20 @@ export default function AgentsRoute() {
       />
 
       <AgentsRequestsDialog
+        busy={
+          decisionMutation.isPending ||
+          inviteMutation.isPending ||
+          removeMemberMutation.isPending ||
+          retryMutation.isPending
+        }
         open={reviewPool !== null}
         onDecision={decideRequest}
+        onInvite={inviteMember}
         onOpenChange={(open) => {
           if (!open) setReviewPoolId(null);
         }}
+        onRefresh={refreshPool}
+        onRemoveMember={removeMember}
         pool={reviewPool}
       />
     </section>

@@ -23,10 +23,14 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 pub use agent_pools::{
-    AgentPool, AgentPoolJoinRequest, AgentPoolPerson, AgentPoolRequestStatus, AgentPoolUsageMetric,
-    CreateAgentPoolJoinRequest, DecideAgentPoolJoinRequest,
+    AgentPool, AgentPoolAvailability, AgentPoolAvailabilityStatus, AgentPoolJoinRequest,
+    AgentPoolPerson, AgentPoolRequestStatus, AgentPoolUsageMetric, CreateAgentPoolJoinRequest,
+    DecideAgentPoolJoinRequest, InviteAgentPoolMember,
 };
-use agent_pools::{create_request, decide_request, list as list_agent_pools};
+use agent_pools::{
+    create_request, decide_request, invite_member, list as list_agent_pools, remove_member,
+    retry_pool,
+};
 pub use auth::{AuthenticatedUser, LoginRequest, RegisterRequest, SessionResponse};
 use auth::{login, logout, refresh, register, session};
 pub use config::AppConfig;
@@ -86,6 +90,12 @@ pub fn app(state: AppState) -> Router {
             "/agent-pools/{connection_id}/requests",
             post(create_request),
         )
+        .route("/agent-pools/{connection_id}/members", post(invite_member))
+        .route(
+            "/agent-pools/{connection_id}/members/{username}",
+            axum::routing::delete(remove_member),
+        )
+        .route("/agent-pools/{connection_id}/retry", post(retry_pool))
         .route(
             "/agent-pool-requests/{request_id}/decision",
             post(decide_request),

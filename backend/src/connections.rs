@@ -1254,8 +1254,14 @@ fn mask_account_label(email: &str) -> String {
     let Some((local, domain)) = email.split_once('@') else {
         return "connected account".to_owned();
     };
+    let Some((_, suffix)) = domain.rsplit_once('.') else {
+        return "connected account".to_owned();
+    };
     let visible = local.chars().take(3).collect::<String>();
-    format!("{visible}*******@{domain}")
+    if visible.is_empty() || suffix.is_empty() {
+        return "connected account".to_owned();
+    }
+    format!("{visible}**@**.{suffix}")
 }
 
 fn token_claims(token: &Value) -> Option<Value> {
@@ -1405,9 +1411,10 @@ mod tests {
 
     #[test]
     fn account_labels_are_masked_before_browser_storage() {
+        assert_eq!(mask_account_label("duy@example.com"), "duy**@**.com");
         assert_eq!(
-            mask_account_label("duy@example.com"),
-            "duy*******@example.com"
+            mask_account_label("102@utc2eduvn.onmicrosoft.com"),
+            "102**@**.com"
         );
         assert_eq!(mask_account_label("not-an-email"), "connected account");
         assert_eq!(json!({ "masked": true })["masked"], true);
@@ -1444,7 +1451,7 @@ mod tests {
             assert_eq!(
                 connection_metadata(&json!({ "id_token": token })),
                 (
-                    Some("own*******@example.com".to_owned()),
+                    Some("own**@**.com".to_owned()),
                     Some(displayed_plan.to_owned())
                 )
             );

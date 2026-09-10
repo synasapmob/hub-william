@@ -1,11 +1,12 @@
 use utoipa::OpenApi;
 
 use crate::{
-    AgentConnection, AgentConnectionStatus, AgentPool, AgentPoolJoinRequest, AgentPoolPerson,
-    AgentPoolRequestStatus, AgentPoolUsageMetric, AgentProvider, AuthenticatedUser,
-    CompleteAuthorizationRequest, CreateAgentPoolJoinRequest, CreatedGatewayKey,
-    DecideAgentPoolJoinRequest, ErrorResponse, GatewayKey, HealthResponse, LoginRequest,
-    RegisterRequest, SessionResponse, StartAgentConnectionRequest,
+    AgentConnection, AgentConnectionStatus, AgentPool, AgentPoolAvailability,
+    AgentPoolAvailabilityStatus, AgentPoolJoinRequest, AgentPoolPerson, AgentPoolRequestStatus,
+    AgentPoolUsageMetric, AgentProvider, AuthenticatedUser, CompleteAuthorizationRequest,
+    CreateAgentPoolJoinRequest, CreatedGatewayKey, DecideAgentPoolJoinRequest, ErrorResponse,
+    GatewayKey, HealthResponse, InviteAgentPoolMember, LoginRequest, RegisterRequest,
+    SessionResponse, StartAgentConnectionRequest,
 };
 
 #[derive(OpenApi)]
@@ -25,6 +26,9 @@ use crate::{
         crate::agent_pools::list,
         crate::agent_pools::create_request,
         crate::agent_pools::decide_request,
+        crate::agent_pools::invite_member,
+        crate::agent_pools::remove_member,
+        crate::agent_pools::retry_pool,
         crate::connections::list_connections,
         crate::connections::start,
         crate::connections::get_connection,
@@ -39,6 +43,8 @@ use crate::{
         AgentConnection,
         AgentConnectionStatus,
         AgentPool,
+        AgentPoolAvailability,
+        AgentPoolAvailabilityStatus,
         AgentPoolJoinRequest,
         AgentPoolPerson,
         AgentPoolRequestStatus,
@@ -52,6 +58,7 @@ use crate::{
         GatewayKey,
         HealthResponse,
         LoginRequest,
+        InviteAgentPoolMember,
         RegisterRequest,
         SessionResponse,
         StartAgentConnectionRequest

@@ -7,7 +7,7 @@ use axum::{
 };
 use axum_extra::extract::CookieJar;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use rand::RngCore;
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -53,6 +53,13 @@ struct GatewayKeyRow {
 struct AuthorizedGatewayKey {
     id: Uuid,
     user_id: Uuid,
+}
+
+#[derive(Debug, FromRow)]
+struct ProviderCandidate {
+    availability_status: String,
+    id: Uuid,
+    rate_limited_until: Option<DateTime<Utc>>,
 }
 
 #[utoipa::path(
@@ -281,28 +288,47 @@ async fn proxy_request(
     body: Bytes,
 ) -> Result<Response, ApiError> {
     let authorized = authorize_gateway_key(state, request_headers).await?;
-    let connection_ids =
-        connected_provider_ids(state, authorized.user_id, expected_provider).await?;
+    let candidates =
+        connected_provider_candidates(state, authorized.user_id, expected_provider).await?;
     let upstream_url = append_query(upstream_url, original_uri.query());
-    let candidate_count = connection_ids.len();
+    let mut saw_rate_limit = false;
+    let mut last_error = None;
 
-    for (index, connection_id) in connection_ids.into_iter().enumerate() {
-        let has_next = index + 1 < candidate_count;
-        let (credential_provider, token) = match provider_credential(state, connection_id).await {
-            Ok(credential) => credential,
-            Err(ApiError::Forbidden | ApiError::Provider(_)) if has_next => continue,
-            Err(error) => return Err(error),
-        };
-        if credential_provider != expected_provider {
-            if has_next {
+    for candidate in candidates {
+        let claimed_probe = match claim_candidate(state, &candidate).await {
+            Ok(Some(claimed_probe)) => claimed_probe,
+            Ok(None) => {
+                saw_rate_limit = true;
                 continue;
             }
-            return Err(ApiError::Forbidden);
+            Err(error) => return Err(error),
+        };
+        let (credential_provider, token) = match provider_credential(state, candidate.id).await {
+            Ok(credential) => credential,
+            Err(error) => {
+                if claimed_probe {
+                    release_probe(state, candidate.id).await?;
+                }
+                last_error = Some(error);
+                continue;
+            }
+        };
+        if credential_provider != expected_provider {
+            if claimed_probe {
+                release_probe(state, candidate.id).await?;
+            }
+            last_error = Some(ApiError::Forbidden);
+            continue;
         }
         let access_token = match token.get("access_token").and_then(Value::as_str) {
             Some(access_token) => access_token,
-            None if has_next => continue,
-            None => return Err(ApiError::Forbidden),
+            None => {
+                if claimed_probe {
+                    release_probe(state, candidate.id).await?;
+                }
+                last_error = Some(ApiError::Forbidden);
+                continue;
+            }
         };
         let mut request = state
             .http
@@ -335,17 +361,30 @@ async fn proxy_request(
                 .header("user-agent", "xai-grok-build/1.0.13"),
         };
 
-        let upstream = request
-            .send()
-            .await
-            .map_err(|error| upstream_network_error(expected_provider, error))?;
-        if should_failover(upstream.status(), has_next) {
+        let upstream = match request.send().await {
+            Ok(upstream) => upstream,
+            Err(error) => {
+                if claimed_probe {
+                    release_probe(state, candidate.id).await?;
+                }
+                last_error = Some(upstream_network_error(expected_provider, error));
+                continue;
+            }
+        };
+        if upstream.status() == StatusCode::TOO_MANY_REQUESTS {
+            mark_rate_limited(state, candidate.id).await?;
+            saw_rate_limit = true;
             continue;
         }
+        mark_active(state, candidate.id).await?;
         return upstream_response(upstream);
     }
 
-    Err(ApiError::Forbidden)
+    if saw_rate_limit {
+        Err(ApiError::RateLimited)
+    } else {
+        Err(last_error.unwrap_or(ApiError::Forbidden))
+    }
 }
 
 fn upstream_response(upstream: reqwest::Response) -> Result<Response, ApiError> {
@@ -362,10 +401,6 @@ fn upstream_response(upstream: reqwest::Response) -> Result<Response, ApiError> 
         eprintln!("gateway response construction failed: {error}");
         ApiError::Internal
     })
-}
-
-fn should_failover(status: StatusCode, has_next: bool) -> bool {
-    has_next && status == StatusCode::TOO_MANY_REQUESTS
 }
 
 async fn authorize_gateway_key(
@@ -411,8 +446,21 @@ async fn connected_provider_ids(
     user_id: Uuid,
     provider: AgentProvider,
 ) -> Result<Vec<Uuid>, ApiError> {
-    let connection_ids = sqlx::query_scalar(
-        "SELECT connections.id
+    Ok(connected_provider_candidates(state, user_id, provider)
+        .await?
+        .into_iter()
+        .map(|candidate| candidate.id)
+        .collect())
+}
+
+async fn connected_provider_candidates(
+    state: &AppState,
+    user_id: Uuid,
+    provider: AgentProvider,
+) -> Result<Vec<ProviderCandidate>, ApiError> {
+    let candidates = sqlx::query_as::<_, ProviderCandidate>(
+        "SELECT connections.id, connections.availability_status,
+                connections.rate_limited_until
          FROM agent_connections AS connections
          LEFT JOIN agent_pool_join_requests AS requests
            ON requests.connection_id = connections.id
@@ -421,7 +469,15 @@ async fn connected_provider_ids(
          WHERE connections.provider = $2
            AND connections.status = 'connected'
            AND (connections.user_id = $1 OR requests.id IS NOT NULL)
-         ORDER BY (connections.user_id = $1) DESC,
+         ORDER BY CASE
+                    WHEN connections.availability_status = 'half_open'
+                         AND connections.retry_claimed_at IS NULL THEN 0
+                    WHEN connections.availability_status = 'rate_limited'
+                         AND connections.rate_limited_until <= NOW() THEN 1
+                    WHEN connections.availability_status = 'active' THEN 2
+                    ELSE 3
+                  END,
+                  (connections.user_id = $1) DESC,
                   COALESCE(requests.updated_at, connections.updated_at) DESC
         ",
     )
@@ -430,11 +486,100 @@ async fn connected_provider_ids(
     .fetch_all(&state.pool)
     .await
     .map_err(database_error)?;
-    if connection_ids.is_empty() {
+    if candidates.is_empty() {
         return Err(ApiError::Forbidden);
     }
 
-    Ok(connection_ids)
+    Ok(candidates)
+}
+
+async fn claim_candidate(
+    state: &AppState,
+    candidate: &ProviderCandidate,
+) -> Result<Option<bool>, ApiError> {
+    match candidate.availability_status.as_str() {
+        "active" => Ok(Some(false)),
+        "rate_limited"
+            if candidate
+                .rate_limited_until
+                .is_some_and(|until| until <= Utc::now()) =>
+        {
+            let result = sqlx::query(
+                "UPDATE agent_connections
+                 SET availability_status = 'half_open', retry_claimed_at = NOW(), updated_at = NOW()
+                 WHERE id = $1 AND availability_status = 'rate_limited'
+                   AND rate_limited_until <= NOW()",
+            )
+            .bind(candidate.id)
+            .execute(&state.pool)
+            .await
+            .map_err(database_error)?;
+            Ok((result.rows_affected() == 1).then_some(true))
+        }
+        "half_open" => {
+            let stale_before = Utc::now() - Duration::minutes(5);
+            let result = sqlx::query(
+                "UPDATE agent_connections
+                 SET retry_claimed_at = NOW(), updated_at = NOW()
+                 WHERE id = $1 AND availability_status = 'half_open'
+                   AND (retry_claimed_at IS NULL OR retry_claimed_at <= $2)",
+            )
+            .bind(candidate.id)
+            .bind(stale_before)
+            .execute(&state.pool)
+            .await
+            .map_err(database_error)?;
+            Ok((result.rows_affected() == 1).then_some(true))
+        }
+        "rate_limited" => Ok(None),
+        _ => Err(ApiError::Internal),
+    }
+}
+
+async fn mark_rate_limited(state: &AppState, connection_id: Uuid) -> Result<(), ApiError> {
+    let retry_at = Utc::now() + rate_limit_cooldown();
+    sqlx::query(
+        "UPDATE agent_connections
+         SET availability_status = 'rate_limited', rate_limited_until = $2,
+             retry_claimed_at = NULL, updated_at = NOW()
+         WHERE id = $1",
+    )
+    .bind(connection_id)
+    .bind(retry_at)
+    .execute(&state.pool)
+    .await
+    .map_err(database_error)?;
+    Ok(())
+}
+
+async fn mark_active(state: &AppState, connection_id: Uuid) -> Result<(), ApiError> {
+    sqlx::query(
+        "UPDATE agent_connections
+         SET availability_status = 'active', rate_limited_until = NULL,
+             retry_claimed_at = NULL, updated_at = NOW()
+         WHERE id = $1 AND availability_status <> 'active'",
+    )
+    .bind(connection_id)
+    .execute(&state.pool)
+    .await
+    .map_err(database_error)?;
+    Ok(())
+}
+
+async fn release_probe(state: &AppState, connection_id: Uuid) -> Result<(), ApiError> {
+    sqlx::query(
+        "UPDATE agent_connections SET retry_claimed_at = NULL, updated_at = NOW()
+         WHERE id = $1 AND availability_status = 'half_open'",
+    )
+    .bind(connection_id)
+    .execute(&state.pool)
+    .await
+    .map_err(database_error)?;
+    Ok(())
+}
+
+fn rate_limit_cooldown() -> Duration {
+    Duration::minutes(30)
 }
 
 fn generate_gateway_key() -> String {
@@ -536,11 +681,11 @@ fn database_error(error: sqlx::Error) -> ApiError {
 
 #[cfg(test)]
 mod tests {
-    use axum::http::{HeaderMap, HeaderValue, StatusCode};
+    use axum::http::{HeaderMap, HeaderValue};
     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
     use serde_json::json;
 
-    use super::{chatgpt_account_id, hash_gateway_key, merged_anthropic_beta, should_failover};
+    use super::{chatgpt_account_id, hash_gateway_key, merged_anthropic_beta, rate_limit_cooldown};
 
     #[test]
     fn gateway_key_hash_does_not_store_the_plaintext() {
@@ -584,9 +729,7 @@ mod tests {
     }
 
     #[test]
-    fn rate_limit_failover_stays_within_the_preselected_provider_candidates() {
-        assert!(should_failover(StatusCode::TOO_MANY_REQUESTS, true));
-        assert!(!should_failover(StatusCode::TOO_MANY_REQUESTS, false));
-        assert!(!should_failover(StatusCode::FORBIDDEN, true));
+    fn rate_limited_pools_cool_down_for_thirty_minutes() {
+        assert_eq!(rate_limit_cooldown().num_minutes(), 30);
     }
 }

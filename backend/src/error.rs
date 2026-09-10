@@ -16,6 +16,7 @@ pub enum ApiError {
     InvalidCredentials,
     NotFound,
     Provider(String),
+    RateLimited,
     Unauthorized,
     Validation(&'static str),
     Internal,
@@ -64,6 +65,13 @@ impl IntoResponse for ApiError {
                 ErrorResponse {
                     code: "provider_unavailable".to_owned(),
                     message,
+                },
+            ),
+            Self::RateLimited => (
+                StatusCode::TOO_MANY_REQUESTS,
+                ErrorResponse {
+                    code: "all_pools_rate_limited".to_owned(),
+                    message: "Every accessible pool for this provider is cooling down.".to_owned(),
                 },
             ),
             Self::Unauthorized => (

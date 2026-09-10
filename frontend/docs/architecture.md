@@ -40,6 +40,10 @@ persisted in PostgreSQL. A shared session provider checks the Rust backend;
 account-bound actions, provider OAuth and gateway keys use that live boundary.
 An accepted pool member can create a user-scoped key and route through the
 owner's shared provider without receiving the provider token.
+Pool owners manage pending requests, direct username invites, accepted members,
+and exact-pool retry controls in the pool access dialog. Provider availability
+is server state: a 30-minute `429` cooldown is displayed by the UI, while manual
+refresh only arms the pool for verification by the next real gateway request.
 The build also writes that catalogue
 out as files — `/catalog/<path>`,
 `/catalog/<folder>.zip`, `/catalog/collections/<owner>/<section>/<name>.zip`

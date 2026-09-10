@@ -450,7 +450,7 @@ fn new_token() -> (String, String) {
     (token, token_hash)
 }
 
-fn normalize_username(username: &str) -> Result<String, ApiError> {
+pub(crate) fn normalize_username(username: &str) -> Result<String, ApiError> {
     let username = username.trim().to_ascii_lowercase();
     let valid = (3..=32).contains(&username.len())
         && username

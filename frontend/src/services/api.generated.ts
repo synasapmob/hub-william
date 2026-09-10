@@ -100,6 +100,38 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/agent-pools/{connection_id}/members": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["invite_member"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/agent-pools/{connection_id}/members/{username}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete: operations["remove_member"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/agent-pools/{connection_id}/requests": {
     parameters: {
       query?: never;
@@ -110,6 +142,22 @@ export interface paths {
     get?: never;
     put?: never;
     post: operations["create_request"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/agent-pools/{connection_id}/retry": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["retry_pool"];
     delete?: never;
     options?: never;
     head?: never;
@@ -276,6 +324,7 @@ export interface components {
     AgentPool: {
       account_label: string;
       agent: string;
+      availability: components["schemas"]["AgentPoolAvailability"];
       /** Format: int32 */
       capacity: number;
       /** Format: date-time */
@@ -288,6 +337,13 @@ export interface components {
       requests: components["schemas"]["AgentPoolJoinRequest"][];
       usage: components["schemas"]["AgentPoolUsageMetric"][];
     };
+    AgentPoolAvailability: {
+      /** Format: date-time */
+      retry_at?: string | null;
+      status: components["schemas"]["AgentPoolAvailabilityStatus"];
+    };
+    /** @enum {string} */
+    AgentPoolAvailabilityStatus: "active" | "rate_limited" | "half_open";
     AgentPoolJoinRequest: {
       avatar_label: string;
       /** Format: uuid */
@@ -345,6 +401,9 @@ export interface components {
     HealthResponse: {
       service: string;
       status: string;
+    };
+    InviteAgentPoolMember: {
+      username: string;
     };
     LoginRequest: {
       password: string;
@@ -604,6 +663,92 @@ export interface operations {
       };
     };
   };
+  invite_member: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Connected account identifier */
+        connection_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["InviteAgentPoolMember"];
+      };
+    };
+    responses: {
+      /** @description Member invited */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AgentPoolPerson"];
+        };
+      };
+      /** @description Pool ownership required */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Invite rejected */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  remove_member: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Connected account identifier */
+        connection_id: string;
+        /** @description Hub William username */
+        username: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Member removed */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Pool ownership required */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Membership not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
   create_request: {
     parameters: {
       query?: never;
@@ -640,6 +785,38 @@ export interface operations {
       };
       /** @description Request rejected */
       422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  retry_pool: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Connected account identifier */
+        connection_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Pool armed for the next real gateway request */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AgentPoolAvailability"];
+        };
+      };
+      /** @description Pool ownership required */
+      403: {
         headers: {
           [name: string]: unknown;
         };

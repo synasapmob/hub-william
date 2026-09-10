@@ -290,6 +290,118 @@
         }
       }
     },
+    "/agent-pools/{connection_id}/members": {
+      "post": {
+        "tags": ["agent pools"],
+        "operationId": "invite_member",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "description": "Connected account identifier",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteAgentPoolMember"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Member invited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentPoolPerson"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Pool ownership required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invite rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent-pools/{connection_id}/members/{username}": {
+      "delete": {
+        "tags": ["agent pools"],
+        "operationId": "remove_member",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "description": "Connected account identifier",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "username",
+            "in": "path",
+            "description": "Hub William username",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Member removed"
+          },
+          "403": {
+            "description": "Pool ownership required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Membership not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/agent-pools/{connection_id}/requests": {
       "post": {
         "tags": ["agent pools"],
@@ -339,6 +451,46 @@
           },
           "422": {
             "description": "Request rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent-pools/{connection_id}/retry": {
+      "post": {
+        "tags": ["agent pools"],
+        "operationId": "retry_pool",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "description": "Connected account identifier",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pool armed for the next real gateway request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentPoolAvailability"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Pool ownership required",
             "content": {
               "application/json": {
                 "schema": {
@@ -718,6 +870,7 @@
         "required": [
           "account_label",
           "agent",
+          "availability",
           "capacity",
           "created_at",
           "id",
@@ -733,6 +886,9 @@
           },
           "agent": {
             "type": "string"
+          },
+          "availability": {
+            "$ref": "#/components/schemas/AgentPoolAvailability"
           },
           "capacity": {
             "type": "integer",
@@ -771,6 +927,23 @@
             }
           }
         }
+      },
+      "AgentPoolAvailability": {
+        "type": "object",
+        "required": ["status"],
+        "properties": {
+          "retry_at": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AgentPoolAvailabilityStatus"
+          }
+        }
+      },
+      "AgentPoolAvailabilityStatus": {
+        "type": "string",
+        "enum": ["active", "rate_limited", "half_open"]
       },
       "AgentPoolJoinRequest": {
         "type": "object",
@@ -942,6 +1115,15 @@
             "type": "string"
           },
           "status": {
+            "type": "string"
+          }
+        }
+      },
+      "InviteAgentPoolMember": {
+        "type": "object",
+        "required": ["username"],
+        "properties": {
+          "username": {
             "type": "string"
           }
         }
