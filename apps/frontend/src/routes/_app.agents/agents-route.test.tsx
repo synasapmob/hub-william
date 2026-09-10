@@ -196,6 +196,20 @@ describe("AgentsRoute", () => {
     expect(screen.getByText("68% used")).toBeVisible();
   });
 
+  it("says so when a provider reports no usage instead of opening blank", async () => {
+    const user = userEvent.setup();
+    renderRoute(undefined, [{ ...poolFixture(), usage: [] }]);
+
+    await user.click(
+      await screen.findByRole("button", { name: /view usages/i }),
+    );
+
+    expect(
+      screen.getByText("ChatGPT has not reported usage for this account yet."),
+    ).toBeVisible();
+    expect(screen.queryByText("5-hour limit")).not.toBeInTheDocument();
+  });
+
   it("gates a join request with the login and register dialog", async () => {
     const user = userEvent.setup();
     renderRoute();
