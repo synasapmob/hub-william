@@ -24,10 +24,17 @@ identity as a browser account or duplicating order and membership rules.
 - The API owns the durable `telegram_contacts` record. A private-chat `/start`
   upserts contact metadata, but neither creates nor links a Hub William user.
 - Commands may use a Telegram webhook reply for immediate messages. The adapter
-  may persist a Telegram contact's presentation preference and render a clearly
-  temporary catalogue, but live product inventory, orders, SePay confirmation,
-  entitlements, and pool membership decisions remain API-owned work for a later
-  commerce slice.
+  persists a Telegram contact's presentation preference through the API and
+  renders the catalogue, but owns none of it: products, stock, orders, SePay
+  confirmation, entitlements, and pool membership are all API-owned.
+- The catalogue is API-owned data, not adapter code. The owner edits it from
+  Telegram through `/catalog`, which is the ordinary shop for everyone else.
+  Ownership is a configured allowlist of Telegram usernames and numeric ids,
+  re-checked on every button and on every message that answers a prompt, because
+  a username can be released and re-registered by somebody else.
+- New stock is announced by one post to a configured channel rather than a
+  message to each contact. That keeps the bot clear of Telegram's bulk-message
+  limits, needs no opt-out, and cannot be blocked away by individual buyers.
 - Orders and payments are API-owned. The adapter creates an order through the
   private API when a buyer confirms a quantity, and every payment screen reads
   that order back by reference. The only state the adapter keeps in memory is
@@ -53,9 +60,16 @@ identity as a browser account or duplicating order and membership rules.
 - A browser-to-Telegram linking flow and payment fulfilment are intentionally
   blocked until their user-visible policies are decided, rather than inferring
   authorization from a Telegram username.
-- The temporary catalogue must not be treated as a payment source of truth.
-  When commerce is enabled, its product and stock values move behind the API
-  without changing Telegram's webhook trust boundary.
+- The catalogue moved out of adapter code and into `telegram_products`, seeded
+  from what was hardcoded so the shop reads the same across the move. Adding
+  stock or a product is now a database write, not a deploy, and the adapter
+  reads the catalogue on every screen rather than caching it.
+- Owner access rests on a Telegram identity rather than a Hub William account,
+  because the stock room is reached from Telegram and there is no owner role on
+  `users`. A username allowlist is convenient but reassignable; the numeric-id
+  allowlist is the one that cannot be taken over.
+- Stock is still not decremented when an order is paid, so the count a buyer
+  sees is what the owner set rather than what is unsold.
 - An order survives a redeploy and can be settled by a transfer that arrives
   long after its displayed expiry, because expiry governs the panel rather than
   the match. Cancelling is what actually stops an order from being matched.

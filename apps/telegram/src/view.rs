@@ -1,5 +1,5 @@
 use crate::{
-    catalog::{CatalogItem, PROVIDERS, Provider, format_amount, items_for},
+    catalog::{Catalogue, Product, Provider, format_amount},
     checkout::{Order, OrderStatus, format_expiry, memo, qr_image_url, usdt_amount},
     config::AppConfig,
     language::{Language, Localized},
@@ -15,21 +15,28 @@ pub fn language_picker(chat_id: i64) -> SendMessage {
     SendMessage::new(chat_id, LANGUAGE_PROMPT).with_keyboard(language_keyboard())
 }
 
-pub fn menu(chat_id: i64, language: Language) -> SendMessage {
-    SendMessage::new(chat_id, menu_text(language)).with_keyboard(menu_keyboard())
+pub fn menu(chat_id: i64, language: Language, catalogue: &Catalogue) -> SendMessage {
+    SendMessage::new(chat_id, menu_text(language, catalogue))
+        .with_keyboard(menu_keyboard(catalogue))
 }
 
 /// Every shop screen is text, so a button rewrites the message it belongs to
 /// rather than replacing it — nothing moves to the end of the chat.
-pub fn edit_menu(chat_id: i64, message_id: i64, language: Language) -> EditMessageText {
-    EditMessageText::new(chat_id, message_id, menu_text(language)).with_keyboard(menu_keyboard())
+pub fn edit_menu(
+    chat_id: i64,
+    message_id: i64,
+    language: Language,
+    catalogue: &Catalogue,
+) -> EditMessageText {
+    EditMessageText::new(chat_id, message_id, menu_text(language, catalogue))
+        .with_keyboard(menu_keyboard(catalogue))
 }
 
 pub fn edit_provider(
     chat_id: i64,
     message_id: i64,
     language: Language,
-    provider: Provider,
+    provider: &Provider,
 ) -> EditMessageText {
     EditMessageText::new(chat_id, message_id, provider_text(language, provider))
         .with_keyboard(provider_keyboard(language, provider))
@@ -39,15 +46,20 @@ pub fn edit_quantity_prompt(
     chat_id: i64,
     message_id: i64,
     language: Language,
-    item: CatalogItem,
+    product: &Product,
 ) -> EditMessageText {
-    EditMessageText::new(chat_id, message_id, quantity_prompt_text(language, item))
-        .with_keyboard(back_to_provider_keyboard(language, item.provider))
+    EditMessageText::new(chat_id, message_id, quantity_prompt_text(language, product))
+        .with_keyboard(back_to_provider_keyboard(language, &product.provider_slug))
 }
 
-pub fn quantity_error(chat_id: i64, language: Language, item: CatalogItem) -> SendMessage {
-    let available = item.available;
-    if !item.is_available() {
+pub fn quantity_prompt(chat_id: i64, language: Language, product: &Product) -> SendMessage {
+    SendMessage::new(chat_id, quantity_prompt_text(language, product))
+        .with_keyboard(back_to_provider_keyboard(language, &product.provider_slug))
+}
+
+pub fn quantity_error(chat_id: i64, language: Language, product: &Product) -> SendMessage {
+    let available = product.available;
+    if !product.is_available() {
         return SendMessage::new(
             chat_id,
             language.pick(Localized {
@@ -371,7 +383,14 @@ pub fn status(chat_id: i64, language: Language) -> SendMessage {
     )
 }
 
-fn menu_text(language: Language) -> &'static str {
+fn menu_text(language: Language, catalogue: &Catalogue) -> &'static str {
+    if catalogue.providers.is_empty() {
+        return language.pick(Localized {
+            english: "Hub William shop\n\nNothing is listed right now. Try again shortly.",
+            vietnamese: "Hub William shop\n\nHiện chưa có gói nào. Bạn quay lại sau nhé.",
+        });
+    }
+
     language.pick(Localized {
         english: "Hub William shop\n\nPick a provider.",
         vietnamese: "Hub William shop\n\nChọn nhà cung cấp.",
@@ -380,14 +399,14 @@ fn menu_text(language: Language) -> &'static str {
 
 /// The warranty legend sits on the package list rather than the provider list,
 /// because that is the only screen where the codes appear.
-fn provider_text(language: Language, provider: Provider) -> String {
-    let heading = provider.name;
+fn provider_text(language: Language, provider: &Provider) -> String {
+    let heading = &provider.name;
     let guidance = language.pick(Localized {
         english: "Pick a package to see its details.\nWF = full warranty · W7D = 7-day warranty · NW = no warranty",
         vietnamese: "Chọn một gói để xem chi tiết.\nWF = bảo hành đầy đủ · W7D = bảo hành 7 ngày · NW = không bảo hành",
     });
 
-    if items_for(provider).next().is_none() {
+    if provider.products.is_empty() {
         let empty = language.pick(Localized {
             english: "No package is listed for this provider yet.",
             vietnamese: "Nhà cung cấp này chưa có gói nào.",
@@ -398,31 +417,20 @@ fn provider_text(language: Language, provider: Provider) -> String {
     format!("{heading}\n\n{guidance}")
 }
 
-fn quantity_prompt_text(language: Language, item: CatalogItem) -> String {
-    let available = item.available;
-    let price = format_amount(item.base_price());
-    let title = item.headline();
-    let tiers = item
-        .tiers
-        .iter()
-        .map(|tier| {
-            format!(
-                "• {}+: {}₫",
-                tier.minimum_quantity,
-                format_amount(tier.price)
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+fn quantity_prompt_text(language: Language, product: &Product) -> String {
+    let available = product.available;
+    let price = format_amount(product.price_vnd);
+    let title = product.headline();
+    let tiers = format!("• 1+: {price}₫");
 
     match language {
         Language::English => format!(
             "{title}\n\n🔢 Enter the quantity you want\n\nMaximum: {available}\nSend a number, for example: 1\n\n💵 Current price: {price}₫\n\n💰 Price list:\n{tiers}\n\n{note}",
-            note = item.warranty_note.english,
+            note = product.warranty_note(Language::English),
         ),
         Language::Vietnamese => format!(
             "{title}\n\n🔢 Nhập số lượng muốn mua\n\nTối đa: {available}\nGửi một số, ví dụ: 1\n\n💵 Giá hiện tại: {price}₫\n\n💰 Bảng giá:\n{tiers}\n\n{note}",
-            note = item.warranty_note.vietnamese,
+            note = product.warranty_note(Language::Vietnamese),
         ),
     }
 }
@@ -459,40 +467,43 @@ fn language_keyboard() -> InlineKeyboardMarkup {
 
 /// The providers are the whole menu: language stays on /lang so the shop list
 /// carries nothing but the shop.
-fn menu_keyboard() -> InlineKeyboardMarkup {
+fn menu_keyboard(catalogue: &Catalogue) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup {
-        inline_keyboard: PROVIDERS
-            .into_iter()
+        inline_keyboard: catalogue
+            .providers
+            .iter()
             .map(|provider| {
                 vec![InlineKeyboardButton::callback(
-                    provider.name,
-                    format!("provider:{}", provider.id),
+                    provider.name.clone(),
+                    format!("provider:{}", provider.slug),
                 )]
             })
             .collect(),
     }
 }
 
-fn provider_keyboard(language: Language, provider: Provider) -> InlineKeyboardMarkup {
+fn provider_keyboard(language: Language, provider: &Provider) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup {
-        inline_keyboard: items_for(provider)
-            .map(|item| vec![catalogue_button(language, item)])
+        inline_keyboard: provider
+            .products
+            .iter()
+            .map(|product| vec![catalogue_button(language, product)])
             .chain(std::iter::once(vec![back_to_menu_button(language)]))
             .collect(),
     }
 }
 
-fn catalogue_button(language: Language, item: CatalogItem) -> InlineKeyboardButton {
+fn catalogue_button(language: Language, product: &Product) -> InlineKeyboardButton {
     let text = format!(
         "{} ({}) --- {}đ ({})",
-        item.headline(),
-        item.warranty.code(),
-        format_amount(item.base_price()),
-        stock_label(language, item.available),
+        product.headline(),
+        product.warranty,
+        format_amount(product.price_vnd),
+        stock_label(language, product.available),
     );
 
-    if item.is_available() {
-        InlineKeyboardButton::success_callback(text, format!("catalog:{}", item.id))
+    if product.is_available() {
+        InlineKeyboardButton::success_callback(text, format!("catalog:{}", product.slug))
     } else {
         InlineKeyboardButton::disabled_danger(text)
     }
@@ -514,14 +525,14 @@ fn back_keyboard(language: Language) -> InlineKeyboardMarkup {
     }
 }
 
-fn back_to_provider_keyboard(language: Language, provider: Provider) -> InlineKeyboardMarkup {
+fn back_to_provider_keyboard(language: Language, provider_slug: &str) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup {
         inline_keyboard: vec![vec![InlineKeyboardButton::callback(
-            match language {
-                Language::English => format!("‹ Back to {}", provider.name),
-                Language::Vietnamese => format!("‹ Quay lại {}", provider.name),
-            },
-            format!("provider:{}", provider.id),
+            language.pick(Localized {
+                english: "‹ Back",
+                vietnamese: "‹ Quay lại",
+            }),
+            format!("provider:{provider_slug}"),
         )]],
     }
 }
@@ -547,11 +558,230 @@ fn watch_keyboard(language: Language, reference: &str) -> InlineKeyboardMarkup {
     }
 }
 
-fn stock_label(language: Language, available: u32) -> String {
+fn stock_label(language: Language, available: i64) -> String {
     match (language, available) {
         (Language::English, 0) => "sold out".to_owned(),
         (Language::Vietnamese, 0) => "hết hàng".to_owned(),
         (Language::English, amount) => format!("{amount} left"),
         (Language::Vietnamese, amount) => format!("còn {amount}"),
+    }
+}
+
+/// The owner side of `/catalog`. It lists everything, including hidden
+/// products, so a mistake is visible and reversible.
+pub fn admin_catalogue(chat_id: i64, catalogue: &Catalogue) -> SendMessage {
+    SendMessage::new(chat_id, admin_catalogue_text(catalogue))
+        .with_keyboard(admin_catalogue_keyboard(catalogue))
+}
+
+pub fn edit_admin_catalogue(
+    chat_id: i64,
+    message_id: i64,
+    catalogue: &Catalogue,
+) -> EditMessageText {
+    EditMessageText::new(chat_id, message_id, admin_catalogue_text(catalogue))
+        .with_keyboard(admin_catalogue_keyboard(catalogue))
+}
+
+pub fn edit_admin_product(chat_id: i64, message_id: i64, product: &Product) -> EditMessageText {
+    EditMessageText::new(chat_id, message_id, admin_product_text(product))
+        .with_keyboard(admin_product_keyboard(product))
+}
+
+pub fn admin_product(chat_id: i64, product: &Product) -> SendMessage {
+    SendMessage::new(chat_id, admin_product_text(product))
+        .with_keyboard(admin_product_keyboard(product))
+}
+
+pub fn admin_restock_prompt(chat_id: i64, message_id: i64, product: &Product) -> EditMessageText {
+    EditMessageText::new(
+        chat_id,
+        message_id,
+        format!(
+            "➕ Thêm hàng — {title}\n\n📦 Tồn kho hiện tại: {available}\n\nGửi số lượng muốn thêm, ví dụ: 7",
+            available = product.available,
+            title = product.title(),
+        ),
+    )
+    .with_keyboard(admin_back_keyboard(&product.slug))
+}
+
+pub fn admin_price_prompt(chat_id: i64, message_id: i64, product: &Product) -> EditMessageText {
+    EditMessageText::new(
+        chat_id,
+        message_id,
+        format!(
+            "💰 Đổi giá — {title}\n\n💵 Giá hiện tại: {price}₫\n\nGửi giá mới bằng đồng, ví dụ: 135000",
+            price = format_amount(product.price_vnd),
+            title = product.title(),
+        ),
+    )
+    .with_keyboard(admin_back_keyboard(&product.slug))
+}
+
+/// A product needs more fields than one command line carries comfortably, so
+/// the owner fills in a template and sends it back.
+pub fn admin_new_product_prompt(chat_id: i64, message_id: i64) -> EditMessageText {
+    EditMessageText::new(
+        chat_id,
+        message_id,
+        "🆕 Gói mới\n\nGửi lại khối dưới đây, điền giá trị của bạn:\n\nnhà cung cấp: Capcut\ntên: Pro 30D\nbiến thể: Personal\nchi tiết: 1M\nbảo hành: W7D\ngiá: 50000\ntồn: 7\n\n• bảo hành: WF, W7D hoặc NW\n• biến thể và chi tiết bỏ trống được\n• nhà cung cấp chưa có sẽ được tạo mới",
+    )
+    .with_keyboard(InlineKeyboardMarkup {
+        inline_keyboard: vec![vec![InlineKeyboardButton::callback(
+            "‹ Quay lại",
+            "admin",
+        )]],
+    })
+}
+
+pub fn admin_result(chat_id: i64, message: impl Into<String>) -> SendMessage {
+    SendMessage::new(chat_id, message).with_keyboard(InlineKeyboardMarkup {
+        inline_keyboard: vec![vec![InlineKeyboardButton::callback(
+            "‹ Quản lý kho",
+            "admin",
+        )]],
+    })
+}
+
+/// The channel post announcing new stock, with a deep link that opens the bot
+/// straight on that product.
+pub fn restock_announcement(
+    chat_id: String,
+    added: i64,
+    product: &Product,
+    bot_username: Option<&str>,
+) -> SendMessage {
+    let message = SendMessage::to_chat(
+        chat_id,
+        format!(
+            "{headline} ({warranty})\n➕ Thêm: {added}\n📦 Tồn kho hiện tại: {available}\n💰 Giá: {price}đ",
+            available = product.available,
+            headline = product.headline(),
+            price = format_amount(product.price_vnd),
+            warranty = product.warranty,
+        ),
+    );
+
+    // Without a username there is no link to send anyone to, so the post goes
+    // out as an announcement on its own rather than with a dead button.
+    match bot_username {
+        Some(username) => message.with_keyboard(InlineKeyboardMarkup {
+            inline_keyboard: vec![vec![InlineKeyboardButton::url(
+                "🛒 Mua ngay",
+                format!("https://t.me/{username}?start={}", product.slug),
+            )]],
+        }),
+        None => message,
+    }
+}
+
+fn admin_catalogue_text(catalogue: &Catalogue) -> String {
+    if catalogue.providers.is_empty() {
+        return "🛠 Quản lý kho\n\nChưa có gói nào. Bấm “Gói mới” để thêm.".to_owned();
+    }
+
+    let rows = catalogue
+        .providers
+        .iter()
+        .map(|provider| {
+            let products = provider
+                .products
+                .iter()
+                .map(|product| {
+                    format!(
+                        "  {} {} — {}₫ — còn {}",
+                        if product.listed { "•" } else { "🙈" },
+                        product.headline(),
+                        format_amount(product.price_vnd),
+                        product.available,
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            format!("{}\n{products}", provider.name)
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    format!("🛠 Quản lý kho\n\n{rows}\n\nChọn một gói để sửa.")
+}
+
+fn admin_catalogue_keyboard(catalogue: &Catalogue) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup {
+        inline_keyboard: catalogue
+            .products()
+            .map(|product| {
+                vec![InlineKeyboardButton::callback(
+                    format!("{} — còn {}", product.headline(), product.available),
+                    format!("admin:open:{}", product.slug),
+                )]
+            })
+            .chain(std::iter::once(vec![InlineKeyboardButton::callback(
+                "🆕 Gói mới",
+                "admin:new",
+            )]))
+            .collect(),
+    }
+}
+
+fn admin_product_text(product: &Product) -> String {
+    format!(
+        "🛠 {title}\n\n📦 Tồn kho: {available}\n💰 Giá: {price}₫\n🔖 Bảo hành: {warranty}\n{hot}\n{listed}",
+        available = product.available,
+        hot = if product.hot {
+            "🔥 Đang gắn hot"
+        } else {
+            "▫️ Không gắn hot"
+        },
+        listed = if product.listed {
+            "👁 Đang hiện trong shop"
+        } else {
+            "🙈 Đang ẩn khỏi shop"
+        },
+        price = format_amount(product.price_vnd),
+        title = product.title(),
+        warranty = product.warranty,
+    )
+}
+
+fn admin_product_keyboard(product: &Product) -> InlineKeyboardMarkup {
+    let slug = &product.slug;
+
+    InlineKeyboardMarkup {
+        inline_keyboard: vec![
+            vec![
+                InlineKeyboardButton::callback("➕ Thêm hàng", format!("admin:restock:{slug}")),
+                InlineKeyboardButton::callback("💰 Đổi giá", format!("admin:price:{slug}")),
+            ],
+            vec![
+                InlineKeyboardButton::callback(
+                    if product.hot {
+                        "▫️ Bỏ hot"
+                    } else {
+                        "🔥 Gắn hot"
+                    },
+                    format!("admin:hot:{slug}"),
+                ),
+                InlineKeyboardButton::callback(
+                    if product.listed {
+                        "🙈 Ẩn khỏi shop"
+                    } else {
+                        "👁 Hiện trong shop"
+                    },
+                    format!("admin:listed:{slug}"),
+                ),
+            ],
+            vec![InlineKeyboardButton::callback("‹ Quản lý kho", "admin")],
+        ],
+    }
+}
+
+fn admin_back_keyboard(slug: &str) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup {
+        inline_keyboard: vec![vec![InlineKeyboardButton::callback(
+            "‹ Quay lại",
+            format!("admin:open:{slug}"),
+        )]],
     }
 }

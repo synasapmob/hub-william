@@ -80,7 +80,7 @@ impl From<EditMessageText> for Reply {
 
 #[derive(Serialize)]
 pub struct SendMessage {
-    chat_id: i64,
+    chat_id: serde_json::Value,
     method: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     reply_markup: Option<InlineKeyboardMarkup>,
@@ -90,7 +90,18 @@ pub struct SendMessage {
 impl SendMessage {
     pub fn new(chat_id: i64, text: impl Into<String>) -> Self {
         Self {
-            chat_id,
+            chat_id: chat_id.into(),
+            method: "sendMessage",
+            reply_markup: None,
+            text: text.into(),
+        }
+    }
+
+    /// A channel is addressed by `@name` as often as by id, so the announcement
+    /// path takes whichever the operator configured.
+    pub fn to_chat(chat_id: String, text: impl Into<String>) -> Self {
+        Self {
+            chat_id: chat_id.into(),
             method: "sendMessage",
             reply_markup: None,
             text: text.into(),
@@ -167,6 +178,8 @@ pub struct InlineKeyboardButton {
     #[serde(skip_serializing_if = "Option::is_none")]
     callback_data: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     disabled: Option<DisabledButton>,
     #[serde(skip_serializing_if = "Option::is_none")]
     style: Option<&'static str>,
@@ -180,6 +193,17 @@ impl InlineKeyboardButton {
             disabled: None,
             style: None,
             text: text.into(),
+            url: None,
+        }
+    }
+
+    pub fn url(text: impl Into<String>, url: impl Into<String>) -> Self {
+        Self {
+            callback_data: None,
+            disabled: None,
+            style: None,
+            text: text.into(),
+            url: Some(url.into()),
         }
     }
 
@@ -196,6 +220,7 @@ impl InlineKeyboardButton {
             disabled: Some(DisabledButton {}),
             style: Some("danger"),
             text: text.into(),
+            url: None,
         }
     }
 }

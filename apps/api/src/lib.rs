@@ -7,6 +7,7 @@ mod gateway;
 mod health;
 mod openapi;
 mod telegram;
+mod telegram_catalogue;
 
 use axum::{
     Router,
@@ -53,6 +54,13 @@ pub use telegram::{CreateTelegramOrder, SepayResult, SepayTransaction, TelegramO
 use telegram::{
     cancel_order, create_order, get_contact, get_order, list_orders, observe_contact,
     record_sepay_payment, set_contact_language,
+};
+pub use telegram_catalogue::{
+    AdjustTelegramProduct, CreateTelegramProduct, RestockTelegramProduct, TelegramCatalogue,
+    TelegramCatalogueProvider, TelegramProduct, TelegramRestock,
+};
+use telegram_catalogue::{
+    adjust_product, catalogue, create_product, full_catalogue, get_product, restock_product,
 };
 
 #[derive(Clone)]
@@ -115,6 +123,17 @@ pub fn app(state: AppState) -> Router {
         .route(
             "/internal/telegram/payments/sepay",
             post(record_sepay_payment),
+        )
+        .route("/internal/telegram/catalogue", get(catalogue))
+        .route("/internal/telegram/catalogue/full", get(full_catalogue))
+        .route("/internal/telegram/products", post(create_product))
+        .route(
+            "/internal/telegram/products/{slug}",
+            get(get_product).patch(adjust_product),
+        )
+        .route(
+            "/internal/telegram/products/{slug}/restock",
+            post(restock_product),
         )
         .route("/agent-pools", get(list_agent_pools))
         .route(

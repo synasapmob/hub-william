@@ -2,11 +2,12 @@
 
 `apps/telegram` is Hub William's public Telegram webhook service. It accepts
 only Telegram's authenticated webhook traffic and calls the private `apps/api`
-service to persist contact metadata. Product inventory, orders, payments,
-entitlements, and pool membership remain business-API responsibilities.
+service for everything it stores. The catalogue, orders, payments,
+entitlements, and pool membership are all business-API responsibilities; this
+service renders them and nothing more.
 
-The adapter handles private-chat `/start`, `/menu`, `/orders`, `/lang`,
-`/help`, and `/status`. `/menu` first asks for English or Tiếng Việt, persists
+The adapter handles private-chat `/start`, `/menu`, `/catalog`, `/orders`,
+`/lang`, `/help`, and `/status`. `/menu` first asks for English or Tiếng Việt, persists
 that choice through the private API, and then lists providers; tapping one
 opens that provider's packages. `/start` creates or updates a Telegram contact
 record; it does **not** create, link, or authenticate a Hub William browser
@@ -32,10 +33,37 @@ what settles the order.
 
 USDT has no automatic settlement and says so on its own panel.
 
-A package the shop is pushing carries `hot: true` in `src/catalog.rs` and shows
-a 🔥 in front of its name, on its catalogue row and on its quantity prompt.
-That flame is the only decoration a row carries; everything else stays bare so
-it keeps meaning something. An order records the plain title, never the flame.
+The catalogue lives in Postgres behind `apps/api`, not in this crate: the
+adapter reads it on every screen, so an edit shows up without a deploy. A
+package the shop is pushing is flagged `hot` and shows a 🔥 in front of its
+name, on its catalogue row and on its quantity prompt. That flame is the only
+decoration a row carries; everything else stays bare so it keeps meaning
+something. An order records the plain title, never the flame.
+
+## The stock room
+
+`/catalog` has two faces. To an owner it opens the stock room — every product
+including hidden ones, with buttons to add stock, change a price, flag a
+package hot, or hide it from the shop, plus a template for creating a new one.
+To everybody else it is the ordinary shop, the same screen `/menu` gives.
+
+Ownership is checked against `TELEGRAM_OWNER_USERNAMES` and
+`TELEGRAM_OWNER_IDS`, and it is re-checked on every button and on the message
+that answers a prompt, not only when `/catalog` was typed.
+
+Adding stock posts to `TELEGRAM_ANNOUNCE_CHAT_ID`:
+
+```text
+🔥 Claude MAX X20 (Personal) · 1M (WF)
+➕ Thêm: 7
+📦 Tồn kho hiện tại: 60
+💰 Giá: 135,000đ
+[🛒 Mua ngay]
+```
+
+The button is a `t.me` deep link, so tapping it opens the bot on that product's
+quantity prompt. One channel post rather than a message per contact keeps the
+bot clear of Telegram's bulk limits and of anyone blocking it.
 
 A tapped button is left unacknowledged until its work finishes, so Telegram
 keeps its own loading state on the button rather than looking frozen; a plain

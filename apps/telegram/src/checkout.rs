@@ -7,8 +7,6 @@ use chrono::{DateTime, FixedOffset, TimeDelta, Utc};
 use reqwest::Url;
 use serde::Deserialize;
 
-use crate::catalog::CatalogItem;
-
 pub const ORDER_LIFETIME_MINUTES: i64 = 15;
 const SELECTION_LIFETIME_MINUTES: i64 = 30;
 const VIETNAM_UTC_OFFSET_SECONDS: i32 = 7 * 3_600;
@@ -53,41 +51,58 @@ impl Order {
     }
 }
 
-/// The one piece of checkout state that is genuinely ephemeral: which package a
-/// buyer tapped, so the next bare number in the chat has something to price.
+/// What the next plain message from a chat means. It is the only state the
+/// adapter keeps, and it expires on its own, because everything durable lives
+/// in `apps/api`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Pending {
+    /// The owner is describing a product to create.
+    NewProduct,
+    /// The owner is setting this product's price.
+    Price(String),
+    /// A buyer is choosing how many of this product to buy.
+    Quantity(String),
+    /// The owner is adding stock to this product.
+    Restock(String),
+}
+
 #[derive(Clone, Default)]
 pub struct Sessions {
-    entries: Arc<Mutex<HashMap<i64, Selection>>>,
+    entries: Arc<Mutex<HashMap<i64, Entry>>>,
 }
 
 #[derive(Clone)]
-struct Selection {
+struct Entry {
     expires_at: DateTime<Utc>,
-    item: CatalogItem,
+    pending: Pending,
 }
 
 impl Sessions {
-    pub fn choose(&self, telegram_user_id: i64, item: CatalogItem) {
+    pub fn expect(&self, telegram_user_id: i64, pending: Pending) {
         self.write(|entries| {
             entries.insert(
                 telegram_user_id,
-                Selection {
+                Entry {
                     expires_at: Utc::now() + TimeDelta::minutes(SELECTION_LIFETIME_MINUTES),
-                    item,
+                    pending,
                 },
             );
         });
     }
 
-    pub fn chosen_item(&self, telegram_user_id: i64) -> Option<CatalogItem> {
-        self.write(|entries| entries.get(&telegram_user_id).map(|entry| entry.item))
+    pub fn pending(&self, telegram_user_id: i64) -> Option<Pending> {
+        self.write(|entries| {
+            entries
+                .get(&telegram_user_id)
+                .map(|entry| entry.pending.clone())
+        })
     }
 
     pub fn clear(&self, telegram_user_id: i64) {
         self.write(|entries| entries.remove(&telegram_user_id));
     }
 
-    fn write<T>(&self, action: impl FnOnce(&mut HashMap<i64, Selection>) -> T) -> T {
+    fn write<T>(&self, action: impl FnOnce(&mut HashMap<i64, Entry>) -> T) -> T {
         let mut entries = self
             .entries
             .lock()
@@ -131,8 +146,9 @@ mod tests {
     use chrono::{TimeDelta, TimeZone, Utc};
     use reqwest::Url;
 
-    use super::{Order, OrderStatus, Sessions, format_expiry, memo, qr_image_url, usdt_amount};
-    use crate::catalog::find;
+    use super::{
+        Order, OrderStatus, Pending, Sessions, format_expiry, memo, qr_image_url, usdt_amount,
+    };
 
     #[test]
     fn an_expiry_is_rendered_in_vietnam_local_time() {
@@ -184,16 +200,29 @@ mod tests {
     }
 
     #[test]
-    fn a_selection_is_per_buyer_and_clearable() {
+    fn a_pending_action_is_per_person_and_clearable() {
         let sessions = Sessions::default();
-        let item = find("claude-max-x20").expect("seeded package");
 
-        sessions.choose(7, item);
-        assert!(sessions.chosen_item(7).is_some());
-        assert!(sessions.chosen_item(8).is_none());
+        sessions.expect(7, Pending::Quantity("claude-pro".to_owned()));
+        sessions.expect(8, Pending::Restock("claude-pro".to_owned()));
+
+        assert_eq!(
+            sessions.pending(7),
+            Some(Pending::Quantity("claude-pro".to_owned()))
+        );
+        assert_eq!(
+            sessions.pending(8),
+            Some(Pending::Restock("claude-pro".to_owned()))
+        );
+        assert!(sessions.pending(9).is_none());
+
+        // The newest expectation wins, so a tap always redirects the next message.
+        sessions.expect(7, Pending::NewProduct);
+        assert_eq!(sessions.pending(7), Some(Pending::NewProduct));
 
         sessions.clear(7);
-        assert!(sessions.chosen_item(7).is_none());
+        assert!(sessions.pending(7).is_none());
+        assert!(sessions.pending(8).is_some());
     }
 
     fn order(status: &str, expires_in_minutes: i64) -> Order {

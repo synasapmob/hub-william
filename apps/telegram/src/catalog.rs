@@ -1,219 +1,87 @@
-use crate::language::Localized;
+use serde::Deserialize;
 
-/// The first level of the shop. Buyers pick a provider, then a package, so a
-/// long line-up never arrives as one wall of buttons.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+use crate::language::Language;
+
+/// The shop as `apps/api` owns it. Nothing here is compiled in any more: the
+/// adapter reads the catalogue on every screen, so an owner's edit shows up
+/// without a deploy.
+#[derive(Clone, Debug, Deserialize)]
+pub struct Catalogue {
+    pub providers: Vec<Provider>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
 pub struct Provider {
-    pub id: &'static str,
-    pub name: &'static str,
+    pub name: String,
+    pub products: Vec<Product>,
+    pub slug: String,
 }
 
-/// One purchasable package. `variant` carries the activation label that is only
-/// set on the packages sold as an own-account activation, and `warranty` is a
-/// single code — a package sold with two warranties is two packages.
-#[derive(Clone, Copy)]
-pub struct CatalogItem {
-    pub available: u32,
-    pub detail: Option<&'static str>,
-    /// Flags a package as one the shop is pushing. It is the only decoration
-    /// on a catalogue row, so an ordinary package stays unmarked and the flame
-    /// keeps meaning something.
+#[derive(Clone, Debug, Deserialize)]
+pub struct Product {
+    pub available: i64,
+    pub detail: Option<String>,
     pub hot: bool,
-    pub id: &'static str,
-    pub plan: &'static str,
-    pub provider: Provider,
-    pub tiers: &'static [PriceTier],
-    pub variant: Option<&'static str>,
-    pub warranty: Warranty,
-    pub warranty_note: Localized,
+    pub listed: bool,
+    pub plan: String,
+    pub price_vnd: i64,
+    pub provider_name: String,
+    pub provider_slug: String,
+    pub slug: String,
+    pub variant: Option<String>,
+    pub warranty: String,
+    pub warranty_note_en: String,
+    pub warranty_note_vi: String,
 }
 
-/// Warranty codes are customer-facing and stable: they appear on every
-/// catalogue row and must keep meaning the same across the shop.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Warranty {
-    Full,
-    None,
-    SevenDays,
+impl Catalogue {
+    pub fn provider(&self, slug: &str) -> Option<&Provider> {
+        self.providers.iter().find(|provider| provider.slug == slug)
+    }
+
+    pub fn products(&self) -> impl Iterator<Item = &Product> {
+        self.providers
+            .iter()
+            .flat_map(|provider| &provider.products)
+    }
 }
 
-#[derive(Clone, Copy)]
-pub struct PriceTier {
-    pub minimum_quantity: u32,
-    /// Đồng, kept as `i64` so it matches the API's order columns end to end.
-    pub price: i64,
-}
-
-pub const CHATGPT: Provider = Provider {
-    id: "chatgpt",
-    name: "ChatGPT",
-};
-
-pub const CLAUDE: Provider = Provider {
-    id: "claude",
-    name: "Claude",
-};
-
-pub const GROK: Provider = Provider {
-    id: "grok",
-    name: "Grok",
-};
-
-pub const PROVIDERS: [Provider; 3] = [CHATGPT, CLAUDE, GROK];
-
-impl CatalogItem {
-    pub fn title(self) -> String {
-        let mut title = format!("{} {}", self.provider.name, self.plan);
-        if let Some(variant) = self.variant {
+impl Product {
+    /// The plain name, which is what an order records.
+    pub fn title(&self) -> String {
+        let mut title = format!("{} {}", self.provider_name, self.plan);
+        if let Some(variant) = self.variant.as_deref() {
             title.push_str(" (");
             title.push_str(variant);
             title.push(')');
         }
-        if let Some(detail) = self.detail {
+        if let Some(detail) = self.detail.as_deref() {
             title.push_str(" · ");
             title.push_str(detail);
         }
         title
     }
 
-    /// The title as a shop row shows it, which is the only place the flame
-    /// appears; `title` stays clean because it is what an order records.
-    pub fn headline(self) -> String {
+    /// The title as a shop row shows it. The flame is the only decoration a row
+    /// carries, so an ordinary package stays bare and it keeps meaning
+    /// something.
+    pub fn headline(&self) -> String {
         match self.hot {
             true => format!("🔥 {}", self.title()),
             false => self.title(),
         }
     }
 
-    pub fn base_price(self) -> i64 {
-        self.unit_price(1)
-    }
-
-    pub fn unit_price(self, quantity: u32) -> i64 {
-        self.tiers
-            .iter()
-            .filter(|tier| tier.minimum_quantity <= quantity)
-            .max_by_key(|tier| tier.minimum_quantity)
-            .or_else(|| self.tiers.first())
-            .map(|tier| tier.price)
-            .unwrap_or_default()
-    }
-
-    pub fn is_available(self) -> bool {
-        self.available > 0
-    }
-}
-
-impl Warranty {
-    pub fn code(self) -> &'static str {
-        match self {
-            Self::Full => "WF",
-            Self::None => "NW",
-            Self::SevenDays => "W7D",
+    pub fn warranty_note(&self, language: Language) -> &str {
+        match language {
+            Language::English => &self.warranty_note_en,
+            Language::Vietnamese => &self.warranty_note_vi,
         }
     }
-}
 
-const LOGIN_CHECK_WARRANTY: Localized = Localized {
-    english: "Warranty is a login check within 1 hour (after that hour there is no warranty under any circumstance).",
-    vietnamese: "Bảo hành login check 1 tiếng (sau 1 tiếng kể từ khi mua không bảo hành mọi trường hợp)",
-};
-
-const OWN_ACCOUNT_WARRANTY: Localized = Localized {
-    english: "Activated straight on your own account, with a full warranty for the whole term.",
-    vietnamese: "Active trực tiếp trên tài khoản chính chủ của bạn, bảo hành đầy đủ trọn thời hạn.",
-};
-
-pub const ITEMS: [CatalogItem; 5] = [
-    CatalogItem {
-        available: 53,
-        detail: Some("1M"),
-        hot: true,
-        id: "claude-max-x20",
-        plan: "MAX X20",
-        provider: CLAUDE,
-        tiers: &[PriceTier {
-            minimum_quantity: 1,
-            price: 135_000,
-        }],
-        variant: Some("Personal"),
-        warranty: Warranty::Full,
-        warranty_note: OWN_ACCOUNT_WARRANTY,
-    },
-    CatalogItem {
-        available: 27,
-        detail: None,
-        hot: false,
-        id: "claude-max-x5",
-        plan: "MAX X5",
-        provider: CLAUDE,
-        tiers: &[PriceTier {
-            minimum_quantity: 1,
-            price: 79_000,
-        }],
-        variant: None,
-        warranty: Warranty::SevenDays,
-        warranty_note: LOGIN_CHECK_WARRANTY,
-    },
-    CatalogItem {
-        available: 41,
-        detail: None,
-        hot: false,
-        id: "claude-pro",
-        plan: "Pro",
-        provider: CLAUDE,
-        tiers: &[PriceTier {
-            minimum_quantity: 1,
-            price: 49_000,
-        }],
-        variant: None,
-        warranty: Warranty::None,
-        warranty_note: LOGIN_CHECK_WARRANTY,
-    },
-    CatalogItem {
-        available: 12,
-        detail: None,
-        hot: true,
-        id: "chatgpt-plus",
-        plan: "Plus",
-        provider: CHATGPT,
-        tiers: &[PriceTier {
-            minimum_quantity: 1,
-            price: 299_000,
-        }],
-        variant: Some("Personal"),
-        warranty: Warranty::SevenDays,
-        warranty_note: LOGIN_CHECK_WARRANTY,
-    },
-    CatalogItem {
-        available: 0,
-        detail: None,
-        hot: false,
-        id: "grok-supergrok",
-        plan: "SuperGrok",
-        provider: GROK,
-        tiers: &[PriceTier {
-            minimum_quantity: 1,
-            price: 259_000,
-        }],
-        variant: Some("Personal"),
-        warranty: Warranty::None,
-        warranty_note: LOGIN_CHECK_WARRANTY,
-    },
-];
-
-pub fn find(id: &str) -> Option<CatalogItem> {
-    ITEMS.into_iter().find(|item| item.id == id)
-}
-
-pub fn provider(id: &str) -> Option<Provider> {
-    PROVIDERS.into_iter().find(|provider| provider.id == id)
-}
-
-pub fn items_for(provider: Provider) -> impl Iterator<Item = CatalogItem> {
-    ITEMS
-        .into_iter()
-        .filter(move |item| item.provider.id == provider.id)
+    pub fn is_available(&self) -> bool {
+        self.available > 0
+    }
 }
 
 /// Groups an amount in Vietnamese đồng with thousands separators, without a
@@ -234,113 +102,68 @@ pub fn format_amount(amount: i64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        CLAUDE, CatalogItem, GROK, ITEMS, PROVIDERS, PriceTier, Warranty, find, format_amount,
-        items_for, provider,
-    };
-    use crate::language::Localized;
+    use super::{Catalogue, Product, Provider, format_amount};
+    use crate::language::Language;
 
     #[test]
-    fn a_title_only_renders_the_parts_a_package_actually_has() {
+    fn a_title_only_renders_the_parts_a_product_actually_has() {
         assert_eq!(
-            find("claude-max-x20").expect("seeded package").title(),
+            product("claude-max-x20", true).title(),
+            "Claude MAX X20 (Personal) · 1M"
+        );
+
+        let bare = Product {
+            detail: None,
+            plan: "Pro".to_owned(),
+            variant: None,
+            ..product("claude-pro", false)
+        };
+        assert_eq!(bare.title(), "Claude Pro");
+    }
+
+    /// The flame is display only; an order has to record the plain title.
+    #[test]
+    fn only_a_hot_product_is_marked() {
+        assert_eq!(
+            product("claude-max-x20", true).headline(),
+            "🔥 Claude MAX X20 (Personal) · 1M"
+        );
+        assert_eq!(
+            product("claude-max-x20", false).headline(),
             "Claude MAX X20 (Personal) · 1M"
         );
         assert_eq!(
-            find("claude-pro").expect("seeded package").title(),
-            "Claude Pro"
-        );
-    }
-
-    /// The flame is the only decoration a row carries, so an ordinary package
-    /// has to stay bare for it to mean anything.
-    #[test]
-    fn only_a_hot_package_is_marked() {
-        let hot = find("claude-max-x20").expect("seeded package");
-        let ordinary = find("claude-pro").expect("seeded package");
-
-        assert_eq!(hot.headline(), "🔥 Claude MAX X20 (Personal) · 1M");
-        assert_eq!(ordinary.headline(), "Claude Pro");
-        // An order records the plain title, never the shop's decoration.
-        assert_eq!(hot.title(), "Claude MAX X20 (Personal) · 1M");
-    }
-
-    #[test]
-    fn a_package_carries_exactly_one_warranty_code() {
-        assert_eq!(
-            find("claude-max-x20")
-                .expect("seeded package")
-                .warranty
-                .code(),
-            "WF"
-        );
-        assert_eq!(
-            find("claude-max-x5")
-                .expect("seeded package")
-                .warranty
-                .code(),
-            "W7D"
-        );
-        assert_eq!(
-            find("claude-pro").expect("seeded package").warranty.code(),
-            "NW"
+            product("claude-max-x20", true).title(),
+            "Claude MAX X20 (Personal) · 1M"
         );
     }
 
     #[test]
-    fn a_provider_is_resolved_by_id_and_owns_its_packages() {
-        assert_eq!(provider("claude"), Some(CLAUDE));
-        assert_eq!(provider("gemini"), None);
+    fn a_warranty_note_follows_the_reader() {
+        let product = product("claude-pro", false);
 
-        let claude = items_for(CLAUDE).map(|item| item.id).collect::<Vec<_>>();
-        assert_eq!(claude, ["claude-max-x20", "claude-max-x5", "claude-pro"]);
-        assert_eq!(items_for(GROK).count(), 1);
+        assert_eq!(product.warranty_note(Language::English), "note");
+        assert_eq!(product.warranty_note(Language::Vietnamese), "ghi chú");
     }
 
     #[test]
-    fn every_package_belongs_to_a_listed_provider() {
-        for item in ITEMS {
-            assert!(
-                PROVIDERS.iter().any(|known| known.id == item.provider.id),
-                "{} points at an unlisted provider",
-                item.id
-            );
-        }
-    }
-
-    #[test]
-    fn a_unit_price_uses_the_highest_tier_the_quantity_reaches() {
-        let item = CatalogItem {
-            tiers: &[
-                PriceTier {
-                    minimum_quantity: 1,
-                    price: 159_000,
-                },
-                PriceTier {
-                    minimum_quantity: 5,
-                    price: 149_000,
-                },
-            ],
-            ..find("claude-pro").expect("seeded package")
-        };
-
-        assert_eq!(item.unit_price(1), 159_000);
-        assert_eq!(item.unit_price(4), 159_000);
-        assert_eq!(item.unit_price(5), 149_000);
-        assert_eq!(item.unit_price(50), 149_000);
-    }
-
-    #[test]
-    fn a_quantity_below_every_tier_still_prices_from_the_first_tier() {
-        let item = CatalogItem {
-            tiers: &[PriceTier {
-                minimum_quantity: 2,
-                price: 99_000,
+    fn a_provider_is_found_by_slug() {
+        let catalogue = Catalogue {
+            providers: vec![Provider {
+                name: "Claude".to_owned(),
+                products: vec![product("claude-pro", false)],
+                slug: "claude".to_owned(),
             }],
-            ..find("claude-pro").expect("seeded package")
         };
 
-        assert_eq!(item.unit_price(1), 99_000);
+        assert_eq!(
+            catalogue
+                .provider("claude")
+                .map(|found| found.slug.as_str()),
+            Some("claude")
+        );
+        assert!(catalogue.provider("gemini").is_none());
+        assert_eq!(catalogue.products().count(), 1);
     }
 
     #[test]
@@ -352,48 +175,31 @@ mod tests {
     }
 
     #[test]
-    fn a_package_without_stock_is_not_available() {
-        assert!(
-            !find("grok-supergrok")
-                .expect("seeded package")
-                .is_available()
-        );
-        assert!(find("claude-pro").expect("seeded package").is_available());
+    fn a_product_without_stock_is_not_available() {
+        let sold_out = Product {
+            available: 0,
+            ..product("grok-supergrok", false)
+        };
+
+        assert!(!sold_out.is_available());
+        assert!(product("claude-pro", false).is_available());
     }
 
-    #[test]
-    fn every_package_is_priced_and_uniquely_identified() {
-        for item in ITEMS {
-            assert!(!item.tiers.is_empty(), "{} needs a price tier", item.id);
-            assert_eq!(
-                ITEMS.iter().filter(|other| other.id == item.id).count(),
-                1,
-                "{} is duplicated",
-                item.id
-            );
-        }
-    }
-
-    #[test]
-    fn warranty_codes_are_the_customer_facing_abbreviations() {
-        assert_eq!(Warranty::Full.code(), "WF");
-        assert_eq!(Warranty::None.code(), "NW");
-        assert_eq!(Warranty::SevenDays.code(), "W7D");
-    }
-
-    #[test]
-    fn a_warranty_note_is_written_in_both_languages() {
-        for item in ITEMS {
-            let Localized {
-                english,
-                vietnamese,
-            } = item.warranty_note;
-            assert!(!english.is_empty(), "{} needs an English note", item.id);
-            assert!(
-                !vietnamese.is_empty(),
-                "{} needs a Vietnamese note",
-                item.id
-            );
+    fn product(slug: &str, hot: bool) -> Product {
+        Product {
+            available: 53,
+            detail: Some("1M".to_owned()),
+            hot,
+            listed: true,
+            plan: "MAX X20".to_owned(),
+            price_vnd: 135_000,
+            provider_name: "Claude".to_owned(),
+            provider_slug: "claude".to_owned(),
+            slug: slug.to_owned(),
+            variant: Some("Personal".to_owned()),
+            warranty: "WF".to_owned(),
+            warranty_note_en: "note".to_owned(),
+            warranty_note_vi: "ghi chú".to_owned(),
         }
     }
 }

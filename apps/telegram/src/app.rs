@@ -9,8 +9,8 @@ use reqwest::{Client, Method};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
-    catalog::{self, CatalogItem},
-    checkout::{ORDER_LIFETIME_MINUTES, Order, OrderStatus, Sessions},
+    catalog::{Catalogue, Product},
+    checkout::{ORDER_LIFETIME_MINUTES, Order, OrderStatus, Pending, Sessions},
     config::AppConfig,
     language::Language,
     telegram::{self, Reply},
@@ -99,9 +99,12 @@ async fn handle_message(
     let Some(text) = message.text.as_deref() else {
         return Ok(StatusCode::NO_CONTENT.into_response());
     };
-    let reply = match command_reply(state, message.chat.id, from.id, text, language).await? {
+    let username = from.username.as_deref();
+    let reply = match command_reply(state, message.chat.id, from.id, username, text, language)
+        .await?
+    {
         Some(reply) => Some(reply),
-        None => checkout_reply(state, message.chat.id, from.id, text, language).await?,
+        None => pending_reply(state, message.chat.id, from.id, username, text, language).await?,
     };
     let Some(reply) = reply else {
         return Ok(StatusCode::NO_CONTENT.into_response());
@@ -233,6 +236,7 @@ async fn resolve_callback(
         message.chat.id,
         message.message_id,
         callback.from.id,
+        callback.from.username.as_deref(),
         data,
         observed_language,
     )
@@ -345,26 +349,50 @@ async fn set_language(
         .ok_or(StatusCode::SERVICE_UNAVAILABLE)
 }
 
+async fn fetch_catalogue(state: &AppState) -> Result<Catalogue, StatusCode> {
+    call_api(state, Method::GET, "/internal/telegram/catalogue", None)
+        .await?
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)
+}
+
+/// The owner's view includes hidden products, so a mistake can be undone.
+async fn fetch_full_catalogue(state: &AppState) -> Result<Catalogue, StatusCode> {
+    call_api(
+        state,
+        Method::GET,
+        "/internal/telegram/catalogue/full",
+        None,
+    )
+    .await?
+    .ok_or(StatusCode::SERVICE_UNAVAILABLE)
+}
+
+async fn fetch_product(state: &AppState, slug: &str) -> Result<Option<Product>, StatusCode> {
+    call_api(
+        state,
+        Method::GET,
+        &format!("/internal/telegram/products/{slug}"),
+        None,
+    )
+    .await
+}
+
 async fn create_order(
     state: &AppState,
     telegram_user_id: i64,
     chat_id: i64,
-    item: CatalogItem,
-    quantity: u32,
+    product: &Product,
+    quantity: i64,
 ) -> Result<Option<Order>, StatusCode> {
-    let unit_price_vnd = item.unit_price(quantity);
     call_api(
         state,
         Method::POST,
         &format!("/internal/telegram/contacts/{telegram_user_id}/orders"),
         Some(serde_json::json!({
             "chat_id": chat_id,
-            "item_id": item.id,
-            "item_title": item.title(),
             "lifetime_minutes": ORDER_LIFETIME_MINUTES,
+            "product": product.slug,
             "quantity": quantity,
-            "total_vnd": unit_price_vnd * i64::from(quantity),
-            "unit_price_vnd": unit_price_vnd,
         })),
     )
     .await
@@ -396,6 +424,69 @@ async fn stop_order(
         None,
     )
     .await
+}
+
+async fn restock_product(
+    state: &AppState,
+    slug: &str,
+    added: i64,
+) -> Result<Option<Restock>, StatusCode> {
+    call_api(
+        state,
+        Method::POST,
+        &format!("/internal/telegram/products/{slug}/restock"),
+        Some(serde_json::json!({ "added": added })),
+    )
+    .await
+}
+
+async fn adjust_product(
+    state: &AppState,
+    slug: &str,
+    change: serde_json::Value,
+) -> Result<Option<Product>, StatusCode> {
+    call_api(
+        state,
+        Method::PATCH,
+        &format!("/internal/telegram/products/{slug}"),
+        Some(change),
+    )
+    .await
+}
+
+async fn create_product(
+    state: &AppState,
+    draft: serde_json::Value,
+) -> Result<Option<Product>, StatusCode> {
+    call_api(
+        state,
+        Method::POST,
+        "/internal/telegram/products",
+        Some(draft),
+    )
+    .await
+}
+
+/// Best effort: the stock is already added, so a channel that is misconfigured
+/// or unreachable must not turn the restock itself into a failure.
+async fn announce_restock(state: &AppState, added: i64, product: &Product) {
+    let Some(chat_id) = state.config.announce_chat_id.clone() else {
+        return;
+    };
+    let announcement = view::restock_announcement(
+        chat_id,
+        added,
+        product,
+        state.config.bot_username.as_deref(),
+    );
+    let body = match serde_json::to_value(&announcement) {
+        Ok(body) => body,
+        Err(_) => return,
+    };
+
+    if let Err(status) = call_telegram(state, "sendMessage", body).await {
+        eprintln!("Telegram restock announcement failed with status {status}");
+    }
 }
 
 async fn fetch_orders(state: &AppState, telegram_user_id: i64) -> Result<Vec<Order>, StatusCode> {
@@ -517,13 +608,15 @@ async fn callback_reply(
     chat_id: i64,
     message_id: i64,
     telegram_user_id: i64,
+    username: Option<&str>,
     data: &str,
     observed_language: Option<Language>,
 ) -> Result<Outcome, StatusCode> {
     if let Some(language) = data.strip_prefix("language:").and_then(Language::parse) {
         let language = set_language(state, telegram_user_id, language).await?;
+        let catalogue = fetch_catalogue(state).await?;
         return Ok(Outcome::Edit(view::edit_menu(
-            chat_id, message_id, language,
+            chat_id, message_id, language, &catalogue,
         )));
     }
 
@@ -531,26 +624,128 @@ async fn callback_reply(
     // Shop screens are all text, so browsing rewrites one message in place.
     // Only a payment panel, which is a photo, has to replace it.
     if data == "menu" {
+        let catalogue = fetch_catalogue(state).await?;
         return Ok(Outcome::Edit(view::edit_menu(
-            chat_id, message_id, language,
+            chat_id, message_id, language, &catalogue,
         )));
     }
-    if let Some(provider) = data.strip_prefix("provider:").and_then(catalog::provider) {
-        return Ok(Outcome::Edit(view::edit_provider(
-            chat_id, message_id, language, provider,
-        )));
+    if let Some(slug) = data.strip_prefix("provider:") {
+        let catalogue = fetch_catalogue(state).await?;
+        return Ok(match catalogue.provider(slug) {
+            Some(provider) => {
+                Outcome::Edit(view::edit_provider(chat_id, message_id, language, provider))
+            }
+            None => Outcome::Edit(view::edit_menu(chat_id, message_id, language, &catalogue)),
+        });
     }
-    if let Some(item) = data.strip_prefix("catalog:").and_then(catalog::find) {
-        state.sessions.choose(telegram_user_id, item);
+    if let Some(slug) = data.strip_prefix("catalog:") {
+        let Some(product) = fetch_product(state, slug).await? else {
+            let catalogue = fetch_catalogue(state).await?;
+            return Ok(Outcome::Edit(view::edit_menu(
+                chat_id, message_id, language, &catalogue,
+            )));
+        };
+        state
+            .sessions
+            .expect(telegram_user_id, Pending::Quantity(product.slug.clone()));
         return Ok(Outcome::Edit(view::edit_quantity_prompt(
-            chat_id, message_id, language, item,
+            chat_id, message_id, language, &product,
         )));
     }
     if let Some(action) = data.strip_prefix("pay:") {
         return payment_outcome(state, chat_id, telegram_user_id, language, action).await;
     }
+    if let Some(action) = data.strip_prefix("admin") {
+        return admin_outcome(
+            state,
+            chat_id,
+            message_id,
+            telegram_user_id,
+            username,
+            action,
+        )
+        .await;
+    }
 
     Ok(Outcome::Nothing)
+}
+
+/// The stock room. Ownership is checked here rather than only on `/catalog`,
+/// so a button that outlives someone's owner status stops working.
+async fn admin_outcome(
+    state: &AppState,
+    chat_id: i64,
+    message_id: i64,
+    telegram_user_id: i64,
+    username: Option<&str>,
+    action: &str,
+) -> Result<Outcome, StatusCode> {
+    if !state.config.owners.includes(telegram_user_id, username) {
+        return Ok(Outcome::Nothing);
+    }
+
+    let action = action.trim_start_matches(':');
+    if action.is_empty() {
+        state.sessions.clear(telegram_user_id);
+        let catalogue = fetch_full_catalogue(state).await?;
+        return Ok(Outcome::Edit(view::edit_admin_catalogue(
+            chat_id, message_id, &catalogue,
+        )));
+    }
+    if action == "new" {
+        state.sessions.expect(telegram_user_id, Pending::NewProduct);
+        return Ok(Outcome::Edit(view::admin_new_product_prompt(
+            chat_id, message_id,
+        )));
+    }
+
+    let Some((action, slug)) = action.split_once(':') else {
+        return Ok(Outcome::Nothing);
+    };
+    let Some(product) = fetch_product(state, slug).await? else {
+        let catalogue = fetch_full_catalogue(state).await?;
+        return Ok(Outcome::Edit(view::edit_admin_catalogue(
+            chat_id, message_id, &catalogue,
+        )));
+    };
+
+    let product = match action {
+        "open" => {
+            state.sessions.clear(telegram_user_id);
+            product
+        }
+        "restock" => {
+            state
+                .sessions
+                .expect(telegram_user_id, Pending::Restock(product.slug.clone()));
+            return Ok(Outcome::Edit(view::admin_restock_prompt(
+                chat_id, message_id, &product,
+            )));
+        }
+        "price" => {
+            state
+                .sessions
+                .expect(telegram_user_id, Pending::Price(product.slug.clone()));
+            return Ok(Outcome::Edit(view::admin_price_prompt(
+                chat_id, message_id, &product,
+            )));
+        }
+        "hot" => adjust_product(state, slug, serde_json::json!({ "hot": !product.hot }))
+            .await?
+            .unwrap_or(product),
+        "listed" => adjust_product(
+            state,
+            slug,
+            serde_json::json!({ "listed": !product.listed }),
+        )
+        .await?
+        .unwrap_or(product),
+        _ => return Ok(Outcome::Nothing),
+    };
+
+    Ok(Outcome::Edit(view::edit_admin_product(
+        chat_id, message_id, &product,
+    )))
 }
 
 /// Every payment button carries its own order reference and the order is read
@@ -610,6 +805,7 @@ async fn command_reply(
     state: &AppState,
     chat_id: i64,
     telegram_user_id: i64,
+    username: Option<&str>,
     text: &str,
     language: Option<Language>,
 ) -> Result<Option<Reply>, StatusCode> {
@@ -617,6 +813,7 @@ async fn command_reply(
         return Ok(None);
     }
 
+    let owner = state.config.owners.includes(telegram_user_id, username);
     let command = text
         .split_whitespace()
         .next()
@@ -627,12 +824,28 @@ async fn command_reply(
         .to_ascii_lowercase();
     let chosen = language.unwrap_or(Language::Vietnamese);
     let reply: Reply = match command.as_str() {
-        "/start" => view::start(chat_id, chosen).into(),
+        "/start" => match start_payload(text) {
+            Some(slug) => match fetch_product(state, slug).await? {
+                Some(product) if product.listed && product.is_available() => {
+                    state
+                        .sessions
+                        .expect(telegram_user_id, Pending::Quantity(product.slug.clone()));
+                    view::quantity_prompt(chat_id, chosen, &product).into()
+                }
+                _ => view::menu(chat_id, chosen, &fetch_catalogue(state).await?).into(),
+            },
+            None => view::start(chat_id, chosen).into(),
+        },
         "/menu" => match language {
-            Some(language) => view::menu(chat_id, language).into(),
+            Some(language) => view::menu(chat_id, language, &fetch_catalogue(state).await?).into(),
             None => view::language_picker(chat_id).into(),
         },
         "/lang" => view::language_picker(chat_id).into(),
+        "/catalog" if owner => {
+            let catalogue = fetch_full_catalogue(state).await?;
+            view::admin_catalogue(chat_id, &catalogue).into()
+        }
+        "/catalog" => view::menu(chat_id, chosen, &fetch_catalogue(state).await?).into(),
         "/help" => view::help(chat_id, chosen).into(),
         "/orders" => {
             let orders = fetch_orders(state, telegram_user_id).await?;
@@ -645,25 +858,57 @@ async fn command_reply(
     Ok(Some(reply))
 }
 
-/// A bare number is only meaningful while a package is selected; anything else
-/// in a private chat stays unanswered.
-async fn checkout_reply(
+/// A plain message only means something while the chat is expecting one, and
+/// what it means depends on which button was tapped last.
+async fn pending_reply(
     state: &AppState,
     chat_id: i64,
     telegram_user_id: i64,
+    username: Option<&str>,
     text: &str,
     language: Option<Language>,
 ) -> Result<Option<Reply>, StatusCode> {
-    let Some(item) = state.sessions.chosen_item(telegram_user_id) else {
+    let Some(pending) = state.sessions.pending(telegram_user_id) else {
         return Ok(None);
     };
     let language = language.unwrap_or(Language::Vietnamese);
-    let Some(quantity) = quantity(text, item) else {
-        return Ok(Some(view::quantity_error(chat_id, language, item).into()));
+
+    // An owner expectation is re-checked here, not just when the button was
+    // tapped, so losing owner status between the two stops the write.
+    let owner = state.config.owners.includes(telegram_user_id, username);
+    match pending {
+        Pending::Quantity(slug) => {
+            quantity_reply(state, chat_id, telegram_user_id, language, &slug, text).await
+        }
+        Pending::Restock(slug) if owner => restock_reply(state, chat_id, &slug, text).await,
+        Pending::Price(slug) if owner => price_reply(state, chat_id, &slug, text).await,
+        Pending::NewProduct if owner => {
+            new_product_reply(state, chat_id, telegram_user_id, text).await
+        }
+        _ => Ok(None),
+    }
+}
+
+async fn quantity_reply(
+    state: &AppState,
+    chat_id: i64,
+    telegram_user_id: i64,
+    language: Language,
+    slug: &str,
+    text: &str,
+) -> Result<Option<Reply>, StatusCode> {
+    let Some(product) = fetch_product(state, slug).await? else {
+        return Ok(Some(view::unknown_order(chat_id, language).into()));
+    };
+    let Some(quantity) = quantity(text, &product) else {
+        return Ok(Some(
+            view::quantity_error(chat_id, language, &product).into(),
+        ));
     };
 
     show_typing(state, chat_id).await;
-    let Some(order) = create_order(state, telegram_user_id, chat_id, item, quantity).await? else {
+    let Some(order) = create_order(state, telegram_user_id, chat_id, &product, quantity).await?
+    else {
         return Ok(Some(view::unknown_order(chat_id, language).into()));
     };
     Ok(Some(
@@ -671,11 +916,166 @@ async fn checkout_reply(
     ))
 }
 
-fn quantity(text: &str, item: CatalogItem) -> Option<u32> {
+async fn restock_reply(
+    state: &AppState,
+    chat_id: i64,
+    slug: &str,
+    text: &str,
+) -> Result<Option<Reply>, StatusCode> {
+    let Some(added) = counted(text) else {
+        return Ok(Some(
+            view::admin_result(chat_id, "⚠️ Gửi một số nguyên dương, ví dụ: 7").into(),
+        ));
+    };
+
+    show_typing(state, chat_id).await;
+    let Some(restock) = restock_product(state, slug, added).await? else {
+        return Ok(Some(
+            view::admin_result(chat_id, "⚠️ Không tìm thấy gói này.").into(),
+        ));
+    };
+
+    announce_restock(state, restock.added, &restock.product).await;
+    Ok(Some(view::admin_product(chat_id, &restock.product).into()))
+}
+
+async fn price_reply(
+    state: &AppState,
+    chat_id: i64,
+    slug: &str,
+    text: &str,
+) -> Result<Option<Reply>, StatusCode> {
+    let Some(price_vnd) = counted(text) else {
+        return Ok(Some(
+            view::admin_result(chat_id, "⚠️ Gửi giá bằng đồng, ví dụ: 135000").into(),
+        ));
+    };
+
+    show_typing(state, chat_id).await;
+    let Some(product) =
+        adjust_product(state, slug, serde_json::json!({ "price_vnd": price_vnd })).await?
+    else {
+        return Ok(Some(
+            view::admin_result(chat_id, "⚠️ Không tìm thấy gói này.").into(),
+        ));
+    };
+    Ok(Some(view::admin_product(chat_id, &product).into()))
+}
+
+async fn new_product_reply(
+    state: &AppState,
+    chat_id: i64,
+    telegram_user_id: i64,
+    text: &str,
+) -> Result<Option<Reply>, StatusCode> {
+    let Some(draft) = product_draft(text) else {
+        return Ok(Some(
+            view::admin_result(
+                chat_id,
+                "⚠️ Thiếu thông tin. Cần ít nhất: nhà cung cấp, tên, bảo hành, giá.",
+            )
+            .into(),
+        ));
+    };
+
+    show_typing(state, chat_id).await;
+    let Some(product) = create_product(state, draft).await? else {
+        return Ok(Some(
+            view::admin_result(chat_id, "⚠️ Gói này đã tồn tại rồi.").into(),
+        ));
+    };
+
+    state.sessions.clear(telegram_user_id);
+    Ok(Some(view::admin_product(chat_id, &product).into()))
+}
+
+/// Reads the filled-in template the owner sends back. Keys are matched loosely
+/// so a stray accent or capital does not reject the whole block.
+fn product_draft(text: &str) -> Option<serde_json::Value> {
+    let mut draft = std::collections::HashMap::new();
+    for line in text.lines() {
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let value = value.trim();
+        if !value.is_empty() {
+            draft.insert(normalize_key(key), value.to_owned());
+        }
+    }
+
+    let provider = draft.get("nhacungcap").or_else(|| draft.get("provider"))?;
+    let plan = draft.get("ten").or_else(|| draft.get("plan"))?;
+    let warranty = draft.get("baohanh").or_else(|| draft.get("warranty"))?;
+    let price_vnd = draft
+        .get("gia")
+        .or_else(|| draft.get("price"))
+        .and_then(|value| counted(value))?;
+    let available = draft
+        .get("ton")
+        .or_else(|| draft.get("stock"))
+        .and_then(|value| counted(value))
+        .unwrap_or(0);
+
+    Some(serde_json::json!({
+        "available": available,
+        "detail": draft.get("chitiet").or_else(|| draft.get("detail")),
+        "plan": plan,
+        "price_vnd": price_vnd,
+        "provider": provider,
+        "variant": draft.get("bienthe").or_else(|| draft.get("variant")),
+        "warranty": warranty,
+    }))
+}
+
+fn normalize_key(key: &str) -> String {
+    key.to_lowercase()
+        .chars()
+        .filter(|character| character.is_alphanumeric())
+        .flat_map(|character| match character {
+            'à' | 'á' | 'ả' | 'ã' | 'ạ' | 'â' | 'ầ' | 'ấ' | 'ẩ' | 'ẫ' | 'ậ' | 'ă' | 'ằ' | 'ắ'
+            | 'ẳ' | 'ẵ' | 'ặ' => Some('a'),
+            'è' | 'é' | 'ẻ' | 'ẽ' | 'ẹ' | 'ê' | 'ề' | 'ế' | 'ể' | 'ễ' | 'ệ' => {
+                Some('e')
+            }
+            'ì' | 'í' | 'ỉ' | 'ĩ' | 'ị' => Some('i'),
+            'ò' | 'ó' | 'ỏ' | 'õ' | 'ọ' | 'ô' | 'ồ' | 'ố' | 'ổ' | 'ỗ' | 'ộ' | 'ơ' | 'ờ' | 'ớ'
+            | 'ở' | 'ỡ' | 'ợ' => Some('o'),
+            'ù' | 'ú' | 'ủ' | 'ũ' | 'ụ' | 'ư' | 'ừ' | 'ứ' | 'ử' | 'ữ' | 'ự' => {
+                Some('u')
+            }
+            'ỳ' | 'ý' | 'ỷ' | 'ỹ' | 'ỵ' => Some('y'),
+            'đ' => Some('d'),
+            other => Some(other),
+        })
+        .collect()
+}
+
+/// A count the owner typed, tolerating the separators a price is usually
+/// written with.
+fn counted(text: &str) -> Option<i64> {
+    let digits: String = text
+        .chars()
+        .filter(|character| !matches!(character, ' ' | '.' | ',' | '_'))
+        .collect();
+    digits.parse::<i64>().ok().filter(|value| *value > 0)
+}
+
+/// `/start <payload>` is how Telegram delivers a deep link, which is what the
+/// "Mua ngay" button on an announcement uses.
+fn start_payload(text: &str) -> Option<&str> {
+    text.split_whitespace().nth(1).filter(|payload| {
+        !payload.is_empty()
+            && payload.chars().all(|character| {
+                character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
+            })
+    })
+}
+
+fn quantity(text: &str, product: &Product) -> Option<i64> {
     text.trim()
-        .parse::<u32>()
+        .parse::<i64>()
         .ok()
-        .filter(|quantity| (1..=item.available).contains(quantity))
+        .filter(|quantity| (1..=product.available).contains(quantity))
 }
 
 fn webhook_secret_matches(expected: &[u8], headers: &HeaderMap) -> bool {
@@ -715,6 +1115,12 @@ struct SepayResult {
     order: Option<Order>,
 }
 
+#[derive(Deserialize)]
+struct Restock {
+    added: i64,
+    product: Product,
+}
+
 /// SePay retries a webhook until it sees this acknowledgement.
 #[derive(Serialize)]
 struct SepayAcknowledgement {
@@ -744,8 +1150,15 @@ mod tests {
     use super::{AppState, router};
     use crate::{
         checkout::Sessions,
-        config::{AppConfig, BankAccount, PaymentConfig},
+        config::{AppConfig, BankAccount, Owners, PaymentConfig},
     };
+
+    fn owners() -> Owners {
+        Owners {
+            telegram_user_ids: Vec::new(),
+            usernames: vec!["synasapmob".to_owned()],
+        }
+    }
 
     const REFERENCE: &str = "TESTREF00001";
     const UNKNOWN_ORDER_ALERT: &str =
@@ -829,11 +1242,7 @@ mod tests {
             keyboard[1][0]["text"],
             "Claude MAX X5 (W7D) --- 79,000đ (còn 27)"
         );
-        assert_eq!(
-            keyboard[2][0]["text"],
-            "Claude Pro (NW) --- 49,000đ (còn 41)"
-        );
-        assert_eq!(keyboard[3][0]["callback_data"], "menu");
+        assert_eq!(keyboard[2][0]["callback_data"], "menu");
     }
 
     #[tokio::test]
@@ -859,7 +1268,7 @@ mod tests {
 
         assert_eq!(
             response["text"],
-            "🔥 Claude MAX X20 (Personal) · 1M\n\n🔢 Nhập số lượng muốn mua\n\nTối đa: 53\nGửi một số, ví dụ: 1\n\n💵 Giá hiện tại: 135,000₫\n\n💰 Bảng giá:\n• 1+: 135,000₫\n\nActive trực tiếp trên tài khoản chính chủ của bạn, bảo hành đầy đủ trọn thời hạn."
+            "🔥 Claude MAX X20 (Personal) · 1M\n\n🔢 Nhập số lượng muốn mua\n\nTối đa: 53\nGửi một số, ví dụ: 1\n\n💵 Giá hiện tại: 135,000₫\n\n💰 Bảng giá:\n• 1+: 135,000₫\n\nActive trực tiếp trên tài khoản chính chủ của bạn."
         );
         assert_eq!(
             response["reply_markup"]["inline_keyboard"][0][0]["callback_data"],
@@ -1037,6 +1446,138 @@ mod tests {
             shop.last_alert().is_none(),
             "navigation should not raise a popup"
         );
+    }
+
+    /// `/catalog` is one command with two faces: the stock room for the owner,
+    /// the ordinary shop for everyone else.
+    #[tokio::test]
+    async fn catalog_opens_the_stock_room_only_for_an_owner() {
+        let shop = Shop::open().await;
+
+        let owner = shop.update_json(owner_message("/catalog")).await;
+        let text = owner["text"].as_str().expect("a stock room");
+        assert!(text.starts_with("🛠 Quản lý kho"));
+        assert_eq!(
+            owner["reply_markup"]["inline_keyboard"][0][0]["callback_data"],
+            "admin:open:chatgpt-plus"
+        );
+
+        let buyer = shop.update_json(message_update("/catalog")).await;
+        assert_eq!(buyer["text"], "Hub William shop\n\nChọn nhà cung cấp.");
+    }
+
+    #[tokio::test]
+    async fn an_admin_button_does_nothing_for_a_stranger() {
+        let shop = Shop::open().await;
+        let response = shop
+            .send_update(callback_update("admin:open:claude-max-x20"))
+            .await;
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert!(shop.last_alert().is_none());
+    }
+
+    #[tokio::test]
+    async fn an_owner_adds_stock_and_the_channel_hears_about_it() {
+        let shop = Shop::open().await;
+        shop.update_json(owner_callback("admin:restock:claude-max-x20"))
+            .await;
+
+        let response = shop.update_json(owner_message("7")).await;
+        let text = response["text"].as_str().expect("the product panel");
+
+        assert!(text.starts_with("🛠 Claude MAX X20 (Personal) · 1M"));
+        assert!(text.contains("📦 Tồn kho: 60"));
+
+        let posted = shop.api.notified.lock().unwrap().clone();
+        let announcement = posted.last().expect("a channel announcement");
+        assert_eq!(announcement["chat_id"], "@hubwilliam");
+        assert_eq!(
+            announcement["text"],
+            "🔥 Claude MAX X20 (Personal) · 1M (WF)\n➕ Thêm: 7\n📦 Tồn kho hiện tại: 60\n💰 Giá: 135,000đ"
+        );
+        assert_eq!(
+            announcement["reply_markup"]["inline_keyboard"][0][0]["url"],
+            "https://t.me/hub_william_bot?start=claude-max-x20"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_owner_changes_a_price_and_the_shop_follows() {
+        let shop = Shop::open().await;
+        shop.update_json(owner_callback("admin:price:claude-max-x20"))
+            .await;
+        shop.update_json(owner_message("150.000")).await;
+
+        let response = shop.update_json(callback_update("provider:claude")).await;
+        assert_eq!(
+            response["reply_markup"]["inline_keyboard"][0][0]["text"],
+            "🔥 Claude MAX X20 (Personal) · 1M (WF) --- 150,000đ (còn 53)"
+        );
+    }
+
+    #[tokio::test]
+    async fn hiding_a_product_takes_it_out_of_the_shop_but_not_the_stock_room() {
+        let shop = Shop::open().await;
+        shop.update_json(owner_callback("admin:listed:claude-max-x5"))
+            .await;
+
+        let shopper = shop.update_json(callback_update("provider:claude")).await;
+        let rows = shopper["reply_markup"]["inline_keyboard"]
+            .as_array()
+            .expect("a package keyboard");
+        assert_eq!(rows.len(), 2, "one package plus the back button");
+
+        let owner = shop.update_json(owner_message("/catalog")).await;
+        assert!(
+            owner["text"]
+                .as_str()
+                .expect("a stock room")
+                .contains("🙈 Claude MAX X5")
+        );
+    }
+
+    #[tokio::test]
+    async fn an_owner_creates_a_product_from_the_template() {
+        let shop = Shop::open().await;
+        shop.update_json(owner_callback("admin:new")).await;
+
+        let response = shop
+            .update_json(owner_message(
+                r"nhà cung cấp: Capcut\ntên: Pro 30D\nbảo hành: W7D\ngiá: 50000\ntồn: 7",
+            ))
+            .await;
+
+        let text = response["text"].as_str().expect("the new product panel");
+        assert!(text.starts_with("🛠 Capcut Pro 30D"));
+        assert!(text.contains("💰 Giá: 50,000₫"));
+        assert!(text.contains("📦 Tồn kho: 7"));
+    }
+
+    /// The deep link an announcement carries has to land on that product.
+    #[tokio::test]
+    async fn a_start_payload_opens_the_product_it_names() {
+        let shop = Shop::open().await;
+        let response = shop
+            .update_json(message_update("/start claude-max-x20"))
+            .await;
+
+        assert!(
+            response["text"]
+                .as_str()
+                .expect("a quantity prompt")
+                .starts_with("🔥 Claude MAX X20 (Personal) · 1M\n\n🔢")
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unknown_start_payload_falls_back_to_the_shop() {
+        let shop = Shop::open().await;
+        let response = shop
+            .update_json(message_update("/start no-such-thing"))
+            .await;
+
+        assert_eq!(response["text"], "Hub William shop\n\nChọn nhà cung cấp.");
     }
 
     #[tokio::test]
@@ -1235,6 +1776,65 @@ mod tests {
         deleted: Arc<Mutex<Vec<Value>>>,
         notified: Arc<Mutex<Vec<Value>>>,
         orders: Arc<Mutex<HashMap<String, Value>>>,
+        products: Arc<Mutex<Vec<Value>>>,
+    }
+
+    fn seeded_products() -> Vec<Value> {
+        vec![
+            json!({
+                "available": 12, "detail": null, "hot": true, "listed": true,
+                "plan": "Plus", "price_vnd": 299_000, "provider_name": "ChatGPT",
+                "provider_slug": "chatgpt", "slug": "chatgpt-plus", "variant": "Personal",
+                "warranty": "W7D", "warranty_note_en": "login check",
+                "warranty_note_vi": "Bảo hành login check 1 tiếng"
+            }),
+            json!({
+                "available": 53, "detail": "1M", "hot": true, "listed": true,
+                "plan": "MAX X20", "price_vnd": 135_000, "provider_name": "Claude",
+                "provider_slug": "claude", "slug": "claude-max-x20", "variant": "Personal",
+                "warranty": "WF", "warranty_note_en": "own account",
+                "warranty_note_vi": "Active trực tiếp trên tài khoản chính chủ của bạn."
+            }),
+            json!({
+                "available": 27, "detail": null, "hot": false, "listed": true,
+                "plan": "MAX X5", "price_vnd": 79_000, "provider_name": "Claude",
+                "provider_slug": "claude", "slug": "claude-max-x5", "variant": null,
+                "warranty": "W7D", "warranty_note_en": "login check",
+                "warranty_note_vi": "Bảo hành login check 1 tiếng"
+            }),
+            json!({
+                "available": 0, "detail": null, "hot": false, "listed": true,
+                "plan": "SuperGrok", "price_vnd": 259_000, "provider_name": "Grok",
+                "provider_slug": "grok", "slug": "grok-supergrok", "variant": "Personal",
+                "warranty": "NW", "warranty_note_en": "login check",
+                "warranty_note_vi": "Bảo hành login check 1 tiếng"
+            }),
+        ]
+    }
+
+    /// Mirrors the API's grouping, which the adapter relies on for its menu.
+    fn catalogue_of(products: &[Value], listed_only: bool) -> Value {
+        let mut providers: Vec<Value> = Vec::new();
+        for product in products {
+            if listed_only && product["listed"] != true {
+                continue;
+            }
+            match providers
+                .iter_mut()
+                .find(|provider| provider["slug"] == product["provider_slug"])
+            {
+                Some(provider) => provider["products"]
+                    .as_array_mut()
+                    .expect("a provider carries products")
+                    .push(product.clone()),
+                None => providers.push(json!({
+                    "name": product["provider_name"],
+                    "products": [product.clone()],
+                    "slug": product["provider_slug"],
+                })),
+            }
+        }
+        json!({ "providers": providers })
     }
 
     fn test_state(api_url: &str) -> AppState {
@@ -1243,6 +1843,9 @@ mod tests {
                 api_internal_url: Url::parse(api_url).expect("test API URL should parse"),
                 api_service_token: "api-service-secret".to_owned(),
                 bot_token: "bot-token".to_owned(),
+                announce_chat_id: Some("@hubwilliam".to_owned()),
+                bot_username: Some("hub_william_bot".to_owned()),
+                owners: owners(),
                 payment: PaymentConfig {
                     bank: Some(BankAccount {
                         holder: "TRAN VAN SON".to_owned(),
@@ -1264,6 +1867,7 @@ mod tests {
 
     async fn fake_api() -> (FakeApi, String, JoinHandle<()>) {
         let api = FakeApi::default();
+        *api.products.lock().unwrap() = seeded_products();
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .expect("test API listener should bind");
@@ -1296,6 +1900,17 @@ mod tests {
                 post(cancel_order),
             )
             .route("/internal/telegram/payments/sepay", post(record_payment))
+            .route("/internal/telegram/catalogue", get(listed_catalogue))
+            .route("/internal/telegram/catalogue/full", get(every_product))
+            .route("/internal/telegram/products", post(add_product))
+            .route(
+                "/internal/telegram/products/{slug}",
+                get(read_product).patch(change_product),
+            )
+            .route(
+                "/internal/telegram/products/{slug}/restock",
+                post(add_stock),
+            )
             .route("/botbot-token/answerCallbackQuery", post(answer_callback))
             .route("/botbot-token/deleteMessage", post(delete_message))
             .route(
@@ -1313,29 +1928,55 @@ mod tests {
         (api, format!("http://{address}"), task)
     }
 
+    fn title_of(product: &Value) -> String {
+        let mut title = format!(
+            "{} {}",
+            product["provider_name"].as_str().unwrap_or_default(),
+            product["plan"].as_str().unwrap_or_default()
+        );
+        if let Some(variant) = product["variant"].as_str() {
+            title.push_str(&format!(" ({variant})"));
+        }
+        if let Some(detail) = product["detail"].as_str() {
+            title.push_str(&format!(" · {detail}"));
+        }
+        title
+    }
+
     async fn create_order(
         State(api): State<FakeApi>,
         Path(telegram_user_id): Path<i64>,
         Json(payload): Json<Value>,
-    ) -> Json<Value> {
+    ) -> Result<Json<Value>, StatusCode> {
+        let slug = payload["product"].as_str().unwrap_or_default().to_owned();
+        let product = api
+            .products
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|product| product["slug"] == slug)
+            .cloned()
+            .ok_or(StatusCode::NOT_FOUND)?;
+        let quantity = payload["quantity"].as_i64().unwrap_or(1);
+        let unit_price_vnd = product["price_vnd"].as_i64().unwrap_or_default();
         let order = json!({
             "chat_id": payload["chat_id"],
             "expires_at": Utc::now() + TimeDelta::minutes(15),
-            "item_id": payload["item_id"],
-            "item_title": payload["item_title"],
+            "item_id": slug,
+            "item_title": title_of(&product),
             "paid_at": Value::Null,
-            "quantity": payload["quantity"],
+            "quantity": quantity,
             "reference": REFERENCE,
             "status": "awaiting_payment",
             "telegram_user_id": telegram_user_id,
-            "total_vnd": payload["total_vnd"],
-            "unit_price_vnd": payload["unit_price_vnd"],
+            "total_vnd": unit_price_vnd * quantity,
+            "unit_price_vnd": unit_price_vnd,
         });
         api.orders
             .lock()
             .unwrap()
             .insert(REFERENCE.to_owned(), order.clone());
-        Json(order)
+        Ok(Json(order))
     }
 
     async fn get_order(
@@ -1385,6 +2026,81 @@ mod tests {
         Json(json!({"ok": true, "result": {}}))
     }
 
+    async fn listed_catalogue(State(api): State<FakeApi>) -> Json<Value> {
+        Json(catalogue_of(&api.products.lock().unwrap(), true))
+    }
+
+    async fn every_product(State(api): State<FakeApi>) -> Json<Value> {
+        Json(catalogue_of(&api.products.lock().unwrap(), false))
+    }
+
+    async fn read_product(
+        State(api): State<FakeApi>,
+        Path(slug): Path<String>,
+    ) -> Result<Json<Value>, StatusCode> {
+        api.products
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|product| product["slug"] == slug)
+            .cloned()
+            .map(Json)
+            .ok_or(StatusCode::NOT_FOUND)
+    }
+
+    async fn add_stock(
+        State(api): State<FakeApi>,
+        Path(slug): Path<String>,
+        Json(body): Json<Value>,
+    ) -> Result<Json<Value>, StatusCode> {
+        let added = body["added"].as_i64().ok_or(StatusCode::NOT_FOUND)?;
+        let mut products = api.products.lock().unwrap();
+        let product = products
+            .iter_mut()
+            .find(|product| product["slug"] == slug)
+            .ok_or(StatusCode::NOT_FOUND)?;
+        product["available"] = json!(product["available"].as_i64().unwrap_or_default() + added);
+        Ok(Json(json!({ "added": added, "product": product.clone() })))
+    }
+
+    async fn change_product(
+        State(api): State<FakeApi>,
+        Path(slug): Path<String>,
+        Json(body): Json<Value>,
+    ) -> Result<Json<Value>, StatusCode> {
+        let mut products = api.products.lock().unwrap();
+        let product = products
+            .iter_mut()
+            .find(|product| product["slug"] == slug)
+            .ok_or(StatusCode::NOT_FOUND)?;
+        for key in ["hot", "listed", "price_vnd"] {
+            if !body[key].is_null() {
+                product[key] = body[key].clone();
+            }
+        }
+        Ok(Json(product.clone()))
+    }
+
+    async fn add_product(State(api): State<FakeApi>, Json(body): Json<Value>) -> Json<Value> {
+        let product = json!({
+            "available": body["available"],
+            "detail": body["detail"],
+            "hot": false,
+            "listed": true,
+            "plan": body["plan"],
+            "price_vnd": body["price_vnd"],
+            "provider_name": body["provider"],
+            "provider_slug": "capcut",
+            "slug": "capcut-pro-30d",
+            "variant": body["variant"],
+            "warranty": body["warranty"],
+            "warranty_note_en": "login check",
+            "warranty_note_vi": "Bảo hành login check 1 tiếng",
+        });
+        api.products.lock().unwrap().push(product.clone());
+        Json(product)
+    }
+
     async fn answer_callback(State(api): State<FakeApi>, Json(body): Json<Value>) -> Json<Value> {
         api.alerts.lock().unwrap().push(body);
         Json(json!({"ok": true, "result": true}))
@@ -1405,6 +2121,20 @@ mod tests {
                 "text": "{text}"
               }}
             }}"#
+        )
+    }
+
+    fn owner_message(text: &str) -> String {
+        message_update(text).replace(
+            r#""first_name": "William""#,
+            r#""first_name": "William", "username": "SynasapMob""#,
+        )
+    }
+
+    fn owner_callback(data: &str) -> String {
+        callback_update(data).replace(
+            r#""first_name": "William""#,
+            r#""first_name": "William", "username": "SynasapMob""#,
         )
     }
 

@@ -8,7 +8,11 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{AppState, error::ApiError};
+use crate::{
+    AppState,
+    error::ApiError,
+    telegram_catalogue::{load_product, normalize_slug},
+};
 
 const TELEGRAM_SERVICE_TOKEN_HEADER: &str = "x-hub-william-telegram-token";
 const ORDER_REFERENCE_ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -122,15 +126,14 @@ pub async fn set_contact_language(
     Ok(Json(TelegramContact { preferred_language }))
 }
 
+/// The adapter names a product and a quantity; the price, the title and the
+/// stock check are the API's, so a client can never set its own price.
 #[derive(Debug, Deserialize)]
 pub struct CreateTelegramOrder {
     pub chat_id: i64,
-    pub item_id: String,
-    pub item_title: String,
     pub lifetime_minutes: i64,
+    pub product: String,
     pub quantity: i32,
-    pub total_vnd: i64,
-    pub unit_price_vnd: i64,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -185,8 +188,36 @@ pub async fn create_order(
     Json(payload): Json<CreateTelegramOrder>,
 ) -> Result<Json<TelegramOrder>, ApiError> {
     authorize_telegram_service(&state, &headers)?;
-    let order = normalize_order(telegram_user_id, payload)?;
-    let expires_at = Utc::now() + TimeDelta::minutes(order.lifetime_minutes);
+    if telegram_user_id <= 0 || payload.chat_id <= 0 {
+        return Err(ApiError::Validation(
+            "Telegram contact identifiers must be positive.",
+        ));
+    }
+    if !(1..=MAXIMUM_ORDER_QUANTITY).contains(&payload.quantity) {
+        return Err(ApiError::Validation(
+            "A Telegram order quantity must be between 1 and 1000.",
+        ));
+    }
+    if !(1..=MAXIMUM_ORDER_LIFETIME_MINUTES).contains(&payload.lifetime_minutes) {
+        return Err(ApiError::Validation(
+            "A Telegram order lifetime must be between 1 and 1440 minutes.",
+        ));
+    }
+
+    let product = load_product(&state, &normalize_slug(&payload.product)?).await?;
+    if !product.listed {
+        return Err(ApiError::NotFound);
+    }
+    if payload.quantity > product.available {
+        return Err(ApiError::Validation(
+            "That quantity is more than the stock on hand.",
+        ));
+    }
+
+    let quantity = payload.quantity;
+    let unit_price_vnd = product.price_vnd;
+    let total_vnd = unit_price_vnd * i64::from(quantity);
+    let expires_at = Utc::now() + TimeDelta::minutes(payload.lifetime_minutes);
 
     // A reference collision is a lost race against another buyer, not a client
     // error, so retry a fresh one rather than surfacing the conflict.
@@ -201,13 +232,13 @@ pub async fn create_order(
         ))
         .bind(Uuid::new_v4())
         .bind(order_reference())
-        .bind(order.telegram_user_id)
-        .bind(order.chat_id)
-        .bind(&order.item_id)
-        .bind(&order.item_title)
-        .bind(order.quantity)
-        .bind(order.unit_price_vnd)
-        .bind(order.total_vnd)
+        .bind(telegram_user_id)
+        .bind(payload.chat_id)
+        .bind(&product.slug)
+        .bind(product.title())
+        .bind(quantity)
+        .bind(unit_price_vnd)
+        .bind(total_vnd)
         .bind(expires_at)
         .fetch_optional(&state.pool)
         .await
@@ -409,62 +440,6 @@ struct NormalizedTelegramContact {
     username: Option<String>,
 }
 
-struct NormalizedTelegramOrder {
-    chat_id: i64,
-    item_id: String,
-    item_title: String,
-    lifetime_minutes: i64,
-    quantity: i32,
-    telegram_user_id: i64,
-    total_vnd: i64,
-    unit_price_vnd: i64,
-}
-
-fn normalize_order(
-    telegram_user_id: i64,
-    payload: CreateTelegramOrder,
-) -> Result<NormalizedTelegramOrder, ApiError> {
-    if telegram_user_id <= 0 || payload.chat_id <= 0 {
-        return Err(ApiError::Validation(
-            "Telegram contact identifiers must be positive.",
-        ));
-    }
-    if !(1..=MAXIMUM_ORDER_QUANTITY).contains(&payload.quantity) {
-        return Err(ApiError::Validation(
-            "A Telegram order quantity must be between 1 and 1000.",
-        ));
-    }
-    if payload.unit_price_vnd < 0 || payload.total_vnd < 0 {
-        return Err(ApiError::Validation(
-            "Telegram order prices must not be negative.",
-        ));
-    }
-    if payload.total_vnd != payload.unit_price_vnd * i64::from(payload.quantity) {
-        return Err(ApiError::Validation(
-            "A Telegram order total must equal its unit price times its quantity.",
-        ));
-    }
-    if !(1..=MAXIMUM_ORDER_LIFETIME_MINUTES).contains(&payload.lifetime_minutes) {
-        return Err(ApiError::Validation(
-            "A Telegram order lifetime must be between 1 and 1440 minutes.",
-        ));
-    }
-
-    Ok(NormalizedTelegramOrder {
-        chat_id: payload.chat_id,
-        item_id: normalize_text(payload.item_id, 64)
-            .ok_or(ApiError::Validation("A Telegram order needs an item."))?,
-        item_title: normalize_text(payload.item_title, 128).ok_or(ApiError::Validation(
-            "A Telegram order needs an item title.",
-        ))?,
-        lifetime_minutes: payload.lifetime_minutes,
-        quantity: payload.quantity,
-        telegram_user_id,
-        total_vnd: payload.total_vnd,
-        unit_price_vnd: payload.unit_price_vnd,
-    })
-}
-
 fn normalize_reference(value: &str) -> Result<String, ApiError> {
     let reference = value.trim().to_ascii_uppercase();
     if reference.is_empty()
@@ -522,7 +497,10 @@ fn truncate(value: &str, maximum_characters: usize) -> String {
     value.trim().chars().take(maximum_characters).collect()
 }
 
-fn authorize_telegram_service(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> {
+pub(crate) fn authorize_telegram_service(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<(), ApiError> {
     let configured = state
         .config
         .telegram_service_token
@@ -597,9 +575,9 @@ mod tests {
     use chrono::{TimeZone, Utc};
 
     use super::{
-        CreateTelegramOrder, ORDER_REFERENCE_LENGTH, ObserveTelegramContact, SepayTransaction,
-        normalize_contact, normalize_language, normalize_order, normalize_reference,
-        order_reference, searchable_content, secrets_match, sepay_transferred_at,
+        ORDER_REFERENCE_LENGTH, ObserveTelegramContact, SepayTransaction, normalize_contact,
+        normalize_language, normalize_reference, order_reference, searchable_content,
+        secrets_match, sepay_transferred_at,
     };
 
     #[test]
@@ -630,25 +608,6 @@ mod tests {
         assert_eq!(normalize_language(" EN ".to_owned()).unwrap(), "en");
         assert_eq!(normalize_language("vi".to_owned()).unwrap(), "vi");
         assert!(normalize_language("fr".to_owned()).is_err());
-    }
-
-    #[test]
-    fn an_order_total_must_agree_with_its_unit_price() {
-        assert!(normalize_order(42, order_payload(2, 135_000, 270_000)).is_ok());
-        assert!(normalize_order(42, order_payload(2, 135_000, 135_000)).is_err());
-    }
-
-    #[test]
-    fn an_order_rejects_an_unusable_quantity_lifetime_or_owner() {
-        assert!(normalize_order(42, order_payload(0, 135_000, 0)).is_err());
-        assert!(normalize_order(42, order_payload(1_001, 135_000, 135_135_000)).is_err());
-        assert!(normalize_order(0, order_payload(1, 135_000, 135_000)).is_err());
-
-        let stale = CreateTelegramOrder {
-            lifetime_minutes: 0,
-            ..order_payload(1, 135_000, 135_000)
-        };
-        assert!(normalize_order(42, stale).is_err());
     }
 
     #[test]
@@ -696,18 +655,6 @@ mod tests {
         );
         assert!(sepay_transferred_at(None).is_none());
         assert!(sepay_transferred_at(Some("10/09/2026")).is_none());
-    }
-
-    fn order_payload(quantity: i32, unit_price_vnd: i64, total_vnd: i64) -> CreateTelegramOrder {
-        CreateTelegramOrder {
-            chat_id: 123,
-            item_id: "claude-max-x20".to_owned(),
-            item_title: "Claude MAX X20 (Personal) · 1M".to_owned(),
-            lifetime_minutes: 15,
-            quantity,
-            total_vnd,
-            unit_price_vnd,
-        }
     }
 
     fn sepay_transaction(content: Option<&str>) -> SepayTransaction {

@@ -10,7 +10,7 @@ api_url="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}"
 
 curl --fail-with-body --silent --show-error \
     --request POST "${api_url}/setMyCommands" \
-    --data-urlencode 'commands=[{"command":"start","description":"Start Hub William"},{"command":"menu","description":"Open the shop"},{"command":"orders","description":"View your orders"},{"command":"lang","description":"Change language"},{"command":"help","description":"Get support"},{"command":"status","description":"Telegram status"}]'
+    --data-urlencode 'commands=[{"command":"start","description":"Start Hub William"},{"command":"menu","description":"Open the shop"},{"command":"catalog","description":"Browse the catalogue"},{"command":"orders","description":"View your orders"},{"command":"lang","description":"Change language"},{"command":"help","description":"Get support"},{"command":"status","description":"Telegram status"}]'
 
 curl --fail-with-body --silent --show-error \
     --request POST "${api_url}/setWebhook" \
