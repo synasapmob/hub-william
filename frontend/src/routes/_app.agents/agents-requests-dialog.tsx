@@ -175,52 +175,6 @@ export default function AgentsRequestsDialog({
 
         <Separator />
 
-        <section aria-labelledby="invite-member-title" className="space-y-3">
-          <div>
-            <h3 id="invite-member-title" className="text-sm font-semibold">
-              Invite member
-            </h3>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Add an existing Hub William user without waiting for a request.
-            </p>
-          </div>
-          <form
-            className="space-y-2"
-            onSubmit={form.handleSubmit(submitInvite)}
-          >
-            <Flex className="items-start gap-2">
-              <div className="min-w-0 flex-1 space-y-1">
-                <Label className="sr-only" htmlFor="invite-username">
-                  Hub William username
-                </Label>
-                <Input
-                  aria-invalid={Boolean(form.formState.errors.username)}
-                  autoComplete="off"
-                  id="invite-username"
-                  placeholder="Hub William username"
-                  {...form.register("username")}
-                />
-                {form.formState.errors.username ? (
-                  <p className="text-xs text-destructive">
-                    {form.formState.errors.username.message}
-                  </p>
-                ) : null}
-              </div>
-              <Button disabled={busy} type="submit">
-                <UserPlus aria-hidden="true" data-icon="inline-start" />
-                Invite
-              </Button>
-            </Flex>
-            {form.formState.errors.root ? (
-              <p className="text-xs text-destructive">
-                {form.formState.errors.root.message}
-              </p>
-            ) : null}
-          </form>
-        </section>
-
-        <Separator />
-
         <section aria-labelledby="join-requests-title" className="space-y-3">
           <div>
             <h3 id="join-requests-title" className="text-sm font-semibold">
@@ -315,6 +269,37 @@ export default function AgentsRequestsDialog({
               {members.length === 1 ? "member" : "members"}.
             </p>
           </div>
+          <form
+            className="space-y-2"
+            onSubmit={form.handleSubmit(submitInvite)}
+          >
+            <Flex className="items-end gap-2">
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <Label htmlFor="invite-username">Invite member</Label>
+                <Input
+                  aria-invalid={Boolean(form.formState.errors.username)}
+                  autoComplete="off"
+                  id="invite-username"
+                  placeholder="Hub William username"
+                  {...form.register("username")}
+                />
+              </div>
+              <Button disabled={busy} type="submit">
+                <UserPlus aria-hidden="true" data-icon="inline-start" />
+                Invite
+              </Button>
+            </Flex>
+            {form.formState.errors.username ? (
+              <p className="text-xs text-destructive">
+                {form.formState.errors.username.message}
+              </p>
+            ) : null}
+            {form.formState.errors.root ? (
+              <p className="text-xs text-destructive">
+                {form.formState.errors.root.message}
+              </p>
+            ) : null}
+          </form>
           {members.length > 0 ? (
             <ul className="space-y-2">
               {members.map((member) => (
@@ -346,11 +331,7 @@ export default function AgentsRequestsDialog({
                 </li>
               ))}
             </ul>
-          ) : (
-            <p className="rounded-xl bg-zinc-50 p-5 text-center text-sm text-muted-foreground">
-              No one has joined this pool yet.
-            </p>
-          )}
+          ) : null}
         </section>
       </DialogContent>
     </Dialog>

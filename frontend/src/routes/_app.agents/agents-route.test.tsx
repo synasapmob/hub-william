@@ -263,7 +263,7 @@ describe("AgentsRoute", () => {
     await user.click(
       await screen.findByRole("button", { name: /check request/i }),
     );
-    await user.type(screen.getByLabelText("Hub William username"), "william");
+    await user.type(screen.getByLabelText("Invite member"), "william");
     await user.click(screen.getByRole("button", { name: "Invite" }));
     expect(await screen.findByText("william")).toBeVisible();
 

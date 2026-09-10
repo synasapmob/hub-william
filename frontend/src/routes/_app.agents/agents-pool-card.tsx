@@ -110,7 +110,7 @@ export default function AgentsPoolCard({
     <li className="h-full">
       <Card className="h-full border-0 bg-white/95 py-0 gap-0 shadow-sm ring-slate-200/90">
         <CardHeader className="gap-4 border-b border-slate-100 py-4 flex-1 flex flex-col">
-          <Flex className="justify-between flex-wrap gap-3 flex-1">
+          <Flex className="justify-between flex-wrap gap-3 flex-1 w-full">
             <Flex className="gap-3">
               <img src={agentIcons[pool.agent]} alt="" className="size-9" />
 
