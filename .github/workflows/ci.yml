@@ -64,4 +64,4 @@ jobs:
       # own suite guards the contracts this site publishes.
       - name: Machine harness suite
         run: python3 -m unittest discover -s tests -p 'test_*.py'
-        working-directory: frontend/scripts/machine
+        working-directory: apps/frontend/scripts/machine

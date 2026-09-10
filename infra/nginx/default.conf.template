@@ -14,9 +14,9 @@ server {
     }
 
     location /api/ {
-        set $backend_internal_url "${BACKEND_INTERNAL_URL}";
+        set $api_internal_url "${API_INTERNAL_URL}";
         rewrite ^/api/(.*)$ /$1 break;
-        proxy_pass $backend_internal_url;
+        proxy_pass $api_internal_url;
         proxy_http_version 1.1;
         proxy_buffering off;
         proxy_read_timeout 300s;

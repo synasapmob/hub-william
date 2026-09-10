@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "pnpm --dir frontend build",
-  "outputDirectory": "frontend/build/client",
+  "buildCommand": "pnpm --dir apps/frontend build",
+  "outputDirectory": "apps/frontend/build/client",
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
   "headers": [
     {

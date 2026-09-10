@@ -1,6 +1,6 @@
 # ADR-0001: Monorepo application boundaries
 
-- Status: Accepted
+- Status: Superseded by ADR-0008
 - Date: 2026-09-09
 
 ## Context
@@ -15,9 +15,9 @@ putting credentials or payment authority in browser code.
 
 The repository is organized into these ownership boundaries:
 
-- `frontend/` owns the current React application, frontend documentation,
+- `apps/frontend/` owns the current React application, frontend documentation,
   public assets, build tooling, and the existing machine installer scripts.
-- `backend/` owns the Rust HTTP runtime, generated OpenAPI source, future
+- `apps/api/` owns the Rust HTTP runtime, generated OpenAPI source, future
   PostgreSQL access, pool and order rules, access-key issuance, gateway
   routing, and third-party integrations.
 - `infra/` will own provider-specific deployment configuration only when a
@@ -45,7 +45,7 @@ gateway authentication, provider routing, or Telegram behavior.
   one repository.
 - Existing root developer commands continue to orchestrate both applications.
 - Frontend builds must explicitly read the root `contributors/` catalogue.
-- Machine-installer sparse checkouts must include `frontend/scripts/` and
+- Machine-installer sparse checkouts must include `apps/frontend/scripts/` and
   `contributors/`.
 - Browser code never owns SePay, Telegram, database, gateway, or upstream
   provider secrets.

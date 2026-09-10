@@ -7,5 +7,5 @@
 **/build
 **/node_modules
 **/target
-frontend/__pycache__
-frontend/public/__pycache__
+apps/frontend/__pycache__
+apps/frontend/public/__pycache__
