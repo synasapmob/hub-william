@@ -59,15 +59,14 @@ identity as a browser account or duplicating order and membership rules.
 - An order survives a redeploy and can be settled by a transfer that arrives
   long after its displayed expiry, because expiry governs the panel rather than
   the match. Cancelling is what actually stops an order from being matched.
-- The public Telegram origin now also carries `/sepay`, `/qr.png` and
-  `/providers.png`. None serves buyer data: `/sepay` is a write authenticated by
-  SePay's key, the QR is a fixed image of an account already printed on every
-  payment panel, and the provider strip is the same brand images the frontend
-  serves publicly.
-- Telegram inline buttons carry plain text, so brand marks can only appear above
-  the buttons rather than on them. That makes the shop's first screen a photo
-  message, and because Telegram cannot rewrite a text message into a photo
-  message, shop navigation removes the previous screen and sends the next one.
+- The public Telegram origin now also carries `/sepay` and `/qr.png`. Neither
+  serves buyer data: `/sepay` is a write authenticated by SePay's key, and the
+  QR is a fixed image of an account already printed on every payment panel.
+- A provider is marked inline with a standard emoji. Telegram renders a custom
+  emoji only for bots that bought a Fragment username, and an inline keyboard
+  button carries plain text, so the frontend's brand images cannot appear beside
+  a provider's name. Every shop screen therefore stays text and is rewritten in
+  place; only a payment panel, which needs a photo, replaces its message.
 - A transfer whose note matches no order, or that does not cover the total, is
   recorded and left for a human rather than guessed at.
 - Nothing yet hands over the purchased account. `paid` is the end of the

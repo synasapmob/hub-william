@@ -1,11 +1,11 @@
 use crate::{
     catalog::{CatalogItem, PROVIDERS, Provider, format_amount, items_for},
-    checkout::{
-        Order, OrderStatus, format_expiry, memo, providers_image_url, qr_image_url, usdt_amount,
-    },
+    checkout::{Order, OrderStatus, format_expiry, memo, qr_image_url, usdt_amount},
     config::AppConfig,
     language::{Language, Localized},
-    telegram::{InlineKeyboardButton, InlineKeyboardMarkup, Reply, SendMessage, SendPhoto},
+    telegram::{
+        EditMessageText, InlineKeyboardButton, InlineKeyboardMarkup, Reply, SendMessage, SendPhoto,
+    },
 };
 
 const LANGUAGE_PROMPT: &str = "Choose a language / Chọn ngôn ngữ";
@@ -15,31 +15,33 @@ pub fn language_picker(chat_id: i64) -> SendMessage {
     SendMessage::new(chat_id, LANGUAGE_PROMPT).with_keyboard(language_keyboard())
 }
 
-/// The shop opens on the provider marks the frontend uses, laid out in the same
-/// order as the buttons under them.
-pub fn menu(chat_id: i64, language: Language, config: &AppConfig) -> Reply {
-    let text = menu_text(language);
-    let keyboard = menu_keyboard();
-
-    match config.public_url.as_ref().and_then(providers_image_url) {
-        Some(photo) => SendPhoto::new(chat_id, photo, text)
-            .with_keyboard(keyboard)
-            .into(),
-        // Without a public origin Telegram cannot fetch the marks, so the
-        // providers go out as text rather than as a broken photo.
-        None => SendMessage::new(chat_id, text)
-            .with_keyboard(keyboard)
-            .into(),
-    }
+pub fn menu(chat_id: i64, language: Language) -> SendMessage {
+    SendMessage::new(chat_id, menu_text(language)).with_keyboard(menu_keyboard())
 }
 
-pub fn provider(chat_id: i64, language: Language, provider: Provider) -> SendMessage {
-    SendMessage::new(chat_id, provider_text(language, provider))
+/// Every shop screen is text, so a button rewrites the message it belongs to
+/// rather than replacing it — nothing moves to the end of the chat.
+pub fn edit_menu(chat_id: i64, message_id: i64, language: Language) -> EditMessageText {
+    EditMessageText::new(chat_id, message_id, menu_text(language)).with_keyboard(menu_keyboard())
+}
+
+pub fn edit_provider(
+    chat_id: i64,
+    message_id: i64,
+    language: Language,
+    provider: Provider,
+) -> EditMessageText {
+    EditMessageText::new(chat_id, message_id, provider_text(language, provider))
         .with_keyboard(provider_keyboard(language, provider))
 }
 
-pub fn quantity_prompt(chat_id: i64, language: Language, item: CatalogItem) -> SendMessage {
-    SendMessage::new(chat_id, quantity_prompt_text(language, item))
+pub fn edit_quantity_prompt(
+    chat_id: i64,
+    message_id: i64,
+    language: Language,
+    item: CatalogItem,
+) -> EditMessageText {
+    EditMessageText::new(chat_id, message_id, quantity_prompt_text(language, item))
         .with_keyboard(back_to_provider_keyboard(language, item.provider))
 }
 
@@ -379,7 +381,7 @@ fn menu_text(language: Language) -> &'static str {
 /// The warranty legend sits on the package list rather than the provider list,
 /// because that is the only screen where the codes appear.
 fn provider_text(language: Language, provider: Provider) -> String {
-    let heading = provider.name.to_owned();
+    let heading = format!("{} {}", provider.icon, provider.name);
     let guidance = language.pick(Localized {
         english: "Pick a package to see its details.\nWF = full warranty · W7D = 7-day warranty · NW = no warranty",
         vietnamese: "Chọn một gói để xem chi tiết.\nWF = bảo hành đầy đủ · W7D = bảo hành 7 ngày · NW = không bảo hành",
@@ -413,13 +415,15 @@ fn quantity_prompt_text(language: Language, item: CatalogItem) -> String {
         .collect::<Vec<_>>()
         .join("\n");
 
+    let icon = item.provider.icon;
+
     match language {
         Language::English => format!(
-            "🛒 {title}\n\n🔢 Enter the quantity you want\n\nMaximum: {available}\nSend a number, for example: 1\n\n💵 Current price: {price}₫\n\n💰 Price list:\n{tiers}\n\n{note}",
+            "{icon} {title}\n\n🔢 Enter the quantity you want\n\nMaximum: {available}\nSend a number, for example: 1\n\n💵 Current price: {price}₫\n\n💰 Price list:\n{tiers}\n\n{note}",
             note = item.warranty_note.english,
         ),
         Language::Vietnamese => format!(
-            "🛒 {title}\n\n🔢 Nhập số lượng muốn mua\n\nTối đa: {available}\nGửi một số, ví dụ: 1\n\n💵 Giá hiện tại: {price}₫\n\n💰 Bảng giá:\n{tiers}\n\n{note}",
+            "{icon} {title}\n\n🔢 Nhập số lượng muốn mua\n\nTối đa: {available}\nGửi một số, ví dụ: 1\n\n💵 Giá hiện tại: {price}₫\n\n💰 Bảng giá:\n{tiers}\n\n{note}",
             note = item.warranty_note.vietnamese,
         ),
     }
@@ -463,7 +467,7 @@ fn menu_keyboard() -> InlineKeyboardMarkup {
             .into_iter()
             .map(|provider| {
                 vec![InlineKeyboardButton::callback(
-                    provider.name,
+                    format!("{} {}", provider.icon, provider.name),
                     format!("provider:{}", provider.id),
                 )]
             })

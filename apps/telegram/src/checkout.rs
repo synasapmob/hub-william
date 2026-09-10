@@ -13,7 +13,6 @@ pub const ORDER_LIFETIME_MINUTES: i64 = 15;
 const SELECTION_LIFETIME_MINUTES: i64 = 30;
 const VIETNAM_UTC_OFFSET_SECONDS: i32 = 7 * 3_600;
 const QR_IMAGE_PATH: &str = "/qr.png";
-const PROVIDERS_IMAGE_PATH: &str = "/providers.png";
 
 /// An order as `apps/api` owns it. The adapter never stores one; every payment
 /// screen reads the order back by its reference, so a redeploy cannot lose a
@@ -113,14 +112,10 @@ pub fn format_expiry(at: DateTime<Utc>) -> String {
         .to_string()
 }
 
-/// Telegram fetches an image over the public internet, so both the QR and the
-/// provider marks are served from this service's own origin.
+/// Telegram fetches an image over the public internet, so the QR is served
+/// from this service's own origin rather than embedded in the reply.
 pub fn qr_image_url(public_url: &Url) -> Option<String> {
     Some(public_url.join(QR_IMAGE_PATH).ok()?.to_string())
-}
-
-pub fn providers_image_url(public_url: &Url) -> Option<String> {
-    Some(public_url.join(PROVIDERS_IMAGE_PATH).ok()?.to_string())
 }
 
 /// Rounds up so a buyer never under-pays by a fraction of a cent.

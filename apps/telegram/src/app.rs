@@ -24,10 +24,6 @@ const SEPAY_AUTHORIZATION_SCHEME: &str = "Apikey ";
 const MAXIMUM_NOTICE_CHARACTERS: usize = 200;
 const BUSY_NOTICE: &str = "⚠️ Thử lại giúp mình nhé / Please try again.";
 const QR_IMAGE: &[u8] = include_bytes!("../assets/qr-bank.png");
-/// The provider marks the frontend ships, laid out left to right in the same
-/// order as the buttons underneath. A Telegram button carries plain text and
-/// nothing else, so this is the one place a brand can actually be shown.
-const PROVIDERS_IMAGE: &[u8] = include_bytes!("../assets/providers.png");
 
 #[derive(Clone)]
 pub struct AppState {
@@ -39,7 +35,6 @@ pub struct AppState {
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
-        .route("/providers.png", get(providers_image))
         .route("/qr.png", get(qr_image))
         .route("/sepay", post(sepay_webhook))
         .route("/webhook", post(webhook))
@@ -57,12 +52,6 @@ async fn health() -> Json<HealthResponse> {
 /// URL. It is a fixed image of a receiving account, not per-buyer data.
 async fn qr_image() -> Response {
     png(QR_IMAGE)
-}
-
-/// The brand marks above the provider buttons. Telegram fetches a photo by URL,
-/// so it has to be reachable publicly.
-async fn providers_image() -> Response {
-    png(PROVIDERS_IMAGE)
 }
 
 fn png(image: &'static [u8]) -> Response {
@@ -224,6 +213,7 @@ async fn handle_callback(
             }
             Ok(Json(reply).into_response())
         }
+        Outcome::Edit(edit) => Ok(Json(Reply::from(edit)).into_response()),
         Outcome::Alert(_) | Outcome::Nothing => Ok(StatusCode::NO_CONTENT.into_response()),
     }
 }
@@ -241,6 +231,7 @@ async fn resolve_callback(
     callback_reply(
         state,
         message.chat.id,
+        message.message_id,
         callback.from.id,
         data,
         observed_language,
@@ -514,47 +505,46 @@ fn sanitize_telegram_error(body: &str) -> String {
 enum Outcome {
     /// Say it in a popup and leave the chat exactly as it was.
     Alert(String),
+    /// Rewrite the message the button belongs to.
+    Edit(telegram::EditMessageText),
     Nothing,
-    /// Remove the message the button belongs to and send this one instead.
+    /// Remove that message and send this one in its place.
     Replace(Reply),
 }
 
 async fn callback_reply(
     state: &AppState,
     chat_id: i64,
+    message_id: i64,
     telegram_user_id: i64,
     data: &str,
     observed_language: Option<Language>,
 ) -> Result<Outcome, StatusCode> {
     if let Some(language) = data.strip_prefix("language:").and_then(Language::parse) {
         let language = set_language(state, telegram_user_id, language).await?;
-        return Ok(Outcome::Replace(view::menu(
-            chat_id,
-            language,
-            &state.config,
+        return Ok(Outcome::Edit(view::edit_menu(
+            chat_id, message_id, language,
         )));
     }
 
     let language = observed_language.unwrap_or(Language::Vietnamese);
-    // Every screen replaces the one it was opened from, because the shop opens
-    // on a photo message and Telegram cannot rewrite one into text or back.
+    // Shop screens are all text, so browsing rewrites one message in place.
+    // Only a payment panel, which is a photo, has to replace it.
     if data == "menu" {
-        return Ok(Outcome::Replace(view::menu(
-            chat_id,
-            language,
-            &state.config,
+        return Ok(Outcome::Edit(view::edit_menu(
+            chat_id, message_id, language,
         )));
     }
     if let Some(provider) = data.strip_prefix("provider:").and_then(catalog::provider) {
-        return Ok(Outcome::Replace(
-            view::provider(chat_id, language, provider).into(),
-        ));
+        return Ok(Outcome::Edit(view::edit_provider(
+            chat_id, message_id, language, provider,
+        )));
     }
     if let Some(item) = data.strip_prefix("catalog:").and_then(catalog::find) {
         state.sessions.choose(telegram_user_id, item);
-        return Ok(Outcome::Replace(
-            view::quantity_prompt(chat_id, language, item).into(),
-        ));
+        return Ok(Outcome::Edit(view::edit_quantity_prompt(
+            chat_id, message_id, language, item,
+        )));
     }
     if let Some(action) = data.strip_prefix("pay:") {
         return payment_outcome(state, chat_id, telegram_user_id, language, action).await;
@@ -639,7 +629,7 @@ async fn command_reply(
     let reply: Reply = match command.as_str() {
         "/start" => view::start(chat_id, chosen).into(),
         "/menu" => match language {
-            Some(language) => view::menu(chat_id, language, &state.config),
+            Some(language) => view::menu(chat_id, language).into(),
             None => view::language_picker(chat_id).into(),
         },
         "/lang" => view::language_picker(chat_id).into(),
@@ -808,17 +798,13 @@ mod tests {
             .as_array()
             .expect("a provider keyboard");
 
-        assert_eq!(response["method"], "sendPhoto");
-        assert_eq!(response["photo"], "https://shop.example.test/providers.png");
-        assert_eq!(
-            response["caption"],
-            "Hub William shop\n\nChọn nhà cung cấp."
-        );
+        assert_eq!(response["method"], "editMessageText");
+        assert_eq!(response["text"], "Hub William shop\n\nChọn nhà cung cấp.");
         assert_eq!(keyboard.len(), 3);
-        assert_eq!(keyboard[0][0]["text"], "ChatGPT");
+        assert_eq!(keyboard[0][0]["text"], "\u{1f300} ChatGPT");
         assert_eq!(keyboard[0][0]["callback_data"], "provider:chatgpt");
-        assert_eq!(keyboard[1][0]["text"], "Claude");
-        assert_eq!(keyboard[2][0]["text"], "Grok");
+        assert_eq!(keyboard[1][0]["text"], "\u{2733}\u{fe0f} Claude");
+        assert_eq!(keyboard[2][0]["text"], "\u{26a1} Grok");
     }
 
     #[tokio::test]
@@ -829,10 +815,10 @@ mod tests {
             .as_array()
             .expect("a package keyboard");
 
-        assert_eq!(response["method"], "sendMessage");
+        assert_eq!(response["method"], "editMessageText");
         assert_eq!(
             response["text"],
-            "Claude\n\nChọn một gói để xem chi tiết.\nWF = bảo hành đầy đủ · W7D = bảo hành 7 ngày · NW = không bảo hành"
+            "\u{2733}\u{fe0f} Claude\n\nChọn một gói để xem chi tiết.\nWF = bảo hành đầy đủ · W7D = bảo hành 7 ngày · NW = không bảo hành"
         );
         assert_eq!(
             keyboard[0][0]["text"],
@@ -873,7 +859,7 @@ mod tests {
 
         assert_eq!(
             response["text"],
-            "🛒 Claude MAX X20 (Personal) · 1M\n\n🔢 Nhập số lượng muốn mua\n\nTối đa: 53\nGửi một số, ví dụ: 1\n\n💵 Giá hiện tại: 135,000₫\n\n💰 Bảng giá:\n• 1+: 135,000₫\n\nActive trực tiếp trên tài khoản chính chủ của bạn, bảo hành đầy đủ trọn thời hạn."
+            "\u{2733}\u{fe0f} Claude MAX X20 (Personal) · 1M\n\n🔢 Nhập số lượng muốn mua\n\nTối đa: 53\nGửi một số, ví dụ: 1\n\n💵 Giá hiện tại: 135,000₫\n\n💰 Bảng giá:\n• 1+: 135,000₫\n\nActive trực tiếp trên tài khoản chính chủ của bạn, bảo hành đầy đủ trọn thời hạn."
         );
         assert_eq!(
             response["reply_markup"]["inline_keyboard"][0][0]["callback_data"],
@@ -1044,34 +1030,23 @@ mod tests {
         assert_eq!(shop.last_alert().expect("a popup"), UNKNOWN_ORDER_ALERT);
     }
 
-    /// Every shop screen replaces the one before it, so the chat holds a single
-    /// live panel however far a buyer browses.
+    /// Browsing rewrites one message rather than stacking or re-sending it, so
+    /// the shop never moves to the end of the chat under the buyer.
     #[tokio::test]
-    async fn browsing_the_catalogue_keeps_the_chat_to_one_panel() {
+    async fn browsing_the_catalogue_rewrites_one_message() {
         let shop = Shop::open().await;
-        shop.update_json(callback_update("provider:claude")).await;
-        shop.update_json(callback_update("catalog:claude-max-x20"))
-            .await;
-        shop.update_json(callback_update("menu")).await;
 
-        assert_eq!(shop.deleted_message_ids(), [7, 7, 7]);
+        for data in ["provider:claude", "catalog:claude-max-x20", "menu"] {
+            let response = shop.update_json(callback_update(data)).await;
+            assert_eq!(response["method"], "editMessageText", "{data}");
+            assert_eq!(response["message_id"], 7, "{data}");
+        }
+
+        assert!(shop.deleted_message_ids().is_empty());
         assert!(
             shop.last_alert().is_none(),
             "navigation should not raise a popup"
         );
-    }
-
-    /// The marks are the frontend's own, served from this origin because a
-    /// Telegram button cannot carry an image and a photo is fetched by URL.
-    #[tokio::test]
-    async fn the_providers_route_serves_the_brand_marks() {
-        let shop = Shop::open().await;
-        let response = shop.get("/providers.png").await;
-
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(response.headers()["content-type"], "image/png");
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        assert_eq!(&body[..4], b"\x89PNG");
     }
 
     #[tokio::test]

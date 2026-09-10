@@ -32,20 +32,21 @@ what settles the order.
 
 USDT has no automatic settlement and says so on its own panel.
 
-`/menu` leads with `assets/providers.png`, a strip of the same ChatGPT, Claude
-and Grok marks `apps/frontend/public/assets/` ships, laid out left to right in
-the same order as the buttons under it. It is served at `/providers.png`
-because Telegram fetches a photo by URL. A Telegram inline keyboard button
-carries plain text and nothing else — no image, no custom emoji — so a brand
-can only be shown above its button, never on it.
+Each provider carries an emoji mark that sits beside its name — on its button,
+on its package-list heading, and in place of a generic cart on its packages'
+quantity prompts. Telegram renders a custom emoji only for bots that bought a
+username on Fragment, and an inline keyboard button carries plain text and
+nothing else, so a standard emoji is the only mark that can sit next to text.
+Swap one by editing `Provider::icon` in `src/catalog.rs`.
 
 A tapped button is left unacknowledged until its work finishes, so Telegram
 keeps its own loading state on the button rather than looking frozen; a plain
-message that needs an API round trip gets the typing indicator instead. Every
-shop screen replaces the one it was opened from — Telegram cannot rewrite a
-text message into a photo message or back — so the chat holds one live panel
-instead of a stack. A payment check that is still unpaid answers in a popup and
-leaves the chat untouched, so the QR stays on screen.
+message that needs an API round trip gets the typing indicator instead.
+Browsing the shop rewrites one message in place, so nothing stacks up and the
+shop never moves to the end of the chat. Only a payment panel replaces the
+message it was opened from, because Telegram cannot rewrite a text message into
+the photo the QR needs. A payment check that is still unpaid answers in a popup
+and leaves the chat untouched, so the QR stays on screen.
 
 ## SePay settlement
 
@@ -116,9 +117,8 @@ Set these service variables:
   rather than showing an address the shop does not own.
 
 To change the payment QR, replace `assets/qr-bank.png` and update the three
-account variables to match. To change the provider marks, rebuild
-`assets/providers.png` from `apps/frontend/public/assets/*-icon.png`. Both
-images are compiled into the binary, so the service has to be rebuilt.
+account variables to match. The image is compiled into the binary, so the
+service has to be rebuilt.
 
 Set `TELEGRAM_SERVICE_TOKEN` on `apps/api` to the **same** value as
 `HUB_API_SERVICE_TOKEN`. The API remains private; this second secret ensures
