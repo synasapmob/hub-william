@@ -985,6 +985,12 @@ async fn new_product_reply(
         ));
     };
 
+    // A product created with stock is stock arriving, so it is announced like
+    // any other restock. Created empty, there is nothing to announce yet.
+    if product.available > 0 {
+        announce_restock(state, product.available, &product).await;
+    }
+
     state.sessions.clear(telegram_user_id);
     Ok(Some(view::admin_product(chat_id, &product).into()))
 }
@@ -1555,6 +1561,31 @@ mod tests {
     }
 
     /// The deep link an announcement carries has to land on that product.
+    /// A product created with stock is stock arriving, so the channel hears
+    /// about it the same way a restock is announced.
+    #[tokio::test]
+    async fn creating_a_stocked_product_announces_it() {
+        let shop = Shop::open().await;
+        shop.update_json(owner_callback("admin:new")).await;
+        shop.update_json(owner_message(
+            r"nhà cung cấp: Capcut\ntên: Pro 30D\nbảo hành: W7D\ngiá: 50000\ntồn: 7",
+        ))
+        .await;
+
+        let posted = shop.api.notified.lock().unwrap().clone();
+        let announcement = posted.last().expect("a channel announcement");
+
+        assert_eq!(announcement["chat_id"], "@hubwilliam");
+        assert_eq!(
+            announcement["text"],
+            "Capcut Pro 30D (W7D)\n➕ Thêm: 7\n📦 Tồn kho hiện tại: 7\n💰 Giá: 50,000đ"
+        );
+        assert_eq!(
+            announcement["reply_markup"]["inline_keyboard"][0][0]["url"],
+            "https://t.me/hub_william_bot?start=capcut-pro-30d"
+        );
+    }
+
     #[tokio::test]
     async fn a_start_payload_opens_the_product_it_names() {
         let shop = Shop::open().await;
