@@ -1,7 +1,7 @@
 {
   "description": "Every document in the Hub William catalogue. Fetch `url` for the file exactly as it is in the repository, or an archive's `url` for a whole folder — its members keep these same paths, so unzipping into a checkout puts them where an agent reads them.",
   "repository": "https://github.com/synasapmob/hub-william",
-  "count": 43,
+  "count": 44,
   "documents": [
     {
       "id": "contributors/default/libraries/harness/AGENTS",
@@ -172,6 +172,12 @@
       "bytes": 1260
     },
     {
+      "id": "contributors/default/tools/gateway/gateway",
+      "path": "contributors/default/tools/gateway/gateway.md",
+      "url": "/hub-william/dev/catalog/contributors/default/tools/gateway/gateway.md",
+      "bytes": 948
+    },
+    {
       "id": "contributors/default/tools/installer/download-and-inject",
       "path": "contributors/default/tools/installer/download-and-inject.md",
       "url": "/hub-william/dev/catalog/contributors/default/tools/installer/download-and-inject.md",
@@ -181,7 +187,7 @@
       "id": "contributors/default/tools/installer/machine-installer",
       "path": "contributors/default/tools/installer/machine-installer.md",
       "url": "/hub-william/dev/catalog/contributors/default/tools/installer/machine-installer.md",
-      "bytes": 2437
+      "bytes": 2457
     },
     {
       "id": "contributors/default/tools/mcp/mcp-servers",
@@ -267,15 +273,15 @@
       "id": "contributors",
       "path": "contributors.zip",
       "url": "/hub-william/dev/catalog/contributors.zip",
-      "bytes": 67534,
-      "files": 43
+      "bytes": 68230,
+      "files": 44
     },
     {
       "id": "contributors/default",
       "path": "contributors/default.zip",
       "url": "/hub-william/dev/catalog/contributors/default.zip",
-      "bytes": 51177,
-      "files": 31
+      "bytes": 51873,
+      "files": 32
     },
     {
       "id": "contributors/default/libraries",
@@ -309,14 +315,21 @@
       "id": "contributors/default/tools",
       "path": "contributors/default/tools.zip",
       "url": "/hub-william/dev/catalog/contributors/default/tools.zip",
-      "bytes": 3434,
-      "files": 3
+      "bytes": 4130,
+      "files": 4
+    },
+    {
+      "id": "contributors/default/tools/gateway",
+      "path": "contributors/default/tools/gateway.zip",
+      "url": "/hub-william/dev/catalog/contributors/default/tools/gateway.zip",
+      "bytes": 714,
+      "files": 1
     },
     {
       "id": "contributors/default/tools/installer",
       "path": "contributors/default/tools/installer.zip",
       "url": "/hub-william/dev/catalog/contributors/default/tools/installer.zip",
-      "bytes": 2404,
+      "bytes": 2408,
       "files": 2
     },
     {
@@ -402,8 +415,15 @@
       "id": "default/tools/documents",
       "path": "collections/default/tools/documents.zip",
       "url": "/hub-william/dev/catalog/collections/default/tools/documents.zip",
-      "bytes": 2404,
+      "bytes": 2408,
       "files": 2
+    },
+    {
+      "id": "default/tools/gateway",
+      "path": "collections/default/tools/gateway.zip",
+      "url": "/hub-william/dev/catalog/collections/default/tools/gateway.zip",
+      "bytes": 714,
+      "files": 1
     },
     {
       "id": "default/tools/mcp",

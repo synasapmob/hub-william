@@ -2,7 +2,7 @@
 
 The program that puts this catalogue where an agent will actually read it. Its
 public Python bootstrap maintains a sparse checkout and then hands control to
-the installer in `frontend/scripts/machine/`.
+the installer in `apps/frontend/scripts/machine/`.
 
 ## What you need
 
@@ -31,14 +31,14 @@ on disk until you accept it.
 | Grok | `~/.grok/AGENTS.md` |
 | Skills | `~/.claude/skills/<name>/` |
 | MCP servers | `~/.claude.json`, `~/.codex/config.toml`, `~/.grok/config.toml` |
-| What was installed | `~/.hub-william/frontend/scripts/machine/state/applied.json` |
-| What you picked | `~/.hub-william/frontend/scripts/machine/profiles/local.toml` |
+| What was installed | `~/.hub-william/apps/frontend/scripts/machine/state/applied.json` |
+| What you picked | `~/.hub-william/apps/frontend/scripts/machine/profiles/local.toml` |
 
 Installed documents are read-only copies carrying a
 `hub-william-generated` header, not symlinks into the catalogue. Opening
 `~/.codex/AGENTS.md` in an editor therefore cannot edit the catalogue by
 accident. To change a contract, change it in the checkout and run
-`~/.hub-william/frontend/scripts/machine/install.sh sync` — each sync repairs whatever
+`~/.hub-william/apps/frontend/scripts/machine/install.sh sync` — each sync repairs whatever
 has drifted.
 
 ## Install into one project

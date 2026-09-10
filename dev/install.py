@@ -81,13 +81,13 @@ def ensure_checkout():
         "sparse-checkout",
         "set",
         "--no-cone",
-        "/frontend/scripts/",
+        "/apps/frontend/scripts/",
         "/contributors/",
     ])
 
-    installer = CHECKOUT / "frontend/scripts/machine/install.sh"
+    installer = CHECKOUT / "apps/frontend/scripts/machine/install.sh"
     if not installer.is_file():
-        fail("checkout does not contain frontend/scripts/machine/install.sh")
+        fail("checkout does not contain apps/frontend/scripts/machine/install.sh")
 
     return installer
 
@@ -210,7 +210,7 @@ def install_project(project_argument):
 
 
 def registry_servers():
-    registry = CHECKOUT / "frontend/scripts/machine/registries/mcp"
+    registry = CHECKOUT / "apps/frontend/scripts/machine/registries/mcp"
     return sorted(path.stem for path in registry.glob("*.toml"))
 
 
