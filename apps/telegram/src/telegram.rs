@@ -55,7 +55,6 @@ pub struct ApiResult {
 #[derive(Serialize)]
 #[serde(untagged)]
 pub enum Reply {
-    Edit(EditMessageText),
     Photo(SendPhoto),
     Text(SendMessage),
 }
@@ -69,12 +68,6 @@ impl From<SendMessage> for Reply {
 impl From<SendPhoto> for Reply {
     fn from(photo: SendPhoto) -> Self {
         Self::Photo(photo)
-    }
-}
-
-impl From<EditMessageText> for Reply {
-    fn from(edit: EditMessageText) -> Self {
-        Self::Edit(edit)
     }
 }
 
@@ -121,33 +114,6 @@ impl SendPhoto {
             method: "sendPhoto",
             photo: photo.into(),
             reply_markup: None,
-        }
-    }
-
-    pub fn with_keyboard(mut self, keyboard: InlineKeyboardMarkup) -> Self {
-        self.reply_markup = Some(keyboard);
-        self
-    }
-}
-
-#[derive(Serialize)]
-pub struct EditMessageText {
-    chat_id: i64,
-    message_id: i64,
-    method: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    reply_markup: Option<InlineKeyboardMarkup>,
-    text: String,
-}
-
-impl EditMessageText {
-    pub fn new(chat_id: i64, message_id: i64, text: impl Into<String>) -> Self {
-        Self {
-            chat_id,
-            message_id,
-            method: "editMessageText",
-            reply_markup: None,
-            text: text.into(),
         }
     }
 

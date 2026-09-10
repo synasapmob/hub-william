@@ -1,6 +1,6 @@
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::State,
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -24,13 +24,10 @@ const SEPAY_AUTHORIZATION_SCHEME: &str = "Apikey ";
 const MAXIMUM_NOTICE_CHARACTERS: usize = 200;
 const BUSY_NOTICE: &str = "⚠️ Thử lại giúp mình nhé / Please try again.";
 const QR_IMAGE: &[u8] = include_bytes!("../assets/qr-bank.png");
-/// The same brand marks the frontend ships, compiled in so Telegram can fetch
-/// them from this service rather than from the browser app's origin.
-const PROVIDER_ICONS: [(&str, &[u8]); 3] = [
-    ("chatgpt", include_bytes!("../assets/chatgpt-icon.png")),
-    ("claude", include_bytes!("../assets/claude-icon.png")),
-    ("grok", include_bytes!("../assets/grok-icon.png")),
-];
+/// The provider marks the frontend ships, laid out left to right in the same
+/// order as the buttons underneath. A Telegram button carries plain text and
+/// nothing else, so this is the one place a brand can actually be shown.
+const PROVIDERS_IMAGE: &[u8] = include_bytes!("../assets/providers.png");
 
 #[derive(Clone)]
 pub struct AppState {
@@ -42,7 +39,7 @@ pub struct AppState {
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
-        .route("/icons/{file}", get(provider_icon))
+        .route("/providers.png", get(providers_image))
         .route("/qr.png", get(qr_image))
         .route("/sepay", post(sepay_webhook))
         .route("/webhook", post(webhook))
@@ -62,20 +59,10 @@ async fn qr_image() -> Response {
     png(QR_IMAGE)
 }
 
-/// A provider's brand mark, shown above its package list. Telegram fetches a
-/// photo by URL, so the icons have to be reachable publicly.
-async fn provider_icon(Path(file): Path<String>) -> Response {
-    // Axum cannot mix a parameter with a literal suffix in one segment, so the
-    // `.png` a photo URL wants is stripped here instead.
-    let Some(provider) = file.strip_suffix(".png") else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-
-    PROVIDER_ICONS
-        .into_iter()
-        .find(|(id, _)| *id == provider)
-        .map(|(_, image)| png(image))
-        .unwrap_or_else(|| StatusCode::NOT_FOUND.into_response())
+/// The brand marks above the provider buttons. Telegram fetches a photo by URL,
+/// so it has to be reachable publicly.
+async fn providers_image() -> Response {
+    png(PROVIDERS_IMAGE)
 }
 
 fn png(image: &'static [u8]) -> Response {
@@ -237,7 +224,6 @@ async fn handle_callback(
             }
             Ok(Json(reply).into_response())
         }
-        Outcome::Edit(edit) => Ok(Json(Reply::from(edit)).into_response()),
         Outcome::Alert(_) | Outcome::Nothing => Ok(StatusCode::NO_CONTENT.into_response()),
     }
 }
@@ -255,7 +241,6 @@ async fn resolve_callback(
     callback_reply(
         state,
         message.chat.id,
-        message.message_id,
         callback.from.id,
         data,
         observed_language,
@@ -529,48 +514,41 @@ fn sanitize_telegram_error(body: &str) -> String {
 enum Outcome {
     /// Say it in a popup and leave the chat exactly as it was.
     Alert(String),
-    /// Rewrite the message the button belongs to.
-    Edit(telegram::EditMessageText),
     Nothing,
-    /// Remove that message and send this one in its place.
+    /// Remove the message the button belongs to and send this one instead.
     Replace(Reply),
 }
 
 async fn callback_reply(
     state: &AppState,
     chat_id: i64,
-    message_id: i64,
     telegram_user_id: i64,
     data: &str,
     observed_language: Option<Language>,
 ) -> Result<Outcome, StatusCode> {
     if let Some(language) = data.strip_prefix("language:").and_then(Language::parse) {
         let language = set_language(state, telegram_user_id, language).await?;
-        return Ok(Outcome::Edit(view::edit_menu(
-            chat_id, message_id, language,
+        return Ok(Outcome::Replace(view::menu(
+            chat_id,
+            language,
+            &state.config,
         )));
     }
 
     let language = observed_language.unwrap_or(Language::Vietnamese);
-    // Shop navigation replaces rather than edits, because a provider screen is
-    // a photo message and Telegram cannot rewrite one into text or back.
+    // Every screen replaces the one it was opened from, because the shop opens
+    // on a photo message and Telegram cannot rewrite one into text or back.
     if data == "menu" {
-        return Ok(Outcome::Replace(view::menu(chat_id, language).into()));
-    }
-    if data == "language" {
-        return Ok(Outcome::Edit(view::edit_language_picker(
-            chat_id, message_id,
-        )));
-    }
-    // The provider screen leads with its brand mark, and Telegram cannot turn a
-    // text message into a photo message, so it replaces rather than edits.
-    if let Some(provider) = data.strip_prefix("provider:").and_then(catalog::provider) {
-        return Ok(Outcome::Replace(view::provider(
+        return Ok(Outcome::Replace(view::menu(
             chat_id,
             language,
             &state.config,
-            provider,
         )));
+    }
+    if let Some(provider) = data.strip_prefix("provider:").and_then(catalog::provider) {
+        return Ok(Outcome::Replace(
+            view::provider(chat_id, language, provider).into(),
+        ));
     }
     if let Some(item) = data.strip_prefix("catalog:").and_then(catalog::find) {
         state.sessions.choose(telegram_user_id, item);
@@ -661,7 +639,7 @@ async fn command_reply(
     let reply: Reply = match command.as_str() {
         "/start" => view::start(chat_id, chosen).into(),
         "/menu" => match language {
-            Some(language) => view::menu(chat_id, language).into(),
+            Some(language) => view::menu(chat_id, language, &state.config),
             None => view::language_picker(chat_id).into(),
         },
         "/lang" => view::language_picker(chat_id).into(),
@@ -830,13 +808,17 @@ mod tests {
             .as_array()
             .expect("a provider keyboard");
 
-        assert_eq!(response["method"], "editMessageText");
-        assert_eq!(response["text"], "Hub William shop\n\nChọn nhà cung cấp.");
+        assert_eq!(response["method"], "sendPhoto");
+        assert_eq!(response["photo"], "https://shop.example.test/providers.png");
+        assert_eq!(
+            response["caption"],
+            "Hub William shop\n\nChọn nhà cung cấp."
+        );
         assert_eq!(keyboard.len(), 3);
-        assert_eq!(keyboard[0][0]["text"], "🟢 ChatGPT");
+        assert_eq!(keyboard[0][0]["text"], "ChatGPT");
         assert_eq!(keyboard[0][0]["callback_data"], "provider:chatgpt");
-        assert_eq!(keyboard[1][0]["text"], "🟠 Claude");
-        assert_eq!(keyboard[2][0]["text"], "⚫ Grok");
+        assert_eq!(keyboard[1][0]["text"], "Claude");
+        assert_eq!(keyboard[2][0]["text"], "Grok");
     }
 
     #[tokio::test]
@@ -847,14 +829,10 @@ mod tests {
             .as_array()
             .expect("a package keyboard");
 
-        assert_eq!(response["method"], "sendPhoto");
+        assert_eq!(response["method"], "sendMessage");
         assert_eq!(
-            response["photo"],
-            "https://shop.example.test/icons/claude.png"
-        );
-        assert_eq!(
-            response["caption"],
-            "🟠 Claude\n\nChọn một gói để xem chi tiết.\nWF = bảo hành đầy đủ · W7D = bảo hành 7 ngày · NW = không bảo hành"
+            response["text"],
+            "Claude\n\nChọn một gói để xem chi tiết.\nWF = bảo hành đầy đủ · W7D = bảo hành 7 ngày · NW = không bảo hành"
         );
         assert_eq!(
             keyboard[0][0]["text"],
@@ -1083,29 +1061,17 @@ mod tests {
         );
     }
 
-    /// The provider marks are the frontend's own, served from this origin
-    /// because Telegram fetches a photo by URL.
+    /// The marks are the frontend's own, served from this origin because a
+    /// Telegram button cannot carry an image and a photo is fetched by URL.
     #[tokio::test]
-    async fn the_icon_route_serves_each_provider_mark() {
+    async fn the_providers_route_serves_the_brand_marks() {
         let shop = Shop::open().await;
+        let response = shop.get("/providers.png").await;
 
-        for provider in ["chatgpt", "claude", "grok"] {
-            let response = shop.get(&format!("/icons/{provider}.png")).await;
-
-            assert_eq!(response.status(), StatusCode::OK, "{provider}");
-            assert_eq!(response.headers()["content-type"], "image/png");
-            let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-            assert_eq!(&body[..4], b"\x89PNG", "{provider} should be a real PNG");
-        }
-
-        assert_eq!(
-            shop.get("/icons/gemini.png").await.status(),
-            StatusCode::NOT_FOUND
-        );
-        assert_eq!(
-            shop.get("/icons/claude").await.status(),
-            StatusCode::NOT_FOUND
-        );
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["content-type"], "image/png");
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(&body[..4], b"\x89PNG");
     }
 
     #[tokio::test]

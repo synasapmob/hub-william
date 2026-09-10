@@ -60,13 +60,13 @@ identity as a browser account or duplicating order and membership rules.
   long after its displayed expiry, because expiry governs the panel rather than
   the match. Cancelling is what actually stops an order from being matched.
 - The public Telegram origin now also carries `/sepay`, `/qr.png` and
-  `/icons/<provider>.png`. None serves buyer data: `/sepay` is a write
-  authenticated by SePay's key, the QR is a fixed image of an account already
-  printed on every payment panel, and the provider marks are the same brand
-  images the frontend serves publicly.
-- Telegram inline buttons carry plain text, so brand marks can only appear on a
-  screen rather than on the button that opens it. That makes a provider screen a
-  photo message, and because Telegram cannot rewrite a text message into a photo
+  `/providers.png`. None serves buyer data: `/sepay` is a write authenticated by
+  SePay's key, the QR is a fixed image of an account already printed on every
+  payment panel, and the provider strip is the same brand images the frontend
+  serves publicly.
+- Telegram inline buttons carry plain text, so brand marks can only appear above
+  the buttons rather than on them. That makes the shop's first screen a photo
+  message, and because Telegram cannot rewrite a text message into a photo
   message, shop navigation removes the previous screen and sends the next one.
 - A transfer whose note matches no order, or that does not cover the total, is
   recorded and left for a human rather than guessed at.

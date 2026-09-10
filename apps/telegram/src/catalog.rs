@@ -4,7 +4,6 @@ use crate::language::Localized;
 /// long line-up never arrives as one wall of buttons.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Provider {
-    pub icon: &'static str,
     pub id: &'static str,
     pub name: &'static str,
 }
@@ -42,19 +41,16 @@ pub struct PriceTier {
 }
 
 pub const CHATGPT: Provider = Provider {
-    icon: "🟢",
     id: "chatgpt",
     name: "ChatGPT",
 };
 
 pub const CLAUDE: Provider = Provider {
-    icon: "🟠",
     id: "claude",
     name: "Claude",
 };
 
 pub const GROK: Provider = Provider {
-    icon: "⚫",
     id: "grok",
     name: "Grok",
 };

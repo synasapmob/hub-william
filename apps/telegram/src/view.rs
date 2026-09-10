@@ -1,13 +1,11 @@
 use crate::{
     catalog::{CatalogItem, PROVIDERS, Provider, format_amount, items_for},
     checkout::{
-        Order, OrderStatus, format_expiry, icon_image_url, memo, qr_image_url, usdt_amount,
+        Order, OrderStatus, format_expiry, memo, providers_image_url, qr_image_url, usdt_amount,
     },
     config::AppConfig,
     language::{Language, Localized},
-    telegram::{
-        EditMessageText, InlineKeyboardButton, InlineKeyboardMarkup, Reply, SendMessage, SendPhoto,
-    },
+    telegram::{InlineKeyboardButton, InlineKeyboardMarkup, Reply, SendMessage, SendPhoto},
 };
 
 const LANGUAGE_PROMPT: &str = "Choose a language / Chọn ngôn ngữ";
@@ -17,39 +15,27 @@ pub fn language_picker(chat_id: i64) -> SendMessage {
     SendMessage::new(chat_id, LANGUAGE_PROMPT).with_keyboard(language_keyboard())
 }
 
-pub fn edit_language_picker(chat_id: i64, message_id: i64) -> EditMessageText {
-    EditMessageText::new(chat_id, message_id, LANGUAGE_PROMPT).with_keyboard(language_keyboard())
-}
+/// The shop opens on the provider marks the frontend uses, laid out in the same
+/// order as the buttons under them.
+pub fn menu(chat_id: i64, language: Language, config: &AppConfig) -> Reply {
+    let text = menu_text(language);
+    let keyboard = menu_keyboard();
 
-pub fn menu(chat_id: i64, language: Language) -> SendMessage {
-    SendMessage::new(chat_id, menu_text(language)).with_keyboard(menu_keyboard(language))
-}
-
-pub fn edit_menu(chat_id: i64, message_id: i64, language: Language) -> EditMessageText {
-    EditMessageText::new(chat_id, message_id, menu_text(language))
-        .with_keyboard(menu_keyboard(language))
-}
-
-/// A provider's screen leads with the brand mark the frontend uses, so the
-/// shop reads the same on both surfaces.
-pub fn provider(chat_id: i64, language: Language, config: &AppConfig, provider: Provider) -> Reply {
-    let text = provider_text(language, provider);
-    let keyboard = provider_keyboard(language, provider);
-
-    match config
-        .public_url
-        .as_ref()
-        .and_then(|origin| icon_image_url(origin, provider))
-    {
+    match config.public_url.as_ref().and_then(providers_image_url) {
         Some(photo) => SendPhoto::new(chat_id, photo, text)
             .with_keyboard(keyboard)
             .into(),
-        // Without a public origin Telegram cannot fetch the mark, so the list
-        // goes out as text rather than as a broken photo.
+        // Without a public origin Telegram cannot fetch the marks, so the
+        // providers go out as text rather than as a broken photo.
         None => SendMessage::new(chat_id, text)
             .with_keyboard(keyboard)
             .into(),
     }
+}
+
+pub fn provider(chat_id: i64, language: Language, provider: Provider) -> SendMessage {
+    SendMessage::new(chat_id, provider_text(language, provider))
+        .with_keyboard(provider_keyboard(language, provider))
 }
 
 pub fn quantity_prompt(chat_id: i64, language: Language, item: CatalogItem) -> SendMessage {
@@ -393,7 +379,7 @@ fn menu_text(language: Language) -> &'static str {
 /// The warranty legend sits on the package list rather than the provider list,
 /// because that is the only screen where the codes appear.
 fn provider_text(language: Language, provider: Provider) -> String {
-    let heading = format!("{} {}", provider.icon, provider.name);
+    let heading = provider.name.to_owned();
     let guidance = language.pick(Localized {
         english: "Pick a package to see its details.\nWF = full warranty · W7D = 7-day warranty · NW = no warranty",
         vietnamese: "Chọn một gói để xem chi tiết.\nWF = bảo hành đầy đủ · W7D = bảo hành 7 ngày · NW = không bảo hành",
@@ -471,13 +457,13 @@ fn language_keyboard() -> InlineKeyboardMarkup {
 
 /// The providers are the whole menu: language stays on /lang so the shop list
 /// carries nothing but the shop.
-fn menu_keyboard(_language: Language) -> InlineKeyboardMarkup {
+fn menu_keyboard() -> InlineKeyboardMarkup {
     InlineKeyboardMarkup {
         inline_keyboard: PROVIDERS
             .into_iter()
             .map(|provider| {
                 vec![InlineKeyboardButton::callback(
-                    format!("{} {}", provider.icon, provider.name),
+                    provider.name,
                     format!("provider:{}", provider.id),
                 )]
             })

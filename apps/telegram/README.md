@@ -32,11 +32,12 @@ what settles the order.
 
 USDT has no automatic settlement and says so on its own panel.
 
-A provider's screen leads with that provider's brand mark, the same image
-`apps/frontend` ships, copied into `assets/` and served at `/icons/<id>.png`
-because Telegram fetches a photo by URL. An inline keyboard button carries
-plain text only, so the provider buttons on `/menu` use an emoji; the brand
-marks appear on the screen a button opens, not on the button.
+`/menu` leads with `assets/providers.png`, a strip of the same ChatGPT, Claude
+and Grok marks `apps/frontend/public/assets/` ships, laid out left to right in
+the same order as the buttons under it. It is served at `/providers.png`
+because Telegram fetches a photo by URL. A Telegram inline keyboard button
+carries plain text and nothing else — no image, no custom emoji — so a brand
+can only be shown above its button, never on it.
 
 A tapped button is left unacknowledged until its work finishes, so Telegram
 keeps its own loading state on the button rather than looking frozen; a plain
@@ -115,9 +116,9 @@ Set these service variables:
   rather than showing an address the shop does not own.
 
 To change the payment QR, replace `assets/qr-bank.png` and update the three
-account variables to match. To change a provider's mark, replace
-`assets/<id>-icon.png` from `apps/frontend/public/assets/`. Every image is
-compiled into the binary, so the service has to be rebuilt.
+account variables to match. To change the provider marks, rebuild
+`assets/providers.png` from `apps/frontend/public/assets/*-icon.png`. Both
+images are compiled into the binary, so the service has to be rebuilt.
 
 Set `TELEGRAM_SERVICE_TOKEN` on `apps/api` to the **same** value as
 `HUB_API_SERVICE_TOKEN`. The API remains private; this second secret ensures

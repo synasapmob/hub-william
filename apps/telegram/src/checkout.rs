@@ -7,12 +7,13 @@ use chrono::{DateTime, FixedOffset, TimeDelta, Utc};
 use reqwest::Url;
 use serde::Deserialize;
 
-use crate::catalog::{CatalogItem, Provider as CatalogProvider};
+use crate::catalog::CatalogItem;
 
 pub const ORDER_LIFETIME_MINUTES: i64 = 15;
 const SELECTION_LIFETIME_MINUTES: i64 = 30;
 const VIETNAM_UTC_OFFSET_SECONDS: i32 = 7 * 3_600;
 const QR_IMAGE_PATH: &str = "/qr.png";
+const PROVIDERS_IMAGE_PATH: &str = "/providers.png";
 
 /// An order as `apps/api` owns it. The adapter never stores one; every payment
 /// screen reads the order back by its reference, so a redeploy cannot lose a
@@ -118,13 +119,8 @@ pub fn qr_image_url(public_url: &Url) -> Option<String> {
     Some(public_url.join(QR_IMAGE_PATH).ok()?.to_string())
 }
 
-pub fn icon_image_url(public_url: &Url, provider: CatalogProvider) -> Option<String> {
-    Some(
-        public_url
-            .join(&format!("/icons/{}.png", provider.id))
-            .ok()?
-            .to_string(),
-    )
+pub fn providers_image_url(public_url: &Url) -> Option<String> {
+    Some(public_url.join(PROVIDERS_IMAGE_PATH).ok()?.to_string())
 }
 
 /// Rounds up so a buyer never under-pays by a fraction of a cent.
