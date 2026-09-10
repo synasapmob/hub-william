@@ -598,8 +598,8 @@ pub fn admin_restock_prompt(chat_id: i64, message_id: i64, product: &Product) ->
         chat_id,
         message_id,
         format!(
-            "➕ Thêm hàng — {title}\n\n📦 Tồn kho hiện tại: {available}\n\nGửi số lượng muốn thêm, ví dụ: 7",
-            available = product.available,
+            "➕ Thêm hàng — {title}\n\n📦 Tồn kho hiện tại: {on_hand}\n\nGửi số lượng muốn thêm, ví dụ: 7",
+            on_hand = product.on_hand,
             title = product.title(),
         ),
     )
@@ -625,7 +625,7 @@ pub fn admin_new_product_prompt(chat_id: i64, message_id: i64) -> EditMessageTex
     EditMessageText::new(
         chat_id,
         message_id,
-        "🆕 Gói mới\n\nGửi lại khối dưới đây, điền giá trị của bạn:\n\nnhà cung cấp: Capcut\ntên: Pro 30D\nbiến thể: Personal\nchi tiết: 1M\nbảo hành: W7D\ngiá: 50000\ntồn: 7\n\n• bảo hành: WF, W7D hoặc NW\n• biến thể và chi tiết bỏ trống được\n• nhà cung cấp chưa có sẽ được tạo mới",
+        "🆕 Gói mới\n\nGửi lại khối dưới đây, điền giá trị của bạn:\n\nnhà cung cấp: Capcut\ntên: Pro 30D\nbiến thể: Personal\nchi tiết: 1M\ndanh mục: AI Tools\nbảo hành: W7D\ngiá: 50000\ntồn: 7\n\n• bảo hành: WF, W7D hoặc NW\n• biến thể, chi tiết và danh mục bỏ trống được\n• nhà cung cấp chưa có sẽ được tạo mới",
     )
     .with_keyboard(InlineKeyboardMarkup {
         inline_keyboard: vec![vec![InlineKeyboardButton::callback(
@@ -644,35 +644,58 @@ pub fn admin_result(chat_id: i64, message: impl Into<String>) -> SendMessage {
     })
 }
 
-/// The channel post announcing new stock, with a deep link that opens the bot
-/// straight on that product.
+/// The message a buyer gets when stock lands. It leads with the provider so a
+/// glance is enough, and the button is a deep link straight to the product.
 pub fn restock_announcement(
+    chat_id: i64,
+    added: i64,
+    product: &Product,
+    bot_username: Option<&str>,
+) -> SendMessage {
+    SendMessage::new(chat_id, restock_text(added, product))
+        .with_keyboard(buy_now_keyboard(product, bot_username))
+}
+
+/// The same announcement addressed to a channel, which Telegram takes by
+/// `@name` as readily as by id.
+pub fn restock_channel_post(
     chat_id: String,
     added: i64,
     product: &Product,
     bot_username: Option<&str>,
 ) -> SendMessage {
-    let message = SendMessage::to_chat(
-        chat_id,
-        format!(
-            "{headline} ({warranty})\n➕ Thêm: {added}\n📦 Tồn kho hiện tại: {available}\n💰 Giá: {price}đ",
-            available = product.available,
-            headline = product.headline(),
-            price = format_amount(product.price_vnd),
-            warranty = product.warranty,
-        ),
-    );
+    SendMessage::to_chat(chat_id, restock_text(added, product))
+        .with_keyboard(buy_now_keyboard(product, bot_username))
+}
 
-    // Without a username there is no link to send anyone to, so the post goes
-    // out as an announcement on its own rather than with a dead button.
-    match bot_username {
-        Some(username) => message.with_keyboard(InlineKeyboardMarkup {
-            inline_keyboard: vec![vec![InlineKeyboardButton::url(
+fn restock_text(added: i64, product: &Product) -> String {
+    let category = product
+        .category
+        .as_deref()
+        .map(|category| format!("📁 Danh mục: {category}\n"))
+        .unwrap_or_default();
+
+    format!(
+        "🔥 {provider} có hàng mới\n🛍️ {title} ({warranty})\n{category}💰 Giá: {price}₫\n📦 Tồn kho: {available} · vừa nhập {added}\n\n👇 Bấm nút bên dưới để mua ngay:",
+        available = product.available,
+        price = format_amount(product.price_vnd),
+        provider = product.provider_name,
+        title = product.title(),
+        warranty = product.warranty,
+    )
+}
+
+/// Without a bot username there is no link to send anyone to, so the message
+/// goes out on its own rather than with a dead button.
+fn buy_now_keyboard(product: &Product, bot_username: Option<&str>) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup {
+        inline_keyboard: match bot_username {
+            Some(username) => vec![vec![InlineKeyboardButton::url(
                 "🛒 Mua ngay",
                 format!("https://t.me/{username}?start={}", product.slug),
             )]],
-        }),
-        None => message,
+            None => Vec::new(),
+        },
     }
 }
 
@@ -727,8 +750,13 @@ fn admin_catalogue_keyboard(catalogue: &Catalogue) -> InlineKeyboardMarkup {
 
 fn admin_product_text(product: &Product) -> String {
     format!(
-        "🛠 {title}\n\n📦 Tồn kho: {available}\n💰 Giá: {price}₫\n🔖 Bảo hành: {warranty}\n{hot}\n{listed}",
-        available = product.available,
+        "🛠 {title}\n\n📦 Tồn kho: {on_hand}{held}\n📁 Danh mục: {category}\n💰 Giá: {price}₫\n🔖 Bảo hành: {warranty}\n{hot}\n{listed}",
+        category = product.category.as_deref().unwrap_or("—"),
+        held = match product.reserved {
+            0 => String::new(),
+            reserved => format!(" · đang giữ {reserved} · bán được {}", product.available),
+        },
+        on_hand = product.on_hand,
         hot = if product.hot {
             "🔥 Đang gắn hot"
         } else {

@@ -19,14 +19,19 @@ pub struct Provider {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Product {
+    /// What a buyer may still order, after stock held by open orders.
     pub available: i64,
+    pub category: Option<String>,
     pub detail: Option<String>,
     pub hot: bool,
     pub listed: bool,
+    /// The physical count the owner set, before reservations.
+    pub on_hand: i64,
     pub plan: String,
     pub price_vnd: i64,
     pub provider_name: String,
     pub provider_slug: String,
+    pub reserved: i64,
     pub slug: String,
     pub variant: Option<String>,
     pub warranty: String,
@@ -188,13 +193,16 @@ mod tests {
     fn product(slug: &str, hot: bool) -> Product {
         Product {
             available: 53,
+            category: Some("AI Tools".to_owned()),
             detail: Some("1M".to_owned()),
             hot,
             listed: true,
+            on_hand: 53,
             plan: "MAX X20".to_owned(),
             price_vnd: 135_000,
             provider_name: "Claude".to_owned(),
             provider_slug: "claude".to_owned(),
+            reserved: 0,
             slug: slug.to_owned(),
             variant: Some("Personal".to_owned()),
             warranty: "WF".to_owned(),

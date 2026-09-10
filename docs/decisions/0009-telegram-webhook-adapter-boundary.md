@@ -32,9 +32,15 @@ identity as a browser account or duplicating order and membership rules.
   Ownership is a configured allowlist of Telegram usernames and numeric ids,
   re-checked on every button and on every message that answers a prompt, because
   a username can be released and re-registered by somebody else.
-- New stock is announced by one post to a configured channel rather than a
-  message to each contact. That keeps the bot clear of Telegram's bulk-message
-  limits, needs no opt-out, and cannot be blocked away by individual buyers.
+- New stock is announced to every contact who has started the bot, and to a
+  configured channel when there is one. The fan-out is detached from the
+  triggering request and paced under Telegram's bulk-message limit; a `403`
+  marks that contact blocked so later announcements skip it.
+- Stock is reserved, not merely counted. An order awaiting payment and not yet
+  expired holds its quantity, so the sellable count is `on hand − reserved`, and
+  settling an order consumes the stock. Reservation is derived from the orders
+  table rather than written into the product, so an expiring order releases its
+  hold with no sweeper to run.
 - Orders and payments are API-owned. The adapter creates an order through the
   private API when a buyer confirms a quantity, and every payment screen reads
   that order back by reference. The only state the adapter keeps in memory is
@@ -68,8 +74,9 @@ identity as a browser account or duplicating order and membership rules.
   because the stock room is reached from Telegram and there is no owner role on
   `users`. A username allowlist is convenient but reassignable; the numeric-id
   allowlist is the one that cannot be taken over.
-- Stock is still not decremented when an order is paid, so the count a buyer
-  sees is what the owner set rather than what is unsold.
+- A buyer sees the sellable count, which can sit below the count the owner set
+  while other orders are open. The owner panel shows both so the difference is
+  never a mystery.
 - An order survives a redeploy and can be settled by a transfer that arrives
   long after its displayed expiry, because expiry governs the panel rather than
   the match. Cancelling is what actually stops an order from being matched.

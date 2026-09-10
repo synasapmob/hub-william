@@ -23,6 +23,9 @@ const SEPAY_AUTHORIZATION_SCHEME: &str = "Apikey ";
 /// Telegram truncates a callback notice past this, so the adapter does it first.
 const MAXIMUM_NOTICE_CHARACTERS: usize = 200;
 const BUSY_NOTICE: &str = "⚠️ Thử lại giúp mình nhé / Please try again.";
+const AUDIENCE_PATH: &str = "/internal/telegram/audience";
+/// Telegram caps bulk sending near 30 messages a second; this stays under it.
+const BROADCAST_INTERVAL: std::time::Duration = std::time::Duration::from_millis(50);
 const QR_IMAGE: &[u8] = include_bytes!("../assets/qr-bank.png");
 
 #[derive(Clone)]
@@ -467,25 +470,68 @@ async fn create_product(
     .await
 }
 
-/// Best effort: the stock is already added, so a channel that is misconfigured
-/// or unreachable must not turn the restock itself into a failure.
+/// Best effort throughout: the stock is already added, so a chat that cannot be
+/// written to must not turn the restock itself into a failure.
 async fn announce_restock(state: &AppState, added: i64, product: &Product) {
-    let Some(chat_id) = state.config.announce_chat_id.clone() else {
-        return;
-    };
-    let announcement = view::restock_announcement(
-        chat_id,
-        added,
-        product,
-        state.config.bot_username.as_deref(),
-    );
-    let body = match serde_json::to_value(&announcement) {
-        Ok(body) => body,
-        Err(_) => return,
+    if let Some(chat_id) = state.config.announce_chat_id.clone() {
+        let post = view::restock_channel_post(
+            chat_id,
+            added,
+            product,
+            state.config.bot_username.as_deref(),
+        );
+        if let Ok(body) = serde_json::to_value(&post)
+            && let Err(status) = call_telegram(state, "sendMessage", body).await
+        {
+            eprintln!("Telegram channel announcement failed with status {status}");
+        }
+    }
+
+    // The fan-out runs detached so the owner's own reply is not held behind it,
+    // and it is paced under Telegram's bulk-message limit.
+    let state = state.clone();
+    let product = product.clone();
+    tokio::spawn(async move {
+        broadcast_restock(&state, added, &product).await;
+    });
+}
+
+async fn broadcast_restock(state: &AppState, added: i64, product: &Product) {
+    let audience: Vec<Audience> = match call_api(state, Method::GET, AUDIENCE_PATH, None).await {
+        Ok(Some(audience)) => audience,
+        Ok(None) => Vec::new(),
+        Err(status) => {
+            eprintln!("Telegram audience lookup failed with status {status}");
+            return;
+        }
     };
 
-    if let Err(status) = call_telegram(state, "sendMessage", body).await {
-        eprintln!("Telegram restock announcement failed with status {status}");
+    for contact in audience {
+        let message = view::restock_announcement(
+            contact.chat_id,
+            added,
+            product,
+            state.config.bot_username.as_deref(),
+        );
+        let Ok(body) = serde_json::to_value(&message) else {
+            continue;
+        };
+
+        // A chat that answers 403 has blocked the bot; recording it keeps the
+        // next announcement from spending a send on them again.
+        if let Err(status) = call_telegram(state, "sendMessage", body).await
+            && status == StatusCode::FORBIDDEN
+        {
+            let _: Result<Option<serde_json::Value>, _> = call_api(
+                state,
+                Method::POST,
+                &format!("{AUDIENCE_PATH}/{}/block", contact.chat_id),
+                None,
+            )
+            .await;
+        }
+
+        tokio::time::sleep(BROADCAST_INTERVAL).await;
     }
 }
 
@@ -1024,6 +1070,7 @@ fn product_draft(text: &str) -> Option<serde_json::Value> {
 
     Some(serde_json::json!({
         "available": available,
+        "category": draft.get("danhmuc").or_else(|| draft.get("category")),
         "detail": draft.get("chitiet").or_else(|| draft.get("detail")),
         "plan": plan,
         "price_vnd": price_vnd,
@@ -1119,6 +1166,13 @@ struct TelegramContact {
 #[derive(Deserialize)]
 struct SepayResult {
     order: Option<Order>,
+}
+
+/// The announcement copy is Vietnamese only for now, so a contact's stored
+/// language is read but not yet branched on.
+#[derive(Deserialize)]
+struct Audience {
+    chat_id: i64,
 }
 
 #[derive(Deserialize)]
@@ -1500,7 +1554,7 @@ mod tests {
         assert_eq!(announcement["chat_id"], "@hubwilliam");
         assert_eq!(
             announcement["text"],
-            "🔥 Claude MAX X20 (Personal) · 1M (WF)\n➕ Thêm: 7\n📦 Tồn kho hiện tại: 60\n💰 Giá: 135,000đ"
+            "🔥 Claude có hàng mới\n🛍️ Claude MAX X20 (Personal) · 1M (WF)\n📁 Danh mục: AI Tools\n💰 Giá: 135,000₫\n📦 Tồn kho: 60 · vừa nhập 7\n\n👇 Bấm nút bên dưới để mua ngay:"
         );
         assert_eq!(
             announcement["reply_markup"]["inline_keyboard"][0][0]["url"],
@@ -1578,12 +1632,62 @@ mod tests {
         assert_eq!(announcement["chat_id"], "@hubwilliam");
         assert_eq!(
             announcement["text"],
-            "Capcut Pro 30D (W7D)\n➕ Thêm: 7\n📦 Tồn kho hiện tại: 7\n💰 Giá: 50,000đ"
+            "🔥 Capcut có hàng mới\n🛍️ Capcut Pro 30D (W7D)\n💰 Giá: 50,000₫\n📦 Tồn kho: 7 · vừa nhập 7\n\n👇 Bấm nút bên dưới để mua ngay:"
         );
         assert_eq!(
             announcement["reply_markup"]["inline_keyboard"][0][0]["url"],
             "https://t.me/hub_william_bot?start=capcut-pro-30d"
         );
+    }
+
+    /// The announcement also reaches everyone who has started the bot, not only
+    /// the channel, and it carries the same deep link.
+    #[tokio::test]
+    async fn a_restock_reaches_the_bot_chats_as_well_as_the_channel() {
+        let shop = Shop::open().await;
+        shop.update_json(owner_callback("admin:restock:claude-max-x20"))
+            .await;
+        shop.update_json(owner_message("7")).await;
+
+        // The fan-out is detached, so give it a moment to drain.
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        let posted = shop.api.notified.lock().unwrap().clone();
+
+        let channel = posted
+            .iter()
+            .find(|message| message["chat_id"] == "@hubwilliam")
+            .expect("a channel post");
+        let buyer = posted
+            .iter()
+            .find(|message| message["chat_id"] == 555)
+            .expect("a message to the contact");
+
+        assert_eq!(channel["text"], buyer["text"]);
+        assert!(
+            buyer["text"]
+                .as_str()
+                .expect("announcement text")
+                .starts_with("🔥 Claude có hàng mới")
+        );
+        assert_eq!(
+            buyer["reply_markup"]["inline_keyboard"][0][0]["url"],
+            "https://t.me/hub_william_bot?start=claude-max-x20"
+        );
+    }
+
+    /// Stock held by an open order is not sellable, which is what stops two
+    /// buyers from taking the same unit.
+    #[tokio::test]
+    async fn the_owner_panel_separates_stock_on_hand_from_stock_held() {
+        let shop = Shop::open().await;
+        shop.reserve("claude-max-x20", 50);
+
+        let response = shop
+            .update_json(owner_callback("admin:open:claude-max-x20"))
+            .await;
+        let text = response["text"].as_str().expect("the product panel");
+
+        assert!(text.contains("📦 Tồn kho: 53 · đang giữ 50 · bán được 3"));
     }
 
     #[tokio::test]
@@ -1781,6 +1885,18 @@ mod tests {
             self.api.deleted.lock().unwrap().clear();
         }
 
+        /// Mirrors the API holding stock behind an order awaiting payment.
+        fn reserve(&self, slug: &str, quantity: i64) {
+            let mut products = self.api.products.lock().unwrap();
+            let product = products
+                .iter_mut()
+                .find(|product| product["slug"] == slug)
+                .expect("a seeded product");
+            let on_hand = product["on_hand"].as_i64().unwrap_or_default();
+            product["reserved"] = json!(quantity);
+            product["available"] = json!((on_hand - quantity).max(0));
+        }
+
         fn stored_order(&self) -> Value {
             self.api
                 .orders
@@ -1804,6 +1920,7 @@ mod tests {
     #[derive(Clone, Default)]
     struct FakeApi {
         alerts: Arc<Mutex<Vec<Value>>>,
+        audience: Arc<Mutex<Vec<Value>>>,
         deleted: Arc<Mutex<Vec<Value>>>,
         notified: Arc<Mutex<Vec<Value>>>,
         orders: Arc<Mutex<HashMap<String, Value>>>,
@@ -1813,28 +1930,28 @@ mod tests {
     fn seeded_products() -> Vec<Value> {
         vec![
             json!({
-                "available": 12, "detail": null, "hot": true, "listed": true,
+                "available": 12, "category": "AI Tools", "detail": null, "on_hand": 12, "reserved": 0, "hot": true, "listed": true,
                 "plan": "Plus", "price_vnd": 299_000, "provider_name": "ChatGPT",
                 "provider_slug": "chatgpt", "slug": "chatgpt-plus", "variant": "Personal",
                 "warranty": "W7D", "warranty_note_en": "login check",
                 "warranty_note_vi": "Bảo hành login check 1 tiếng"
             }),
             json!({
-                "available": 53, "detail": "1M", "hot": true, "listed": true,
+                "available": 53, "category": "AI Tools", "detail": "1M", "on_hand": 53, "reserved": 0, "hot": true, "listed": true,
                 "plan": "MAX X20", "price_vnd": 135_000, "provider_name": "Claude",
                 "provider_slug": "claude", "slug": "claude-max-x20", "variant": "Personal",
                 "warranty": "WF", "warranty_note_en": "own account",
                 "warranty_note_vi": "Active trực tiếp trên tài khoản chính chủ của bạn."
             }),
             json!({
-                "available": 27, "detail": null, "hot": false, "listed": true,
+                "available": 27, "category": "AI Tools", "detail": null, "on_hand": 27, "reserved": 0, "hot": false, "listed": true,
                 "plan": "MAX X5", "price_vnd": 79_000, "provider_name": "Claude",
                 "provider_slug": "claude", "slug": "claude-max-x5", "variant": null,
                 "warranty": "W7D", "warranty_note_en": "login check",
                 "warranty_note_vi": "Bảo hành login check 1 tiếng"
             }),
             json!({
-                "available": 0, "detail": null, "hot": false, "listed": true,
+                "available": 0, "category": "AI Tools", "detail": null, "on_hand": 0, "reserved": 0, "hot": false, "listed": true,
                 "plan": "SuperGrok", "price_vnd": 259_000, "provider_name": "Grok",
                 "provider_slug": "grok", "slug": "grok-supergrok", "variant": "Personal",
                 "warranty": "NW", "warranty_note_en": "login check",
@@ -1899,6 +2016,7 @@ mod tests {
     async fn fake_api() -> (FakeApi, String, JoinHandle<()>) {
         let api = FakeApi::default();
         *api.products.lock().unwrap() = seeded_products();
+        *api.audience.lock().unwrap() = vec![json!({ "chat_id": 555 })];
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .expect("test API listener should bind");
@@ -1931,6 +2049,11 @@ mod tests {
                 post(cancel_order),
             )
             .route("/internal/telegram/payments/sepay", post(record_payment))
+            .route("/internal/telegram/audience", get(audience))
+            .route(
+                "/internal/telegram/audience/{chat_id}/block",
+                post(|| async { Json(json!({"preferred_language": null})) }),
+            )
             .route("/internal/telegram/catalogue", get(listed_catalogue))
             .route("/internal/telegram/catalogue/full", get(every_product))
             .route("/internal/telegram/products", post(add_product))
@@ -2057,6 +2180,10 @@ mod tests {
         Json(json!({"ok": true, "result": {}}))
     }
 
+    async fn audience(State(api): State<FakeApi>) -> Json<Value> {
+        Json(Value::Array(api.audience.lock().unwrap().clone()))
+    }
+
     async fn listed_catalogue(State(api): State<FakeApi>) -> Json<Value> {
         Json(catalogue_of(&api.products.lock().unwrap(), true))
     }
@@ -2091,6 +2218,7 @@ mod tests {
             .find(|product| product["slug"] == slug)
             .ok_or(StatusCode::NOT_FOUND)?;
         product["available"] = json!(product["available"].as_i64().unwrap_or_default() + added);
+        product["on_hand"] = json!(product["on_hand"].as_i64().unwrap_or_default() + added);
         Ok(Json(json!({ "added": added, "product": product.clone() })))
     }
 
@@ -2115,7 +2243,10 @@ mod tests {
     async fn add_product(State(api): State<FakeApi>, Json(body): Json<Value>) -> Json<Value> {
         let product = json!({
             "available": body["available"],
+            "category": body["category"],
             "detail": body["detail"],
+            "on_hand": body["available"],
+            "reserved": 0,
             "hot": false,
             "listed": true,
             "plan": body["plan"],

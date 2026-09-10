@@ -50,10 +50,12 @@ use gateway::{
 pub use health::HealthResponse;
 use health::health;
 pub use openapi::ApiDoc;
-pub use telegram::{CreateTelegramOrder, SepayResult, SepayTransaction, TelegramOrder};
+pub use telegram::{
+    CreateTelegramOrder, SepayResult, SepayTransaction, TelegramAudience, TelegramOrder,
+};
 use telegram::{
-    cancel_order, create_order, get_contact, get_order, list_orders, observe_contact,
-    record_sepay_payment, set_contact_language,
+    block_contact, cancel_order, create_order, get_contact, get_order, list_audience, list_orders,
+    observe_contact, record_sepay_payment, set_contact_language,
 };
 pub use telegram_catalogue::{
     AdjustTelegramProduct, CreateTelegramProduct, RestockTelegramProduct, TelegramCatalogue,
@@ -123,6 +125,11 @@ pub fn app(state: AppState) -> Router {
         .route(
             "/internal/telegram/payments/sepay",
             post(record_sepay_payment),
+        )
+        .route("/internal/telegram/audience", get(list_audience))
+        .route(
+            "/internal/telegram/audience/{chat_id}/block",
+            post(block_contact),
         )
         .route("/internal/telegram/catalogue", get(catalogue))
         .route("/internal/telegram/catalogue/full", get(full_catalogue))

@@ -95,6 +95,56 @@ pub async fn get_contact(
     Ok(Json(TelegramContact { preferred_language }))
 }
 
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct TelegramAudience {
+    pub chat_id: i64,
+    pub preferred_language: Option<String>,
+}
+
+/// Everyone who has started the bot and has not blocked it. This is the list an
+/// announcement goes to; a blocked contact is skipped rather than retried.
+pub async fn list_audience(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<TelegramAudience>>, ApiError> {
+    authorize_telegram_service(&state, &headers)?;
+
+    let audience = sqlx::query_as::<_, TelegramAudience>(
+        "SELECT chat_id, preferred_language
+         FROM telegram_contacts
+         WHERE blocked_at IS NULL
+         ORDER BY last_seen_at DESC",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .map_err(database_error)?;
+
+    Ok(Json(audience))
+}
+
+/// Called when Telegram reports that a chat can no longer be written to.
+pub async fn block_contact(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(chat_id): Path<i64>,
+) -> Result<Json<TelegramContact>, ApiError> {
+    authorize_telegram_service(&state, &headers)?;
+
+    let preferred_language = sqlx::query_scalar::<_, Option<String>>(
+        "UPDATE telegram_contacts
+         SET blocked_at = NOW()
+         WHERE chat_id = $1
+         RETURNING preferred_language",
+    )
+    .bind(chat_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(database_error)?
+    .ok_or(ApiError::NotFound)?;
+
+    Ok(Json(TelegramContact { preferred_language }))
+}
+
 pub async fn set_contact_language(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -428,6 +478,22 @@ async fn settle_order(
     .fetch_optional(&mut *database)
     .await
     .map_err(database_error)?;
+
+    // A paid order stops reserving stock and starts consuming it, so the count
+    // on hand comes down for good. `GREATEST` guards the case where the owner
+    // lowered the count while the order was open.
+    if let Some(order) = order.as_ref() {
+        sqlx::query(
+            "UPDATE telegram_products
+             SET available = GREATEST(available - $2, 0), updated_at = NOW()
+             WHERE slug = $1",
+        )
+        .bind(&order.item_id)
+        .bind(order.quantity)
+        .execute(&mut *database)
+        .await
+        .map_err(database_error)?;
+    }
 
     Ok(order)
 }

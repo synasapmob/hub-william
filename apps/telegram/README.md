@@ -51,19 +51,34 @@ Ownership is checked against `TELEGRAM_OWNER_USERNAMES` and
 `TELEGRAM_OWNER_IDS`, and it is re-checked on every button and on the message
 that answers a prompt, not only when `/catalog` was typed.
 
-Adding stock posts to `TELEGRAM_ANNOUNCE_CHAT_ID`:
+Adding stock — or creating a product that already has stock — announces it:
 
 ```text
-🔥 Claude MAX X20 (Personal) · 1M (WF)
-➕ Thêm: 7
-📦 Tồn kho hiện tại: 60
-💰 Giá: 135,000đ
+🔥 Claude có hàng mới
+🛍️ Claude MAX X20 (Personal) · 1M (WF)
+📁 Danh mục: AI Tools
+💰 Giá: 135,000₫
+📦 Tồn kho: 60 · vừa nhập 7
+
+👇 Bấm nút bên dưới để mua ngay:
 [🛒 Mua ngay]
 ```
 
-The button is a `t.me` deep link, so tapping it opens the bot on that product's
-quantity prompt. One channel post rather than a message per contact keeps the
-bot clear of Telegram's bulk limits and of anyone blocking it.
+It goes to everyone who has started the bot, and additionally to
+`TELEGRAM_ANNOUNCE_CHAT_ID` when one is configured. The fan-out is detached from
+the owner's own reply and paced at one message per 50ms, under Telegram's bulk
+limit; a chat that answers `403` has blocked the bot and is recorded so the next
+announcement skips it. The button is a `t.me` deep link, so tapping it opens the
+bot on that product's quantity prompt.
+
+## Stock that is held, not just counted
+
+A product's count on hand is not what a buyer may order. An order that is
+awaiting payment and has not expired **reserves** its quantity, so the shop
+offers `on hand − reserved`; settling an order consumes the stock for good.
+That is what stops two buyers from each taking the last unit, and what stops one
+buyer from opening order after order past the shelf. The owner panel shows both
+numbers whenever anything is held.
 
 A tapped button is left unacknowledged until its work finishes, so Telegram
 keeps its own loading state on the button rather than looking frozen; a plain

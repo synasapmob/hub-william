@@ -14,15 +14,21 @@ const MAXIMUM_STOCK: i32 = 1_000_000;
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct TelegramProduct {
+    /// What a buyer may still order: the count on hand less anything held by
+    /// an order that is awaiting payment and has not expired.
     pub available: i32,
+    pub category: Option<String>,
     pub detail: Option<String>,
     pub hot: bool,
     pub listed: bool,
+    /// The physical count the owner set, before reservations.
+    pub on_hand: i32,
     pub plan: String,
     pub price_vnd: i64,
     pub provider_name: String,
     pub provider_slug: String,
     pub slug: String,
+    pub reserved: i32,
     pub variant: Option<String>,
     pub warranty: String,
     pub warranty_note_en: String,
@@ -61,11 +67,13 @@ pub struct TelegramCatalogueProvider {
 
 #[derive(Debug, Deserialize)]
 pub struct CreateTelegramProduct {
+    pub category: Option<String>,
     pub detail: Option<String>,
     pub plan: String,
     pub price_vnd: i64,
     pub provider: String,
     pub available: i32,
+    pub reserved: i32,
     pub variant: Option<String>,
     pub warranty: String,
 }
@@ -89,7 +97,18 @@ pub struct TelegramRestock {
     pub product: TelegramProduct,
 }
 
-const PRODUCT_COLUMNS: &str = "product.available, product.detail, product.hot, product.listed, product.plan, product.price_vnd, provider.name AS provider_name, provider.slug AS provider_slug, product.slug, product.variant, product.warranty, product.warranty_note_en, product.warranty_note_vi";
+const PRODUCT_COLUMNS: &str = "GREATEST(product.available - reserved.quantity, 0)::INT AS available, product.category, product.detail, product.hot, product.listed, product.available AS on_hand, product.plan, product.price_vnd, provider.name AS provider_name, provider.slug AS provider_slug, reserved.quantity::INT AS reserved, product.slug, product.variant, product.warranty, product.warranty_note_en, product.warranty_note_vi";
+
+/// Joined into every product read so `available` always means "sellable".
+const RESERVED_JOIN: &str =
+    "JOIN telegram_providers AS provider ON provider.id = product.provider_id
+         LEFT JOIN LATERAL (
+             SELECT COALESCE(SUM(quantity), 0) AS quantity
+             FROM telegram_orders
+             WHERE item_id = product.slug
+               AND status = 'awaiting_payment'
+               AND expires_at > NOW()
+         ) AS reserved ON TRUE";
 
 /// What a buyer sees: listed providers, each with its listed products. A
 /// provider with nothing listed is left out rather than opening on an empty
@@ -140,6 +159,7 @@ pub async fn create_product(
         normalize_text(payload.plan, 64).ok_or(ApiError::Validation("A product needs a plan."))?;
     let variant = payload.variant.and_then(|value| normalize_text(value, 32));
     let detail = payload.detail.and_then(|value| normalize_text(value, 32));
+    let category = payload.category.and_then(|value| normalize_text(value, 64));
     let warranty = normalize_warranty(&payload.warranty)?;
     let price_vnd = normalize_price(payload.price_vnd)?;
     let available = normalize_stock(payload.available)?;
@@ -178,8 +198,8 @@ pub async fn create_product(
     let created = sqlx::query_scalar::<_, Uuid>(
         "INSERT INTO telegram_products
             (id, provider_id, slug, plan, variant, detail, warranty,
-             warranty_note_en, warranty_note_vi, price_vnd, available, position)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+             warranty_note_en, warranty_note_vi, price_vnd, available, category, position)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
                  (SELECT COALESCE(MAX(position), 0) + 1 FROM telegram_products WHERE provider_id = $2))
          ON CONFLICT (slug) DO NOTHING
          RETURNING id",
@@ -195,6 +215,7 @@ pub async fn create_product(
     .bind(default_warranty_note_vi(warranty))
     .bind(price_vnd)
     .bind(available)
+    .bind(&category)
     .fetch_optional(&mut *database)
     .await
     .map_err(database_error)?;
@@ -296,7 +317,7 @@ async fn fetch_products(
     sqlx::query_as::<_, TelegramProduct>(&format!(
         "SELECT {PRODUCT_COLUMNS}
          FROM telegram_products AS product
-         JOIN telegram_providers AS provider ON provider.id = product.provider_id
+         {RESERVED_JOIN}
          WHERE ($1 = FALSE OR (product.listed AND provider.listed))
          ORDER BY provider.position, provider.slug, product.position, product.created_at"
     ))
@@ -313,7 +334,7 @@ pub(crate) async fn load_product(
     sqlx::query_as::<_, TelegramProduct>(&format!(
         "SELECT {PRODUCT_COLUMNS}
          FROM telegram_products AS product
-         JOIN telegram_providers AS provider ON provider.id = product.provider_id
+         {RESERVED_JOIN}
          WHERE product.slug = $1"
     ))
     .bind(slug)
@@ -516,13 +537,16 @@ mod tests {
     fn product(provider_slug: &str, slug: &str) -> TelegramProduct {
         TelegramProduct {
             available: 1,
+            category: None,
             detail: None,
             hot: false,
             listed: true,
+            on_hand: 1,
             plan: "Pro".to_owned(),
             price_vnd: 49_000,
             provider_name: provider_slug.to_owned(),
             provider_slug: provider_slug.to_owned(),
+            reserved: 0,
             slug: slug.to_owned(),
             variant: None,
             warranty: "NW".to_owned(),
