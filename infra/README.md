@@ -1,16 +1,18 @@
 # Infrastructure
 
-Deployment ownership is documented here before provider-specific configuration
-is introduced:
+Production runs as three Railway services:
 
-- `frontend/` builds for GitHub Pages.
-- `backend/` is the future Railway service.
-- PostgreSQL will be provisioned beside the backend when persistent pool and
-  order data is implemented.
-- SePay and Telegram will call authenticated HTTP webhooks on the backend.
-- Provider-bound gateway traffic will leave through the backend runtime.
+- `frontend` is the only public service. Nginx serves the prerendered build and
+  proxies same-origin `/api/*` traffic over Railway private networking.
+- `api` has no public domain, listens on IPv6, and receives traffic at its
+  `*.railway.internal` hostname from the frontend service.
+- `Postgres` stores users, rotating sessions, encrypted provider connections,
+  gateway key hashes, pools, join requests, and membership decisions.
+- SePay and Telegram will call authenticated HTTP webhooks on the API.
+- Provider-bound gateway traffic will leave through the API's gateway module.
 
-No Terraform, Docker, or Railway manifest is committed yet because the current
-bootstrap does not deploy backend infrastructure. Add provider configuration
-only with the first deployment that consumes it, and keep secrets in the
-provider secret store.
+`apps/frontend/Dockerfile` and `apps/api/Dockerfile` own reproducible service builds.
+Production secrets stay in Railway variables. The API receives
+`DATABASE_URL` from the Postgres reference variable and a sealed
+`PROVIDER_CREDENTIAL_ENCRYPTION_KEY`; the frontend receives only
+`API_INTERNAL_URL`, the API's private origin.

@@ -3,14 +3,15 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "dev": "pnpm --dir frontend dev",
-    "backend:dev": "cargo run --manifest-path backend/Cargo.toml",
-    "format": "pnpm --dir frontend exec prettier --write . ../README.md ../docs ../infra ../backend/README.md ../package.json ../pnpm-workspace.yaml ../vercel.json ../.github && cargo fmt --manifest-path backend/Cargo.toml",
-    "format:check": "pnpm --dir frontend exec prettier --check . ../README.md ../docs ../infra ../backend/README.md ../package.json ../pnpm-workspace.yaml ../vercel.json ../.github && cargo fmt --manifest-path backend/Cargo.toml -- --check",
-    "lint": "pnpm --dir frontend lint && cargo clippy --manifest-path backend/Cargo.toml --all-targets -- -D warnings",
-    "check:tailwind": "pnpm --dir frontend check:tailwind",
-    "typecheck": "pnpm --dir frontend typecheck",
-    "test": "pnpm --dir frontend test && cargo test --manifest-path backend/Cargo.toml",
-    "build": "pnpm --dir frontend build && cargo build --manifest-path backend/Cargo.toml --locked"
+    "api:generate": "pnpm --dir apps/frontend api:generate",
+    "dev": "pnpm --dir apps/frontend dev",
+    "api:dev": "cargo run --manifest-path apps/api/Cargo.toml --bin hub-william-backend",
+    "format": "pnpm --dir apps/frontend exec prettier --write . ../../README.md ../../docs ../../infra ../api/README.md ../../package.json ../../pnpm-workspace.yaml ../../vercel.json ../../.github && cargo fmt --manifest-path apps/api/Cargo.toml",
+    "format:check": "pnpm --dir apps/frontend exec prettier --check . ../../README.md ../../docs ../../infra ../api/README.md ../../package.json ../../pnpm-workspace.yaml ../../vercel.json ../../.github && cargo fmt --manifest-path apps/api/Cargo.toml -- --check",
+    "lint": "pnpm --dir apps/frontend lint && cargo clippy --manifest-path apps/api/Cargo.toml --all-targets -- -D warnings",
+    "check:tailwind": "pnpm --dir apps/frontend check:tailwind",
+    "typecheck": "pnpm --dir apps/frontend typecheck",
+    "test": "pnpm --dir apps/frontend test && cargo test --manifest-path apps/api/Cargo.toml",
+    "build": "pnpm --dir apps/frontend build && cargo build --manifest-path apps/api/Cargo.toml --locked"
   }
 }

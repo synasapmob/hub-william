@@ -1,5 +1,5 @@
 packages:
-  - "frontend"
+  - "apps/frontend"
 
 minimumReleaseAgeExclude:
   - "@rolldown/binding-android-arm64@1.2.2"

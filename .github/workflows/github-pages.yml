@@ -56,13 +56,13 @@ jobs:
       # before the build rather than in a separate workflow that can go green
       # after a deploy has already happened.
       - name: Lint
-        run: pnpm --dir frontend lint
+        run: pnpm --dir apps/frontend lint
 
       - name: Typecheck
-        run: pnpm --dir frontend typecheck
+        run: pnpm --dir apps/frontend typecheck
 
       - name: Test
-        run: pnpm --dir frontend test
+        run: pnpm --dir apps/frontend test
 
       - name: Resolve the environment
         run: |
@@ -75,7 +75,7 @@ jobs:
           fi
 
       - name: Build
-        run: pnpm --dir frontend build
+        run: pnpm --dir apps/frontend build
 
       - name: Publish to gh-pages
         env:
@@ -111,17 +111,17 @@ jobs:
             DESTINATION="$PUBLISH_DIR/$TARGET_DIR"
           fi
 
-          # `frontend/build/client` is laid out for a server whose document root is the
+          # `apps/frontend/build/client` is laid out for a server whose document root is the
           # domain root: assets and public files sit at the top, and the
           # prerendered HTML sits under the base path because that is the URL it
           # was rendered for. A Pages project site puts the branch root at the
           # base path instead, so the two halves are flattened together — first
           # the assets, then the route HTML over the SPA fallback that shares
           # its name.
-          PREFIX_DIR="frontend/build/client${VITE_BASE_PATH%/}"
+          PREFIX_DIR="apps/frontend/build/client${VITE_BASE_PATH%/}"
 
-          cp frontend/build/client/index.html "$DESTINATION/404.html"
-          find frontend/build/client -mindepth 1 -maxdepth 1 ! -name hub-william \
+          cp apps/frontend/build/client/index.html "$DESTINATION/404.html"
+          find apps/frontend/build/client -mindepth 1 -maxdepth 1 ! -name hub-william \
             -exec cp -R {} "$DESTINATION/" \;
           cp -R "$PREFIX_DIR/." "$DESTINATION/"
 

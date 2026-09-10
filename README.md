@@ -1,13 +1,13 @@
 # Hub William
 
 A monorepo for the Hub William agent workspace: the public catalogue frontend,
-the machine-installable contracts behind it, and the Rust API boundary that
-will host agent pools, payments, and gateway traffic.
+the machine-installable contracts behind it, and the Rust control plane and
+streaming gateway for connected agent accounts.
 
 **[synasapmob.github.io/hub-william](https://synasapmob.github.io/hub-william/)**
 
-📖 [Architecture](frontend/docs/architecture.md) ·
-[Frontend conventions](frontend/docs/frontend-conventions.md) ·
+📖 [Architecture](apps/frontend/docs/architecture.md) ·
+[Frontend conventions](apps/frontend/docs/frontend-conventions.md) ·
 [Decisions](docs/decisions/README.md) ·
 [Contributing](.github/CONTRIBUTING.md) ·
 [Security](.github/SECURITY.md) ·
@@ -59,7 +59,7 @@ contributors/
     ├── libraries/
     └── tools/
 
-frontend/scripts/machine/        the installer, and its own test suite
+apps/frontend/scripts/machine/        the installer, and its own test suite
 ```
 
 `/library` groups documents by the job they do rather than duplicating the
@@ -123,27 +123,32 @@ whole difference between the two folders.
 ## Repository layout
 
 ```text
-backend/                         Rust API, OpenAPI and future gateway runtime
-frontend/                        React Router frontend and public web assets
+apps/api/                         Rust business API, OpenAPI and gateway module
+apps/frontend/                    React Router frontend and public web assets
 contributors/                    installable contracts published by the frontend
-frontend/scripts/machine/        machine installer and its tests
+apps/frontend/scripts/machine/        machine installer and its tests
 infra/                           deployment ownership and future provider config
 ```
 
-The structural backend currently exposes only `/health`, generated OpenAPI, and
-Swagger UI. Pool, payment, database, Telegram, and gateway behavior will arrive
-as explicit follow-up changes rather than placeholders in this bootstrap.
+The API exposes username/password auth, rotating PostgreSQL-backed browser
+sessions, encrypted ChatGPT/Claude/Grok connections, public connected-account
+pools, durable join decisions, revocable gateway keys, provider routing,
+`/health`, generated OpenAPI, and Swagger UI.
+
+An accepted pool membership authorizes that user's own gateway key to route
+through the shared provider account. Provider credentials remain encrypted in
+the API and are never returned to the member's browser or local agent.
 
 ## Working in the monorepo
 
 ```bash
 pnpm install
 pnpm dev             # frontend
-pnpm backend:dev     # Rust API on :8080
+pnpm api:dev         # Rust API on :8080
 ```
 
 The frontend needs no environment variables or services; the catalogue is read
-from disk at build time. The backend accepts an optional `PORT` and otherwise
+from disk at build time. The API accepts an optional `PORT` and otherwise
 listens on `8080`.
 
 ```bash
@@ -152,11 +157,11 @@ pnpm lint           # oxlint, then eslint
 pnpm check:tailwind # canonical Tailwind class lists (--write to fix)
 pnpm typecheck      # tsc -b
 pnpm test           # vitest
-pnpm build          # prerenders the frontend and compiles the backend
-bash frontend/scripts/machine/tests/run.sh # installer suite; pins the catalogue layout
+pnpm build          # prerenders the frontend and compiles the API
+bash apps/frontend/scripts/machine/tests/run.sh # installer suite; pins the catalogue layout
 ```
 
-Read [frontend conventions](frontend/docs/frontend-conventions.md) before changing
+Read [frontend conventions](apps/frontend/docs/frontend-conventions.md) before changing
 anything user-visible. They are review criteria, not suggestions.
 
 ## Installing it
@@ -203,13 +208,9 @@ Tailwind CSS 4 · Rust · Axum · Utoipa/OpenAPI · Vitest · Oxlint · Prettier
 
 ## What remains fixture data
 
-**The dates are not.** `/activities` is fixture telemetry behind
-`frontend/src/utils/utils.activities.ts`, and so is the sidebar's "Recent
-updates" list in
-`frontend/src/components/workspace-shell/workspace-shell-recent-updates.tsx`. Nothing in
-the build reads git history and `import.meta.glob` hands the catalogue service
-the bytes of a file rather than its modification time, so there is no timestamp
-anywhere to derive an update from. Each row does resolve a real document out of
-the catalogue and link to it; it is the author and the "2 days ago" beside it
-that are written down rather than measured. That stays true until a build-time
-git step exists.
+`/activities` remains fixture telemetry behind
+`apps/frontend/src/utils/utils.activities.ts`. `/agents` reads connected accounts,
+memberships, and request decisions from the backend with no mock fallback.
+Provider usage metrics remain empty until a provider-specific usage contract is
+verified; the browser never fabricates them. The sidebar's former Recent
+updates fixture has been removed.

@@ -1,0 +1,1200 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Hub William API",
+    "description": "Control-plane and gateway API for Hub William agent pools",
+    "license": {
+      "name": ""
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/agent-connections": {
+      "get": {
+        "tags": ["agent connections"],
+        "operationId": "list_connections",
+        "responses": {
+          "200": {
+            "description": "Current user's provider connections",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AgentConnection"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent-connections/start": {
+      "post": {
+        "tags": ["agent connections"],
+        "operationId": "start",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartAgentConnectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Provider authorization started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentConnection"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Provider authorization unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent-connections/{connection_id}": {
+      "get": {
+        "tags": ["agent connections"],
+        "operationId": "get_connection",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "description": "Agent connection ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Latest provider connection status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentConnection"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Connection not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": ["agent connections"],
+        "operationId": "disconnect",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "description": "Agent connection ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Connection credential removed"
+          },
+          "404": {
+            "description": "Connection not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent-connections/{connection_id}/complete": {
+      "post": {
+        "tags": ["agent connections"],
+        "operationId": "complete_authorization",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "description": "Agent connection ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteAuthorizationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Authorization completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentConnection"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid callback URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Provider rejected the exchange",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent-pool-requests/{request_id}/decision": {
+      "post": {
+        "tags": ["agent pools"],
+        "operationId": "decide_request",
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "description": "Join request identifier",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecideAgentPoolJoinRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Join request decided",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentPoolJoinRequest"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Pool ownership required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent-pools": {
+      "get": {
+        "tags": ["agent pools"],
+        "operationId": "list",
+        "responses": {
+          "200": {
+            "description": "Connected account pools",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AgentPool"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent-pools/{connection_id}/members": {
+      "post": {
+        "tags": ["agent pools"],
+        "operationId": "invite_member",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "description": "Connected account identifier",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteAgentPoolMember"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Member invited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentPoolPerson"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Pool ownership required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invite rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent-pools/{connection_id}/members/{username}": {
+      "delete": {
+        "tags": ["agent pools"],
+        "operationId": "remove_member",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "description": "Connected account identifier",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "username",
+            "in": "path",
+            "description": "Hub William username",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Member removed"
+          },
+          "403": {
+            "description": "Pool ownership required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Membership not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent-pools/{connection_id}/requests": {
+      "post": {
+        "tags": ["agent pools"],
+        "operationId": "create_request",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "description": "Connected account identifier",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAgentPoolJoinRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Join request created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentPoolJoinRequest"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent-pools/{connection_id}/retry": {
+      "post": {
+        "tags": ["agent pools"],
+        "operationId": "retry_pool",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "description": "Connected account identifier",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pool armed for the next real gateway request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentPoolAvailability"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Pool ownership required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "tags": ["auth"],
+        "operationId": "login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Session started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credentials rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid account fields",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": ["auth"],
+        "operationId": "logout",
+        "responses": {
+          "204": {
+            "description": "Session ended"
+          }
+        }
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "tags": ["auth"],
+        "operationId": "refresh",
+        "responses": {
+          "200": {
+            "description": "Access and refresh sessions rotated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refresh session missing or expired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/register": {
+      "post": {
+        "tags": ["auth"],
+        "operationId": "register",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Account created and session started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Username already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid account fields",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/session": {
+      "get": {
+        "tags": ["auth"],
+        "operationId": "session",
+        "responses": {
+          "200": {
+            "description": "Current authenticated user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "No browser session has been started"
+          },
+          "401": {
+            "description": "No active session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/gateway-keys": {
+      "get": {
+        "tags": ["gateway keys"],
+        "operationId": "list_keys",
+        "responses": {
+          "200": {
+            "description": "Active gateway keys",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GatewayKey"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["gateway keys"],
+        "operationId": "create_key",
+        "responses": {
+          "201": {
+            "description": "Gateway key created and returned once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedGatewayKey"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Connected provider not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/gateway-keys/{key_id}": {
+      "delete": {
+        "tags": ["gateway keys"],
+        "operationId": "revoke_key",
+        "parameters": [
+          {
+            "name": "key_id",
+            "in": "path",
+            "description": "Gateway key ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Gateway key revoked"
+          },
+          "404": {
+            "description": "Gateway key not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": ["system"],
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "Backend is ready to accept requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AgentAuthorizationPrompt": {
+        "type": "object",
+        "required": [
+          "authorization_url",
+          "expires_at",
+          "poll_after_seconds",
+          "requires_callback_url"
+        ],
+        "properties": {
+          "authorization_url": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "poll_after_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "requires_callback_url": {
+            "type": "boolean"
+          },
+          "user_code": {
+            "type": ["string", "null"]
+          }
+        }
+      },
+      "AgentConnection": {
+        "type": "object",
+        "required": ["created_at", "id", "provider", "status", "updated_at"],
+        "properties": {
+          "account_label": {
+            "type": ["string", "null"]
+          },
+          "authorization": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentAuthorizationPrompt"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "failure_message": {
+            "type": ["string", "null"]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "plan": {
+            "type": ["string", "null"]
+          },
+          "provider": {
+            "$ref": "#/components/schemas/AgentProvider"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AgentConnectionStatus"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AgentConnectionStatus": {
+        "type": "string",
+        "enum": ["pending", "connected", "failed", "disconnected"]
+      },
+      "AgentPool": {
+        "type": "object",
+        "required": [
+          "account_label",
+          "agent",
+          "availability",
+          "capacity",
+          "created_at",
+          "id",
+          "members",
+          "owner",
+          "plan",
+          "requests",
+          "usage"
+        ],
+        "properties": {
+          "account_label": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "availability": {
+            "$ref": "#/components/schemas/AgentPoolAvailability"
+          },
+          "capacity": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentPoolPerson"
+            }
+          },
+          "owner": {
+            "$ref": "#/components/schemas/AgentPoolPerson"
+          },
+          "plan": {
+            "type": "string"
+          },
+          "requests": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentPoolJoinRequest"
+            }
+          },
+          "usage": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentPoolUsageMetric"
+            }
+          }
+        }
+      },
+      "AgentPoolAvailability": {
+        "type": "object",
+        "required": ["status"],
+        "properties": {
+          "retry_at": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AgentPoolAvailabilityStatus"
+          }
+        }
+      },
+      "AgentPoolAvailabilityStatus": {
+        "type": "string",
+        "enum": ["active", "rate_limited", "half_open"]
+      },
+      "AgentPoolJoinRequest": {
+        "type": "object",
+        "required": [
+          "avatar_label",
+          "id",
+          "reason",
+          "status",
+          "telegram",
+          "username"
+        ],
+        "properties": {
+          "avatar_label": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AgentPoolRequestStatus"
+          },
+          "telegram": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "AgentPoolPerson": {
+        "type": "object",
+        "required": ["avatar_label", "username"],
+        "properties": {
+          "avatar_label": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "AgentPoolRequestStatus": {
+        "type": "string",
+        "enum": ["pending", "accepted", "rejected"]
+      },
+      "AgentPoolUsageMetric": {
+        "type": "object",
+        "required": ["label", "value"],
+        "properties": {
+          "detail": {
+            "type": ["string", "null"]
+          },
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "AgentProvider": {
+        "type": "string",
+        "enum": ["chatgpt", "claude", "grok"]
+      },
+      "AuthenticatedUser": {
+        "type": "object",
+        "required": ["id", "username"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "recovery_email": {
+            "type": ["string", "null"]
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "CompleteAuthorizationRequest": {
+        "type": "object",
+        "required": ["callback_url"],
+        "properties": {
+          "callback_url": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateAgentPoolJoinRequest": {
+        "type": "object",
+        "required": ["reason", "telegram"],
+        "properties": {
+          "reason": {
+            "type": "string"
+          },
+          "telegram": {
+            "type": "string"
+          }
+        }
+      },
+      "CreatedGatewayKey": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/GatewayKey"
+          },
+          {
+            "type": "object",
+            "required": ["key"],
+            "properties": {
+              "key": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "DecideAgentPoolJoinRequest": {
+        "type": "object",
+        "required": ["status"],
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/AgentPoolRequestStatus"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "GatewayKey": {
+        "type": "object",
+        "required": ["created_at", "id", "last_four"],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "last_four": {
+            "type": "string"
+          },
+          "last_used_at": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "required": ["status", "service"],
+        "properties": {
+          "service": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "InviteAgentPoolMember": {
+        "type": "object",
+        "required": ["username"],
+        "properties": {
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": ["username", "password"],
+        "properties": {
+          "password": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "RegisterRequest": {
+        "type": "object",
+        "required": ["username", "password"],
+        "properties": {
+          "password": {
+            "type": "string"
+          },
+          "recovery_email": {
+            "type": ["string", "null"]
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "SessionResponse": {
+        "type": "object",
+        "required": ["user"],
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/AuthenticatedUser"
+          }
+        }
+      },
+      "StartAgentConnectionRequest": {
+        "type": "object",
+        "required": ["provider"],
+        "properties": {
+          "provider": {
+            "$ref": "#/components/schemas/AgentProvider"
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "auth",
+      "description": "Browser account sessions"
+    },
+    {
+      "name": "agent connections",
+      "description": "Encrypted upstream provider connection lifecycle"
+    },
+    {
+      "name": "agent pools",
+      "description": "Public connected account pools and authenticated membership requests"
+    },
+    {
+      "name": "gateway keys",
+      "description": "Revocable keys for provider-specific gateway access"
+    },
+    {
+      "name": "system",
+      "description": "Runtime health and diagnostics"
+    }
+  ]
+}
