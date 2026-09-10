@@ -1,6 +1,8 @@
 use crate::{
     catalog::{CatalogItem, PROVIDERS, Provider, format_amount, items_for},
-    checkout::{Order, OrderStatus, format_expiry, memo, qr_image_url, usdt_amount},
+    checkout::{
+        Order, OrderStatus, format_expiry, icon_image_url, memo, qr_image_url, usdt_amount,
+    },
     config::AppConfig,
     language::{Language, Localized},
     telegram::{
@@ -28,23 +30,30 @@ pub fn edit_menu(chat_id: i64, message_id: i64, language: Language) -> EditMessa
         .with_keyboard(menu_keyboard(language))
 }
 
-pub fn edit_provider(
-    chat_id: i64,
-    message_id: i64,
-    language: Language,
-    provider: Provider,
-) -> EditMessageText {
-    EditMessageText::new(chat_id, message_id, provider_text(language, provider))
-        .with_keyboard(provider_keyboard(language, provider))
+/// A provider's screen leads with the brand mark the frontend uses, so the
+/// shop reads the same on both surfaces.
+pub fn provider(chat_id: i64, language: Language, config: &AppConfig, provider: Provider) -> Reply {
+    let text = provider_text(language, provider);
+    let keyboard = provider_keyboard(language, provider);
+
+    match config
+        .public_url
+        .as_ref()
+        .and_then(|origin| icon_image_url(origin, provider))
+    {
+        Some(photo) => SendPhoto::new(chat_id, photo, text)
+            .with_keyboard(keyboard)
+            .into(),
+        // Without a public origin Telegram cannot fetch the mark, so the list
+        // goes out as text rather than as a broken photo.
+        None => SendMessage::new(chat_id, text)
+            .with_keyboard(keyboard)
+            .into(),
+    }
 }
 
-pub fn edit_quantity_prompt(
-    chat_id: i64,
-    message_id: i64,
-    language: Language,
-    item: CatalogItem,
-) -> EditMessageText {
-    EditMessageText::new(chat_id, message_id, quantity_prompt_text(language, item))
+pub fn quantity_prompt(chat_id: i64, language: Language, item: CatalogItem) -> SendMessage {
+    SendMessage::new(chat_id, quantity_prompt_text(language, item))
         .with_keyboard(back_to_provider_keyboard(language, item.provider))
 }
 

@@ -7,7 +7,7 @@ use chrono::{DateTime, FixedOffset, TimeDelta, Utc};
 use reqwest::Url;
 use serde::Deserialize;
 
-use crate::catalog::CatalogItem;
+use crate::catalog::{CatalogItem, Provider as CatalogProvider};
 
 pub const ORDER_LIFETIME_MINUTES: i64 = 15;
 const SELECTION_LIFETIME_MINUTES: i64 = 30;
@@ -112,10 +112,19 @@ pub fn format_expiry(at: DateTime<Utc>) -> String {
         .to_string()
 }
 
-/// Telegram fetches the QR over the public internet, so it is served from this
-/// service's own origin rather than embedded in the reply.
+/// Telegram fetches an image over the public internet, so both the QR and the
+/// provider marks are served from this service's own origin.
 pub fn qr_image_url(public_url: &Url) -> Option<String> {
     Some(public_url.join(QR_IMAGE_PATH).ok()?.to_string())
+}
+
+pub fn icon_image_url(public_url: &Url, provider: CatalogProvider) -> Option<String> {
+    Some(
+        public_url
+            .join(&format!("/icons/{}.png", provider.id))
+            .ok()?
+            .to_string(),
+    )
 }
 
 /// Rounds up so a buyer never under-pays by a fraction of a cent.

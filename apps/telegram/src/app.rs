@@ -1,6 +1,6 @@
 use axum::{
     Json, Router,
-    extract::State,
+    extract::{Path, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -24,6 +24,13 @@ const SEPAY_AUTHORIZATION_SCHEME: &str = "Apikey ";
 const MAXIMUM_NOTICE_CHARACTERS: usize = 200;
 const BUSY_NOTICE: &str = "⚠️ Thử lại giúp mình nhé / Please try again.";
 const QR_IMAGE: &[u8] = include_bytes!("../assets/qr-bank.png");
+/// The same brand marks the frontend ships, compiled in so Telegram can fetch
+/// them from this service rather than from the browser app's origin.
+const PROVIDER_ICONS: [(&str, &[u8]); 3] = [
+    ("chatgpt", include_bytes!("../assets/chatgpt-icon.png")),
+    ("claude", include_bytes!("../assets/claude-icon.png")),
+    ("grok", include_bytes!("../assets/grok-icon.png")),
+];
 
 #[derive(Clone)]
 pub struct AppState {
@@ -35,6 +42,7 @@ pub struct AppState {
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
+        .route("/icons/{file}", get(provider_icon))
         .route("/qr.png", get(qr_image))
         .route("/sepay", post(sepay_webhook))
         .route("/webhook", post(webhook))
@@ -51,12 +59,32 @@ async fn health() -> Json<HealthResponse> {
 /// The shop's payment QR, served publicly because Telegram fetches a photo by
 /// URL. It is a fixed image of a receiving account, not per-buyer data.
 async fn qr_image() -> Response {
+    png(QR_IMAGE)
+}
+
+/// A provider's brand mark, shown above its package list. Telegram fetches a
+/// photo by URL, so the icons have to be reachable publicly.
+async fn provider_icon(Path(file): Path<String>) -> Response {
+    // Axum cannot mix a parameter with a literal suffix in one segment, so the
+    // `.png` a photo URL wants is stripped here instead.
+    let Some(provider) = file.strip_suffix(".png") else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+
+    PROVIDER_ICONS
+        .into_iter()
+        .find(|(id, _)| *id == provider)
+        .map(|(_, image)| png(image))
+        .unwrap_or_else(|| StatusCode::NOT_FOUND.into_response())
+}
+
+fn png(image: &'static [u8]) -> Response {
     (
         [
             (header::CONTENT_TYPE, "image/png"),
             (header::CACHE_CONTROL, "public, max-age=3600"),
         ],
-        QR_IMAGE,
+        image,
     )
         .into_response()
 }
@@ -458,16 +486,16 @@ async fn acknowledge_callback(
     callback_query_id: &str,
     notice: Option<&str>,
 ) -> Result<(), StatusCode> {
-    call_telegram(
-        state,
-        "answerCallbackQuery",
-        serde_json::json!({
-            "callback_query_id": callback_query_id,
-            "show_alert": notice.is_some(),
-            "text": notice.map(|text| text.chars().take(MAXIMUM_NOTICE_CHARACTERS).collect::<String>()),
-        }),
-    )
-    .await
+    // `text` is omitted rather than sent as JSON null, which Telegram renders
+    // to the buyer as a floating "null".
+    let mut body = serde_json::json!({ "callback_query_id": callback_query_id });
+    if let Some(notice) = notice {
+        body["show_alert"] = serde_json::Value::Bool(true);
+        body["text"] =
+            serde_json::Value::String(notice.chars().take(MAXIMUM_NOTICE_CHARACTERS).collect());
+    }
+
+    call_telegram(state, "answerCallbackQuery", body).await
 }
 
 async fn delete_message(state: &AppState, chat_id: i64, message_id: i64) -> Result<(), StatusCode> {
@@ -524,26 +552,31 @@ async fn callback_reply(
     }
 
     let language = observed_language.unwrap_or(Language::Vietnamese);
+    // Shop navigation replaces rather than edits, because a provider screen is
+    // a photo message and Telegram cannot rewrite one into text or back.
     if data == "menu" {
-        return Ok(Outcome::Edit(view::edit_menu(
-            chat_id, message_id, language,
-        )));
+        return Ok(Outcome::Replace(view::menu(chat_id, language).into()));
     }
     if data == "language" {
         return Ok(Outcome::Edit(view::edit_language_picker(
             chat_id, message_id,
         )));
     }
+    // The provider screen leads with its brand mark, and Telegram cannot turn a
+    // text message into a photo message, so it replaces rather than edits.
     if let Some(provider) = data.strip_prefix("provider:").and_then(catalog::provider) {
-        return Ok(Outcome::Edit(view::edit_provider(
-            chat_id, message_id, language, provider,
+        return Ok(Outcome::Replace(view::provider(
+            chat_id,
+            language,
+            &state.config,
+            provider,
         )));
     }
     if let Some(item) = data.strip_prefix("catalog:").and_then(catalog::find) {
         state.sessions.choose(telegram_user_id, item);
-        return Ok(Outcome::Edit(view::edit_quantity_prompt(
-            chat_id, message_id, language, item,
-        )));
+        return Ok(Outcome::Replace(
+            view::quantity_prompt(chat_id, language, item).into(),
+        ));
     }
     if let Some(action) = data.strip_prefix("pay:") {
         return payment_outcome(state, chat_id, telegram_user_id, language, action).await;
@@ -814,8 +847,13 @@ mod tests {
             .as_array()
             .expect("a package keyboard");
 
+        assert_eq!(response["method"], "sendPhoto");
         assert_eq!(
-            response["text"],
+            response["photo"],
+            "https://shop.example.test/icons/claude.png"
+        );
+        assert_eq!(
+            response["caption"],
             "🟠 Claude\n\nChọn một gói để xem chi tiết.\nWF = bảo hành đầy đủ · W7D = bảo hành 7 ngày · NW = không bảo hành"
         );
         assert_eq!(
@@ -959,6 +997,7 @@ mod tests {
         shop.update_json(callback_update("catalog:claude-max-x20"))
             .await;
         shop.update_json(message_update("2")).await;
+        shop.forget_deletions();
 
         let response = shop
             .send_update(callback_update(&format!("pay:check:{REFERENCE}")))
@@ -981,6 +1020,7 @@ mod tests {
             .await;
         shop.update_json(message_update("2")).await;
         shop.settle_order();
+        shop.forget_deletions();
 
         let response = shop
             .update_json(callback_update(&format!("pay:check:{REFERENCE}")))
@@ -997,6 +1037,7 @@ mod tests {
         shop.update_json(callback_update("catalog:claude-max-x20"))
             .await;
         shop.update_json(message_update("2")).await;
+        shop.forget_deletions();
 
         let stopped = shop
             .update_json(callback_update(&format!("pay:cancel:{REFERENCE}")))
@@ -1025,19 +1066,45 @@ mod tests {
         assert_eq!(shop.last_alert().expect("a popup"), UNKNOWN_ORDER_ALERT);
     }
 
-    /// Navigation rewrites the message in place; only a new panel replaces it.
+    /// Every shop screen replaces the one before it, so the chat holds a single
+    /// live panel however far a buyer browses.
     #[tokio::test]
-    async fn browsing_the_catalogue_never_deletes_a_message() {
+    async fn browsing_the_catalogue_keeps_the_chat_to_one_panel() {
         let shop = Shop::open().await;
         shop.update_json(callback_update("provider:claude")).await;
         shop.update_json(callback_update("catalog:claude-max-x20"))
             .await;
         shop.update_json(callback_update("menu")).await;
 
-        assert!(shop.deleted_message_ids().is_empty());
+        assert_eq!(shop.deleted_message_ids(), [7, 7, 7]);
         assert!(
             shop.last_alert().is_none(),
             "navigation should not raise a popup"
+        );
+    }
+
+    /// The provider marks are the frontend's own, served from this origin
+    /// because Telegram fetches a photo by URL.
+    #[tokio::test]
+    async fn the_icon_route_serves_each_provider_mark() {
+        let shop = Shop::open().await;
+
+        for provider in ["chatgpt", "claude", "grok"] {
+            let response = shop.get(&format!("/icons/{provider}.png")).await;
+
+            assert_eq!(response.status(), StatusCode::OK, "{provider}");
+            assert_eq!(response.headers()["content-type"], "image/png");
+            let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            assert_eq!(&body[..4], b"\x89PNG", "{provider} should be a real PNG");
+        }
+
+        assert_eq!(
+            shop.get("/icons/gemini.png").await.status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            shop.get("/icons/claude").await.status(),
+            StatusCode::NOT_FOUND
         );
     }
 
@@ -1124,6 +1191,18 @@ mod tests {
             serde_json::from_slice(&body).expect("response should be Telegram API JSON")
         }
 
+        async fn get(&self, path: &str) -> Response<Body> {
+            router(self.state.clone())
+                .oneshot(
+                    Request::builder()
+                        .uri(path)
+                        .body(Body::empty())
+                        .expect("valid request"),
+                )
+                .await
+                .expect("the route should respond")
+        }
+
         async fn send_update(&self, body: String) -> Response<Body> {
             router(self.state.clone())
                 .oneshot(
@@ -1173,8 +1252,13 @@ mod tests {
         fn last_alert(&self) -> Option<String> {
             let alerts = self.api.alerts.lock().unwrap();
             let last = alerts.last()?;
-            // A silent acknowledgement carries neither flag nor text.
-            assert_eq!(last["show_alert"], last["text"].is_string());
+            // A silent acknowledgement omits both keys. Sending `text: null`
+            // instead makes Telegram float the word "null" at the buyer.
+            assert_eq!(last.get("show_alert").is_some(), last.get("text").is_some());
+            assert!(
+                last.get("text").is_none_or(serde_json::Value::is_string),
+                "a notice must be a string, never null"
+            );
             Some(last["text"].as_str()?.to_owned())
         }
 
@@ -1186,6 +1270,12 @@ mod tests {
                 .iter()
                 .filter_map(|call| call["message_id"].as_i64())
                 .collect()
+        }
+
+        /// Forgets the removals a test's setup caused, so an assertion can talk
+        /// about the one tap it is actually about.
+        fn forget_deletions(&self) {
+            self.api.deleted.lock().unwrap().clear();
         }
 
         fn stored_order(&self) -> Value {
