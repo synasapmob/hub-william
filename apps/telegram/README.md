@@ -32,12 +32,10 @@ what settles the order.
 
 USDT has no automatic settlement and says so on its own panel.
 
-Each provider carries an emoji mark that sits beside its name — on its button,
-on its package-list heading, and in place of a generic cart on its packages'
-quantity prompts. Telegram renders a custom emoji only for bots that bought a
-username on Fragment, and an inline keyboard button carries plain text and
-nothing else, so a standard emoji is the only mark that can sit next to text.
-Swap one by editing `Provider::icon` in `src/catalog.rs`.
+A package the shop is pushing carries `hot: true` in `src/catalog.rs` and shows
+a 🔥 in front of its name, on its catalogue row and on its quantity prompt.
+That flame is the only decoration a row carries; everything else stays bare so
+it keeps meaning something. An order records the plain title, never the flame.
 
 A tapped button is left unacknowledged until its work finishes, so Telegram
 keeps its own loading state on the button rather than looking frozen; a plain

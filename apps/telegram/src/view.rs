@@ -381,7 +381,7 @@ fn menu_text(language: Language) -> &'static str {
 /// The warranty legend sits on the package list rather than the provider list,
 /// because that is the only screen where the codes appear.
 fn provider_text(language: Language, provider: Provider) -> String {
-    let heading = format!("{} {}", provider.icon, provider.name);
+    let heading = provider.name;
     let guidance = language.pick(Localized {
         english: "Pick a package to see its details.\nWF = full warranty · W7D = 7-day warranty · NW = no warranty",
         vietnamese: "Chọn một gói để xem chi tiết.\nWF = bảo hành đầy đủ · W7D = bảo hành 7 ngày · NW = không bảo hành",
@@ -401,7 +401,7 @@ fn provider_text(language: Language, provider: Provider) -> String {
 fn quantity_prompt_text(language: Language, item: CatalogItem) -> String {
     let available = item.available;
     let price = format_amount(item.base_price());
-    let title = item.title();
+    let title = item.headline();
     let tiers = item
         .tiers
         .iter()
@@ -415,15 +415,13 @@ fn quantity_prompt_text(language: Language, item: CatalogItem) -> String {
         .collect::<Vec<_>>()
         .join("\n");
 
-    let icon = item.provider.icon;
-
     match language {
         Language::English => format!(
-            "{icon} {title}\n\n🔢 Enter the quantity you want\n\nMaximum: {available}\nSend a number, for example: 1\n\n💵 Current price: {price}₫\n\n💰 Price list:\n{tiers}\n\n{note}",
+            "{title}\n\n🔢 Enter the quantity you want\n\nMaximum: {available}\nSend a number, for example: 1\n\n💵 Current price: {price}₫\n\n💰 Price list:\n{tiers}\n\n{note}",
             note = item.warranty_note.english,
         ),
         Language::Vietnamese => format!(
-            "{icon} {title}\n\n🔢 Nhập số lượng muốn mua\n\nTối đa: {available}\nGửi một số, ví dụ: 1\n\n💵 Giá hiện tại: {price}₫\n\n💰 Bảng giá:\n{tiers}\n\n{note}",
+            "{title}\n\n🔢 Nhập số lượng muốn mua\n\nTối đa: {available}\nGửi một số, ví dụ: 1\n\n💵 Giá hiện tại: {price}₫\n\n💰 Bảng giá:\n{tiers}\n\n{note}",
             note = item.warranty_note.vietnamese,
         ),
     }
@@ -467,7 +465,7 @@ fn menu_keyboard() -> InlineKeyboardMarkup {
             .into_iter()
             .map(|provider| {
                 vec![InlineKeyboardButton::callback(
-                    format!("{} {}", provider.icon, provider.name),
+                    provider.name,
                     format!("provider:{}", provider.id),
                 )]
             })
@@ -487,7 +485,7 @@ fn provider_keyboard(language: Language, provider: Provider) -> InlineKeyboardMa
 fn catalogue_button(language: Language, item: CatalogItem) -> InlineKeyboardButton {
     let text = format!(
         "{} ({}) --- {}đ ({})",
-        item.title(),
+        item.headline(),
         item.warranty.code(),
         format_amount(item.base_price()),
         stock_label(language, item.available),

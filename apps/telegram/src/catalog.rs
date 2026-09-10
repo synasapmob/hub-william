@@ -4,11 +4,6 @@ use crate::language::Localized;
 /// long line-up never arrives as one wall of buttons.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Provider {
-    /// Sits beside the provider's name in message text. Telegram renders a
-    /// custom emoji only for bots that bought a Fragment username, so an
-    /// inline mark can only ever be a standard emoji — the real logos live in
-    /// the strip above the shop's buttons.
-    pub icon: &'static str,
     pub id: &'static str,
     pub name: &'static str,
 }
@@ -20,6 +15,10 @@ pub struct Provider {
 pub struct CatalogItem {
     pub available: u32,
     pub detail: Option<&'static str>,
+    /// Flags a package as one the shop is pushing. It is the only decoration
+    /// on a catalogue row, so an ordinary package stays unmarked and the flame
+    /// keeps meaning something.
+    pub hot: bool,
     pub id: &'static str,
     pub plan: &'static str,
     pub provider: Provider,
@@ -46,19 +45,16 @@ pub struct PriceTier {
 }
 
 pub const CHATGPT: Provider = Provider {
-    icon: "🌀",
     id: "chatgpt",
     name: "ChatGPT",
 };
 
 pub const CLAUDE: Provider = Provider {
-    icon: "✳️",
     id: "claude",
     name: "Claude",
 };
 
 pub const GROK: Provider = Provider {
-    icon: "⚡",
     id: "grok",
     name: "Grok",
 };
@@ -78,6 +74,15 @@ impl CatalogItem {
             title.push_str(detail);
         }
         title
+    }
+
+    /// The title as a shop row shows it, which is the only place the flame
+    /// appears; `title` stays clean because it is what an order records.
+    pub fn headline(self) -> String {
+        match self.hot {
+            true => format!("🔥 {}", self.title()),
+            false => self.title(),
+        }
     }
 
     pub fn base_price(self) -> i64 {
@@ -123,6 +128,7 @@ pub const ITEMS: [CatalogItem; 5] = [
     CatalogItem {
         available: 53,
         detail: Some("1M"),
+        hot: true,
         id: "claude-max-x20",
         plan: "MAX X20",
         provider: CLAUDE,
@@ -137,6 +143,7 @@ pub const ITEMS: [CatalogItem; 5] = [
     CatalogItem {
         available: 27,
         detail: None,
+        hot: false,
         id: "claude-max-x5",
         plan: "MAX X5",
         provider: CLAUDE,
@@ -151,6 +158,7 @@ pub const ITEMS: [CatalogItem; 5] = [
     CatalogItem {
         available: 41,
         detail: None,
+        hot: false,
         id: "claude-pro",
         plan: "Pro",
         provider: CLAUDE,
@@ -165,6 +173,7 @@ pub const ITEMS: [CatalogItem; 5] = [
     CatalogItem {
         available: 12,
         detail: None,
+        hot: true,
         id: "chatgpt-plus",
         plan: "Plus",
         provider: CHATGPT,
@@ -179,6 +188,7 @@ pub const ITEMS: [CatalogItem; 5] = [
     CatalogItem {
         available: 0,
         detail: None,
+        hot: false,
         id: "grok-supergrok",
         plan: "SuperGrok",
         provider: GROK,
@@ -240,6 +250,19 @@ mod tests {
             find("claude-pro").expect("seeded package").title(),
             "Claude Pro"
         );
+    }
+
+    /// The flame is the only decoration a row carries, so an ordinary package
+    /// has to stay bare for it to mean anything.
+    #[test]
+    fn only_a_hot_package_is_marked() {
+        let hot = find("claude-max-x20").expect("seeded package");
+        let ordinary = find("claude-pro").expect("seeded package");
+
+        assert_eq!(hot.headline(), "🔥 Claude MAX X20 (Personal) · 1M");
+        assert_eq!(ordinary.headline(), "Claude Pro");
+        // An order records the plain title, never the shop's decoration.
+        assert_eq!(hot.title(), "Claude MAX X20 (Personal) · 1M");
     }
 
     #[test]

@@ -801,10 +801,10 @@ mod tests {
         assert_eq!(response["method"], "editMessageText");
         assert_eq!(response["text"], "Hub William shop\n\nChọn nhà cung cấp.");
         assert_eq!(keyboard.len(), 3);
-        assert_eq!(keyboard[0][0]["text"], "\u{1f300} ChatGPT");
+        assert_eq!(keyboard[0][0]["text"], "ChatGPT");
         assert_eq!(keyboard[0][0]["callback_data"], "provider:chatgpt");
-        assert_eq!(keyboard[1][0]["text"], "\u{2733}\u{fe0f} Claude");
-        assert_eq!(keyboard[2][0]["text"], "\u{26a1} Grok");
+        assert_eq!(keyboard[1][0]["text"], "Claude");
+        assert_eq!(keyboard[2][0]["text"], "Grok");
     }
 
     #[tokio::test]
@@ -818,11 +818,11 @@ mod tests {
         assert_eq!(response["method"], "editMessageText");
         assert_eq!(
             response["text"],
-            "\u{2733}\u{fe0f} Claude\n\nChọn một gói để xem chi tiết.\nWF = bảo hành đầy đủ · W7D = bảo hành 7 ngày · NW = không bảo hành"
+            "Claude\n\nChọn một gói để xem chi tiết.\nWF = bảo hành đầy đủ · W7D = bảo hành 7 ngày · NW = không bảo hành"
         );
         assert_eq!(
             keyboard[0][0]["text"],
-            "Claude MAX X20 (Personal) · 1M (WF) --- 135,000đ (còn 53)"
+            "🔥 Claude MAX X20 (Personal) · 1M (WF) --- 135,000đ (còn 53)"
         );
         assert_eq!(keyboard[0][0]["callback_data"], "catalog:claude-max-x20");
         assert_eq!(
@@ -859,7 +859,7 @@ mod tests {
 
         assert_eq!(
             response["text"],
-            "\u{2733}\u{fe0f} Claude MAX X20 (Personal) · 1M\n\n🔢 Nhập số lượng muốn mua\n\nTối đa: 53\nGửi một số, ví dụ: 1\n\n💵 Giá hiện tại: 135,000₫\n\n💰 Bảng giá:\n• 1+: 135,000₫\n\nActive trực tiếp trên tài khoản chính chủ của bạn, bảo hành đầy đủ trọn thời hạn."
+            "🔥 Claude MAX X20 (Personal) · 1M\n\n🔢 Nhập số lượng muốn mua\n\nTối đa: 53\nGửi một số, ví dụ: 1\n\n💵 Giá hiện tại: 135,000₫\n\n💰 Bảng giá:\n• 1+: 135,000₫\n\nActive trực tiếp trên tài khoản chính chủ của bạn, bảo hành đầy đủ trọn thời hạn."
         );
         assert_eq!(
             response["reply_markup"]["inline_keyboard"][0][0]["callback_data"],
@@ -937,15 +937,7 @@ mod tests {
     #[tokio::test]
     async fn the_qr_route_serves_a_png() {
         let shop = Shop::open().await;
-        let response = router(shop.state.clone())
-            .oneshot(
-                Request::builder()
-                    .uri("/qr.png")
-                    .body(Body::empty())
-                    .expect("valid QR request"),
-            )
-            .await
-            .expect("the QR route should respond");
+        let response = shop.get("/qr.png").await;
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.headers()["content-type"], "image/png");
@@ -953,8 +945,6 @@ mod tests {
         assert_eq!(&body[..4], b"\x89PNG");
     }
 
-    /// A still-unpaid check must not push the QR panel out of view, so it is
-    /// answered in a popup and the chat is left untouched.
     #[tokio::test]
     async fn an_unpaid_check_answers_in_a_popup_without_touching_the_chat() {
         let shop = Shop::open().await;

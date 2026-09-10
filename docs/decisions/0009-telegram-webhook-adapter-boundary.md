@@ -62,11 +62,13 @@ identity as a browser account or duplicating order and membership rules.
 - The public Telegram origin now also carries `/sepay` and `/qr.png`. Neither
   serves buyer data: `/sepay` is a write authenticated by SePay's key, and the
   QR is a fixed image of an account already printed on every payment panel.
-- A provider is marked inline with a standard emoji. Telegram renders a custom
-  emoji only for bots that bought a Fragment username, and an inline keyboard
-  button carries plain text, so the frontend's brand images cannot appear beside
-  a provider's name. Every shop screen therefore stays text and is rewritten in
-  place; only a payment panel, which needs a photo, replaces its message.
+- The frontend's brand images cannot appear beside a name in Telegram: a custom
+  emoji renders only for bots that bought a Fragment username, and an inline
+  keyboard button carries plain text. Rather than approximate a logo with a
+  stock emoji, a catalogue row carries no mark at all unless the shop is pushing
+  that package, which shows a 🔥. Every shop screen therefore stays text and is
+  rewritten in place; only a payment panel, which needs a photo, replaces its
+  message.
 - A transfer whose note matches no order, or that does not cover the total, is
   recorded and left for a human rather than guessed at.
 - Nothing yet hands over the purchased account. `paid` is the end of the
