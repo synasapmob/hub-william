@@ -1,6 +1,6 @@
 # ADR-0005: Accepted pool membership grants gateway access
 
-- Status: Accepted
+- Status: Accepted; gateway-account selection superseded by ADR-0006
 - Date: 2026-09-10
 - Supersedes: ADR-0003 gateway-account selection only
 

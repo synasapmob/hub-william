@@ -176,6 +176,13 @@ async function disconnect(connectionId: string) {
   }
 }
 
-const agentConnectionsService = { complete, disconnect, get, list, start };
+const agentConnectionsService = {
+  complete,
+  disconnect,
+  get,
+  list,
+  queryKey: ["agent-connections"] as const,
+  start,
+};
 
 export default agentConnectionsService;

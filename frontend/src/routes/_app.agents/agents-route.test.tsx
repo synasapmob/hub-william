@@ -1,9 +1,11 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import WorkspaceShellSession from "@/components/workspace-shell/workspace-shell-session";
+import createQueryClient from "@/utils/utils.query-client";
 
 import AgentsRoute from "./route";
 
@@ -107,11 +109,13 @@ function renderRoute(user?: SessionFixture, initialPools = [poolFixture()]) {
   vi.stubGlobal("fetch", fetchMock);
 
   render(
-    <MemoryRouter>
-      <WorkspaceShellSession>
-        <AgentsRoute />
-      </WorkspaceShellSession>
-    </MemoryRouter>,
+    <QueryClientProvider client={createQueryClient()}>
+      <MemoryRouter>
+        <WorkspaceShellSession>
+          <AgentsRoute />
+        </WorkspaceShellSession>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 
   return fetchMock;
@@ -155,7 +159,7 @@ describe("AgentsRoute", () => {
     expect((await screen.findAllByText("synasapmob"))[0]).toBeVisible();
     expect(screen.getByText("Syn")).toBeInTheDocument();
     expect(
-      document.querySelector('img[src="./assets/chatgpt-icon.png"]'),
+      document.querySelector('img[src="/assets/chatgpt-icon.png"]'),
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /view usages/i }));

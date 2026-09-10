@@ -17,6 +17,7 @@ import agentPoolsService, {
   type AgentPool,
   type AgentProvider,
 } from "@/services/agent-pools";
+import assetPath from "@/utils/utils.asset-path";
 
 import AgentsAvatarStack from "./agents-avatar-stack";
 
@@ -36,9 +37,9 @@ const actionButton = tv({
 });
 
 const agentIcons: Record<AgentProvider, string> = {
-  ChatGPT: "./assets/chatgpt-icon.png",
-  Claude: "./assets/claude-icon.png",
-  Grok: "./assets/grok-icon.png",
+  ChatGPT: assetPath("assets/chatgpt-icon.png"),
+  Claude: assetPath("assets/claude-icon.png"),
+  Grok: assetPath("assets/grok-icon.png"),
 };
 
 type PoolActionState =
@@ -108,8 +109,8 @@ export default function AgentsPoolCard({
   return (
     <li className="h-full">
       <Card className="h-full border-0 bg-white/95 py-0 gap-0 shadow-sm ring-slate-200/90">
-        <CardHeader className="gap-4 border-b border-slate-100 py-4">
-          <Flex className="justify-between flex-wrap gap-3">
+        <CardHeader className="gap-4 border-b border-slate-100 py-4 flex-1 flex flex-col">
+          <Flex className="justify-between flex-wrap gap-3 flex-1">
             <Flex className="gap-3">
               <img src={agentIcons[pool.agent]} alt="" className="size-9" />
 

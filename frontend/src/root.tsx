@@ -1,9 +1,11 @@
-import type { PropsWithChildren } from "react";
+import { useState, type PropsWithChildren } from "react";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import assetPath from "@/utils/utils.asset-path";
+import createQueryClient from "@/utils/utils.query-client";
 import "../public/css/index.css";
 import type { Route } from "./+types/root";
 
@@ -69,19 +71,16 @@ export function Layout({ children }: PropsWithChildren) {
   );
 }
 
-/**
- * No providers beyond the ones the UI itself needs.
- *
- * Nothing in the workspace is fetched: the catalogue is Markdown inlined at
- * build time and the telemetry is fixture data, so there is no query client to
- * hold and no hydration gap to cover with a loading screen.
- */
 export default function Root() {
-  return (
-    <TooltipProvider>
-      <Outlet />
+  const [queryClient] = useState(createQueryClient);
 
-      <Toaster position="top-right" richColors />
-    </TooltipProvider>
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <Outlet />
+
+        <Toaster position="top-right" richColors />
+      </TooltipProvider>
+    </QueryClientProvider>
   );
 }

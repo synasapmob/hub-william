@@ -1,13 +1,12 @@
-import { useEffect, useState } from "react";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { useMemo, useState } from "react";
 import {
-  Bot,
-  CheckCircle2,
-  Copy,
-  ExternalLink,
-  KeyRound,
-  LoaderCircle,
-} from "lucide-react";
+  skipToken,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Bot, CheckCircle2, ExternalLink, LoaderCircle } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -32,28 +31,26 @@ import agentConnectionsService, {
   type AgentConnection,
   type AgentProvider,
 } from "@/services/agent-connections";
-import gatewayKeysService, {
-  GatewayKeyServiceError,
-  type CreatedGatewayKey,
-  type GatewayKey,
-} from "@/services/gateway-keys";
-import { copyText } from "@/utils/utils.clipboard";
 
 interface CallbackFormValues {
   callbackUrl: string;
 }
 
 interface AgentsConnectDialogProps {
-  hasSharedGatewayAccess?: boolean;
   onConnected?: () => void;
 }
 
 interface AgentProviderOptionProps {
-  connection?: AgentConnection;
+  connectedCount: number;
   disabled: boolean;
   label: string;
   onConnect: (provider: AgentProvider) => void;
   provider: AgentProvider;
+}
+
+interface CompleteConnectionVariables {
+  callbackUrl: string;
+  connectionId: string;
 }
 
 const callbackSchema = z.object({
@@ -70,7 +67,7 @@ const providers: Array<{ label: string; provider: AgentProvider }> = [
 ];
 
 function AgentProviderOption({
-  connection,
+  connectedCount,
   disabled,
   label,
   onConnect,
@@ -93,8 +90,10 @@ function AgentProviderOption({
         </Flex>
 
         <Flex className="items-center gap-2">
-          {connection?.status === "connected" ? (
-            <Badge className="bg-emerald-50 text-emerald-700">Connected</Badge>
+          {connectedCount > 0 ? (
+            <Badge className="bg-emerald-50 text-emerald-700">
+              {connectedCount} connected
+            </Badge>
           ) : null}
           <ExternalLink aria-hidden="true" className="size-3.5" />
         </Flex>
@@ -104,90 +103,63 @@ function AgentProviderOption({
 }
 
 export default function AgentsConnectDialog({
-  hasSharedGatewayAccess = false,
   onConnected,
 }: AgentsConnectDialogProps) {
   const session = useWorkspaceSession();
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [connections, setConnections] = useState<AgentConnection[]>([]);
-  const [gatewayKeys, setGatewayKeys] = useState<GatewayKey[]>([]);
-  const [createdGatewayKey, setCreatedGatewayKey] =
-    useState<CreatedGatewayKey | null>(null);
-  const [creatingGatewayKey, setCreatingGatewayKey] = useState(false);
   const [activeConnection, setActiveConnection] =
     useState<AgentConnection | null>(null);
-  const [startingProvider, setStartingProvider] =
-    useState<AgentProvider | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [popupError, setPopupError] = useState<string | null>(null);
   const form = useForm<CallbackFormValues>({
     defaultValues: { callbackUrl: "" },
     resolver: zodResolver(callbackSchema),
   });
-
-  useEffect(() => {
-    if (!open || !session.user) return;
-
-    let cancelled = false;
-    Promise.all([agentConnectionsService.list(), gatewayKeysService.list()])
-      .then(([connectionItems, keyItems]) => {
-        if (!cancelled) {
-          setConnections(connectionItems);
-          setGatewayKeys(keyItems);
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setErrorMessage(
-            error instanceof AgentConnectionServiceError ||
-              error instanceof GatewayKeyServiceError
-              ? error.message
-              : "Connections could not be loaded.",
-          );
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [open, session.user]);
-
-  useEffect(() => {
-    if (
-      !open ||
-      !activeConnection ||
-      activeConnection.status !== "pending" ||
-      activeConnection.authorization?.requiresCallbackUrl
-    ) {
-      return;
-    }
-
-    const timeout = window.setTimeout(
-      () => {
-        agentConnectionsService
-          .get(activeConnection.id)
-          .then((connection) => {
-            setActiveConnection(connection);
-            setConnections((items) => [
-              ...items.filter((item) => item.provider !== connection.provider),
-              connection,
-            ]);
-            if (connection.status === "connected") onConnected?.();
-          })
-          .catch((error) => {
-            setErrorMessage(
-              error instanceof AgentConnectionServiceError
-                ? error.message
-                : "Authorization status could not be checked.",
-            );
-          });
-      },
-      activeConnection.authorization?.pollAfterSeconds
-        ? activeConnection.authorization.pollAfterSeconds * 1_000
-        : 5_000,
-    );
-
-    return () => window.clearTimeout(timeout);
-  }, [activeConnection, onConnected, open]);
+  const connectionQueryKey = useMemo(
+    () => [...agentConnectionsService.queryKey, session.user?.id ?? "guest"],
+    [session.user?.id],
+  );
+  const connectionsQuery = useQuery({
+    enabled: open && Boolean(session.user),
+    queryFn: agentConnectionsService.list,
+    queryKey: connectionQueryKey,
+  });
+  const startMutation = useMutation({
+    mutationFn: agentConnectionsService.start,
+  });
+  const completeMutation = useMutation({
+    mutationFn: ({ callbackUrl, connectionId }: CompleteConnectionVariables) =>
+      agentConnectionsService.complete(connectionId, callbackUrl),
+  });
+  const pollConnectionId =
+    activeConnection?.status === "pending" &&
+    !activeConnection.authorization?.requiresCallbackUrl
+      ? activeConnection.id
+      : null;
+  const connectionStatusQuery = useQuery({
+    queryFn: pollConnectionId
+      ? () => agentConnectionsService.get(pollConnectionId)
+      : skipToken,
+    queryKey: [...agentConnectionsService.queryKey, "status", pollConnectionId],
+    refetchInterval: (query) =>
+      query.state.data?.status === "pending"
+        ? (activeConnection?.authorization?.pollAfterSeconds ?? 5) * 1_000
+        : false,
+  });
+  const connections = connectionsQuery.data ?? [];
+  const currentConnection = connectionStatusQuery.data ?? activeConnection;
+  const requestError =
+    connectionsQuery.error ??
+    startMutation.error ??
+    completeMutation.error ??
+    connectionStatusQuery.error;
+  const errorMessage =
+    popupError ??
+    (requestError
+      ? requestError instanceof AgentConnectionServiceError
+        ? requestError.message
+        : "Connections could not be loaded."
+      : null);
 
   function changeOpen(nextOpen: boolean) {
     if (nextOpen && !session.user) {
@@ -197,9 +169,9 @@ export default function AgentsConnectDialog({
     setOpen(nextOpen);
     if (!nextOpen) {
       setActiveConnection(null);
-      setErrorMessage(null);
-      setStartingProvider(null);
-      setCreatedGatewayKey(null);
+      setPopupError(null);
+      startMutation.reset();
+      completeMutation.reset();
       form.reset();
     }
   }
@@ -211,15 +183,14 @@ export default function AgentsConnectDialog({
       "popup,width=720,height=820",
     );
     if (!popup) {
-      setErrorMessage("Allow popups for Hub William, then try again.");
+      setPopupError("Allow popups for Hub William, then try again.");
       return;
     }
     popup.opener = null;
-    setStartingProvider(provider);
-    setErrorMessage(null);
+    setPopupError(null);
 
     try {
-      const connection = await agentConnectionsService.start(provider);
+      const connection = await startMutation.mutateAsync(provider);
       if (!connection.authorization) {
         popup.close();
         throw new AgentConnectionServiceError(
@@ -228,35 +199,34 @@ export default function AgentsConnectDialog({
       }
       popup.location.replace(connection.authorization.authorizationUrl);
       setActiveConnection(connection);
-      setConnections((items) => [
-        ...items.filter((item) => item.provider !== provider),
-        connection,
-      ]);
+      queryClient.setQueryData<AgentConnection[]>(
+        connectionQueryKey,
+        (items) => [...(items ?? []), connection],
+      );
     } catch (error) {
       popup.close();
-      setErrorMessage(
-        error instanceof AgentConnectionServiceError
-          ? error.message
-          : "The provider authorization could not be started.",
-      );
-    } finally {
-      setStartingProvider(null);
+      if (!(error instanceof AgentConnectionServiceError)) {
+        setPopupError("The provider authorization could not be started.");
+      }
     }
   }
 
   async function complete(values: CallbackFormValues) {
-    if (!activeConnection) return;
+    if (!currentConnection) return;
 
     try {
-      const connection = await agentConnectionsService.complete(
-        activeConnection.id,
-        values.callbackUrl,
-      );
+      const connection = await completeMutation.mutateAsync({
+        callbackUrl: values.callbackUrl,
+        connectionId: currentConnection.id,
+      });
       setActiveConnection(connection);
-      setConnections((items) => [
-        ...items.filter((item) => item.provider !== connection.provider),
-        connection,
-      ]);
+      queryClient.setQueryData<AgentConnection[]>(
+        connectionQueryKey,
+        (items) => [
+          ...(items ?? []).filter((item) => item.id !== connection.id),
+          connection,
+        ],
+      );
       if (connection.status === "connected") onConnected?.();
       form.reset();
     } catch (error) {
@@ -266,24 +236,6 @@ export default function AgentsConnectDialog({
             ? error.message
             : "The authorization code could not be exchanged.",
       });
-    }
-  }
-
-  async function createGatewayKey() {
-    setCreatingGatewayKey(true);
-    setErrorMessage(null);
-    try {
-      const key = await gatewayKeysService.create();
-      setCreatedGatewayKey(key);
-      setGatewayKeys((items) => [key, ...items]);
-    } catch (error) {
-      setErrorMessage(
-        error instanceof GatewayKeyServiceError
-          ? error.message
-          : "The gateway key could not be created.",
-      );
-    } finally {
-      setCreatingGatewayKey(false);
     }
   }
 
@@ -311,10 +263,14 @@ export default function AgentsConnectDialog({
           {providers.map(({ label, provider }) => (
             <AgentProviderOption
               key={provider}
-              connection={connections.find(
-                (connection) => connection.provider === provider,
-              )}
-              disabled={startingProvider !== null}
+              connectedCount={
+                connections.filter(
+                  (connection) =>
+                    connection.provider === provider &&
+                    connection.status === "connected",
+                ).length
+              }
+              disabled={startMutation.isPending}
               label={label}
               onConnect={connect}
               provider={provider}
@@ -322,7 +278,7 @@ export default function AgentsConnectDialog({
           ))}
         </ul>
 
-        {startingProvider ? (
+        {startMutation.isPending ? (
           <Flex className="items-center gap-2 text-xs text-muted-foreground">
             <LoaderCircle
               aria-hidden="true"
@@ -332,20 +288,20 @@ export default function AgentsConnectDialog({
           </Flex>
         ) : null}
 
-        {activeConnection?.status === "pending" ? (
+        {currentConnection?.status === "pending" ? (
           <Alert>
             <LoaderCircle aria-hidden="true" className="animate-spin" />
             <AlertTitle>Waiting for authorization</AlertTitle>
             <AlertDescription>
               Finish signing in on the provider page.
-              {activeConnection.authorization?.userCode
-                ? ` Confirm code ${activeConnection.authorization.userCode}.`
+              {currentConnection.authorization?.userCode
+                ? ` Confirm code ${currentConnection.authorization.userCode}.`
                 : ""}
             </AlertDescription>
           </Alert>
         ) : null}
 
-        {activeConnection?.status === "connected" ? (
+        {currentConnection?.status === "connected" ? (
           <Alert className="border-emerald-200 bg-emerald-50 text-emerald-800">
             <CheckCircle2 aria-hidden="true" />
             <AlertTitle>Agent connected</AlertTitle>
@@ -355,66 +311,7 @@ export default function AgentsConnectDialog({
           </Alert>
         ) : null}
 
-        {hasSharedGatewayAccess ||
-        connections.some((connection) => connection.status === "connected") ? (
-          <section className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <Flex className="items-start justify-between gap-3">
-              <div>
-                <Flex className="items-center gap-2">
-                  <KeyRound aria-hidden="true" className="size-4" />
-                  <h3 className="text-sm font-semibold">Gateway API key</h3>
-                </Flex>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  One key configures every selected agent you can access.
-                </p>
-              </div>
-              {gatewayKeys.length > 0 ? (
-                <Badge variant="outline">{gatewayKeys.length} active</Badge>
-              ) : null}
-            </Flex>
-
-            {createdGatewayKey ? (
-              <div className="space-y-2">
-                <Label htmlFor="created-gateway-key">
-                  Copy now — this key is shown once
-                </Label>
-                <Flex className="items-center gap-2">
-                  <Input
-                    id="created-gateway-key"
-                    className="font-mono text-xs"
-                    readOnly
-                    value={createdGatewayKey.key}
-                  />
-                  <Button
-                    aria-label="Copy gateway API key"
-                    onClick={() => void copyText(createdGatewayKey.key)}
-                    size="icon"
-                    type="button"
-                    variant="outline"
-                  >
-                    <Copy aria-hidden="true" />
-                  </Button>
-                </Flex>
-              </div>
-            ) : (
-              <Button
-                disabled={creatingGatewayKey}
-                onClick={() => void createGatewayKey()}
-                type="button"
-                variant="outline"
-              >
-                {creatingGatewayKey ? (
-                  <LoaderCircle aria-hidden="true" className="animate-spin" />
-                ) : (
-                  <KeyRound aria-hidden="true" />
-                )}
-                {creatingGatewayKey ? "Creating…" : "Create gateway key"}
-              </Button>
-            )}
-          </section>
-        ) : null}
-
-        {activeConnection?.authorization?.requiresCallbackUrl ? (
+        {currentConnection?.authorization?.requiresCallbackUrl ? (
           <form className="space-y-3" onSubmit={form.handleSubmit(complete)}>
             <div className="space-y-1.5">
               <Label htmlFor="agent-callback-url">Callback URL or code</Label>
@@ -436,7 +333,12 @@ export default function AgentsConnectDialog({
                 {form.formState.errors.root.message}
               </p>
             ) : null}
-            <Button type="submit" disabled={form.formState.isSubmitting}>
+            <Button
+              type="submit"
+              disabled={
+                form.formState.isSubmitting || completeMutation.isPending
+              }
+            >
               {form.formState.isSubmitting
                 ? "Connecting…"
                 : "Complete connection"}

@@ -34,8 +34,9 @@ populated values in the runtime secret store.
 - `/gateway/grok/v1/*`: Grok OpenAI-compatible gateway.
 
 Gateway keys are shown once and stored only as hashes. A key can route through
-the user's own connected provider or an account pool where their join request
-is accepted; an owned account wins, otherwise the latest accepted membership
-is selected. Provider token payloads are AES-256-GCM encrypted. Do not log
-request authorization headers, OAuth codes, device codes, callback URLs, or
-provider response bodies.
+every connected account the user owns and every pool where their join request
+is accepted. Candidate pools are filtered strictly by the requested provider;
+owned accounts are tried first, and an unusable credential or upstream `429`
+advances to the next same-provider pool. Provider token payloads are AES-256-GCM
+encrypted. Do not log request authorization headers, OAuth codes, device codes,
+callback URLs, or provider response bodies.

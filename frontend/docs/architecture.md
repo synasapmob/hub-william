@@ -24,7 +24,7 @@ frontend/build/client/**/*.html  real HTML per route
 
 frontend/src/services           calls auth, pool, connection and key contracts
         │
-        │  production: same-origin /api proxy
+        │  TanStack Query cache; production: same-origin /api proxy
         ▼
 backend/src                     Axum control plane, provider OAuth and gateway
         │

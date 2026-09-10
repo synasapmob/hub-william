@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, Download, LoaderCircle } from "lucide-react";
 import { Link } from "react-router";
 
@@ -18,62 +19,48 @@ import AgentsRequestDialog, {
 } from "./agents-request-dialog";
 import AgentsRequestsDialog from "./agents-requests-dialog";
 import AgentsConnectDialog from "./agents-connect-dialog";
+import AgentsGatewayKeyDialog from "./agents-gateway-key-dialog";
+
+interface RequestJoinVariables {
+  poolId: string;
+  values: RequestFormValues;
+}
+
+interface DecideRequestVariables {
+  requestId: string;
+  status: Exclude<AgentPoolRequestStatus, "pending">;
+}
 
 export default function AgentsRoute() {
   const session = useWorkspaceSession();
-  const [pools, setPools] = useState<AgentPool[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [requestPoolId, setRequestPoolId] = useState<string | null>(null);
   const [reviewPoolId, setReviewPoolId] = useState<string | null>(null);
+  const poolsQuery = useQuery({
+    queryFn: agentPoolsService.list,
+    queryKey: [...agentPoolsService.queryKey, session.user?.id ?? "guest"],
+  });
+  const requestMutation = useMutation({
+    mutationFn: ({ poolId, values }: RequestJoinVariables) =>
+      agentPoolsService.requestJoin(poolId, values),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: agentPoolsService.queryKey }),
+  });
+  const decisionMutation = useMutation({
+    mutationFn: ({ requestId, status }: DecideRequestVariables) =>
+      agentPoolsService.decide(requestId, status),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: agentPoolsService.queryKey }),
+  });
+  const pools = poolsQuery.data ?? [];
   const requestPool = pools.find((pool) => pool.id === requestPoolId) ?? null;
   const reviewPool = pools.find((pool) => pool.id === reviewPoolId) ?? null;
-  const hasSharedGatewayAccess = pools.some(
-    (pool) =>
-      pool.owner.username !== session.user?.username &&
-      pool.members.some((member) => member.username === session.user?.username),
-  );
-
-  const loadPools = useCallback(async () => {
-    try {
-      setPools(await agentPoolsService.list());
-      setErrorMessage(null);
-    } catch (error) {
-      setErrorMessage(
-        error instanceof AgentPoolServiceError
-          ? error.message
-          : "The account pools could not be loaded.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    agentPoolsService
-      .list()
-      .then((items) => {
-        if (cancelled) return;
-        setPools(items);
-        setErrorMessage(null);
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        setErrorMessage(
-          error instanceof AgentPoolServiceError
-            ? error.message
-            : "The account pools could not be loaded.",
-        );
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [session.user?.id]);
+  const routeError = poolsQuery.error ?? decisionMutation.error;
+  const errorMessage = routeError
+    ? routeError instanceof AgentPoolServiceError
+      ? routeError.message
+      : "The account pools could not be loaded."
+    : null;
 
   function requestJoin(pool: AgentPool) {
     if (!session.user) {
@@ -87,8 +74,7 @@ export default function AgentsRoute() {
   async function submitRequest(values: RequestFormValues) {
     if (!session.user || !requestPool) return;
 
-    await agentPoolsService.requestJoin(requestPool.id, values);
-    await loadPools();
+    await requestMutation.mutateAsync({ poolId: requestPool.id, values });
     setRequestPoolId(null);
   }
 
@@ -97,16 +83,7 @@ export default function AgentsRoute() {
     status: Exclude<AgentPoolRequestStatus, "pending">,
   ) {
     if (!reviewPool) return;
-    try {
-      await agentPoolsService.decide(requestId, status);
-      await loadPools();
-    } catch (error) {
-      setErrorMessage(
-        error instanceof AgentPoolServiceError
-          ? error.message
-          : "The join request could not be updated.",
-      );
-    }
+    decisionMutation.mutate({ requestId, status });
   }
 
   return (
@@ -154,16 +131,22 @@ export default function AgentsRoute() {
             </p>
           </div>
 
-          <Flex className="items-center gap-2">
+          <Flex className="flex-wrap items-center justify-end gap-2">
             <Button asChild className="h-10 px-4" variant="outline">
               <Link to="/tools?node=gateway">
                 <Download aria-hidden="true" />
                 Install
               </Link>
             </Button>
+
+            <AgentsGatewayKeyDialog />
+
             <AgentsConnectDialog
-              hasSharedGatewayAccess={hasSharedGatewayAccess}
-              onConnected={() => void loadPools()}
+              onConnected={() =>
+                void queryClient.invalidateQueries({
+                  queryKey: agentPoolsService.queryKey,
+                })
+              }
             />
           </Flex>
         </Flex>
@@ -174,7 +157,7 @@ export default function AgentsRoute() {
           </Alert>
         ) : null}
 
-        {loading ? (
+        {poolsQuery.isPending ? (
           <Flex
             aria-live="polite"
             className="mt-5 items-center gap-2 text-sm text-muted-foreground"

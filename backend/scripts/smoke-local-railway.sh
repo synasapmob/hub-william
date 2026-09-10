@@ -20,6 +20,7 @@ cleanup() {
   rm -rf -- "$task_tmp"
 }
 trap cleanup EXIT
+trap 'echo "smoke failed at line ${LINENO}"' ERR
 
 health_status=$(curl -sS -o "$task_tmp/health.json" -w '%{http_code}' http://127.0.0.1:8080/health)
 [[ "$health_status" == "200" ]]
@@ -93,7 +94,14 @@ fi
 
 task_connection_id=$(uuidgen | tr '[:upper:]' '[:lower:]')
 task_connection_id=$(psql "$task_db_url" -v ON_ERROR_STOP=1 -Atq -c \
-  "INSERT INTO agent_connections (id, user_id, provider, status, account_label, plan) VALUES ('${task_connection_id}', '${task_user_id}', 'grok', 'connected', 'int*******@example.com', 'K12') ON CONFLICT (user_id, provider) DO UPDATE SET status='connected', account_label='int*******@example.com', plan='K12', failure_message=NULL RETURNING id")
+  "INSERT INTO agent_connections (id, user_id, provider, status, account_label, plan) VALUES ('${task_connection_id}', '${task_user_id}', 'grok', 'connected', 'int*******@example.com', 'K12') RETURNING id")
+task_connection_id_two=$(uuidgen | tr '[:upper:]' '[:lower:]')
+task_connection_id_two=$(psql "$task_db_url" -v ON_ERROR_STOP=1 -Atq -c \
+  "INSERT INTO agent_connections (id, user_id, provider, status, account_label, plan) VALUES ('${task_connection_id_two}', '${task_user_id}', 'grok', 'connected', 'sec*******@example.com', 'Plus') RETURNING id")
+same_provider_connection_count=$(psql "$task_db_url" -v ON_ERROR_STOP=1 -Atq -c \
+  "SELECT COUNT(*) FROM agent_connections WHERE user_id = '${task_user_id}' AND provider = 'grok' AND status = 'connected'")
+[[ "$same_provider_connection_count" == "2" ]]
+echo "multiple connections: one Hub user owns two connected Grok account pools"
 
 public_pools_status=$(curl -sS -o "$task_tmp/public-pools.json" -w '%{http_code}' \
   http://127.0.0.1:8080/agent-pools)
@@ -126,6 +134,9 @@ echo "owner pool view: pending reason and Telegram visible"
 decision_status=$(curl -sS -b "$task_tmp/cookies.txt" -o "$task_tmp/decision.json" \
   -w '%{http_code}' -H 'content-type: application/json' --data '{"status":"accepted"}' \
   "http://127.0.0.1:8080/agent-pool-requests/${task_request_id}/decision")
+if [[ "$decision_status" != "200" ]]; then
+  echo "first owner decision failed: HTTP ${decision_status} $(jq -c '{code, message}' "$task_tmp/decision.json")"
+fi
 [[ "$decision_status" == "200" ]]
 jq -e '.status == "accepted"' "$task_tmp/decision.json" >/dev/null
 
@@ -135,10 +146,31 @@ requester_pools_status=$(curl -sS -b "$task_tmp/requester-cookies.txt" -o "$task
 jq -e --arg id "$task_connection_id" --arg username "$task_requester_username" \
   '.[] | select(.id == $id) | any(.members[]; .username == $username)' \
   "$task_tmp/requester-pools.json" >/dev/null
-jq -e --arg id "$task_request_id" \
-  '.[] | any(.requests[]; .id == $id and .status == "accepted")' \
+jq -e --arg pool_id "$task_connection_id" --arg request_id "$task_request_id" \
+  '.[] | select(.id == $pool_id) | any(.requests[]; .id == $request_id and .status == "accepted")' \
   "$task_tmp/requester-pools.json" >/dev/null
 echo "owner decision: accepted request persisted and member returned to requester"
+
+request_two_status=$(curl -sS -b "$task_tmp/requester-cookies.txt" -o "$task_tmp/request-two.json" \
+  -w '%{http_code}' -H 'content-type: application/json' \
+  --data '{"telegram":"@integration_requester","reason":"Integration test request for a second shared provider account."}' \
+  "http://127.0.0.1:8080/agent-pools/${task_connection_id_two}/requests")
+[[ "$request_two_status" == "201" ]]
+task_request_two_id=$(jq -r '.id' "$task_tmp/request-two.json")
+decision_two_status=$(curl -sS -b "$task_tmp/cookies.txt" -o "$task_tmp/decision-two.json" \
+  -w '%{http_code}' -H 'content-type: application/json' --data '{"status":"accepted"}' \
+  "http://127.0.0.1:8080/agent-pool-requests/${task_request_two_id}/decision")
+if [[ "$decision_two_status" != "200" ]]; then
+  echo "second owner decision failed: HTTP ${decision_two_status} $(jq -c '{code, message}' "$task_tmp/decision-two.json")"
+fi
+[[ "$decision_two_status" == "200" ]]
+same_provider_membership_count=$(psql "$task_db_url" -v ON_ERROR_STOP=1 -Atq -c \
+  "SELECT COUNT(*) FROM agent_pool_join_requests AS requests JOIN agent_connections AS connections ON connections.id = requests.connection_id WHERE requests.requester_user_id = (SELECT id FROM users WHERE username = '${task_requester_username}') AND requests.status = 'accepted' AND connections.provider = 'grok'")
+[[ "$same_provider_membership_count" == "2" ]]
+cross_provider_membership_count=$(psql "$task_db_url" -v ON_ERROR_STOP=1 -Atq -c \
+  "SELECT COUNT(*) FROM agent_pool_join_requests AS requests JOIN agent_connections AS connections ON connections.id = requests.connection_id WHERE requests.requester_user_id = (SELECT id FROM users WHERE username = '${task_requester_username}') AND requests.status = 'accepted' AND connections.provider = 'claude'")
+[[ "$cross_provider_membership_count" == "0" ]]
+echo "multiple memberships: requester accepted into two Grok pools; Claude candidate set remains empty"
 
 requester_key_status=$(curl -sS -b "$task_tmp/requester-cookies.txt" -o "$task_tmp/requester-key.json" \
   -w '%{http_code}' -X POST http://127.0.0.1:8080/gateway-keys)
@@ -148,7 +180,7 @@ requester_models_status=$(curl -sS -o "$task_tmp/requester-models.json" -w '%{ht
   -H "authorization: Bearer ${task_requester_gateway_key}" \
   http://127.0.0.1:8080/gateway/grok/v1/models)
 [[ "$requester_models_status" == "200" ]]
-echo "accepted membership: requester key created and routed to the shared Grok pool"
+echo "accepted memberships: one requester key routes across the accessible Grok pool set"
 
 key_status=$(curl -sS -b "$task_tmp/cookies.txt" -o "$task_tmp/key.json" \
   -w '%{http_code}' -X POST http://127.0.0.1:8080/gateway-keys)

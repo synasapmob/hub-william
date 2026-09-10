@@ -247,12 +247,6 @@ pub async fn start(
         "INSERT INTO agent_connections
             (id, user_id, provider, status, account_label, plan, failure_message)
          VALUES ($1, $2, $3, 'pending', NULL, NULL, NULL)
-         ON CONFLICT (user_id, provider) DO UPDATE SET
-            status = 'pending',
-            account_label = NULL,
-            plan = NULL,
-            failure_message = NULL,
-            updated_at = NOW()
          RETURNING id, provider, status, account_label, plan, failure_message, created_at, updated_at",
     )
     .bind(connection_id)
@@ -799,39 +793,7 @@ async fn finish_connection(
         .get("refresh_token_expires_in")
         .and_then(Value::as_i64)
         .map(|seconds| Utc::now() + Duration::seconds(seconds));
-    let claims = token_claims(&token);
-    let account_label = token
-        .pointer("/account/email_address")
-        .or_else(|| token.pointer("/account/email"))
-        .or_else(|| token.get("email"))
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .or_else(|| {
-            claims
-                .as_ref()
-                .and_then(|value| value.get("email"))
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-        })
-        .as_deref()
-        .map(mask_account_label);
-    let plan = token
-        .get("subscription_type")
-        .or_else(|| token.get("rate_limit_tier"))
-        .or_else(|| token.get("plan"))
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .or_else(|| {
-            claims
-                .as_ref()
-                .and_then(|value| {
-                    value
-                        .get("https://api.openai.com/auth.chatgpt_plan_type")
-                        .or_else(|| value.get("plan"))
-                })
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-        });
+    let (account_label, plan) = connection_metadata(&token);
     let mut transaction = state.pool.begin().await.map_err(database_error)?;
 
     sqlx::query(
@@ -873,6 +835,54 @@ async fn finish_connection(
     transaction.commit().await.map_err(database_error)?;
 
     connection_from_row(updated, None)
+}
+
+fn connection_metadata(token: &Value) -> (Option<String>, Option<String>) {
+    let claims = token_claims(token);
+    let account_label = token
+        .pointer("/account/email_address")
+        .or_else(|| token.pointer("/account/email"))
+        .or_else(|| token.get("email"))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .or_else(|| {
+            claims
+                .as_ref()
+                .and_then(|value| value.get("email"))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+        .as_deref()
+        .map(mask_account_label);
+    let plan = token
+        .get("subscription_type")
+        .or_else(|| token.get("rate_limit_tier"))
+        .or_else(|| token.get("plan"))
+        .or_else(|| {
+            claims.as_ref().and_then(|value| {
+                value
+                    .get("https://api.openai.com/auth.chatgpt_plan_type")
+                    .or_else(|| {
+                        value
+                            .get("https://api.openai.com/auth")
+                            .and_then(|auth| auth.get("chatgpt_plan_type"))
+                    })
+                    .or_else(|| value.get("plan"))
+            })
+        })
+        .and_then(Value::as_str)
+        .map(normalize_plan_label);
+
+    (account_label, plan)
+}
+
+fn normalize_plan_label(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "k12" => "K12".to_owned(),
+        "max" => "Max".to_owned(),
+        "plus" => "Plus".to_owned(),
+        _ => value.trim().to_owned(),
+    }
 }
 
 async fn refresh_connected_connection(
@@ -933,6 +943,7 @@ async fn refresh_connected_connection(
         .and_then(Value::as_i64)
         .map(|seconds| Utc::now() + Duration::seconds(seconds))
         .or(credential.refresh_token_expires_at);
+    let (account_label, plan) = connection_metadata(&merged);
 
     sqlx::query(
         "UPDATE agent_connection_credentials SET credential_ciphertext = $2,
@@ -947,11 +958,19 @@ async fn refresh_connected_connection(
     .execute(&mut *transaction)
     .await
     .map_err(database_error)?;
-    sqlx::query("UPDATE agent_connections SET updated_at = NOW() WHERE id = $1")
-        .bind(row.id)
-        .execute(&mut *transaction)
-        .await
-        .map_err(database_error)?;
+    sqlx::query(
+        "UPDATE agent_connections SET
+            account_label = COALESCE($2, account_label),
+            plan = COALESCE($3, plan),
+            updated_at = NOW()
+         WHERE id = $1",
+    )
+    .bind(row.id)
+    .bind(account_label)
+    .bind(plan)
+    .execute(&mut *transaction)
+    .await
+    .map_err(database_error)?;
     transaction.commit().await.map_err(database_error)?;
     let updated = owned_connection_by_id(state, row.id).await?;
     connection_from_row(updated, None)
@@ -1305,9 +1324,9 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        AuthorizationSecret, CodexDeviceResponse, decrypt_json, encrypt_json, mask_account_label,
-        merge_token_response, parse_callback_value, poll_seconds, start_claude_authorization,
-        token_claims,
+        AuthorizationSecret, CodexDeviceResponse, connection_metadata, decrypt_json, encrypt_json,
+        mask_account_label, merge_token_response, parse_callback_value, poll_seconds,
+        start_claude_authorization, token_claims,
     };
     use crate::AppConfig;
 
@@ -1406,6 +1425,30 @@ mod tests {
         );
 
         assert_eq!(token_claims(&json!({ "id_token": token })), Some(claims));
+    }
+
+    #[test]
+    fn chatgpt_plan_is_read_from_the_live_nested_auth_claim() {
+        for (raw_plan, displayed_plan) in [("plus", "Plus"), ("k12", "K12")] {
+            let claims = json!({
+                "email": "owner@example.com",
+                "https://api.openai.com/auth": {
+                    "chatgpt_plan_type": raw_plan,
+                }
+            });
+            let token = format!(
+                "header.{}.signature",
+                URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap())
+            );
+
+            assert_eq!(
+                connection_metadata(&json!({ "id_token": token })),
+                (
+                    Some("own*******@example.com".to_owned()),
+                    Some(displayed_plan.to_owned())
+                )
+            );
+        }
     }
 
     #[test]

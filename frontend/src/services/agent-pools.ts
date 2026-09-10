@@ -171,6 +171,12 @@ function createdLabel(createdAt: string) {
   }).format(new Date(createdAt));
 }
 
-const agentPoolsService = { createdLabel, decide, list, requestJoin };
+const agentPoolsService = {
+  createdLabel,
+  decide,
+  list,
+  queryKey: ["agent-pools"] as const,
+  requestJoin,
+};
 
 export default agentPoolsService;

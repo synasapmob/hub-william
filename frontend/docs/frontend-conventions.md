@@ -360,12 +360,13 @@ no route is behind an account — is not a convention and is not here. See
   `@import "tailwindcss"` to the browser verbatim and the app would render
   unstyled — the location is only safe because nothing relies on the folder it
   sits in.
-- Components never make raw network calls. Nothing in the app fetches: the
-  catalogue is Markdown inlined at build time and the telemetry is fixture data.
-  Services own where content comes from, and a component reads a service. A
-  download control is the one thing that leaves the browser, and it is an
-  `<a download>` pointing at an archive the build emitted — a navigation the
-  reader started, not a component going to the network for its data.
+- Components never make raw network calls. Services own HTTP and schema
+  normalization; components consume remote server state through TanStack
+  Query's `useQuery`, and remote writes use `useMutation` with an explicit cache
+  update or query invalidation. Do not rebuild query loading, retry, cancellation
+  or cache state with `useEffect` and parallel local state. Static catalogue data
+  remains inlined at build time, telemetry remains fixture data, and download
+  controls remain reader-initiated `<a download>` navigations.
 - Do not create a catch-all `types/` directory. Keep types with the service or feature that owns them.
 
 ## Exports
@@ -376,9 +377,12 @@ no route is behind an account — is not a convention and is not here. See
 
 ## Data and security
 
-- **The current frontend has no account-bound data or secrets.** The Rust
-  backend scaffold is a separate runtime boundary, and no client credential may
-  be moved into Vite code as that boundary gains real integrations.
+- Account-bound session, connection, membership, and gateway-key metadata comes
+  from the Rust backend. OAuth credentials and gateway-key hashes stay behind
+  that runtime boundary; no provider credential may be moved into Vite code.
+- A newly created gateway-key plaintext may be rendered only from the creation
+  response and must disappear when its dialog closes. Later queries receive
+  masked metadata only.
 - Treat all Vite client code as public. There is nothing in it that is not
   already in the repository.
 - Contributed Markdown is authored by strangers and remains inert downloadable

@@ -260,7 +260,7 @@ pub async fn grok_models(
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     let authorized = authorize_gateway_key(&state, &headers).await?;
-    connected_provider_id(&state, authorized.user_id, AgentProvider::Grok).await?;
+    connected_provider_ids(&state, authorized.user_id, AgentProvider::Grok).await?;
 
     Ok(Json(json!({
         "object": "list",
@@ -281,51 +281,74 @@ async fn proxy_request(
     body: Bytes,
 ) -> Result<Response, ApiError> {
     let authorized = authorize_gateway_key(state, request_headers).await?;
-    let connection_id = connected_provider_id(state, authorized.user_id, expected_provider).await?;
-    let (credential_provider, token) = provider_credential(state, connection_id).await?;
-    if credential_provider != expected_provider {
-        return Err(ApiError::Forbidden);
-    }
-    let access_token = token
-        .get("access_token")
-        .and_then(Value::as_str)
-        .ok_or(ApiError::Forbidden)?;
+    let connection_ids =
+        connected_provider_ids(state, authorized.user_id, expected_provider).await?;
     let upstream_url = append_query(upstream_url, original_uri.query());
-    let mut request = state
-        .http
-        .post(upstream_url)
-        .bearer_auth(access_token)
-        .body(body);
+    let candidate_count = connection_ids.len();
 
-    for (name, value) in request_headers {
-        if should_forward_request_header(name) {
-            request = request.header(name, value);
-        }
-    }
-    request = match expected_provider {
-        AgentProvider::Chatgpt => {
-            let mut request = request
-                .header("originator", "codex_cli_rs")
-                .header("user-agent", "codex_cli_rs/0.153.4");
-            if let Some(account_id) = chatgpt_account_id(&token) {
-                request = request.header("chatgpt-account-id", account_id);
+    for (index, connection_id) in connection_ids.into_iter().enumerate() {
+        let has_next = index + 1 < candidate_count;
+        let (credential_provider, token) = match provider_credential(state, connection_id).await {
+            Ok(credential) => credential,
+            Err(ApiError::Forbidden | ApiError::Provider(_)) if has_next => continue,
+            Err(error) => return Err(error),
+        };
+        if credential_provider != expected_provider {
+            if has_next {
+                continue;
             }
-            request
+            return Err(ApiError::Forbidden);
         }
-        AgentProvider::Claude => {
-            request.header("anthropic-beta", merged_anthropic_beta(request_headers))
-        }
-        AgentProvider::Grok => request
-            .header("x-xai-token-auth", "xai-grok-cli")
-            .header("x-grok-client-version", "1.0.13")
-            .header("x-grok-client-identifier", "grok-shell")
-            .header("user-agent", "xai-grok-build/1.0.13"),
-    };
+        let access_token = match token.get("access_token").and_then(Value::as_str) {
+            Some(access_token) => access_token,
+            None if has_next => continue,
+            None => return Err(ApiError::Forbidden),
+        };
+        let mut request = state
+            .http
+            .post(&upstream_url)
+            .bearer_auth(access_token)
+            .body(body.clone());
 
-    let upstream = request
-        .send()
-        .await
-        .map_err(|error| upstream_network_error(expected_provider, error))?;
+        for (name, value) in request_headers {
+            if should_forward_request_header(name) {
+                request = request.header(name, value);
+            }
+        }
+        request = match expected_provider {
+            AgentProvider::Chatgpt => {
+                let mut request = request
+                    .header("originator", "codex_cli_rs")
+                    .header("user-agent", "codex_cli_rs/0.153.4");
+                if let Some(account_id) = chatgpt_account_id(&token) {
+                    request = request.header("chatgpt-account-id", account_id);
+                }
+                request
+            }
+            AgentProvider::Claude => {
+                request.header("anthropic-beta", merged_anthropic_beta(request_headers))
+            }
+            AgentProvider::Grok => request
+                .header("x-xai-token-auth", "xai-grok-cli")
+                .header("x-grok-client-version", "1.0.13")
+                .header("x-grok-client-identifier", "grok-shell")
+                .header("user-agent", "xai-grok-build/1.0.13"),
+        };
+
+        let upstream = request
+            .send()
+            .await
+            .map_err(|error| upstream_network_error(expected_provider, error))?;
+        if should_failover(upstream.status(), has_next) {
+            continue;
+        }
+        return upstream_response(upstream);
+    }
+
+    Err(ApiError::Forbidden)
+}
+
+fn upstream_response(upstream: reqwest::Response) -> Result<Response, ApiError> {
     let status = upstream.status();
     let headers = upstream.headers().clone();
     let stream = upstream.bytes_stream();
@@ -339,6 +362,10 @@ async fn proxy_request(
         eprintln!("gateway response construction failed: {error}");
         ApiError::Internal
     })
+}
+
+fn should_failover(status: StatusCode, has_next: bool) -> bool {
+    has_next && status == StatusCode::TOO_MANY_REQUESTS
 }
 
 async fn authorize_gateway_key(
@@ -379,12 +406,12 @@ fn gateway_key_from_row(row: GatewayKeyRow) -> Result<GatewayKey, ApiError> {
     })
 }
 
-async fn connected_provider_id(
+async fn connected_provider_ids(
     state: &AppState,
     user_id: Uuid,
     provider: AgentProvider,
-) -> Result<Uuid, ApiError> {
-    sqlx::query_scalar(
+) -> Result<Vec<Uuid>, ApiError> {
+    let connection_ids = sqlx::query_scalar(
         "SELECT connections.id
          FROM agent_connections AS connections
          LEFT JOIN agent_pool_join_requests AS requests
@@ -396,14 +423,18 @@ async fn connected_provider_id(
            AND (connections.user_id = $1 OR requests.id IS NOT NULL)
          ORDER BY (connections.user_id = $1) DESC,
                   COALESCE(requests.updated_at, connections.updated_at) DESC
-         LIMIT 1",
+        ",
     )
     .bind(user_id)
     .bind(provider.to_string())
-    .fetch_optional(&state.pool)
+    .fetch_all(&state.pool)
     .await
-    .map_err(database_error)?
-    .ok_or(ApiError::Forbidden)
+    .map_err(database_error)?;
+    if connection_ids.is_empty() {
+        return Err(ApiError::Forbidden);
+    }
+
+    Ok(connection_ids)
 }
 
 fn generate_gateway_key() -> String {
@@ -505,11 +536,11 @@ fn database_error(error: sqlx::Error) -> ApiError {
 
 #[cfg(test)]
 mod tests {
-    use axum::http::{HeaderMap, HeaderValue};
+    use axum::http::{HeaderMap, HeaderValue, StatusCode};
     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
     use serde_json::json;
 
-    use super::{chatgpt_account_id, hash_gateway_key, merged_anthropic_beta};
+    use super::{chatgpt_account_id, hash_gateway_key, merged_anthropic_beta, should_failover};
 
     #[test]
     fn gateway_key_hash_does_not_store_the_plaintext() {
@@ -550,5 +581,12 @@ mod tests {
             chatgpt_account_id(&json!({ "access_token": jwt })),
             Some("account-123".to_owned())
         );
+    }
+
+    #[test]
+    fn rate_limit_failover_stays_within_the_preselected_provider_candidates() {
+        assert!(should_failover(StatusCode::TOO_MANY_REQUESTS, true));
+        assert!(!should_failover(StatusCode::TOO_MANY_REQUESTS, false));
+        assert!(!should_failover(StatusCode::FORBIDDEN, true));
     }
 }

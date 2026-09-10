@@ -99,6 +99,11 @@ async function revoke(keyId: string) {
   }
 }
 
-const gatewayKeysService = { create, list, revoke };
+const gatewayKeysService = {
+  create,
+  list,
+  queryKey: ["gateway-keys"] as const,
+  revoke,
+};
 
 export default gatewayKeysService;
