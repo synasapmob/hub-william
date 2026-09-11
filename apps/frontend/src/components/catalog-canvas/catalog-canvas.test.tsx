@@ -16,6 +16,17 @@ function renderLibrary() {
   );
 }
 
+function renderTools(initialUrl = "/tools") {
+  return render(
+    <MemoryRouter initialEntries={[initialUrl]}>
+      <CatalogCanvas
+        section="tools"
+        searchPlaceholder="Search Documents and MCP..."
+      />
+    </MemoryRouter>,
+  );
+}
+
 describe("CatalogCanvas", () => {
   it("renders one flat node per functional collection", () => {
     renderLibrary();
@@ -69,5 +80,24 @@ describe("CatalogCanvas", () => {
     expect(screen.getByRole("button", { name: /GITHUB/ })).toBeVisible();
     expect(screen.queryByRole("button", { name: /EVIDENCES/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /TAGS/ })).toBeNull();
+  });
+
+  it("shows Codex, Claude, and Grok config on the gateway tool sheet", () => {
+    renderTools("/tools?node=gateway");
+
+    expect(screen.getByRole("heading", { name: "Gateway" })).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: "How to install and use" }),
+    ).toBeVisible();
+    expect(
+      screen.getByText("~/.codex/config.toml", { exact: false }),
+    ).toBeVisible();
+    expect(screen.getByText(/model_provider = "hub-william"/)).toBeVisible();
+    expect(screen.getByText(/experimental_bearer_token/)).toBeVisible();
+    expect(screen.getByText(/ANTHROPIC_BASE_URL/)).toBeVisible();
+    expect(screen.getByText(/\[model\.grok-build\]/)).toBeVisible();
+    expect(
+      screen.getByText(/python3 - --url=.* --key=YOUR_GATEWAY_KEY/),
+    ).toBeVisible();
   });
 });

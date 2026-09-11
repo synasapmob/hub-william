@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
-"""Install Hub William as the upstream gateway for supported agent CLIs."""
+"""Install Hub William as the upstream gateway for supported agent CLIs.
 
+    curl -fsSL https://<hub-william-origin>/gateway.py | python3 - --url=https://<hub-william-origin>/api --key=YOUR_GATEWAY_KEY
+"""
+
+import argparse
 import getpass
 import json
 import os
@@ -237,14 +241,41 @@ def _validated_gateway_url(value):
     parsed = urlparse(value)
     local_http = parsed.scheme == "http" and parsed.hostname in ("localhost", "127.0.0.1")
     if parsed.scheme != "https" and not local_http:
-        raise ValueError("HUB_WILLIAM_GATEWAY_URL must use HTTPS (or localhost HTTP)")
+        raise ValueError("gateway URL must use HTTPS (or localhost HTTP)")
     if not parsed.netloc:
-        raise ValueError("HUB_WILLIAM_GATEWAY_URL is not a valid origin")
+        raise ValueError("gateway URL is not a valid origin")
     return value
 
 
-def install(terminal):
-    gateway_url = _validated_gateway_url(os.environ.get("HUB_WILLIAM_GATEWAY_URL"))
+def _validated_key(value):
+    value = (value or "").strip()
+    if len(value) < 8 or any(character.isspace() for character in value):
+        raise ValueError("the Hub William API key is invalid")
+    return value
+
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(
+        description="Point Codex, Claude Code, and Grok at a Hub William gateway key.",
+    )
+    parser.add_argument(
+        "--key",
+        metavar="KEY",
+        help="gateway API key; omit to type it hidden after choosing agents",
+    )
+    parser.add_argument(
+        "--url",
+        metavar="ORIGIN",
+        help="gateway origin; defaults to HUB_WILLIAM_GATEWAY_URL",
+    )
+    return parser.parse_args(argv)
+
+
+def install(terminal, args):
+    gateway_url = _validated_gateway_url(
+        args.url or os.environ.get("HUB_WILLIAM_GATEWAY_URL")
+    )
+    key = _validated_key(args.key) if args.key is not None else None
     agents = choose_agents(terminal)
     if agents is None:
         terminal.write("\nNothing changed.\n")
@@ -255,9 +286,10 @@ def install(terminal):
         terminal.flush()
         return 0
 
-    key = getpass.getpass("Hub William API key: ", stream=terminal).strip()
-    if len(key) < 8 or any(character.isspace() for character in key):
-        raise ValueError("the Hub William API key is invalid")
+    if key is None:
+        key = _validated_key(
+            getpass.getpass("Hub William API key: ", stream=terminal)
+        )
     changes = build_changes(os.path.expanduser("~"), key, gateway_url, agents)
     for path, text in changes.items():
         _atomic_write(path, text)
@@ -267,10 +299,11 @@ def install(terminal):
     return 0
 
 
-def main():
+def main(argv=None):
+    args = parse_args(sys.argv[1:] if argv is None else argv)
     try:
         with open("/dev/tty", "r+", buffering=1) as terminal:
-            return install(terminal)
+            return install(terminal, args)
     except (OSError, ValueError) as error:
         sys.stderr.write("gateway installer: %s\n" % error)
         return 1

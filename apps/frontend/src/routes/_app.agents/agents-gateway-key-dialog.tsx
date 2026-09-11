@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, KeyRound, LoaderCircle, Trash2 } from "lucide-react";
+import { Link } from "react-router";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -95,7 +96,16 @@ export default function AgentsGatewayKeyDialog() {
             <Badge variant="outline">{keys.length} active</Badge>
           </Flex>
           <DialogDescription>
-            One key configures every selected agent you can access.
+            One key configures every selected agent. Paste it into Codex, Claude
+            Code, or Grok from{" "}
+            <Link
+              className="font-medium text-indigo-600 hover:underline"
+              onClick={() => changeOpen(false)}
+              to="/tools?node=gateway"
+            >
+              Tools → Gateway
+            </Link>
+            .
           </DialogDescription>
         </DialogHeader>
 

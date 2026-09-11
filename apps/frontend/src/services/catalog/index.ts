@@ -585,6 +585,11 @@ function installerUrl(origin?: string) {
   return siteAssetUrl("install.py", origin);
 }
 
+/** The gateway installer, published beside `install.py`. */
+function gatewayInstallerUrl(origin?: string) {
+  return siteAssetUrl("gateway.py", origin);
+}
+
 /** This document's own bytes, at a URL `curl` can take. */
 function documentUrl(entry: CatalogEntry) {
   return siteUrl(`${entry.id}.md`);
@@ -777,8 +782,9 @@ const catalogService = {
   contributors,
   documentCount,
   documentUrl,
-  findCollection,
   findBySlug,
+  findCollection,
+  gatewayInstallerUrl,
   installerUrl,
   listEntriesByCategory,
   matchesCollectionQuery,

@@ -6,6 +6,8 @@ mod error;
 mod gateway;
 mod health;
 mod openapi;
+mod telegram;
+mod telegram_catalogue;
 
 use axum::{
     Router,
@@ -13,7 +15,7 @@ use axum::{
         Method,
         header::{AUTHORIZATION, CONTENT_TYPE},
     },
-    routing::{get, post},
+    routing::{get, post, put},
 };
 use reqwest::Client;
 use sqlx::PgPool;
@@ -48,6 +50,20 @@ use gateway::{
 pub use health::HealthResponse;
 use health::health;
 pub use openapi::ApiDoc;
+pub use telegram::{
+    CreateTelegramOrder, SepayResult, SepayTransaction, TelegramAudience, TelegramOrder,
+};
+use telegram::{
+    block_contact, cancel_order, create_order, get_contact, get_order, list_audience, list_orders,
+    observe_contact, record_sepay_payment, set_contact_language,
+};
+pub use telegram_catalogue::{
+    AdjustTelegramProduct, CreateTelegramProduct, RestockTelegramProduct, TelegramCatalogue,
+    TelegramCatalogueProvider, TelegramProduct, TelegramRestock,
+};
+use telegram_catalogue::{
+    adjust_product, catalogue, create_product, full_catalogue, get_product, restock_product,
+};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -85,6 +101,47 @@ pub fn app(state: AppState) -> Router {
         .route("/auth/session", get(session))
         .route("/auth/logout", post(logout))
         .route("/auth/refresh", post(refresh))
+        .route("/internal/telegram/contacts", post(observe_contact))
+        .route(
+            "/internal/telegram/contacts/{telegram_user_id}",
+            get(get_contact),
+        )
+        .route(
+            "/internal/telegram/contacts/{telegram_user_id}/language",
+            put(set_contact_language),
+        )
+        .route(
+            "/internal/telegram/contacts/{telegram_user_id}/orders",
+            get(list_orders).post(create_order),
+        )
+        .route(
+            "/internal/telegram/contacts/{telegram_user_id}/orders/{reference}",
+            get(get_order),
+        )
+        .route(
+            "/internal/telegram/contacts/{telegram_user_id}/orders/{reference}/cancel",
+            post(cancel_order),
+        )
+        .route(
+            "/internal/telegram/payments/sepay",
+            post(record_sepay_payment),
+        )
+        .route("/internal/telegram/audience", get(list_audience))
+        .route(
+            "/internal/telegram/audience/{chat_id}/block",
+            post(block_contact),
+        )
+        .route("/internal/telegram/catalogue", get(catalogue))
+        .route("/internal/telegram/catalogue/full", get(full_catalogue))
+        .route("/internal/telegram/products", post(create_product))
+        .route(
+            "/internal/telegram/products/{slug}",
+            get(get_product).patch(adjust_product),
+        )
+        .route(
+            "/internal/telegram/products/{slug}/restock",
+            post(restock_product),
+        )
         .route("/agent-pools", get(list_agent_pools))
         .route(
             "/agent-pools/{connection_id}/requests",

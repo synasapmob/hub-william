@@ -159,26 +159,35 @@ export default function AgentsPoolCard({
                 </PopoverDescription>
               </PopoverHeader>
 
-              <dl className="divide-y divide-zinc-100">
-                {pool.usage.map((metric) => (
-                  <div key={metric.label} className="py-2 first:pt-0 last:pb-0">
-                    <Flex className="justify-between gap-3">
-                      <dt className="text-xs text-muted-foreground">
-                        {metric.label}
-                      </dt>
-                      <dd className="text-right font-mono text-xs font-semibold">
-                        {metric.value}
-                      </dd>
-                    </Flex>
-                    {metric.detail ? (
-                      <Flex className="mt-1 justify-end gap-1 text-[10px] text-muted-foreground">
-                        <Clock3 aria-hidden="true" className="size-3" />
-                        {metric.detail}
+              {pool.usage.length > 0 ? (
+                <dl className="divide-y divide-zinc-100">
+                  {pool.usage.map((metric) => (
+                    <div
+                      key={metric.label}
+                      className="py-2 first:pt-0 last:pb-0"
+                    >
+                      <Flex className="justify-between gap-3">
+                        <dt className="text-xs text-muted-foreground">
+                          {metric.label}
+                        </dt>
+                        <dd className="text-right font-mono text-xs font-semibold">
+                          {metric.value}
+                        </dd>
                       </Flex>
-                    ) : null}
-                  </div>
-                ))}
-              </dl>
+                      {metric.detail ? (
+                        <Flex className="mt-1 justify-end gap-1 text-[10px] text-muted-foreground">
+                          <Clock3 aria-hidden="true" className="size-3" />
+                          {metric.detail}
+                        </Flex>
+                      ) : null}
+                    </div>
+                  ))}
+                </dl>
+              ) : (
+                <p className="rounded-lg border border-dashed border-zinc-300 p-4 text-center text-xs text-muted-foreground">
+                  {pool.agent} has not reported usage for this account yet.
+                </p>
+              )}
             </PopoverContent>
           </Popover>
         </CardHeader>

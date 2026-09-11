@@ -6,14 +6,19 @@ import json
 import os
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 
-REPO_ROOT = os.path.dirname(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+FRONTEND_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = FRONTEND_ROOT.parents[1]
+SCRIPT = FRONTEND_ROOT / "public" / "gateway.py"
+GATEWAY_MD = (
+    REPO_ROOT / "contributors" / "default" / "tools" / "gateway" / "gateway.md"
 )
-SCRIPT = os.path.join(REPO_ROOT, "frontend", "public", "gateway.py")
-SPEC = importlib.util.spec_from_file_location("gateway_installer", SCRIPT)
+SPEC = importlib.util.spec_from_file_location(
+    "gateway_installer", str(SCRIPT)
+)
 gateway = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(gateway)
 
@@ -129,11 +134,66 @@ class GatewayInstallerTest(unittest.TestCase):
             "build_changes",
             return_value={destination: "api_key = \"hw_live_test-install-key\"\n"},
         ):
-            self.assertEqual(gateway.install(terminal), 0)
+            self.assertEqual(
+                gateway.install(terminal, gateway.parse_args([])), 0
+            )
 
         prompt.assert_called_once_with("Hub William API key: ", stream=terminal)
         with open(destination, encoding="utf-8") as handle:
             self.assertIn("hw_live_test-install-key", handle.read())
+
+    def test_key_flag_skips_the_hidden_prompt_and_injects_on_enter(self):
+        destination = os.path.join(self.home.name, "config.toml")
+        terminal = io.StringIO()
+        args = gateway.parse_args(
+            [
+                "--url=https://gateway.example.com",
+                "--key=hw_live_test-install-key",
+            ]
+        )
+        with mock.patch.object(
+            gateway, "choose_agents", return_value=["codex"]
+        ), mock.patch.object(
+            gateway.getpass, "getpass"
+        ) as prompt, mock.patch.object(
+            gateway,
+            "build_changes",
+            return_value={destination: "api_key = \"hw_live_test-install-key\"\n"},
+        ):
+            self.assertEqual(gateway.install(terminal, args), 0)
+
+        prompt.assert_not_called()
+        with open(destination, encoding="utf-8") as handle:
+            self.assertIn("hw_live_test-install-key", handle.read())
+
+    def test_url_flag_overrides_the_environment_origin(self):
+        args = gateway.parse_args(["--url=https://from-flag.example"])
+        self.assertEqual(args.url, "https://from-flag.example")
+        self.assertIsNone(args.key)
+
+    def test_invalid_key_flag_fails_before_the_picker(self):
+        terminal = io.StringIO()
+        args = gateway.parse_args(
+            ["--url=https://gateway.example.com", "--key=short"]
+        )
+        with mock.patch.object(gateway, "choose_agents") as choose:
+            with self.assertRaises(ValueError):
+                gateway.install(terminal, args)
+        choose.assert_not_called()
+
+    def test_gateway_markdown_documents_the_written_config(self):
+        markdown = GATEWAY_MD.read_text(encoding="utf-8")
+        self.assertIn('model_provider = "hub-william"', markdown)
+        self.assertIn("[model_providers.hub-william]", markdown)
+        self.assertIn("/gateway/openai/v1", markdown)
+        self.assertIn("experimental_bearer_token", markdown)
+        self.assertIn('wire_api = "responses"', markdown)
+        self.assertIn("ANTHROPIC_BASE_URL", markdown)
+        self.assertIn("/gateway/claude", markdown)
+        self.assertIn("/gateway/grok/v1", markdown)
+        self.assertIn("~/.codex/config.toml", markdown)
+        self.assertIn("python3 - --url=", markdown)
+        self.assertIn("--key=YOUR_GATEWAY_KEY", markdown)
 
 
 if __name__ == "__main__":
