@@ -41,7 +41,7 @@ const COLLECTION_PRESENTATION: Record<string, CatalogCollectionPresentation> = {
   gateway: {
     label: "Gateway",
     summary:
-      "Point Codex, Claude Code and Grok at Hub William with one interactive installer.",
+      "Point Codex, Claude Code and Grok at Hub William with one installer, or paste the config yourself.",
   },
   mcp: {
     label: "MCP",

@@ -1,9 +1,16 @@
 import { Plug } from "lucide-react";
 import { tv } from "tailwind-variants";
 
+import CopyBlock from "@/components/copy-block";
 import CopyCommand from "@/components/copy-command";
 import Flex from "@/components/ui/flex";
 import catalogService, { type CatalogCollection } from "@/services/catalog";
+import {
+  GATEWAY_KEY_PLACEHOLDER,
+  gatewayAgentConfigs,
+  gatewayInstallCommand,
+  resolveGatewayOrigin,
+} from "@/utils/utils.gateway-config";
 import useSiteOrigin from "@/utils/utils.site-origin";
 
 const toolUsage = tv({
@@ -27,17 +34,13 @@ function bootstrapCommand(origin: string, arguments_: string) {
 }
 
 function gatewayCommand(origin: string) {
-  const apiBaseUrl =
-    import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
-  const gatewayOrigin = new URL(apiBaseUrl, `${origin}/`)
-    .toString()
-    .replace(/\/$/, "");
-  const installerUrl = new URL("gateway.py", `${origin}/`).toString();
-
-  return `curl -fsSL ${installerUrl} | HUB_WILLIAM_GATEWAY_URL=${gatewayOrigin} python3 -`;
+  return gatewayInstallCommand({
+    gatewayOrigin: resolveGatewayOrigin(origin),
+    installerUrl: catalogService.gatewayInstallerUrl(origin),
+  });
 }
 
-/** Real bootstrap commands for the two tool collections. */
+/** Install commands, and for the gateway the config those commands write. */
 export default function CatalogCanvasToolUsage({
   collection,
 }: CatalogCanvasToolUsageProps) {
@@ -76,17 +79,43 @@ export default function CatalogCanvasToolUsage({
   }
 
   if (collection.id === "gateway") {
+    const configs = gatewayAgentConfigs(resolveGatewayOrigin(siteOrigin));
+
     return (
       <div className={container()}>
         <div className={section()}>
           <p className={label()}>Interactive install</p>
+
           <p className={description()}>
-            Select Codex, Claude Code, or Grok with the arrow keys and Space.
-            Enter prompts for your gateway key, then updates only the selected
-            agent configs; Escape exits without changes.
+            Paste your key into <code>--key</code>. The picker starts with
+            Codex, Claude Code, and Grok selected; Space toggles, Enter injects
+            into the selected configs, Escape exits without changes.
           </p>
+
           <CopyCommand command={gatewayCommand(siteOrigin)} />
         </div>
+
+        <div className={section()}>
+          <p className={label()}>Manual config</p>
+
+          <p className={description()}>
+            Already have a gateway key? Paste the matching block into the agent
+            file, replacing <code>{GATEWAY_KEY_PLACEHOLDER}</code>, then restart
+            the CLI.
+          </p>
+        </div>
+
+        {configs.map((config) => (
+          <div className={section()} key={config.agent}>
+            <p className={label()}>{config.label}</p>
+
+            <p className={description()}>
+              <code>{config.path}</code> · {config.protocol}
+            </p>
+
+            <CopyBlock source={config.source} />
+          </div>
+        ))}
       </div>
     );
   }

@@ -78,6 +78,25 @@ describe("collections", () => {
     ).toEqual(["documents", "gateway", "mcp"]);
   });
 
+  it("documents the agent config the gateway installer writes", () => {
+    const gateway = catalogService.findCollection("gateway", "tools");
+    const file = catalogService
+      .collectionFiles(gateway!)
+      .find((entry) => entry.name === "gateway.md");
+
+    expect(file?.source).toContain('model_provider = "hub-william"');
+    expect(file?.source).toContain("[model_providers.hub-william]");
+    expect(file?.source).toContain("/gateway/openai/v1");
+    expect(file?.source).toContain("experimental_bearer_token");
+    expect(file?.source).toContain('wire_api = "responses"');
+    expect(file?.source).toContain("ANTHROPIC_BASE_URL");
+    expect(file?.source).toContain("/gateway/claude");
+    expect(file?.source).toContain("/gateway/grok/v1");
+    expect(file?.source).toContain("~/.codex/config.toml");
+    expect(file?.source).toContain("python3 - --url=");
+    expect(file?.source).toContain("--key=YOUR_GATEWAY_KEY");
+  });
+
   it("derives the five MCP products and keeps Supabase project-scoped", () => {
     const products = catalogService.mcpProducts();
 
@@ -190,6 +209,17 @@ describe("documentUrl", () => {
   it("is absolute, so a copied command runs on whichever host served it", () => {
     expect(catalogService.documentUrl(planTag!)).toBe(
       `${window.location.origin}/catalog/contributors/default/libraries/harness/tags/plan.md`,
+    );
+  });
+});
+
+describe("gatewayInstallerUrl", () => {
+  it("keeps gateway.py on the same origin and base as install.py", () => {
+    expect(catalogService.gatewayInstallerUrl("https://hub.example")).toBe(
+      "https://hub.example/gateway.py",
+    );
+    expect(catalogService.installerUrl("https://hub.example")).toBe(
+      "https://hub.example/install.py",
     );
   });
 });

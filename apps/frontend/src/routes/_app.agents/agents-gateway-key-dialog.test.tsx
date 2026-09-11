@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import WorkspaceShellSession from "@/components/workspace-shell/workspace-shell-session";
@@ -76,11 +77,13 @@ describe("AgentsGatewayKeyDialog", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
     render(
-      <QueryClientProvider client={createQueryClient()}>
-        <WorkspaceShellSession>
-          <AgentsGatewayKeyDialog />
-        </WorkspaceShellSession>
-      </QueryClientProvider>,
+      <MemoryRouter>
+        <QueryClientProvider client={createQueryClient()}>
+          <WorkspaceShellSession>
+            <AgentsGatewayKeyDialog />
+          </WorkspaceShellSession>
+        </QueryClientProvider>
+      </MemoryRouter>,
     );
 
     const user = userEvent.setup();
@@ -94,6 +97,9 @@ describe("AgentsGatewayKeyDialog", () => {
     ).toBeVisible();
     expect(await screen.findByText("1 active")).toBeVisible();
     expect(screen.getByText("hw_live_********abcd")).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: "Tools → Gateway" }),
+    ).toHaveAttribute("href", "/tools?node=gateway");
 
     await user.click(
       screen.getByRole("button", { name: "Create gateway key" }),

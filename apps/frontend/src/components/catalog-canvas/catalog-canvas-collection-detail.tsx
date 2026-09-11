@@ -49,6 +49,12 @@ interface CatalogCanvasCollectionDetailProps {
   onOpenChange: (open: boolean) => void;
 }
 
+function usageSectionLabel(collection: CatalogCollection) {
+  if (collection.section !== "tools") return "How to use";
+  if (collection.id === "gateway") return "How to install and use";
+  return "How to install";
+}
+
 /** One sheet for a whole functional collection instead of one per source file. */
 export default function CatalogCanvasCollectionDetail({
   collection,
@@ -103,7 +109,7 @@ export default function CatalogCanvasCollectionDetail({
             <CatalogCanvasCollectionFiles files={files} />
           </CollectionSection>
 
-          <CollectionSection label={isTools ? "How to install" : "How to use"}>
+          <CollectionSection label={usageSectionLabel(shown)}>
             {isTools ? (
               <CatalogCanvasToolUsage collection={shown} />
             ) : (
