@@ -175,7 +175,7 @@
       "id": "contributors/default/tools/gateway/gateway",
       "path": "contributors/default/tools/gateway/gateway.md",
       "url": "/hub-william/dev/catalog/contributors/default/tools/gateway/gateway.md",
-      "bytes": 948
+      "bytes": 2735
     },
     {
       "id": "contributors/default/tools/installer/download-and-inject",
@@ -273,14 +273,14 @@
       "id": "contributors",
       "path": "contributors.zip",
       "url": "/hub-william/dev/catalog/contributors.zip",
-      "bytes": 68230,
+      "bytes": 68995,
       "files": 44
     },
     {
       "id": "contributors/default",
       "path": "contributors/default.zip",
       "url": "/hub-william/dev/catalog/contributors/default.zip",
-      "bytes": 51873,
+      "bytes": 52638,
       "files": 32
     },
     {
@@ -315,14 +315,14 @@
       "id": "contributors/default/tools",
       "path": "contributors/default/tools.zip",
       "url": "/hub-william/dev/catalog/contributors/default/tools.zip",
-      "bytes": 4130,
+      "bytes": 4895,
       "files": 4
     },
     {
       "id": "contributors/default/tools/gateway",
       "path": "contributors/default/tools/gateway.zip",
       "url": "/hub-william/dev/catalog/contributors/default/tools/gateway.zip",
-      "bytes": 714,
+      "bytes": 1479,
       "files": 1
     },
     {
@@ -422,7 +422,7 @@
       "id": "default/tools/gateway",
       "path": "collections/default/tools/gateway.zip",
       "url": "/hub-william/dev/catalog/collections/default/tools/gateway.zip",
-      "bytes": 714,
+      "bytes": 1479,
       "files": 1
     },
     {
