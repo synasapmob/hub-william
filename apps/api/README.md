@@ -5,8 +5,8 @@ username/password registration, rotating PostgreSQL-backed browser sessions,
 ChatGPT/Claude/Grok authorization, encrypted provider credentials, user-scoped
 gateway keys, runtime health, and generated OpenAPI documentation. Pool
 persistence, join requests, and private Telegram contacts, orders and payments
-are live; provider usage ingestion and post-payment fulfilment remain later
-changes.
+are live; pool cards read live provider usage. Post-payment fulfilment remains a
+later change.
 
 ```bash
 cargo run --manifest-path apps/api/Cargo.toml

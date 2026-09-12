@@ -67,6 +67,19 @@ function actionState(
   return "request";
 }
 
+function usageTriggerValue(pool: AgentPool) {
+  const fiveHour = pool.usage.find((metric) => metric.label === "5-hour limit");
+  const weekly = pool.usage.find((metric) => metric.label === "Weekly limit");
+
+  if (fiveHour) return fiveHour.value;
+  if (weekly) return weekly.value;
+  if (pool.usage.some((metric) => metric.value === "Unavailable")) {
+    return "Unavailable";
+  }
+  if (pool.usage.length === 0) return "No live usage";
+  return `${pool.usage.length} metrics`;
+}
+
 function actionLabel(state: PoolActionState) {
   const labels: Record<PoolActionState, string> = {
     accepted: "Accepted",
@@ -144,7 +157,7 @@ export default function AgentsPoolCard({
                   View Usages
                 </span>
                 <span className="font-mono text-[10px] text-muted-foreground">
-                  {pool.usage.length} metrics
+                  {usageTriggerValue(pool)}
                 </span>
               </Button>
             </PopoverTrigger>

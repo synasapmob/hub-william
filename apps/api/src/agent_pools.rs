@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use axum::{
     Json,
     extract::{Path, State},
@@ -13,7 +15,9 @@ use uuid::Uuid;
 use crate::{
     AppState,
     auth::{authenticated_user_id, normalize_username, optional_authenticated_user_id},
+    connections::AgentProvider,
     error::ApiError,
+    usage,
 };
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -141,6 +145,7 @@ pub async fn list(
     .map_err(database_error)?;
 
     let mut pools = Vec::with_capacity(rows.len());
+    let mut providers = Vec::with_capacity(rows.len());
     for row in rows {
         let accepted_usernames = sqlx::query_scalar::<_, String>(
             "SELECT users.username
@@ -167,12 +172,14 @@ pub async fn list(
             .into_iter()
             .map(request_from_row)
             .collect::<Result<Vec<_>, _>>()?;
+        let provider = AgentProvider::from_str(&row.provider)?;
+        providers.push(provider);
 
         pools.push(AgentPool {
             account_label: row
                 .account_label
                 .unwrap_or_else(|| "connected account".to_owned()),
-            agent: provider_label(&row.provider)?.to_owned(),
+            agent: provider.label().to_owned(),
             availability: availability_from_values(
                 &row.availability_status,
                 row.rate_limited_until,
@@ -186,6 +193,23 @@ pub async fn list(
             requests,
             usage: Vec::new(),
         });
+    }
+
+    let mut usage_tasks = tokio::task::JoinSet::new();
+    for (index, (pool, provider)) in pools.iter().zip(providers.iter().copied()).enumerate() {
+        let state = state.clone();
+        let connection_id = pool.id;
+        usage_tasks.spawn(async move {
+            (
+                index,
+                usage::for_connection(&state, connection_id, provider).await,
+            )
+        });
+    }
+    while let Some(joined) = usage_tasks.join_next().await {
+        if let Ok((index, metrics)) = joined {
+            pools[index].usage = metrics;
+        }
     }
 
     Ok(Json(pools))
@@ -588,15 +612,6 @@ fn normalize_reason(value: &str) -> Result<String, ApiError> {
         ));
     }
     Ok(value.to_owned())
-}
-
-fn provider_label(provider: &str) -> Result<&'static str, ApiError> {
-    match provider {
-        "chatgpt" => Ok("ChatGPT"),
-        "claude" => Ok("Claude"),
-        "grok" => Ok("Grok"),
-        _ => Err(ApiError::Internal),
-    }
 }
 
 fn status_value(status: AgentPoolRequestStatus) -> &'static str {

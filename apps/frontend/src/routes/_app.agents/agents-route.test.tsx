@@ -191,18 +191,22 @@ describe("AgentsRoute", () => {
       document.querySelector('img[src="/assets/chatgpt-icon.png"]'),
     ).toBeInTheDocument();
 
+    expect(
+      screen.getByRole("button", { name: /view usages/i }),
+    ).toHaveTextContent("68% used");
     await user.click(screen.getByRole("button", { name: /view usages/i }));
     expect(screen.getByText("5-hour limit")).toBeVisible();
-    expect(screen.getByText("68% used")).toBeVisible();
+    expect(screen.getAllByText("68% used").length).toBeGreaterThan(1);
   });
 
   it("says so when a provider reports no usage instead of opening blank", async () => {
     const user = userEvent.setup();
     renderRoute(undefined, [{ ...poolFixture(), usage: [] }]);
 
-    await user.click(
+    expect(
       await screen.findByRole("button", { name: /view usages/i }),
-    );
+    ).toHaveTextContent("No live usage");
+    await user.click(screen.getByRole("button", { name: /view usages/i }));
 
     expect(
       screen.getByText("ChatGPT has not reported usage for this account yet."),

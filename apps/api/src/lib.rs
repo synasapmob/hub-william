@@ -8,6 +8,7 @@ mod health;
 mod openapi;
 mod telegram;
 mod telegram_catalogue;
+mod usage;
 
 use axum::{
     Router,

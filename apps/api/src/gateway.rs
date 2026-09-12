@@ -646,7 +646,7 @@ fn merged_anthropic_beta(headers: &HeaderMap) -> HeaderValue {
     HeaderValue::from_str(&value).unwrap_or_else(|_| HeaderValue::from_static("oauth-2025-04-20"))
 }
 
-fn chatgpt_account_id(token: &Value) -> Option<String> {
+pub(crate) fn chatgpt_account_id(token: &Value) -> Option<String> {
     token
         .get("account_id")
         .and_then(Value::as_str)

@@ -77,8 +77,9 @@ relies on:
 
 `/activities` remains fixture telemetry. `/agents` has no runtime fixture
 fallback: an account appears only after its provider connection is stored as
-connected by the backend. The former sidebar recent-updates fixture was removed
-when that space became the session control.
+connected by the backend, and pool usage is fetched live from that provider.
+The former sidebar recent-updates fixture was removed when that space became
+the session control.
 
 ## The catalogue
 
