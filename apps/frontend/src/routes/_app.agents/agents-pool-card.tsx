@@ -13,6 +13,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardFooter, CardHeader } from "@/components/ui/card";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
   Popover,
   PopoverContent,
   PopoverDescription,
@@ -86,6 +94,10 @@ interface AgentsPoolCardMemberRowProps {
 
 interface AgentsPoolCardShareEvidenceProps {
   share: AgentPoolShareEvidence;
+}
+
+interface AgentsPoolCardMembersDialogProps {
+  pool: AgentPool;
 }
 
 function actionState(
@@ -205,26 +217,26 @@ function AgentsPoolCardMemberRow({ member }: AgentsPoolCardMemberRowProps) {
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="py-2 first:pt-0 last:pb-0">
+    <div>
       <Flex className="justify-between gap-3">
-        <dt className="text-xs text-muted-foreground">{member.username}</dt>
-        <dd>
-          <Flex className="justify-end gap-1">
-            <p className="font-mono text-xs font-semibold">
-              {member.usageAvailablePercent}% available
-            </p>
-            <button
-              type="button"
-              className={shareHelpButton({ open })}
-              onClick={() => setOpen((current) => !current)}
-            >
-              <CircleHelp aria-hidden="true" className="size-3" />
-              <span className="sr-only">Why this available percent</span>
-            </button>
-          </Flex>
-        </dd>
+        <p className="min-w-0 truncate text-sm font-semibold">
+          {member.username}
+        </p>
+        <Flex className="shrink-0 justify-end gap-1">
+          <p className="font-mono text-xs font-semibold">
+            {member.usageAvailablePercent}% available
+          </p>
+          <button
+            type="button"
+            className={shareHelpButton({ open })}
+            onClick={() => setOpen((current) => !current)}
+          >
+            <CircleHelp aria-hidden="true" className="size-3" />
+            <span className="sr-only">Why this available percent</span>
+          </button>
+        </Flex>
       </Flex>
-      <Flex className="mt-1 justify-end gap-1 text-[10px] text-muted-foreground">
+      <Flex className="mt-1 gap-1 text-[10px] text-muted-foreground">
         <Clock3 aria-hidden="true" className="size-3" />
         Joined{" "}
         <time dateTime={member.joinedAt}>
@@ -233,6 +245,55 @@ function AgentsPoolCardMemberRow({ member }: AgentsPoolCardMemberRowProps) {
       </Flex>
       {open ? <AgentsPoolCardShareEvidence share={member.share} /> : null}
     </div>
+  );
+}
+
+function AgentsPoolCardMembersDialog({
+  pool,
+}: AgentsPoolCardMembersDialogProps) {
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full justify-between"
+        >
+          <span className="inline-flex items-center gap-1.5">
+            <Users aria-hidden="true" className="size-4" />
+            Members
+          </span>
+          <span className="font-mono text-[10px] text-muted-foreground">
+            {membersTriggerValue(pool)}
+          </span>
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Pool members</DialogTitle>
+          <DialogDescription>
+            Joined members and remaining share of the live window.
+          </DialogDescription>
+        </DialogHeader>
+
+        {pool.members.length > 0 ? (
+          <ul className="space-y-2">
+            {pool.members.map((member) => (
+              <li
+                key={member.username}
+                className="rounded-xl border border-zinc-200 p-3"
+              >
+                <AgentsPoolCardMemberRow member={member} />
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="rounded-lg border border-dashed border-zinc-300 p-4 text-center text-xs text-muted-foreground">
+            No members have joined this pool yet.
+          </p>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -376,28 +437,7 @@ export default function AgentsPoolCard({
             )}
           </AgentsPoolCardSheet>
 
-          <AgentsPoolCardSheet
-            description="Joined members and remaining share of the live window."
-            title="Pool members"
-            triggerIcon={<Users aria-hidden="true" className="size-4" />}
-            triggerLabel="Members"
-            triggerValue={membersTriggerValue(pool)}
-          >
-            {pool.members.length > 0 ? (
-              <dl className="divide-y divide-zinc-100">
-                {pool.members.map((member) => (
-                  <AgentsPoolCardMemberRow
-                    key={member.username}
-                    member={member}
-                  />
-                ))}
-              </dl>
-            ) : (
-              <p className="rounded-lg border border-dashed border-zinc-300 p-4 text-center text-xs text-muted-foreground">
-                No members have joined this pool yet.
-              </p>
-            )}
-          </AgentsPoolCardSheet>
+          <AgentsPoolCardMembersDialog pool={pool} />
         </CardHeader>
 
         <CardFooter className="gap-2 p-3">

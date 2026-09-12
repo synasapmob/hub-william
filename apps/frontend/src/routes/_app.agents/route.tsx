@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Download, LoaderCircle } from "lucide-react";
+import { Bot, Download } from "lucide-react";
 import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,9 @@ import agentPoolsService, {
 } from "@/services/agent-pools";
 
 import AgentsPoolCard from "./agents-pool-card";
+import AgentsPoolCardSkeleton from "./agents-pool-card-skeleton";
+
+const AGENTS_POOL_CARD_SKELETONS = [0, 1, 2, 3, 4, 5] as const;
 import AgentsRequestDialog, {
   type RequestFormValues,
 } from "./agents-request-dialog";
@@ -202,14 +205,15 @@ export default function AgentsRoute() {
         ) : null}
 
         {poolsQuery.isPending ? (
-          <Flex
-            aria-live="polite"
-            className="mt-5 items-center gap-2 text-sm text-muted-foreground"
-            role="status"
-          >
-            <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
-            Loading connected accounts…
-          </Flex>
+          <div role="status">
+            <p className="sr-only">Loading connected accounts</p>
+
+            <ul className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {AGENTS_POOL_CARD_SKELETONS.map((skeleton) => (
+                <AgentsPoolCardSkeleton key={skeleton} />
+              ))}
+            </ul>
+          </div>
         ) : pools.length > 0 ? (
           <ul className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {pools.map((pool) => (
