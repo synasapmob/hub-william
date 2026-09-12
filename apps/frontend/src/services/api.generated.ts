@@ -357,12 +357,45 @@ export interface components {
       avatar_label: string;
       /** Format: date-time */
       joined_at: string;
+      share: components["schemas"]["AgentPoolShareEvidence"];
       /** Format: int32 */
       usage_available_percent: number;
       username: string;
     };
     /** @enum {string} */
     AgentPoolRequestStatus: "pending" | "accepted" | "rejected";
+    AgentPoolShareEvidence: {
+      /** Format: int32 */
+      available_percent: number;
+      /** Format: int64 */
+      budget_units?: number | null;
+      /** Format: int64 */
+      cap_units?: number | null;
+      fail_open_reason?: string | null;
+      /** Format: int32 */
+      member_count: number;
+      /** Format: int64 */
+      pool_cached_tokens: number;
+      /** Format: int64 */
+      pool_input_tokens: number;
+      /** Format: int64 */
+      pool_output_tokens: number;
+      /** Format: int64 */
+      pool_units: number;
+      /** Format: double */
+      provider_used_percent?: number | null;
+      /** Format: int64 */
+      remaining_units?: number | null;
+      /** Format: int64 */
+      user_cached_tokens: number;
+      /** Format: int64 */
+      user_input_tokens: number;
+      /** Format: int64 */
+      user_output_tokens: number;
+      /** Format: int64 */
+      user_units: number;
+      window_label?: string | null;
+    };
     AgentPoolUsageMetric: {
       detail?: string | null;
       label: string;

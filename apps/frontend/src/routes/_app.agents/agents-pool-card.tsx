@@ -1,5 +1,11 @@
-import type { ReactNode } from "react";
-import { CircleGauge, Clock3, UserRound, Users } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import {
+  CircleGauge,
+  CircleHelp,
+  Clock3,
+  UserRound,
+  Users,
+} from "lucide-react";
 import { tv } from "tailwind-variants";
 
 import Flex from "@/components/ui/flex";
@@ -16,6 +22,8 @@ import {
 } from "@/components/ui/popover";
 import agentPoolsService, {
   type AgentPool,
+  type AgentPoolPerson,
+  type AgentPoolShareEvidence,
   type AgentProvider,
 } from "@/services/agent-pools";
 import assetPath from "@/utils/utils.asset-path";
@@ -33,6 +41,16 @@ const actionButton = tv({
       pending: "border-amber-200 bg-amber-50 text-amber-800",
       rejected: "border-red-200 bg-red-50 text-red-700",
       request: "",
+    },
+  },
+});
+
+const shareHelpButton = tv({
+  base: "inline-flex size-4 shrink-0 items-center justify-center rounded-full",
+  variants: {
+    open: {
+      false: "text-muted-foreground",
+      true: "bg-zinc-200 text-slate-800",
     },
   },
 });
@@ -60,6 +78,14 @@ interface AgentsPoolCardSheetProps {
   triggerIcon: ReactNode;
   triggerLabel: string;
   triggerValue: string;
+}
+
+interface AgentsPoolCardMemberRowProps {
+  member: AgentPoolPerson;
+}
+
+interface AgentsPoolCardShareEvidenceProps {
+  share: AgentPoolShareEvidence;
 }
 
 function actionState(
@@ -92,6 +118,122 @@ function usageTriggerValue(pool: AgentPool) {
 
 function membersTriggerValue(pool: AgentPool) {
   return `${pool.members.length} joined`;
+}
+
+function formatTokenCount(value: number) {
+  return new Intl.NumberFormat("en", { maximumFractionDigits: 0 }).format(
+    value,
+  );
+}
+
+function formatUsedPercent(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function formatUsedFraction(value: number) {
+  return (value / 100).toFixed(2);
+}
+
+function AgentsPoolCardShareEvidence({
+  share,
+}: AgentsPoolCardShareEvidenceProps) {
+  const providerUsed = share.providerUsedPercent;
+  const windowLabel = share.windowLabel ?? "live window";
+
+  return (
+    <div className="mt-2 space-y-1 rounded-lg bg-zinc-50 p-2">
+      <p className="font-mono text-[10px] text-slate-700">
+        U = input + output + cached
+      </p>
+      <p className="font-mono text-[10px] text-slate-700">
+        You used {formatTokenCount(share.userInputTokens)} +{" "}
+        {formatTokenCount(share.userOutputTokens)} +{" "}
+        {formatTokenCount(share.userCachedTokens)} ={" "}
+        {formatTokenCount(share.userUnits)}
+      </p>
+      <p className="font-mono text-[10px] text-slate-700">
+        Pool used {formatTokenCount(share.poolInputTokens)} +{" "}
+        {formatTokenCount(share.poolOutputTokens)} +{" "}
+        {formatTokenCount(share.poolCachedTokens)} ={" "}
+        {formatTokenCount(share.poolUnits)}
+      </p>
+      {providerUsed != null ? (
+        <p className="font-mono text-[10px] text-slate-700">
+          Provider used p = {formatUsedPercent(providerUsed)}% of the{" "}
+          {windowLabel}
+        </p>
+      ) : (
+        <p className="font-mono text-[10px] text-slate-700">
+          No live 5-hour or weekly window was reported.
+        </p>
+      )}
+      {share.budgetUnits != null &&
+      share.capUnits != null &&
+      share.remainingUnits != null &&
+      providerUsed != null ? (
+        <>
+          <p className="font-mono text-[10px] text-slate-700">
+            B = U_pool / p = {formatTokenCount(share.poolUnits)} /{" "}
+            {formatUsedFraction(providerUsed)} ={" "}
+            {formatTokenCount(share.budgetUnits)}
+          </p>
+          <p className="font-mono text-[10px] text-slate-700">
+            N = {share.memberCount} members
+          </p>
+          <p className="font-mono text-[10px] text-slate-700">
+            Cap = B / N = {formatTokenCount(share.capUnits)}
+          </p>
+          <p className="font-mono text-[10px] text-slate-700">
+            Remaining = cap − you = {formatTokenCount(share.remainingUnits)}
+          </p>
+          <p className="font-mono text-[10px] font-semibold text-slate-800">
+            Available = remaining / cap = {share.availablePercent}%
+          </p>
+        </>
+      ) : null}
+      {share.failOpenReason ? (
+        <p className="text-[10px] text-muted-foreground">
+          {share.failOpenReason} Available stays {share.availablePercent}% until
+          Hub can estimate the cap.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function AgentsPoolCardMemberRow({ member }: AgentsPoolCardMemberRowProps) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="py-2 first:pt-0 last:pb-0">
+      <Flex className="justify-between gap-3">
+        <dt className="text-xs text-muted-foreground">{member.username}</dt>
+        <dd>
+          <Flex className="justify-end gap-1">
+            <p className="font-mono text-xs font-semibold">
+              {member.usageAvailablePercent}% available
+            </p>
+            <button
+              type="button"
+              className={shareHelpButton({ open })}
+              onClick={() => setOpen((current) => !current)}
+            >
+              <CircleHelp aria-hidden="true" className="size-3" />
+              <span className="sr-only">Why this available percent</span>
+            </button>
+          </Flex>
+        </dd>
+      </Flex>
+      <Flex className="mt-1 justify-end gap-1 text-[10px] text-muted-foreground">
+        <Clock3 aria-hidden="true" className="size-3" />
+        Joined{" "}
+        <time dateTime={member.joinedAt}>
+          {agentPoolsService.createdLabel(member.joinedAt)}
+        </time>
+      </Flex>
+      {open ? <AgentsPoolCardShareEvidence share={member.share} /> : null}
+    </div>
+  );
 }
 
 function AgentsPoolCardSheet({
@@ -244,26 +386,10 @@ export default function AgentsPoolCard({
             {pool.members.length > 0 ? (
               <dl className="divide-y divide-zinc-100">
                 {pool.members.map((member) => (
-                  <div
+                  <AgentsPoolCardMemberRow
                     key={member.username}
-                    className="py-2 first:pt-0 last:pb-0"
-                  >
-                    <Flex className="justify-between gap-3">
-                      <dt className="text-xs text-muted-foreground">
-                        {member.username}
-                      </dt>
-                      <dd className="text-right font-mono text-xs font-semibold">
-                        {member.usageAvailablePercent}% available
-                      </dd>
-                    </Flex>
-                    <Flex className="mt-1 justify-end gap-1 text-[10px] text-muted-foreground">
-                      <Clock3 aria-hidden="true" className="size-3" />
-                      Joined{" "}
-                      <time dateTime={member.joinedAt}>
-                        {agentPoolsService.createdLabel(member.joinedAt)}
-                      </time>
-                    </Flex>
-                  </div>
+                    member={member}
+                  />
                 ))}
               </dl>
             ) : (

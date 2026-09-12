@@ -20,10 +20,31 @@ use crate::{
     pool_share, usage,
 };
 
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub struct AgentPoolShareEvidence {
+    pub available_percent: i32,
+    pub budget_units: Option<i64>,
+    pub cap_units: Option<i64>,
+    pub fail_open_reason: Option<String>,
+    pub member_count: i32,
+    pub pool_cached_tokens: i64,
+    pub pool_input_tokens: i64,
+    pub pool_output_tokens: i64,
+    pub pool_units: i64,
+    pub provider_used_percent: Option<f64>,
+    pub remaining_units: Option<i64>,
+    pub user_cached_tokens: i64,
+    pub user_input_tokens: i64,
+    pub user_output_tokens: i64,
+    pub user_units: i64,
+    pub window_label: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
 pub struct AgentPoolPerson {
     pub avatar_label: String,
     pub joined_at: DateTime<Utc>,
+    pub share: AgentPoolShareEvidence,
     pub usage_available_percent: i32,
     pub username: String,
 }
@@ -188,7 +209,7 @@ pub async fn list(
         });
         let people = members
             .iter()
-            .map(|member| person(&member.username, member.joined_at, 100))
+            .map(|member| person(&member.username, member.joined_at, pending_share()))
             .collect();
 
         let request_rows = match viewer_id {
@@ -218,7 +239,7 @@ pub async fn list(
             created_at: row.created_at,
             id: row.id,
             members: people,
-            owner: person(&row.owner_username, row.created_at, 100),
+            owner: person(&row.owner_username, row.created_at, pending_share()),
             plan: row.plan.unwrap_or_else(|| "Unknown".to_owned()),
             requests,
             usage: Vec::new(),
@@ -246,16 +267,19 @@ pub async fn list(
                 .iter_mut()
                 .zip(share_inputs[index].members.iter())
             {
-                person.usage_available_percent = pool_share::member_available_percent(
+                let share = share_from_evidence(pool_share::member_share_evidence(
                     &usage.windows,
                     &share_inputs[index].events,
                     member.user_id,
                     member_count,
                     now,
-                );
+                ));
+                person.usage_available_percent = share.available_percent;
+                person.share = share;
             }
-            if let Some(owner) = pools[index].members.first() {
-                pools[index].owner.usage_available_percent = owner.usage_available_percent;
+            if let Some(owner_member) = pools[index].members.first().cloned() {
+                pools[index].owner.usage_available_percent = owner_member.usage_available_percent;
+                pools[index].owner.share = owner_member.share;
             }
         }
     }
@@ -335,7 +359,7 @@ pub async fn invite_member(
 
     Ok((
         StatusCode::CREATED,
-        Json(person(&username, Utc::now(), 100)),
+        Json(person(&username, Utc::now(), pending_share())),
     ))
 }
 
@@ -635,13 +659,42 @@ fn request_from_row(row: RequestRow) -> Result<AgentPoolJoinRequest, ApiError> {
 fn person(
     username: &str,
     joined_at: DateTime<Utc>,
-    usage_available_percent: i32,
+    share: AgentPoolShareEvidence,
 ) -> AgentPoolPerson {
     AgentPoolPerson {
         avatar_label: avatar_label(username),
         joined_at,
-        usage_available_percent,
+        usage_available_percent: share.available_percent,
+        share,
         username: username.to_owned(),
+    }
+}
+
+fn pending_share() -> AgentPoolShareEvidence {
+    share_from_evidence(pool_share::ShareEvidence::fail_open(
+        1,
+        "Share is calculated from live provider usage.",
+    ))
+}
+
+fn share_from_evidence(evidence: pool_share::ShareEvidence) -> AgentPoolShareEvidence {
+    AgentPoolShareEvidence {
+        available_percent: evidence.available_percent,
+        budget_units: evidence.budget_units,
+        cap_units: evidence.cap_units,
+        fail_open_reason: evidence.fail_open_reason.map(str::to_owned),
+        member_count: evidence.member_count,
+        pool_cached_tokens: evidence.pool_cached_tokens,
+        pool_input_tokens: evidence.pool_input_tokens,
+        pool_output_tokens: evidence.pool_output_tokens,
+        pool_units: evidence.pool_units,
+        provider_used_percent: evidence.provider_used_percent,
+        remaining_units: evidence.remaining_units,
+        user_cached_tokens: evidence.user_cached_tokens,
+        user_input_tokens: evidence.user_input_tokens,
+        user_output_tokens: evidence.user_output_tokens,
+        user_units: evidence.user_units,
+        window_label: evidence.window_label,
     }
 }
 

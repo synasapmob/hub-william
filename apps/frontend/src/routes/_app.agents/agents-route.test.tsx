@@ -24,6 +24,76 @@ const pendingRequest = {
   username: "huycodes",
 } as const;
 
+function sharePayload(
+  percent: number,
+  values: {
+    budget?: number | null;
+    cap?: number | null;
+    failOpen?: string | null;
+    memberCount?: number;
+    poolCached?: number;
+    poolInput?: number;
+    poolOutput?: number;
+    providerUsed?: number | null;
+    remaining?: number | null;
+    userCached?: number;
+    userInput?: number;
+    userOutput?: number;
+    window?: string | null;
+  } = {},
+) {
+  const userInput = values.userInput ?? 0;
+  const userOutput = values.userOutput ?? 0;
+  const userCached = values.userCached ?? 0;
+  const poolInput = values.poolInput ?? 0;
+  const poolOutput = values.poolOutput ?? 0;
+  const poolCached = values.poolCached ?? 0;
+
+  return {
+    available_percent: percent,
+    budget_units: values.budget ?? null,
+    cap_units: values.cap ?? null,
+    fail_open_reason:
+      values.failOpen === undefined
+        ? "Hub has not recorded gateway tokens in this window."
+        : values.failOpen,
+    member_count: values.memberCount ?? 1,
+    pool_cached_tokens: poolCached,
+    pool_input_tokens: poolInput,
+    pool_output_tokens: poolOutput,
+    pool_units: poolInput + poolOutput + poolCached,
+    provider_used_percent: values.providerUsed ?? null,
+    remaining_units: values.remaining ?? null,
+    user_cached_tokens: userCached,
+    user_input_tokens: userInput,
+    user_output_tokens: userOutput,
+    user_units: userInput + userOutput + userCached,
+    window_label: values.window ?? null,
+  };
+}
+
+function apiPerson(
+  username: string,
+  values: {
+    avatar_label?: string;
+    joined_at?: string;
+    share?: ReturnType<typeof sharePayload>;
+    usage_available_percent?: number;
+  } = {},
+) {
+  const percent = values.usage_available_percent ?? 100;
+
+  return {
+    avatar_label:
+      values.avatar_label ??
+      username.slice(0, 3).replace(/^./, (letter) => letter.toUpperCase()),
+    joined_at: values.joined_at ?? "2026-09-04T08:30:00.000Z",
+    share: values.share ?? sharePayload(percent),
+    usage_available_percent: percent,
+    username,
+  };
+}
+
 function poolFixture(requests: Array<Record<string, unknown>> = []) {
   return {
     account_label: "duy**@**.com",
@@ -32,20 +102,8 @@ function poolFixture(requests: Array<Record<string, unknown>> = []) {
     capacity: 6,
     created_at: "2026-09-04T08:30:00.000Z",
     id: "44444444-4444-4444-8444-444444444444",
-    members: [
-      {
-        avatar_label: "Syn",
-        joined_at: "2026-09-04T08:30:00.000Z",
-        usage_available_percent: 100,
-        username: "synasapmob",
-      },
-    ],
-    owner: {
-      avatar_label: "Syn",
-      joined_at: "2026-09-04T08:30:00.000Z",
-      usage_available_percent: 100,
-      username: "synasapmob",
-    },
+    members: [apiPerson("synasapmob", { avatar_label: "Syn" })],
+    owner: apiPerson("synasapmob", { avatar_label: "Syn" }),
     plan: "K12",
     requests,
     usage: [
@@ -105,12 +163,10 @@ function renderRoute(user?: SessionFixture, initialPools = [poolFixture()]) {
             ...pools[0],
             members: [
               ...pools[0].members,
-              {
+              apiPerson("huycodes", {
                 avatar_label: "Huy",
                 joined_at: "2026-09-12T08:00:00.000Z",
-                usage_available_percent: 100,
-                username: "huycodes",
-              },
+              }),
             ],
             requests: [accepted],
           },
@@ -118,12 +174,10 @@ function renderRoute(user?: SessionFixture, initialPools = [poolFixture()]) {
         return jsonResponse(accepted);
       }
       if (url.endsWith("/members") && method === "POST") {
-        const invited = {
+        const invited = apiPerson("william", {
           avatar_label: "Wil",
           joined_at: "2026-09-12T09:00:00.000Z",
-          usage_available_percent: 100,
-          username: "william",
-        };
+        });
         pools = [
           {
             ...pools[0],
@@ -227,18 +281,41 @@ describe("AgentsRoute", () => {
       {
         ...poolFixture(),
         members: [
-          {
+          apiPerson("synasapmob", {
             avatar_label: "Syn",
-            joined_at: "2026-09-04T08:30:00.000Z",
+            share: sharePayload(40, {
+              budget: 200,
+              cap: 100,
+              failOpen: null,
+              memberCount: 2,
+              poolInput: 80,
+              poolOutput: 20,
+              providerUsed: 50,
+              remaining: 40,
+              userInput: 48,
+              userOutput: 12,
+              window: "5-hour limit",
+            }),
             usage_available_percent: 40,
-            username: "synasapmob",
-          },
-          {
+          }),
+          apiPerson("huycodes", {
             avatar_label: "Huy",
             joined_at: "2026-09-10T12:00:00.000Z",
+            share: sharePayload(85, {
+              budget: 200,
+              cap: 100,
+              failOpen: null,
+              memberCount: 2,
+              poolInput: 80,
+              poolOutput: 20,
+              providerUsed: 50,
+              remaining: 85,
+              userInput: 12,
+              userOutput: 3,
+              window: "5-hour limit",
+            }),
             usage_available_percent: 85,
-            username: "huycodes",
-          },
+          }),
         ],
       },
     ]);
@@ -254,6 +331,14 @@ describe("AgentsRoute", () => {
     expect(
       document.querySelector('time[datetime="2026-09-10T12:00:00.000Z"]'),
     ).toBeVisible();
+
+    await user.click(
+      screen.getAllByRole("button", { name: /why this available percent/i })[0],
+    );
+    expect(screen.getByText("U = input + output + cached")).toBeVisible();
+    expect(screen.getByText("You used 48 + 12 + 0 = 60")).toBeVisible();
+    expect(screen.getByText("B = U_pool / p = 100 / 0.50 = 200")).toBeVisible();
+    expect(screen.getByText("Available = remaining / cap = 40%")).toBeVisible();
   });
 
   it("says so when a provider reports no usage instead of opening blank", async () => {
@@ -329,18 +414,41 @@ describe("AgentsRoute", () => {
       {
         ...poolFixture(),
         members: [
-          {
+          apiPerson("synasapmob", {
             avatar_label: "Syn",
-            joined_at: "2026-09-04T08:30:00.000Z",
+            share: sharePayload(40, {
+              budget: 200,
+              cap: 100,
+              failOpen: null,
+              memberCount: 2,
+              poolInput: 80,
+              poolOutput: 20,
+              providerUsed: 50,
+              remaining: 40,
+              userInput: 48,
+              userOutput: 12,
+              window: "5-hour limit",
+            }),
             usage_available_percent: 40,
-            username: "synasapmob",
-          },
-          {
+          }),
+          apiPerson("huycodes", {
             avatar_label: "Huy",
             joined_at: "2026-09-10T12:00:00.000Z",
+            share: sharePayload(85, {
+              budget: 200,
+              cap: 100,
+              failOpen: null,
+              memberCount: 2,
+              poolInput: 80,
+              poolOutput: 20,
+              providerUsed: 50,
+              remaining: 85,
+              userInput: 12,
+              userOutput: 3,
+              window: "5-hour limit",
+            }),
             usage_available_percent: 85,
-            username: "huycodes",
-          },
+          }),
         ],
       },
     ]);

@@ -6,9 +6,75 @@ use crate::{AgentProvider, AppState, usage::ShareWindow};
 
 #[derive(Clone, Debug)]
 pub struct UsageEvent {
+    pub cached_tokens: i64,
     pub created_at: DateTime<Utc>,
-    pub units: i64,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
     pub user_id: Uuid,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct TokenTotals {
+    cached_tokens: i64,
+    input_tokens: i64,
+    output_tokens: i64,
+}
+
+impl TokenTotals {
+    fn add(&mut self, event: &UsageEvent) {
+        self.cached_tokens = self.cached_tokens.saturating_add(event.cached_tokens);
+        self.input_tokens = self.input_tokens.saturating_add(event.input_tokens);
+        self.output_tokens = self.output_tokens.saturating_add(event.output_tokens);
+    }
+
+    fn units(self) -> i64 {
+        self.input_tokens
+            .saturating_add(self.output_tokens)
+            .saturating_add(self.cached_tokens)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ShareEvidence {
+    pub available_percent: i32,
+    pub budget_units: Option<i64>,
+    pub cap_units: Option<i64>,
+    pub fail_open_reason: Option<&'static str>,
+    pub member_count: i32,
+    pub pool_cached_tokens: i64,
+    pub pool_input_tokens: i64,
+    pub pool_output_tokens: i64,
+    pub pool_units: i64,
+    pub provider_used_percent: Option<f64>,
+    pub remaining_units: Option<i64>,
+    pub user_cached_tokens: i64,
+    pub user_input_tokens: i64,
+    pub user_output_tokens: i64,
+    pub user_units: i64,
+    pub window_label: Option<String>,
+}
+
+impl ShareEvidence {
+    pub fn fail_open(member_count: usize, reason: &'static str) -> Self {
+        Self {
+            available_percent: 100,
+            budget_units: None,
+            cap_units: None,
+            fail_open_reason: Some(reason),
+            member_count: i32::try_from(member_count).unwrap_or(0),
+            pool_cached_tokens: 0,
+            pool_input_tokens: 0,
+            pool_output_tokens: 0,
+            pool_units: 0,
+            provider_used_percent: None,
+            remaining_units: None,
+            user_cached_tokens: 0,
+            user_input_tokens: 0,
+            user_output_tokens: 0,
+            user_units: 0,
+            window_label: None,
+        }
+    }
 }
 
 #[derive(FromRow)]
@@ -37,11 +103,10 @@ pub async fn load_events(
     Ok(rows
         .into_iter()
         .map(|row| UsageEvent {
+            cached_tokens: row.cached_tokens,
             created_at: row.created_at,
-            units: row
-                .input_tokens
-                .saturating_add(row.output_tokens)
-                .saturating_add(row.cached_tokens),
+            input_tokens: row.input_tokens,
+            output_tokens: row.output_tokens,
             user_id: row.user_id,
         })
         .collect())
@@ -54,20 +119,46 @@ pub fn member_available_percent(
     member_count: usize,
     now: DateTime<Utc>,
 ) -> i32 {
-    let percents = windows
+    member_share_evidence(windows, events, user_id, member_count, now).available_percent
+}
+
+pub fn member_share_evidence(
+    windows: &[ShareWindow],
+    events: &[UsageEvent],
+    user_id: Uuid,
+    member_count: usize,
+    now: DateTime<Utc>,
+) -> ShareEvidence {
+    let mut best: Option<ShareEvidence> = None;
+    for window in windows
         .iter()
         .filter(|window| is_share_window(&window.label))
-        .filter_map(|window| {
-            let range = window_range(window.reset_at, window.window_seconds, now)?;
-            Some(available_percent(
-                window.used_percent,
-                units_in(events, None, range),
-                units_in(events, Some(user_id), range),
-                member_count,
-            ))
-        })
-        .collect::<Vec<_>>();
-    percents.into_iter().min().unwrap_or(100)
+    {
+        let Some(evidence) = window_evidence(window, events, user_id, member_count, now) else {
+            continue;
+        };
+        let replace = match &best {
+            None => true,
+            Some(current) if evidence.available_percent < current.available_percent => true,
+            Some(current)
+                if evidence.available_percent == current.available_percent
+                    && current.fail_open_reason.is_some()
+                    && evidence.fail_open_reason.is_none() =>
+            {
+                true
+            }
+            _ => false,
+        };
+        if replace {
+            best = Some(evidence);
+        }
+    }
+    best.unwrap_or_else(|| {
+        ShareEvidence::fail_open(
+            member_count,
+            "No live 5-hour or weekly window was reported.",
+        )
+    })
 }
 
 pub fn request_allowed(
@@ -155,26 +246,89 @@ fn is_share_window(label: &str) -> bool {
     matches!(label, "5-hour limit" | "Weekly limit")
 }
 
-fn units_in(
+fn window_evidence(
+    window: &ShareWindow,
+    events: &[UsageEvent],
+    user_id: Uuid,
+    member_count: usize,
+    now: DateTime<Utc>,
+) -> Option<ShareEvidence> {
+    let range = window_range(window.reset_at, window.window_seconds, now)?;
+    let user = totals_in(events, Some(user_id), range);
+    let pool = totals_in(events, None, range);
+    let member_count_i32 = i32::try_from(member_count).unwrap_or(0);
+    let mut evidence = ShareEvidence {
+        available_percent: 100,
+        budget_units: None,
+        cap_units: None,
+        fail_open_reason: None,
+        member_count: member_count_i32,
+        pool_cached_tokens: pool.cached_tokens,
+        pool_input_tokens: pool.input_tokens,
+        pool_output_tokens: pool.output_tokens,
+        pool_units: pool.units(),
+        provider_used_percent: Some(window.used_percent),
+        remaining_units: None,
+        user_cached_tokens: user.cached_tokens,
+        user_input_tokens: user.input_tokens,
+        user_output_tokens: user.output_tokens,
+        user_units: user.units(),
+        window_label: Some(window.label.clone()),
+    };
+    if member_count == 0 {
+        evidence.fail_open_reason = Some("The pool has no members to split.");
+        return Some(evidence);
+    }
+    if !window.used_percent.is_finite() || window.used_percent <= 0.0 {
+        evidence.fail_open_reason =
+            Some("The provider reported 0% used, so Hub cannot estimate the window budget.");
+        return Some(evidence);
+    }
+    if pool.units() <= 0 {
+        evidence.fail_open_reason = Some("Hub has not recorded gateway tokens in this window.");
+        return Some(evidence);
+    }
+    let budget = pool.units() as f64 / (window.used_percent / 100.0);
+    let cap = budget / member_count as f64;
+    if !cap.is_finite() || cap <= 0.0 {
+        evidence.fail_open_reason = Some("The equal-share cap could not be estimated.");
+        return Some(evidence);
+    }
+    let remaining = (cap - user.units() as f64).clamp(0.0, cap);
+    evidence.available_percent = available_percent(
+        window.used_percent,
+        pool.units(),
+        user.units(),
+        member_count,
+    );
+    evidence.budget_units = Some(budget.round() as i64);
+    evidence.cap_units = Some(cap.round() as i64);
+    evidence.remaining_units = Some(remaining.round() as i64);
+    Some(evidence)
+}
+
+fn totals_in(
     events: &[UsageEvent],
     user_id: Option<Uuid>,
     range: (DateTime<Utc>, DateTime<Utc>),
-) -> i64 {
-    events
-        .iter()
-        .filter(|event| {
-            event.created_at >= range.0
-                && event.created_at < range.1
-                && user_id.is_none_or(|id| event.user_id == id)
-        })
-        .map(|event| event.units)
-        .fold(0_i64, i64::saturating_add)
+) -> TokenTotals {
+    let mut totals = TokenTotals::default();
+    for event in events {
+        if event.created_at >= range.0
+            && event.created_at < range.1
+            && user_id.is_none_or(|id| event.user_id == id)
+        {
+            totals.add(event);
+        }
+    }
+    totals
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        UsageEvent, available_percent, member_available_percent, request_allowed, window_range,
+        UsageEvent, available_percent, member_available_percent, member_share_evidence,
+        request_allowed, window_range,
     };
     use crate::usage::ShareWindow;
     use chrono::{Duration, TimeZone, Utc};
@@ -182,8 +336,10 @@ mod tests {
 
     fn event(user_id: Uuid, units: i64, created_at: chrono::DateTime<Utc>) -> UsageEvent {
         UsageEvent {
+            cached_tokens: 0,
             created_at,
-            units,
+            input_tokens: units,
+            output_tokens: 0,
             user_id,
         }
     }
@@ -243,6 +399,15 @@ mod tests {
             member_available_percent(&windows, &events, member, 2, now),
             80
         );
+        let owner_share = member_share_evidence(&windows, &events, owner, 2, now);
+        assert_eq!(owner_share.window_label.as_deref(), Some("5-hour limit"));
+        assert_eq!(owner_share.provider_used_percent, Some(50.0));
+        assert_eq!(owner_share.pool_units, 100);
+        assert_eq!(owner_share.user_units, 80);
+        assert_eq!(owner_share.budget_units, Some(200));
+        assert_eq!(owner_share.cap_units, Some(100));
+        assert_eq!(owner_share.remaining_units, Some(20));
+        assert_eq!(owner_share.fail_open_reason, None);
     }
 
     #[test]

@@ -28,8 +28,8 @@ use utoipa_swagger_ui::SwaggerUi;
 
 pub use agent_pools::{
     AgentPool, AgentPoolAvailability, AgentPoolAvailabilityStatus, AgentPoolJoinRequest,
-    AgentPoolPerson, AgentPoolRequestStatus, AgentPoolUsageMetric, CreateAgentPoolJoinRequest,
-    DecideAgentPoolJoinRequest, InviteAgentPoolMember,
+    AgentPoolPerson, AgentPoolRequestStatus, AgentPoolShareEvidence, AgentPoolUsageMetric,
+    CreateAgentPoolJoinRequest, DecideAgentPoolJoinRequest, InviteAgentPoolMember,
 };
 use agent_pools::{
     create_request, decide_request, invite_member, list as list_agent_pools, remove_member,
