@@ -2,7 +2,7 @@ use chrono::{DateTime, Duration, Utc};
 use sqlx::FromRow;
 use uuid::Uuid;
 
-use crate::usage::ShareWindow;
+use crate::{AgentProvider, AppState, usage::ShareWindow};
 
 #[derive(Clone, Debug)]
 pub struct UsageEvent {
@@ -70,6 +70,55 @@ pub fn member_available_percent(
     percents.into_iter().min().unwrap_or(100)
 }
 
+pub fn request_allowed(
+    windows: &[ShareWindow],
+    events: &[UsageEvent],
+    user_id: Uuid,
+    member_count: usize,
+    now: DateTime<Utc>,
+) -> bool {
+    member_available_percent(windows, events, user_id, member_count, now) > 0
+}
+
+pub async fn allow_gateway_request(
+    state: &AppState,
+    connection_id: Uuid,
+    user_id: Uuid,
+    provider: AgentProvider,
+) -> bool {
+    let events = match load_events(&state.pool, connection_id).await {
+        Ok(events) => events,
+        Err(error) => {
+            eprintln!("pool share event load failed: {error}");
+            return true;
+        }
+    };
+    if events.is_empty() {
+        return true;
+    }
+    let member_count = match member_count(&state.pool, connection_id).await {
+        Ok(count) if count > 0 => count,
+        Ok(_) => return true,
+        Err(error) => {
+            eprintln!("pool share member count failed: {error}");
+            return true;
+        }
+    };
+    let usage = crate::usage::for_connection(state, connection_id, provider).await;
+    request_allowed(&usage.windows, &events, user_id, member_count, Utc::now())
+}
+
+async fn member_count(pool: &sqlx::PgPool, connection_id: Uuid) -> Result<usize, sqlx::Error> {
+    let accepted = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM agent_pool_join_requests
+         WHERE connection_id = $1 AND status = 'accepted'",
+    )
+    .bind(connection_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(usize::try_from(accepted.saturating_add(1)).unwrap_or(1))
+}
+
 pub(crate) fn available_percent(
     used_percent: f64,
     pool_units: i64,
@@ -124,7 +173,9 @@ fn units_in(
 
 #[cfg(test)]
 mod tests {
-    use super::{UsageEvent, available_percent, member_available_percent, window_range};
+    use super::{
+        UsageEvent, available_percent, member_available_percent, request_allowed, window_range,
+    };
     use crate::usage::ShareWindow;
     use chrono::{Duration, TimeZone, Utc};
     use uuid::Uuid;
@@ -216,6 +267,26 @@ mod tests {
         let range = window_range(Some(reset), Some(18_000), now).expect("range");
         assert_eq!(range.1, reset);
         assert_eq!(range.0, reset - Duration::seconds(18_000));
+    }
+
+    #[test]
+    fn gateway_blocks_only_when_remaining_share_is_zero() {
+        let now = Utc.with_ymd_and_hms(2026, 9, 12, 12, 0, 0).unwrap();
+        let owner = Uuid::from_u128(1);
+        let member = Uuid::from_u128(2);
+        let windows = [ShareWindow {
+            label: "Weekly limit".to_owned(),
+            reset_at: Some(now + Duration::days(3)),
+            used_percent: 100.0,
+            window_seconds: Some(604_800),
+        }];
+        let events = [
+            event(owner, 200, now - Duration::hours(1)),
+            event(member, 0, now - Duration::hours(1)),
+        ];
+        assert!(!request_allowed(&windows, &events, owner, 2, now));
+        assert!(request_allowed(&windows, &events, member, 2, now));
+        assert!(request_allowed(&windows, &[], owner, 2, now));
     }
 
     #[test]

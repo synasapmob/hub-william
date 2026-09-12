@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 use crate::{
     AgentProvider, AppState, auth::authenticated_user_id, connections::provider_credential,
-    error::ApiError, usage,
+    error::ApiError, pool_share, usage,
 };
 
 const OPENAI_RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
@@ -292,6 +292,7 @@ async fn proxy_request(
         connected_provider_candidates(state, authorized.user_id, expected_provider).await?;
     let upstream_url = append_query(upstream_url, original_uri.query());
     let mut saw_rate_limit = false;
+    let mut saw_share_exhausted = false;
     let mut last_error = None;
 
     for candidate in candidates {
@@ -330,6 +331,23 @@ async fn proxy_request(
                 continue;
             }
         };
+        let record_usage = !upstream_url.contains("count_tokens");
+        if record_usage
+            && !pool_share::allow_gateway_request(
+                state,
+                candidate.id,
+                authorized.user_id,
+                expected_provider,
+            )
+            .await
+        {
+            if claimed_probe {
+                release_probe(state, candidate.id).await?;
+            }
+            saw_share_exhausted = true;
+            continue;
+        }
+
         let mut request = state
             .http
             .post(&upstream_url)
@@ -382,12 +400,14 @@ async fn proxy_request(
             candidate.id,
             authorized.user_id,
             upstream,
-            !upstream_url.contains("count_tokens"),
+            record_usage,
         )
         .await;
     }
 
-    if saw_rate_limit {
+    if saw_share_exhausted {
+        Err(ApiError::ShareExhausted)
+    } else if saw_rate_limit {
         Err(ApiError::RateLimited)
     } else {
         Err(last_error.unwrap_or(ApiError::Forbidden))

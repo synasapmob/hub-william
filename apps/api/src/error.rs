@@ -17,6 +17,7 @@ pub enum ApiError {
     NotFound,
     Provider(String),
     RateLimited,
+    ShareExhausted,
     Unauthorized,
     Validation(&'static str),
     Internal,
@@ -72,6 +73,13 @@ impl IntoResponse for ApiError {
                 ErrorResponse {
                     code: "all_pools_rate_limited".to_owned(),
                     message: "Every accessible pool for this provider is cooling down.".to_owned(),
+                },
+            ),
+            Self::ShareExhausted => (
+                StatusCode::TOO_MANY_REQUESTS,
+                ErrorResponse {
+                    code: "pool_share_exhausted".to_owned(),
+                    message: "Your share of this pool's live usage window is used up.".to_owned(),
                 },
             ),
             Self::Unauthorized => (

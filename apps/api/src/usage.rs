@@ -628,19 +628,20 @@ fn counts_from_usage(usage: &Value) -> Option<TokenCounts> {
                 .and_then(value_i64)
         })
         .unwrap_or(0);
-    let cache_creation = json_i64(
-        usage,
-        "cache_creation_input_tokens",
-        "cacheCreationInputTokens",
-    )
-    .unwrap_or(0);
-    let reasoning = json_i64(usage, "reasoning_tokens", "reasoningTokens").unwrap_or(0);
+    let split_output = split_output_tokens(usage);
     let counts = TokenCounts {
         cached_tokens: cached,
-        input_tokens: input.saturating_add(cache_creation),
-        output_tokens: output.saturating_add(reasoning),
+        input_tokens: input,
+        output_tokens: output.saturating_add(split_output),
     };
     (counts.units() > 0).then_some(counts)
+}
+
+fn split_output_tokens(usage: &Value) -> i64 {
+    json_i64(usage, "reasoning_tokens", "reasoningTokens")
+        .unwrap_or(0)
+        .saturating_add(json_i64(usage, "tool_tokens", "toolTokens").unwrap_or(0))
+        .saturating_add(json_i64(usage, "tool_use_tokens", "toolUseTokens").unwrap_or(0))
 }
 
 fn json_i64(value: &Value, camel: &str, snake: &str) -> Option<i64> {
@@ -802,14 +803,30 @@ data: [DONE]
 
         let mut extractor = UsageExtractor::default();
         extractor.push(
-            br#"{"usage":{"input_tokens":8,"output_tokens":2,"cache_read_input_tokens":1,"cache_creation_input_tokens":5,"reasoning_tokens":7}}"#,
+            br#"{"usage":{"input_tokens":8,"output_tokens":2,"cache_read_input_tokens":1,"cache_creation_input_tokens":5,"reasoning_tokens":7,"tool_tokens":3}}"#,
         );
         assert_eq!(
             extractor.finish(),
             Some(TokenCounts {
                 cached_tokens: 1,
-                input_tokens: 13,
-                output_tokens: 9,
+                input_tokens: 8,
+                output_tokens: 12,
+            })
+        );
+    }
+
+    #[test]
+    fn nested_reasoning_breakdown_is_not_added_when_output_already_includes_it() {
+        let mut extractor = UsageExtractor::default();
+        extractor.push(
+            br#"{"usage":{"input_tokens":10,"output_tokens":20,"output_tokens_details":{"reasoning_tokens":15}}}"#,
+        );
+        assert_eq!(
+            extractor.finish(),
+            Some(TokenCounts {
+                cached_tokens: 0,
+                input_tokens: 10,
+                output_tokens: 20,
             })
         );
     }
