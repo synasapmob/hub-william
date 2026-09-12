@@ -250,6 +250,35 @@ describe("AgentsRoute", () => {
     ).toBe(true);
   });
 
+  it("shows six pool card skeletons while the list loads", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input instanceof Request ? input.url : String(input);
+
+      if (url.endsWith("/auth/session")) return sessionResponse();
+      if (url.endsWith("/agent-pools")) {
+        return new Promise<Response>(() => {});
+      }
+
+      return jsonResponse({ message: "Not found" }, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <QueryClientProvider client={createQueryClient()}>
+        <MemoryRouter>
+          <WorkspaceShellSession>
+            <AgentsRoute />
+          </WorkspaceShellSession>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const status = await screen.findByRole("status");
+    expect(screen.getByText("Loading connected accounts")).toBeInTheDocument();
+    expect(status.querySelectorAll("li")).toHaveLength(6);
+    expect(screen.queryByText("duy**@**.com")).not.toBeInTheDocument();
+  });
+
   it("shows no fixture cards when the API has no connected accounts", async () => {
     renderRoute(undefined, []);
 
