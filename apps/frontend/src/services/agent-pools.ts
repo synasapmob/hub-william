@@ -15,6 +15,8 @@ export interface AgentPoolAvailability {
 
 export interface AgentPoolPerson {
   avatarLabel: string;
+  joinedAt: string;
+  usageAvailablePercent: number;
   username: string;
 }
 
@@ -24,11 +26,13 @@ export interface AgentPoolUsageMetric {
   value: string;
 }
 
-export interface AgentPoolJoinRequest extends AgentPoolPerson {
+export interface AgentPoolJoinRequest {
+  avatarLabel: string;
   id: string;
   reason: string;
   status: AgentPoolRequestStatus;
   telegram: string;
+  username: string;
 }
 
 export interface AgentPool {
@@ -67,7 +71,12 @@ const client = createClient<paths>({
 export class AgentPoolServiceError extends Error {}
 
 function personFromApi(person: ApiAgentPoolPerson): AgentPoolPerson {
-  return { avatarLabel: person.avatar_label, username: person.username };
+  return {
+    avatarLabel: person.avatar_label,
+    joinedAt: person.joined_at,
+    usageAvailablePercent: person.usage_available_percent,
+    username: person.username,
+  };
 }
 
 function requestFromApi(

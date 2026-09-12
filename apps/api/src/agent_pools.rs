@@ -17,12 +17,14 @@ use crate::{
     auth::{authenticated_user_id, normalize_username, optional_authenticated_user_id},
     connections::AgentProvider,
     error::ApiError,
-    usage,
+    pool_share, usage,
 };
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AgentPoolPerson {
     pub avatar_label: String,
+    pub joined_at: DateTime<Utc>,
+    pub usage_available_percent: i32,
     pub username: String,
 }
 
@@ -119,6 +121,18 @@ struct RequestRow {
     username: String,
 }
 
+#[derive(Clone, FromRow)]
+struct MemberRow {
+    joined_at: DateTime<Utc>,
+    user_id: Uuid,
+    username: String,
+}
+
+struct PoolShareInput {
+    events: Vec<pool_share::UsageEvent>,
+    members: Vec<MemberRow>,
+}
+
 #[utoipa::path(
     get,
     path = "/agent-pools",
@@ -146,9 +160,15 @@ pub async fn list(
 
     let mut pools = Vec::with_capacity(rows.len());
     let mut providers = Vec::with_capacity(rows.len());
+    let mut share_inputs = Vec::with_capacity(rows.len());
     for row in rows {
-        let accepted_usernames = sqlx::query_scalar::<_, String>(
-            "SELECT users.username
+        let mut members = vec![MemberRow {
+            joined_at: row.created_at,
+            user_id: row.owner_id,
+            username: row.owner_username.clone(),
+        }];
+        let accepted = sqlx::query_as::<_, MemberRow>(
+            "SELECT users.id AS user_id, users.username, requests.updated_at AS joined_at
              FROM agent_pool_join_requests AS requests
              JOIN users ON users.id = requests.requester_user_id
              WHERE requests.connection_id = $1 AND requests.status = 'accepted'
@@ -158,8 +178,18 @@ pub async fn list(
         .fetch_all(&state.pool)
         .await
         .map_err(database_error)?;
-        let mut members = vec![person(&row.owner_username)];
-        members.extend(accepted_usernames.iter().map(|username| person(username)));
+        members.extend(accepted);
+        let events = pool_share::load_events(&state.pool, row.id)
+            .await
+            .map_err(database_error)?;
+        share_inputs.push(PoolShareInput {
+            events,
+            members: members.clone(),
+        });
+        let people = members
+            .iter()
+            .map(|member| person(&member.username, member.joined_at, 100))
+            .collect();
 
         let request_rows = match viewer_id {
             Some(viewer_id) if viewer_id == row.owner_id => {
@@ -187,8 +217,8 @@ pub async fn list(
             capacity: row.capacity,
             created_at: row.created_at,
             id: row.id,
-            members,
-            owner: person(&row.owner_username),
+            members: people,
+            owner: person(&row.owner_username, row.created_at, 100),
             plan: row.plan.unwrap_or_else(|| "Unknown".to_owned()),
             requests,
             usage: Vec::new(),
@@ -207,8 +237,26 @@ pub async fn list(
         });
     }
     while let Some(joined) = usage_tasks.join_next().await {
-        if let Ok((index, metrics)) = joined {
-            pools[index].usage = metrics;
+        if let Ok((index, usage)) = joined {
+            pools[index].usage = usage.metrics;
+            let member_count = share_inputs[index].members.len();
+            let now = Utc::now();
+            for (person, member) in pools[index]
+                .members
+                .iter_mut()
+                .zip(share_inputs[index].members.iter())
+            {
+                person.usage_available_percent = pool_share::member_available_percent(
+                    &usage.windows,
+                    &share_inputs[index].events,
+                    member.user_id,
+                    member_count,
+                    now,
+                );
+            }
+            if let Some(owner) = pools[index].members.first() {
+                pools[index].owner.usage_available_percent = owner.usage_available_percent;
+            }
         }
     }
 
@@ -285,7 +333,10 @@ pub async fn invite_member(
     .map_err(database_error)?;
     transaction.commit().await.map_err(database_error)?;
 
-    Ok((StatusCode::CREATED, Json(person(&username))))
+    Ok((
+        StatusCode::CREATED,
+        Json(person(&username, Utc::now(), 100)),
+    ))
 }
 
 #[utoipa::path(
@@ -581,9 +632,15 @@ fn request_from_row(row: RequestRow) -> Result<AgentPoolJoinRequest, ApiError> {
     })
 }
 
-fn person(username: &str) -> AgentPoolPerson {
+fn person(
+    username: &str,
+    joined_at: DateTime<Utc>,
+    usage_available_percent: i32,
+) -> AgentPoolPerson {
     AgentPoolPerson {
         avatar_label: avatar_label(username),
+        joined_at,
+        usage_available_percent,
         username: username.to_owned(),
     }
 }

@@ -355,6 +355,10 @@ export interface components {
     };
     AgentPoolPerson: {
       avatar_label: string;
+      /** Format: date-time */
+      joined_at: string;
+      /** Format: int32 */
+      usage_available_percent: number;
       username: string;
     };
     /** @enum {string} */

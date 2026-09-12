@@ -32,8 +32,20 @@ function poolFixture(requests: Array<Record<string, unknown>> = []) {
     capacity: 6,
     created_at: "2026-09-04T08:30:00.000Z",
     id: "44444444-4444-4444-8444-444444444444",
-    members: [{ avatar_label: "Syn", username: "synasapmob" }],
-    owner: { avatar_label: "Syn", username: "synasapmob" },
+    members: [
+      {
+        avatar_label: "Syn",
+        joined_at: "2026-09-04T08:30:00.000Z",
+        usage_available_percent: 100,
+        username: "synasapmob",
+      },
+    ],
+    owner: {
+      avatar_label: "Syn",
+      joined_at: "2026-09-04T08:30:00.000Z",
+      usage_available_percent: 100,
+      username: "synasapmob",
+    },
     plan: "K12",
     requests,
     usage: [
@@ -93,7 +105,12 @@ function renderRoute(user?: SessionFixture, initialPools = [poolFixture()]) {
             ...pools[0],
             members: [
               ...pools[0].members,
-              { avatar_label: "Huy", username: "huycodes" },
+              {
+                avatar_label: "Huy",
+                joined_at: "2026-09-12T08:00:00.000Z",
+                usage_available_percent: 100,
+                username: "huycodes",
+              },
             ],
             requests: [accepted],
           },
@@ -101,7 +118,12 @@ function renderRoute(user?: SessionFixture, initialPools = [poolFixture()]) {
         return jsonResponse(accepted);
       }
       if (url.endsWith("/members") && method === "POST") {
-        const invited = { avatar_label: "Wil", username: "william" };
+        const invited = {
+          avatar_label: "Wil",
+          joined_at: "2026-09-12T09:00:00.000Z",
+          usage_available_percent: 100,
+          username: "william",
+        };
         pools = [
           {
             ...pools[0],
@@ -199,6 +221,41 @@ describe("AgentsRoute", () => {
     expect(screen.getAllByText("68% used").length).toBeGreaterThan(1);
   });
 
+  it("shows joined members with remaining share and join date", async () => {
+    const user = userEvent.setup();
+    renderRoute(undefined, [
+      {
+        ...poolFixture(),
+        members: [
+          {
+            avatar_label: "Syn",
+            joined_at: "2026-09-04T08:30:00.000Z",
+            usage_available_percent: 40,
+            username: "synasapmob",
+          },
+          {
+            avatar_label: "Huy",
+            joined_at: "2026-09-10T12:00:00.000Z",
+            usage_available_percent: 85,
+            username: "huycodes",
+          },
+        ],
+      },
+    ]);
+
+    expect(
+      await screen.findByRole("button", { name: /members/i }),
+    ).toHaveTextContent("2 joined");
+    await user.click(screen.getByRole("button", { name: /members/i }));
+
+    expect(screen.getAllByText("huycodes").length).toBeGreaterThan(0);
+    expect(screen.getByText("40% available")).toBeVisible();
+    expect(screen.getByText("85% available")).toBeVisible();
+    expect(
+      document.querySelector('time[datetime="2026-09-10T12:00:00.000Z"]'),
+    ).toBeVisible();
+  });
+
   it("says so when a provider reports no usage instead of opening blank", async () => {
     const user = userEvent.setup();
     renderRoute(undefined, [{ ...poolFixture(), usage: [] }]);
@@ -272,8 +329,18 @@ describe("AgentsRoute", () => {
       {
         ...poolFixture(),
         members: [
-          { avatar_label: "Syn", username: "synasapmob" },
-          { avatar_label: "Huy", username: "huycodes" },
+          {
+            avatar_label: "Syn",
+            joined_at: "2026-09-04T08:30:00.000Z",
+            usage_available_percent: 40,
+            username: "synasapmob",
+          },
+          {
+            avatar_label: "Huy",
+            joined_at: "2026-09-10T12:00:00.000Z",
+            usage_available_percent: 85,
+            username: "huycodes",
+          },
         ],
       },
     ]);

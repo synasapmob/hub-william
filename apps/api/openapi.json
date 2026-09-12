@@ -979,10 +979,23 @@
       },
       "AgentPoolPerson": {
         "type": "object",
-        "required": ["avatar_label", "username"],
+        "required": [
+          "avatar_label",
+          "joined_at",
+          "usage_available_percent",
+          "username"
+        ],
         "properties": {
           "avatar_label": {
             "type": "string"
+          },
+          "joined_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "usage_available_percent": {
+            "type": "integer",
+            "format": "int32"
           },
           "username": {
             "type": "string"

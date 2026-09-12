@@ -1,4 +1,5 @@
-import { CircleGauge, Clock3, UserRound } from "lucide-react";
+import type { ReactNode } from "react";
+import { CircleGauge, Clock3, UserRound, Users } from "lucide-react";
 import { tv } from "tailwind-variants";
 
 import Flex from "@/components/ui/flex";
@@ -52,6 +53,15 @@ interface AgentsPoolCardProps {
   pool: AgentPool;
 }
 
+interface AgentsPoolCardSheetProps {
+  children: ReactNode;
+  description: string;
+  title: string;
+  triggerIcon: ReactNode;
+  triggerLabel: string;
+  triggerValue: string;
+}
+
 function actionState(
   pool: AgentPool,
   username: string | null,
@@ -78,6 +88,50 @@ function usageTriggerValue(pool: AgentPool) {
   }
   if (pool.usage.length === 0) return "No live usage";
   return `${pool.usage.length} metrics`;
+}
+
+function membersTriggerValue(pool: AgentPool) {
+  return `${pool.members.length} joined`;
+}
+
+function AgentsPoolCardSheet({
+  children,
+  description,
+  title,
+  triggerIcon,
+  triggerLabel,
+  triggerValue,
+}: AgentsPoolCardSheetProps) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full justify-between"
+        >
+          <span className="inline-flex items-center gap-1.5">
+            {triggerIcon}
+            {triggerLabel}
+          </span>
+          <span className="font-mono text-[10px] text-muted-foreground">
+            {triggerValue}
+          </span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-(--radix-popover-trigger-width)"
+      >
+        <PopoverHeader>
+          <PopoverTitle>{title}</PopoverTitle>
+          <PopoverDescription>{description}</PopoverDescription>
+        </PopoverHeader>
+
+        {children}
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 function actionLabel(state: PoolActionState) {
@@ -145,64 +199,79 @@ export default function AgentsPoolCard({
             <Badge variant="secondary">{pool.plan}</Badge>
           </Flex>
 
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full justify-between"
-              >
-                <span className="inline-flex items-center gap-1.5">
-                  <CircleGauge aria-hidden="true" className="size-4" />
-                  View Usages
-                </span>
-                <span className="font-mono text-[10px] text-muted-foreground">
-                  {usageTriggerValue(pool)}
-                </span>
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent
-              align="start"
-              className="w-(--radix-popover-trigger-width)"
-            >
-              <PopoverHeader>
-                <PopoverTitle>{pool.agent} usage</PopoverTitle>
-                <PopoverDescription>
-                  Fields vary by agent and subscription plan.
-                </PopoverDescription>
-              </PopoverHeader>
-
-              {pool.usage.length > 0 ? (
-                <dl className="divide-y divide-zinc-100">
-                  {pool.usage.map((metric) => (
-                    <div
-                      key={metric.label}
-                      className="py-2 first:pt-0 last:pb-0"
-                    >
-                      <Flex className="justify-between gap-3">
-                        <dt className="text-xs text-muted-foreground">
-                          {metric.label}
-                        </dt>
-                        <dd className="text-right font-mono text-xs font-semibold">
-                          {metric.value}
-                        </dd>
+          <AgentsPoolCardSheet
+            description="Fields vary by agent and subscription plan."
+            title={`${pool.agent} usage`}
+            triggerIcon={<CircleGauge aria-hidden="true" className="size-4" />}
+            triggerLabel="View Usages"
+            triggerValue={usageTriggerValue(pool)}
+          >
+            {pool.usage.length > 0 ? (
+              <dl className="divide-y divide-zinc-100">
+                {pool.usage.map((metric) => (
+                  <div key={metric.label} className="py-2 first:pt-0 last:pb-0">
+                    <Flex className="justify-between gap-3">
+                      <dt className="text-xs text-muted-foreground">
+                        {metric.label}
+                      </dt>
+                      <dd className="text-right font-mono text-xs font-semibold">
+                        {metric.value}
+                      </dd>
+                    </Flex>
+                    {metric.detail ? (
+                      <Flex className="mt-1 justify-end gap-1 text-[10px] text-muted-foreground">
+                        <Clock3 aria-hidden="true" className="size-3" />
+                        {metric.detail}
                       </Flex>
-                      {metric.detail ? (
-                        <Flex className="mt-1 justify-end gap-1 text-[10px] text-muted-foreground">
-                          <Clock3 aria-hidden="true" className="size-3" />
-                          {metric.detail}
-                        </Flex>
-                      ) : null}
-                    </div>
-                  ))}
-                </dl>
-              ) : (
-                <p className="rounded-lg border border-dashed border-zinc-300 p-4 text-center text-xs text-muted-foreground">
-                  {pool.agent} has not reported usage for this account yet.
-                </p>
-              )}
-            </PopoverContent>
-          </Popover>
+                    ) : null}
+                  </div>
+                ))}
+              </dl>
+            ) : (
+              <p className="rounded-lg border border-dashed border-zinc-300 p-4 text-center text-xs text-muted-foreground">
+                {pool.agent} has not reported usage for this account yet.
+              </p>
+            )}
+          </AgentsPoolCardSheet>
+
+          <AgentsPoolCardSheet
+            description="Joined members and remaining share of the live window."
+            title="Pool members"
+            triggerIcon={<Users aria-hidden="true" className="size-4" />}
+            triggerLabel="Members"
+            triggerValue={membersTriggerValue(pool)}
+          >
+            {pool.members.length > 0 ? (
+              <dl className="divide-y divide-zinc-100">
+                {pool.members.map((member) => (
+                  <div
+                    key={member.username}
+                    className="py-2 first:pt-0 last:pb-0"
+                  >
+                    <Flex className="justify-between gap-3">
+                      <dt className="text-xs text-muted-foreground">
+                        {member.username}
+                      </dt>
+                      <dd className="text-right font-mono text-xs font-semibold">
+                        {member.usageAvailablePercent}% available
+                      </dd>
+                    </Flex>
+                    <Flex className="mt-1 justify-end gap-1 text-[10px] text-muted-foreground">
+                      <Clock3 aria-hidden="true" className="size-3" />
+                      Joined{" "}
+                      <time dateTime={member.joinedAt}>
+                        {agentPoolsService.createdLabel(member.joinedAt)}
+                      </time>
+                    </Flex>
+                  </div>
+                ))}
+              </dl>
+            ) : (
+              <p className="rounded-lg border border-dashed border-zinc-300 p-4 text-center text-xs text-muted-foreground">
+                No members have joined this pool yet.
+              </p>
+            )}
+          </AgentsPoolCardSheet>
         </CardHeader>
 
         <CardFooter className="gap-2 p-3">

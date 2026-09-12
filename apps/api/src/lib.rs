@@ -6,6 +6,7 @@ mod error;
 mod gateway;
 mod health;
 mod openapi;
+mod pool_share;
 mod telegram;
 mod telegram_catalogue;
 mod usage;
