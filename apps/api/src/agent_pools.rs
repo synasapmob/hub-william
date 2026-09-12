@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use axum::{
     Json,
     extract::{Path, State},
@@ -13,12 +15,37 @@ use uuid::Uuid;
 use crate::{
     AppState,
     auth::{authenticated_user_id, normalize_username, optional_authenticated_user_id},
+    connections::AgentProvider,
     error::ApiError,
+    pool_share, usage,
 };
 
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub struct AgentPoolShareEvidence {
+    pub available_percent: i32,
+    pub budget_units: Option<i64>,
+    pub cap_units: Option<i64>,
+    pub fail_open_reason: Option<String>,
+    pub member_count: i32,
+    pub pool_cached_tokens: i64,
+    pub pool_input_tokens: i64,
+    pub pool_output_tokens: i64,
+    pub pool_units: i64,
+    pub provider_used_percent: Option<f64>,
+    pub remaining_units: Option<i64>,
+    pub user_cached_tokens: i64,
+    pub user_input_tokens: i64,
+    pub user_output_tokens: i64,
+    pub user_units: i64,
+    pub window_label: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
 pub struct AgentPoolPerson {
     pub avatar_label: String,
+    pub joined_at: DateTime<Utc>,
+    pub share: AgentPoolShareEvidence,
+    pub usage_available_percent: i32,
     pub username: String,
 }
 
@@ -115,6 +142,18 @@ struct RequestRow {
     username: String,
 }
 
+#[derive(Clone, FromRow)]
+struct MemberRow {
+    joined_at: DateTime<Utc>,
+    user_id: Uuid,
+    username: String,
+}
+
+struct PoolShareInput {
+    events: Vec<pool_share::UsageEvent>,
+    members: Vec<MemberRow>,
+}
+
 #[utoipa::path(
     get,
     path = "/agent-pools",
@@ -141,9 +180,16 @@ pub async fn list(
     .map_err(database_error)?;
 
     let mut pools = Vec::with_capacity(rows.len());
+    let mut providers = Vec::with_capacity(rows.len());
+    let mut share_inputs = Vec::with_capacity(rows.len());
     for row in rows {
-        let accepted_usernames = sqlx::query_scalar::<_, String>(
-            "SELECT users.username
+        let mut members = vec![MemberRow {
+            joined_at: row.created_at,
+            user_id: row.owner_id,
+            username: row.owner_username.clone(),
+        }];
+        let accepted = sqlx::query_as::<_, MemberRow>(
+            "SELECT users.id AS user_id, users.username, requests.updated_at AS joined_at
              FROM agent_pool_join_requests AS requests
              JOIN users ON users.id = requests.requester_user_id
              WHERE requests.connection_id = $1 AND requests.status = 'accepted'
@@ -153,8 +199,18 @@ pub async fn list(
         .fetch_all(&state.pool)
         .await
         .map_err(database_error)?;
-        let mut members = vec![person(&row.owner_username)];
-        members.extend(accepted_usernames.iter().map(|username| person(username)));
+        members.extend(accepted);
+        let events = pool_share::load_events(&state.pool, row.id)
+            .await
+            .map_err(database_error)?;
+        share_inputs.push(PoolShareInput {
+            events,
+            members: members.clone(),
+        });
+        let people = members
+            .iter()
+            .map(|member| person(&member.username, member.joined_at, pending_share()))
+            .collect();
 
         let request_rows = match viewer_id {
             Some(viewer_id) if viewer_id == row.owner_id => {
@@ -167,12 +223,14 @@ pub async fn list(
             .into_iter()
             .map(request_from_row)
             .collect::<Result<Vec<_>, _>>()?;
+        let provider = AgentProvider::from_str(&row.provider)?;
+        providers.push(provider);
 
         pools.push(AgentPool {
             account_label: row
                 .account_label
                 .unwrap_or_else(|| "connected account".to_owned()),
-            agent: provider_label(&row.provider)?.to_owned(),
+            agent: provider.label().to_owned(),
             availability: availability_from_values(
                 &row.availability_status,
                 row.rate_limited_until,
@@ -180,12 +238,50 @@ pub async fn list(
             capacity: row.capacity,
             created_at: row.created_at,
             id: row.id,
-            members,
-            owner: person(&row.owner_username),
+            members: people,
+            owner: person(&row.owner_username, row.created_at, pending_share()),
             plan: row.plan.unwrap_or_else(|| "Unknown".to_owned()),
             requests,
             usage: Vec::new(),
         });
+    }
+
+    let mut usage_tasks = tokio::task::JoinSet::new();
+    for (index, (pool, provider)) in pools.iter().zip(providers.iter().copied()).enumerate() {
+        let state = state.clone();
+        let connection_id = pool.id;
+        usage_tasks.spawn(async move {
+            (
+                index,
+                usage::for_connection(&state, connection_id, provider).await,
+            )
+        });
+    }
+    while let Some(joined) = usage_tasks.join_next().await {
+        if let Ok((index, usage)) = joined {
+            pools[index].usage = usage.metrics;
+            let member_count = share_inputs[index].members.len();
+            let now = Utc::now();
+            for (person, member) in pools[index]
+                .members
+                .iter_mut()
+                .zip(share_inputs[index].members.iter())
+            {
+                let share = share_from_evidence(pool_share::member_share_evidence(
+                    &usage.windows,
+                    &share_inputs[index].events,
+                    member.user_id,
+                    member_count,
+                    now,
+                ));
+                person.usage_available_percent = share.available_percent;
+                person.share = share;
+            }
+            if let Some(owner_member) = pools[index].members.first().cloned() {
+                pools[index].owner.usage_available_percent = owner_member.usage_available_percent;
+                pools[index].owner.share = owner_member.share;
+            }
+        }
     }
 
     Ok(Json(pools))
@@ -261,7 +357,10 @@ pub async fn invite_member(
     .map_err(database_error)?;
     transaction.commit().await.map_err(database_error)?;
 
-    Ok((StatusCode::CREATED, Json(person(&username))))
+    Ok((
+        StatusCode::CREATED,
+        Json(person(&username, Utc::now(), pending_share())),
+    ))
 }
 
 #[utoipa::path(
@@ -557,10 +656,45 @@ fn request_from_row(row: RequestRow) -> Result<AgentPoolJoinRequest, ApiError> {
     })
 }
 
-fn person(username: &str) -> AgentPoolPerson {
+fn person(
+    username: &str,
+    joined_at: DateTime<Utc>,
+    share: AgentPoolShareEvidence,
+) -> AgentPoolPerson {
     AgentPoolPerson {
         avatar_label: avatar_label(username),
+        joined_at,
+        usage_available_percent: share.available_percent,
+        share,
         username: username.to_owned(),
+    }
+}
+
+fn pending_share() -> AgentPoolShareEvidence {
+    share_from_evidence(pool_share::ShareEvidence::fail_open(
+        1,
+        "Share is calculated from live provider usage.",
+    ))
+}
+
+fn share_from_evidence(evidence: pool_share::ShareEvidence) -> AgentPoolShareEvidence {
+    AgentPoolShareEvidence {
+        available_percent: evidence.available_percent,
+        budget_units: evidence.budget_units,
+        cap_units: evidence.cap_units,
+        fail_open_reason: evidence.fail_open_reason.map(str::to_owned),
+        member_count: evidence.member_count,
+        pool_cached_tokens: evidence.pool_cached_tokens,
+        pool_input_tokens: evidence.pool_input_tokens,
+        pool_output_tokens: evidence.pool_output_tokens,
+        pool_units: evidence.pool_units,
+        provider_used_percent: evidence.provider_used_percent,
+        remaining_units: evidence.remaining_units,
+        user_cached_tokens: evidence.user_cached_tokens,
+        user_input_tokens: evidence.user_input_tokens,
+        user_output_tokens: evidence.user_output_tokens,
+        user_units: evidence.user_units,
+        window_label: evidence.window_label,
     }
 }
 
@@ -588,15 +722,6 @@ fn normalize_reason(value: &str) -> Result<String, ApiError> {
         ));
     }
     Ok(value.to_owned())
-}
-
-fn provider_label(provider: &str) -> Result<&'static str, ApiError> {
-    match provider {
-        "chatgpt" => Ok("ChatGPT"),
-        "claude" => Ok("Claude"),
-        "grok" => Ok("Grok"),
-        _ => Err(ApiError::Internal),
-    }
 }
 
 fn status_value(status: AgentPoolRequestStatus) -> &'static str {

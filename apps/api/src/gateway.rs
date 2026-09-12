@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 use crate::{
     AgentProvider, AppState, auth::authenticated_user_id, connections::provider_credential,
-    error::ApiError,
+    error::ApiError, pool_share, usage,
 };
 
 const OPENAI_RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
@@ -292,6 +292,7 @@ async fn proxy_request(
         connected_provider_candidates(state, authorized.user_id, expected_provider).await?;
     let upstream_url = append_query(upstream_url, original_uri.query());
     let mut saw_rate_limit = false;
+    let mut saw_share_exhausted = false;
     let mut last_error = None;
 
     for candidate in candidates {
@@ -330,6 +331,23 @@ async fn proxy_request(
                 continue;
             }
         };
+        let record_usage = !upstream_url.contains("count_tokens");
+        if record_usage
+            && !pool_share::allow_gateway_request(
+                state,
+                candidate.id,
+                authorized.user_id,
+                expected_provider,
+            )
+            .await
+        {
+            if claimed_probe {
+                release_probe(state, candidate.id).await?;
+            }
+            saw_share_exhausted = true;
+            continue;
+        }
+
         let mut request = state
             .http
             .post(&upstream_url)
@@ -377,30 +395,86 @@ async fn proxy_request(
             continue;
         }
         mark_active(state, candidate.id).await?;
-        return upstream_response(upstream);
+        return upstream_response(
+            state.clone(),
+            candidate.id,
+            authorized.user_id,
+            upstream,
+            record_usage,
+        )
+        .await;
     }
 
-    if saw_rate_limit {
+    if saw_share_exhausted {
+        Err(ApiError::ShareExhausted)
+    } else if saw_rate_limit {
         Err(ApiError::RateLimited)
     } else {
         Err(last_error.unwrap_or(ApiError::Forbidden))
     }
 }
 
-fn upstream_response(upstream: reqwest::Response) -> Result<Response, ApiError> {
+async fn upstream_response(
+    state: AppState,
+    connection_id: Uuid,
+    user_id: Uuid,
+    upstream: reqwest::Response,
+    record_usage: bool,
+) -> Result<Response, ApiError> {
     let status = upstream.status();
     let headers = upstream.headers().clone();
-    let stream = upstream.bytes_stream();
     let mut response = Response::builder().status(status);
     for (name, value) in &headers {
         if should_forward_response_header(name) {
             response = response.header(name, value);
         }
     }
-    response.body(Body::from_stream(stream)).map_err(|error| {
-        eprintln!("gateway response construction failed: {error}");
-        ApiError::Internal
-    })
+    if !record_usage {
+        return response
+            .body(Body::from_stream(upstream.bytes_stream()))
+            .map_err(|error| {
+                eprintln!("gateway response construction failed: {error}");
+                ApiError::Internal
+            });
+    }
+
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes, std::io::Error>>(32);
+    tokio::spawn(async move {
+        use futures_util::StreamExt;
+
+        let mut stream = upstream.bytes_stream();
+        let mut extractor = usage::UsageExtractor::default();
+        let mut client_gone = false;
+        while let Some(item) = stream.next().await {
+            match item {
+                Ok(bytes) => {
+                    extractor.push(&bytes);
+                    if !client_gone && tx.send(Ok(bytes)).await.is_err() {
+                        client_gone = true;
+                    }
+                }
+                Err(error) => {
+                    if !client_gone {
+                        let _ = tx.send(Err(std::io::Error::other(error))).await;
+                    }
+                    break;
+                }
+            }
+        }
+        drop(tx);
+        if let Some(counts) = extractor.finish() {
+            usage::record_event(&state, connection_id, user_id, counts).await;
+        }
+    });
+
+    response
+        .body(Body::from_stream(
+            tokio_stream::wrappers::ReceiverStream::new(rx),
+        ))
+        .map_err(|error| {
+            eprintln!("gateway response construction failed: {error}");
+            ApiError::Internal
+        })
 }
 
 async fn authorize_gateway_key(
@@ -646,7 +720,7 @@ fn merged_anthropic_beta(headers: &HeaderMap) -> HeaderValue {
     HeaderValue::from_str(&value).unwrap_or_else(|_| HeaderValue::from_static("oauth-2025-04-20"))
 }
 
-fn chatgpt_account_id(token: &Value) -> Option<String> {
+pub(crate) fn chatgpt_account_id(token: &Value) -> Option<String> {
     token
         .get("account_id")
         .and_then(Value::as_str)

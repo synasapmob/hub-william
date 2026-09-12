@@ -3,10 +3,10 @@ use utoipa::OpenApi;
 use crate::{
     AgentConnection, AgentConnectionStatus, AgentPool, AgentPoolAvailability,
     AgentPoolAvailabilityStatus, AgentPoolJoinRequest, AgentPoolPerson, AgentPoolRequestStatus,
-    AgentPoolUsageMetric, AgentProvider, AuthenticatedUser, CompleteAuthorizationRequest,
-    CreateAgentPoolJoinRequest, CreatedGatewayKey, DecideAgentPoolJoinRequest, ErrorResponse,
-    GatewayKey, HealthResponse, InviteAgentPoolMember, LoginRequest, RegisterRequest,
-    SessionResponse, StartAgentConnectionRequest,
+    AgentPoolShareEvidence, AgentPoolUsageMetric, AgentProvider, AuthenticatedUser,
+    CompleteAuthorizationRequest, CreateAgentPoolJoinRequest, CreatedGatewayKey,
+    DecideAgentPoolJoinRequest, ErrorResponse, GatewayKey, HealthResponse, InviteAgentPoolMember,
+    LoginRequest, RegisterRequest, SessionResponse, StartAgentConnectionRequest,
 };
 
 #[derive(OpenApi)]
@@ -48,6 +48,7 @@ use crate::{
         AgentPoolJoinRequest,
         AgentPoolPerson,
         AgentPoolRequestStatus,
+        AgentPoolShareEvidence,
         AgentPoolUsageMetric,
         AgentProvider,
         CompleteAuthorizationRequest,

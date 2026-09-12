@@ -213,6 +213,7 @@ Tailwind CSS 4 · Rust · Axum · Utoipa/OpenAPI · Vitest · Oxlint · Prettier
 `/activities` remains fixture telemetry behind
 `apps/frontend/src/utils/utils.activities.ts`. `/agents` reads connected accounts,
 memberships, and request decisions from the backend with no mock fallback.
-Provider usage metrics remain empty until a provider-specific usage contract is
-verified; the browser never fabricates them. The sidebar's former Recent
-updates fixture has been removed.
+Pool cards load live 5-hour, weekly, and reset-credit figures from each
+connected provider. The browser never fabricates those numbers. `/activities`
+remains fixture telemetry. The sidebar's former Recent updates fixture has been
+removed.

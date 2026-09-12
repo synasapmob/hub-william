@@ -979,10 +979,27 @@
       },
       "AgentPoolPerson": {
         "type": "object",
-        "required": ["avatar_label", "username"],
+        "required": [
+          "avatar_label",
+          "joined_at",
+          "share",
+          "usage_available_percent",
+          "username"
+        ],
         "properties": {
           "avatar_label": {
             "type": "string"
+          },
+          "joined_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "share": {
+            "$ref": "#/components/schemas/AgentPoolShareEvidence"
+          },
+          "usage_available_percent": {
+            "type": "integer",
+            "format": "int32"
           },
           "username": {
             "type": "string"
@@ -992,6 +1009,85 @@
       "AgentPoolRequestStatus": {
         "type": "string",
         "enum": ["pending", "accepted", "rejected"]
+      },
+      "AgentPoolShareEvidence": {
+        "type": "object",
+        "required": [
+          "available_percent",
+          "member_count",
+          "pool_cached_tokens",
+          "pool_input_tokens",
+          "pool_output_tokens",
+          "pool_units",
+          "user_cached_tokens",
+          "user_input_tokens",
+          "user_output_tokens",
+          "user_units"
+        ],
+        "properties": {
+          "available_percent": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "budget_units": {
+            "type": ["integer", "null"],
+            "format": "int64"
+          },
+          "cap_units": {
+            "type": ["integer", "null"],
+            "format": "int64"
+          },
+          "fail_open_reason": {
+            "type": ["string", "null"]
+          },
+          "member_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pool_cached_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "pool_input_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "pool_output_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "pool_units": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "provider_used_percent": {
+            "type": ["number", "null"],
+            "format": "double"
+          },
+          "remaining_units": {
+            "type": ["integer", "null"],
+            "format": "int64"
+          },
+          "user_cached_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "user_input_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "user_output_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "user_units": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "window_label": {
+            "type": ["string", "null"]
+          }
+        }
       },
       "AgentPoolUsageMetric": {
         "type": "object",

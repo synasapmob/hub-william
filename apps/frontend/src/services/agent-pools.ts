@@ -13,8 +13,30 @@ export interface AgentPoolAvailability {
   status: AgentPoolAvailabilityStatus;
 }
 
+export interface AgentPoolShareEvidence {
+  availablePercent: number;
+  budgetUnits?: number;
+  capUnits?: number;
+  failOpenReason?: string;
+  memberCount: number;
+  poolCachedTokens: number;
+  poolInputTokens: number;
+  poolOutputTokens: number;
+  poolUnits: number;
+  providerUsedPercent?: number;
+  remainingUnits?: number;
+  userCachedTokens: number;
+  userInputTokens: number;
+  userOutputTokens: number;
+  userUnits: number;
+  windowLabel?: string;
+}
+
 export interface AgentPoolPerson {
   avatarLabel: string;
+  joinedAt: string;
+  share: AgentPoolShareEvidence;
+  usageAvailablePercent: number;
   username: string;
 }
 
@@ -24,11 +46,13 @@ export interface AgentPoolUsageMetric {
   value: string;
 }
 
-export interface AgentPoolJoinRequest extends AgentPoolPerson {
+export interface AgentPoolJoinRequest {
+  avatarLabel: string;
   id: string;
   reason: string;
   status: AgentPoolRequestStatus;
   telegram: string;
+  username: string;
 }
 
 export interface AgentPool {
@@ -66,8 +90,37 @@ const client = createClient<paths>({
 
 export class AgentPoolServiceError extends Error {}
 
+function shareFromApi(
+  share: ApiAgentPoolPerson["share"],
+): AgentPoolShareEvidence {
+  return {
+    availablePercent: share.available_percent,
+    budgetUnits: share.budget_units ?? undefined,
+    capUnits: share.cap_units ?? undefined,
+    failOpenReason: share.fail_open_reason ?? undefined,
+    memberCount: share.member_count,
+    poolCachedTokens: share.pool_cached_tokens,
+    poolInputTokens: share.pool_input_tokens,
+    poolOutputTokens: share.pool_output_tokens,
+    poolUnits: share.pool_units,
+    providerUsedPercent: share.provider_used_percent ?? undefined,
+    remainingUnits: share.remaining_units ?? undefined,
+    userCachedTokens: share.user_cached_tokens,
+    userInputTokens: share.user_input_tokens,
+    userOutputTokens: share.user_output_tokens,
+    userUnits: share.user_units,
+    windowLabel: share.window_label ?? undefined,
+  };
+}
+
 function personFromApi(person: ApiAgentPoolPerson): AgentPoolPerson {
-  return { avatarLabel: person.avatar_label, username: person.username };
+  return {
+    avatarLabel: person.avatar_label,
+    joinedAt: person.joined_at,
+    share: shareFromApi(person.share),
+    usageAvailablePercent: person.usage_available_percent,
+    username: person.username,
+  };
 }
 
 function requestFromApi(
