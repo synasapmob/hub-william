@@ -354,6 +354,7 @@ describe("AgentsRoute", () => {
     ).toHaveTextContent("2 joined");
     await user.click(screen.getByRole("button", { name: /members/i }));
 
+    expect(screen.getByRole("dialog", { name: /pool members/i })).toBeVisible();
     expect(screen.getAllByText("huycodes").length).toBeGreaterThan(0);
     expect(screen.getByText("40% available")).toBeVisible();
     expect(screen.getByText("85% available")).toBeVisible();

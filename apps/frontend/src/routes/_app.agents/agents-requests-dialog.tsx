@@ -273,9 +273,11 @@ export default function AgentsRequestsDialog({
             className="space-y-2"
             onSubmit={form.handleSubmit(submitInvite)}
           >
-            <Flex className="items-end gap-2">
-              <div className="min-w-0 flex-1 space-y-1.5">
-                <Label htmlFor="invite-username">Invite member</Label>
+            <Flex className="items-center gap-2">
+              <div className="min-w-0 flex-1">
+                <Label className="sr-only" htmlFor="invite-username">
+                  Invite member
+                </Label>
                 <Input
                   aria-invalid={Boolean(form.formState.errors.username)}
                   autoComplete="off"
