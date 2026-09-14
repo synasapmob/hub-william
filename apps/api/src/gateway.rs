@@ -25,6 +25,7 @@ const OPENAI_RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/respon
 const CLAUDE_MESSAGES_URL: &str = "https://api.anthropic.com/v1/messages";
 const CLAUDE_COUNT_TOKENS_URL: &str = "https://api.anthropic.com/v1/messages/count_tokens";
 const GROK_CHAT_URL: &str = "https://cli-chat-proxy.grok.com/v1/chat/completions";
+const GEMINI_CLIENT_VERSION: &str = "antigravity/1.2.0";
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct GatewayKey {
@@ -286,6 +287,364 @@ pub async fn grok_models(
     })))
 }
 
+pub async fn gemini_request(
+    State(state): State<AppState>,
+    Path(path): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, ApiError> {
+    let (model, operation) = parse_gemini_operation(&path)?;
+    gemini_proxy_request(&state, model, operation, &headers, body).await
+}
+
+#[derive(Clone, Copy)]
+enum GeminiOperation {
+    Generate,
+    StreamGenerate,
+    CountTokens,
+}
+
+impl GeminiOperation {
+    fn path(self) -> &'static str {
+        match self {
+            Self::Generate => "/v1internal:generateContent",
+            Self::StreamGenerate => "/v1internal:streamGenerateContent?alt=sse",
+            Self::CountTokens => "/v1internal:countTokens",
+        }
+    }
+
+    fn records_usage(self) -> bool {
+        !matches!(self, Self::CountTokens)
+    }
+
+    fn streams(self) -> bool {
+        matches!(self, Self::StreamGenerate)
+    }
+}
+
+fn parse_gemini_operation(path: &str) -> Result<(&str, GeminiOperation), ApiError> {
+    let (model, operation) = path
+        .trim_start_matches('/')
+        .rsplit_once(':')
+        .ok_or(ApiError::NotFound)?;
+    if model.is_empty() || model.contains('/') {
+        return Err(ApiError::NotFound);
+    }
+    let operation = match operation {
+        "generateContent" => GeminiOperation::Generate,
+        "streamGenerateContent" => GeminiOperation::StreamGenerate,
+        "countTokens" => GeminiOperation::CountTokens,
+        _ => return Err(ApiError::NotFound),
+    };
+    Ok((model, operation))
+}
+
+async fn gemini_proxy_request(
+    state: &AppState,
+    model: &str,
+    operation: GeminiOperation,
+    request_headers: &HeaderMap,
+    body: Bytes,
+) -> Result<Response, ApiError> {
+    let authorized = authorize_gateway_key(state, request_headers).await?;
+    let candidates =
+        connected_provider_candidates(state, authorized.user_id, AgentProvider::Gemini).await?;
+    let request_body: Value = serde_json::from_slice(&body)
+        .map_err(|_| ApiError::Validation("The Gemini request body must be valid JSON."))?;
+    let mut saw_rate_limit = false;
+    let mut saw_reauthorization = false;
+    let mut saw_share_exhausted = false;
+    let mut last_error = None;
+
+    for candidate in candidates {
+        let claimed_probe = match claim_candidate(state, &candidate).await {
+            Ok(Some(claimed_probe)) => claimed_probe,
+            Ok(None) => {
+                if candidate.availability_status == "reauth_required" {
+                    saw_reauthorization = true;
+                } else {
+                    saw_rate_limit = true;
+                }
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+        let (credential_provider, token) = match provider_credential(state, candidate.id).await {
+            Ok(credential) => credential,
+            Err(error) => {
+                if claimed_probe {
+                    release_probe(state, candidate.id).await?;
+                }
+                last_error = Some(error);
+                continue;
+            }
+        };
+        if credential_provider != AgentProvider::Gemini {
+            if claimed_probe {
+                release_probe(state, candidate.id).await?;
+            }
+            last_error = Some(ApiError::Forbidden);
+            continue;
+        }
+        let Some(access_token) = token.get("access_token").and_then(Value::as_str) else {
+            if claimed_probe {
+                release_probe(state, candidate.id).await?;
+            }
+            last_error = Some(ApiError::Forbidden);
+            continue;
+        };
+        let Some(project) = token
+            .get("cloudaicompanion_project")
+            .and_then(Value::as_str)
+        else {
+            if claimed_probe {
+                release_probe(state, candidate.id).await?;
+            }
+            last_error = Some(ApiError::Provider(
+                "The Gemini subscription did not return a Code Assist project. Reconnect it."
+                    .to_owned(),
+            ));
+            continue;
+        };
+        if operation.records_usage()
+            && !pool_share::allow_gateway_request(
+                state,
+                candidate.id,
+                authorized.user_id,
+                AgentProvider::Gemini,
+            )
+            .await
+        {
+            if claimed_probe {
+                release_probe(state, candidate.id).await?;
+            }
+            saw_share_exhausted = true;
+            continue;
+        }
+
+        let upstream_body = gemini_code_assist_request(model, project, operation, &request_body);
+        let upstream_url = format!(
+            "{}{}",
+            state.config.gemini_code_assist_url.trim_end_matches('/'),
+            operation.path()
+        );
+        let upstream = match state
+            .http
+            .post(upstream_url)
+            .bearer_auth(access_token)
+            .header("user-agent", GEMINI_CLIENT_VERSION)
+            .header("content-type", "application/json")
+            .json(&upstream_body)
+            .send()
+            .await
+        {
+            Ok(upstream) => upstream,
+            Err(error) => {
+                if claimed_probe {
+                    release_probe(state, candidate.id).await?;
+                }
+                last_error = Some(upstream_network_error(AgentProvider::Gemini, error));
+                continue;
+            }
+        };
+        match upstream_disposition(upstream.status()) {
+            UpstreamDisposition::RateLimit => {
+                mark_rate_limited(state, candidate.id).await?;
+                saw_rate_limit = true;
+                continue;
+            }
+            UpstreamDisposition::Reauthorize => {
+                mark_reauth_required(state, candidate.id).await?;
+                saw_reauthorization = true;
+                continue;
+            }
+            UpstreamDisposition::Return => {}
+        }
+        mark_active(state, candidate.id).await?;
+        return gemini_upstream_response(
+            state.clone(),
+            candidate.id,
+            authorized.user_id,
+            upstream,
+            operation,
+        )
+        .await;
+    }
+
+    if saw_share_exhausted {
+        Err(ApiError::ShareExhausted)
+    } else if saw_rate_limit {
+        Err(ApiError::RateLimited)
+    } else if saw_reauthorization {
+        Err(ApiError::Provider(
+            "Every accessible pool for this provider needs to reconnect.".to_owned(),
+        ))
+    } else {
+        Err(last_error.unwrap_or(ApiError::Forbidden))
+    }
+}
+
+fn gemini_code_assist_request(
+    model: &str,
+    project: &str,
+    operation: GeminiOperation,
+    request: &Value,
+) -> Value {
+    let model = model.trim_start_matches("models/");
+    match operation {
+        GeminiOperation::CountTokens => json!({
+            "request": {
+                "model": format!("models/{model}"),
+                "contents": request.get("contents").cloned().unwrap_or(Value::Array(Vec::new()))
+            }
+        }),
+        GeminiOperation::Generate | GeminiOperation::StreamGenerate => json!({
+            "model": model,
+            "project": project,
+            "user_prompt_id": Uuid::new_v4().to_string(),
+            "request": request
+        }),
+    }
+}
+
+fn unwrap_gemini_response(mut wrapper: Value) -> Value {
+    let trace_id = wrapper
+        .get("traceId")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let Some(mut response) = wrapper.get_mut("response").map(Value::take) else {
+        return wrapper;
+    };
+    if let (Some(trace_id), Some(object)) = (trace_id, response.as_object_mut()) {
+        object.insert("responseId".to_owned(), Value::String(trace_id));
+    }
+    response
+}
+
+async fn gemini_upstream_response(
+    state: AppState,
+    connection_id: Uuid,
+    user_id: Uuid,
+    upstream: reqwest::Response,
+    operation: GeminiOperation,
+) -> Result<Response, ApiError> {
+    let status = upstream.status();
+    let headers = upstream.headers().clone();
+    let mut response = Response::builder().status(status);
+    for (name, value) in &headers {
+        if should_forward_response_header(name) {
+            response = response.header(name, value);
+        }
+    }
+    if !status.is_success() {
+        return response
+            .body(Body::from_stream(upstream.bytes_stream()))
+            .map_err(|_| ApiError::Internal);
+    }
+    if !operation.streams() {
+        let wrapper = upstream.json::<Value>().await.map_err(|_| {
+            ApiError::Provider("Google returned an invalid Gemini response.".to_owned())
+        })?;
+        let payload = unwrap_gemini_response(wrapper);
+        if operation.records_usage()
+            && let Some(counts) = usage::tokens_from_value(&payload)
+        {
+            usage::record_event(&state, connection_id, user_id, counts).await;
+        }
+        return response
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&payload).map_err(|_| ApiError::Internal)?,
+            ))
+            .map_err(|_| ApiError::Internal);
+    }
+
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes, std::io::Error>>(32);
+    tokio::spawn(async move {
+        use futures_util::StreamExt;
+
+        let mut stream = upstream.bytes_stream();
+        let mut transformer = GeminiSseTransformer::default();
+        let mut extractor = usage::UsageExtractor::default();
+        let mut client_gone = false;
+        while let Some(item) = stream.next().await {
+            match item {
+                Ok(bytes) => {
+                    let transformed = transformer.push(&bytes);
+                    extractor.push(&transformed);
+                    if !transformed.is_empty()
+                        && !client_gone
+                        && tx.send(Ok(transformed)).await.is_err()
+                    {
+                        client_gone = true;
+                    }
+                }
+                Err(error) => {
+                    if !client_gone {
+                        let _ = tx.send(Err(std::io::Error::other(error))).await;
+                    }
+                    break;
+                }
+            }
+        }
+        let tail = transformer.finish();
+        extractor.push(&tail);
+        if !tail.is_empty() && !client_gone {
+            let _ = tx.send(Ok(tail)).await;
+        }
+        drop(tx);
+        if let Some(counts) = extractor.finish() {
+            usage::record_event(&state, connection_id, user_id, counts).await;
+        }
+    });
+    response
+        .header(header::CONTENT_TYPE, "text/event-stream")
+        .body(Body::from_stream(
+            tokio_stream::wrappers::ReceiverStream::new(rx),
+        ))
+        .map_err(|_| ApiError::Internal)
+}
+
+#[derive(Default)]
+struct GeminiSseTransformer {
+    pending: Vec<u8>,
+}
+
+impl GeminiSseTransformer {
+    fn push(&mut self, chunk: &[u8]) -> Bytes {
+        self.pending.extend_from_slice(chunk);
+        let mut output = Vec::new();
+        while let Some(newline) = self.pending.iter().position(|byte| *byte == b'\n') {
+            let line = self.pending.drain(..=newline).collect::<Vec<_>>();
+            output.extend(transform_gemini_sse_line(&line));
+        }
+        Bytes::from(output)
+    }
+
+    fn finish(self) -> Bytes {
+        Bytes::from(transform_gemini_sse_line(&self.pending))
+    }
+}
+
+fn transform_gemini_sse_line(line: &[u8]) -> Vec<u8> {
+    let has_newline = line.ends_with(b"\n");
+    let text = String::from_utf8_lossy(line);
+    let trimmed = text.trim_end_matches(['\r', '\n']);
+    let Some(payload) = trimmed.strip_prefix("data:").map(str::trim) else {
+        return line.to_vec();
+    };
+    if payload.is_empty() || payload == "[DONE]" {
+        return line.to_vec();
+    }
+    let Ok(wrapper) = serde_json::from_str::<Value>(payload) else {
+        return line.to_vec();
+    };
+    let Ok(serialized) = serde_json::to_string(&unwrap_gemini_response(wrapper)) else {
+        return line.to_vec();
+    };
+    format!("data: {serialized}{}", if has_newline { "\n" } else { "" }).into_bytes()
+}
+
 async fn proxy_request(
     state: &AppState,
     expected_provider: AgentProvider,
@@ -384,6 +743,7 @@ async fn proxy_request(
             AgentProvider::Claude => {
                 request.header("anthropic-beta", merged_anthropic_beta(request_headers))
             }
+            AgentProvider::Gemini => request,
             AgentProvider::Grok => request
                 .header("x-xai-token-auth", "xai-grok-cli")
                 .header("x-grok-client-version", "1.0.13")
@@ -509,6 +869,11 @@ async fn authorize_gateway_key(
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
+        .or_else(|| {
+            headers
+                .get("x-goog-api-key")
+                .and_then(|value| value.to_str().ok())
+        })
         .filter(|value| value.starts_with("hw_live_") && value.len() > 24)
         .ok_or(ApiError::GatewayUnauthorized)?;
     let key_hash = hash_gateway_key(key);
@@ -733,6 +1098,7 @@ fn should_forward_request_header(name: &HeaderName) -> bool {
             | "transfer-encoding"
             | "upgrade"
             | "x-api-key"
+            | "x-goog-api-key"
     )
 }
 
@@ -809,8 +1175,9 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        UpstreamDisposition, chatgpt_account_id, hash_gateway_key, merged_anthropic_beta,
-        rate_limit_cooldown, upstream_disposition,
+        GeminiOperation, GeminiSseTransformer, UpstreamDisposition, chatgpt_account_id,
+        gemini_code_assist_request, hash_gateway_key, merged_anthropic_beta,
+        parse_gemini_operation, rate_limit_cooldown, unwrap_gemini_response, upstream_disposition,
     };
 
     #[test]
@@ -873,5 +1240,53 @@ mod tests {
             upstream_disposition(axum::http::StatusCode::BAD_REQUEST),
             UpstreamDisposition::Return
         );
+    }
+
+    #[test]
+    fn gemini_native_requests_are_wrapped_for_code_assist() {
+        let wrapped = gemini_code_assist_request(
+            "gemini-3.1-pro-preview",
+            "project-123",
+            GeminiOperation::Generate,
+            &json!({"contents": [{"role": "user", "parts": [{"text": "Hi"}]}]}),
+        );
+        assert_eq!(wrapped["model"], "gemini-3.1-pro-preview");
+        assert_eq!(wrapped["project"], "project-123");
+        assert_eq!(wrapped["request"]["contents"][0]["role"], "user");
+        assert!(wrapped["user_prompt_id"].as_str().is_some());
+    }
+
+    #[test]
+    fn gemini_route_parser_accepts_only_native_content_operations() {
+        assert!(matches!(
+            parse_gemini_operation("gemini-3.1-pro-preview:generateContent"),
+            Ok(("gemini-3.1-pro-preview", GeminiOperation::Generate))
+        ));
+        assert!(parse_gemini_operation("gemini-3.1-pro-preview:delete").is_err());
+        assert!(parse_gemini_operation("nested/model:generateContent").is_err());
+    }
+
+    #[test]
+    fn gemini_code_assist_responses_are_unwrapped_for_agy() {
+        let response = unwrap_gemini_response(json!({
+            "response": {"candidates": [], "usageMetadata": {"promptTokenCount": 2}},
+            "traceId": "trace-123"
+        }));
+        assert_eq!(response["responseId"], "trace-123");
+        assert_eq!(response["usageMetadata"]["promptTokenCount"], 2);
+    }
+
+    #[test]
+    fn gemini_sse_transformer_handles_split_events() {
+        let mut transformer = GeminiSseTransformer::default();
+        assert!(
+            transformer
+                .push(br#"data: {"response":{"candidates"#)
+                .is_empty()
+        );
+        let output = transformer.push(b"\":[]},\"traceId\":\"trace-1\"}\n\n");
+        let text = String::from_utf8(output.to_vec()).unwrap();
+        assert!(text.contains(r#""responseId":"trace-1""#));
+        assert!(!text.contains(r#""response":{"#));
     }
 }

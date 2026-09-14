@@ -164,6 +164,12 @@ async fn fetch_provider_usage(
     match provider {
         AgentProvider::Chatgpt => chatgpt_usage(state, &token, access_token).await,
         AgentProvider::Claude => claude_usage(state, access_token).await,
+        AgentProvider::Gemini => ConnectionUsage {
+            metrics: vec![unavailable(
+                "Google exposes subscription usage through gateway responses, not a stable quota endpoint.",
+            )],
+            windows: Vec::new(),
+        },
         AgentProvider::Grok => grok_usage(state, access_token).await,
     }
 }
@@ -600,6 +606,11 @@ fn visit_usage(value: &Value, found: &mut Option<TokenCounts>) {
             {
                 *found = Some(counts);
             }
+            if let Some(usage) = map.get("usageMetadata")
+                && let Some(counts) = counts_from_gemini_usage(usage)
+            {
+                *found = Some(counts);
+            }
             for nested in map.values() {
                 visit_usage(nested, found);
             }
@@ -611,6 +622,27 @@ fn visit_usage(value: &Value, found: &mut Option<TokenCounts>) {
         }
         _ => {}
     }
+}
+
+fn counts_from_gemini_usage(usage: &Value) -> Option<TokenCounts> {
+    let input = usage
+        .get("promptTokenCount")
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
+    let output = usage
+        .get("candidatesTokenCount")
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
+    let cached = usage
+        .get("cachedContentTokenCount")
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
+    Some(TokenCounts {
+        cached_tokens: cached,
+        input_tokens: input,
+        output_tokens: output,
+    })
+    .filter(|counts| counts.units() > 0)
 }
 
 fn counts_from_usage(usage: &Value) -> Option<TokenCounts> {
@@ -798,6 +830,19 @@ data: [DONE]
                 cached_tokens: 3,
                 input_tokens: 12,
                 output_tokens: 4,
+            })
+        );
+
+        let mut extractor = UsageExtractor::default();
+        extractor.push(
+            br#"{"usageMetadata":{"promptTokenCount":11,"candidatesTokenCount":6,"cachedContentTokenCount":2}}"#,
+        );
+        assert_eq!(
+            extractor.finish(),
+            Some(TokenCounts {
+                cached_tokens: 2,
+                input_tokens: 11,
+                output_tokens: 6,
             })
         );
 

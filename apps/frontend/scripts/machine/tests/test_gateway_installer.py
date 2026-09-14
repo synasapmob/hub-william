@@ -30,7 +30,7 @@ class GatewayInstallerTest(unittest.TestCase):
 
     def write(self, relative, text):
         path = os.path.join(self.home.name, relative)
-        os.makedirs(os.path.dirname(path))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as handle:
             handle.write(text)
         return path
@@ -48,13 +48,19 @@ class GatewayInstallerTest(unittest.TestCase):
             ".grok/config.toml",
             '[telemetry]\nenabled = false\n',
         )
-
-        changes = gateway.build_changes(
-            self.home.name,
-            "hw_test_gateway_key",
-            "https://gateway.example.com",
-            ["codex", "claude", "grok"],
+        agy_path = self.write(
+            ".gemini/antigravity-cli/settings.json",
+            json.dumps({"theme": "system"}),
         )
+        profile_path = self.write(".zshrc", "export KEEP_ME=true\n")
+
+        with mock.patch.dict(os.environ, {"SHELL": "/bin/zsh"}, clear=False):
+            changes = gateway.build_changes(
+                self.home.name,
+                "hw_test_gateway_key",
+                "https://gateway.example.com",
+                ["codex", "claude", "agy", "grok"],
+            )
 
         self.assertIn('model = "gpt-existing"', changes[codex_path])
         self.assertIn('[projects."/work"]', changes[codex_path])
@@ -68,6 +74,14 @@ class GatewayInstallerTest(unittest.TestCase):
         )
         self.assertIn("[telemetry]", changes[grok_path])
         self.assertIn("[model.grok-build]", changes[grok_path])
+        self.assertEqual(json.loads(changes[agy_path])["theme"], "system")
+        self.assertEqual(json.loads(changes[agy_path])["modelProvider"], "gemini")
+        self.assertIn("export KEEP_ME=true", changes[profile_path])
+        self.assertIn(
+            "GOOGLE_GEMINI_BASE_URL=https://gateway.example.com/gateway/gemini",
+            changes[profile_path],
+        )
+        self.assertIn("GEMINI_API_KEY=hw_test_gateway_key", changes[profile_path])
 
     def test_gateway_url_requires_https_except_for_local_testing(self):
         self.assertEqual(
@@ -76,6 +90,25 @@ class GatewayInstallerTest(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             gateway._validated_gateway_url("http://gateway.example.com")
+
+    def test_agy_managed_shell_block_is_replaced_without_duplication(self):
+        original = (
+            "export KEEP_ME=true\n"
+            "# >>> hub-william agy >>>\n"
+            "export GEMINI_API_KEY=old\n"
+            "# <<< hub-william agy <<<\n"
+        )
+        updated = gateway._upsert_managed_block(
+            original,
+            "# >>> hub-william agy >>>",
+            "# <<< hub-william agy <<<",
+            "export GEMINI_API_KEY=new",
+        )
+
+        self.assertIn("export KEEP_ME=true", updated)
+        self.assertNotIn("GEMINI_API_KEY=old", updated)
+        self.assertEqual(updated.count("# >>> hub-william agy >>>"), 1)
+        self.assertEqual(updated.count("GEMINI_API_KEY=new"), 1)
 
     def test_terminal_menu_uses_arrows_space_enter_and_escape(self):
         class Terminal:
@@ -104,7 +137,9 @@ class GatewayInstallerTest(unittest.TestCase):
             self.assertIn("↑/↓ move", terminal.output)
             return result
 
-        self.assertEqual(choose(["down", "space", "enter"]), ["codex", "grok"])
+        self.assertEqual(
+            choose(["down", "space", "enter"]), ["codex", "agy", "grok"]
+        )
         self.assertIsNone(choose(["escape"]))
 
     def test_raw_key_reader_recognizes_arrow_and_escape_sequences(self):
@@ -191,6 +226,9 @@ class GatewayInstallerTest(unittest.TestCase):
         self.assertIn("ANTHROPIC_BASE_URL", markdown)
         self.assertIn("/gateway/claude", markdown)
         self.assertIn("/gateway/grok/v1", markdown)
+        self.assertIn("/gateway/gemini", markdown)
+        self.assertIn("GOOGLE_GEMINI_BASE_URL", markdown)
+        self.assertIn("GEMINI_API_KEY", markdown)
         self.assertIn("~/.codex/config.toml", markdown)
         self.assertIn("python3 - --url=", markdown)
         self.assertIn("--key=YOUR_GATEWAY_KEY", markdown)

@@ -19,3 +19,5 @@ record and mark the old one superseded rather than rewriting its history.
 - [ADR-0010: Credential-aware pool recovery](0010-credential-aware-pool-recovery.md)
 - [ADR-0011: Readable masked account labels](0011-readable-masked-account-labels.md)
 - [ADR-0012: Current Grok device authorization](0012-current-grok-device-authorization.md)
+- [ADR-0013: Periodic provider credential refresh](0013-periodic-provider-credential-refresh.md)
+- [ADR-0014: Google OAuth Gemini subscription gateway](0014-google-oauth-gemini-subscription-gateway.md)

@@ -63,6 +63,7 @@ const callbackSchema = z.object({
 const providers: Array<{ label: string; provider: AgentProvider }> = [
   { label: "ChatGPT", provider: "chatgpt" },
   { label: "Claude", provider: "claude" },
+  { label: "Gemini / AGY", provider: "gemini" },
   { label: "Grok", provider: "grok" },
 ];
 

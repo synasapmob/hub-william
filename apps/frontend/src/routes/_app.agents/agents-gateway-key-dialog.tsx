@@ -97,7 +97,7 @@ export default function AgentsGatewayKeyDialog() {
           </Flex>
           <DialogDescription>
             One key configures every selected agent. Paste it into Codex, Claude
-            Code, or Grok from{" "}
+            Code, Antigravity, or Grok from{" "}
             <Link
               className="font-medium text-indigo-600 hover:underline"
               onClick={() => changeOpen(false)}

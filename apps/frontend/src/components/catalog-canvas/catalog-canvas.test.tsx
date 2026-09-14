@@ -82,7 +82,7 @@ describe("CatalogCanvas", () => {
     expect(screen.queryByRole("button", { name: /TAGS/ })).toBeNull();
   });
 
-  it("shows Codex, Claude, and Grok config on the gateway tool sheet", () => {
+  it("shows Codex, Claude, AGY, and Grok config on the gateway tool sheet", () => {
     renderTools("/tools?node=gateway");
 
     expect(screen.getByRole("heading", { name: "Gateway" })).toBeVisible();
@@ -95,6 +95,8 @@ describe("CatalogCanvas", () => {
     expect(screen.getByText(/model_provider = "hub-william"/)).toBeVisible();
     expect(screen.getByText(/experimental_bearer_token/)).toBeVisible();
     expect(screen.getByText(/ANTHROPIC_BASE_URL/)).toBeVisible();
+    expect(screen.getByText(/GOOGLE_GEMINI_BASE_URL/)).toBeVisible();
+    expect(screen.getByText(/GEMINI_API_KEY/)).toBeVisible();
     expect(screen.getByText(/\[model\.grok-build\]/)).toBeVisible();
     expect(
       screen.getByText(/python3 - --url=.* --key=YOUR_GATEWAY_KEY/),

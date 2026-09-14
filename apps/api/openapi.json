@@ -1126,7 +1126,7 @@
       },
       "AgentProvider": {
         "type": "string",
-        "enum": ["chatgpt", "claude", "grok"]
+        "enum": ["chatgpt", "claude", "gemini", "grok"]
       },
       "AuthenticatedUser": {
         "type": "object",

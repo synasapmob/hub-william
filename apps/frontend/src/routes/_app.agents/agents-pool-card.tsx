@@ -66,6 +66,7 @@ const shareHelpButton = tv({
 const agentIcons: Record<AgentProvider, string> = {
   ChatGPT: assetPath("assets/chatgpt-icon.png"),
   Claude: assetPath("assets/claude-icon.png"),
+  Gemini: assetPath("assets/gemini-icon.svg"),
   Grok: assetPath("assets/grok-icon.png"),
 };
 

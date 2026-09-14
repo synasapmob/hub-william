@@ -26,6 +26,7 @@ use crate::{AppState, auth::authenticated_user_id, error::ApiError};
 const CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const CLAUDE_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const CLAUDE_SCOPES: &str = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
+const GEMINI_SCOPES: &str = "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/cclog https://www.googleapis.com/auth/experimentsandconfigs";
 const GROK_SCOPES: &str = "openid profile email offline_access api:access";
 const GROK_CLIENT_SURFACE: &str = "grok-build";
 const DEFAULT_DEVICE_EXPIRY_SECONDS: i64 = 900;
@@ -37,6 +38,7 @@ const PROVIDER_CREDENTIAL_REFRESH_AFTER_MINUTES: i64 = 60;
 pub enum AgentProvider {
     Chatgpt,
     Claude,
+    Gemini,
     Grok,
 }
 
@@ -45,6 +47,7 @@ impl AgentProvider {
         match self {
             Self::Chatgpt => "chatgpt",
             Self::Claude => "claude",
+            Self::Gemini => "gemini",
             Self::Grok => "grok",
         }
     }
@@ -53,6 +56,7 @@ impl AgentProvider {
         match self {
             Self::Chatgpt => "ChatGPT",
             Self::Claude => "Claude",
+            Self::Gemini => "Gemini",
             Self::Grok => "Grok",
         }
     }
@@ -65,6 +69,7 @@ impl FromStr for AgentProvider {
         match value {
             "chatgpt" => Ok(Self::Chatgpt),
             "claude" => Ok(Self::Claude),
+            "gemini" => Ok(Self::Gemini),
             "grok" => Ok(Self::Grok),
             _ => Err(ApiError::Internal),
         }
@@ -176,6 +181,12 @@ enum AuthorizationSecret {
         user_code: String,
     },
     Claude {
+        authorization_url: String,
+        code_verifier: String,
+        redirect_uri: String,
+        state: String,
+    },
+    Gemini {
         authorization_url: String,
         code_verifier: String,
         redirect_uri: String,
@@ -529,16 +540,24 @@ pub async fn complete_authorization(
         &authorization.secret_ciphertext,
         &authorization.secret_nonce,
     )?;
-    let AuthorizationSecret::Claude {
-        code_verifier,
-        redirect_uri,
-        state: expected_state,
-        ..
-    } = secret
-    else {
-        return Err(ApiError::Validation(
-            "This provider completes automatically; keep the dialog open while it polls.",
-        ));
+    let (code_verifier, redirect_uri, expected_state, provider) = match secret {
+        AuthorizationSecret::Claude {
+            code_verifier,
+            redirect_uri,
+            state,
+            ..
+        } => (code_verifier, redirect_uri, state, AgentProvider::Claude),
+        AuthorizationSecret::Gemini {
+            code_verifier,
+            redirect_uri,
+            state,
+            ..
+        } => (code_verifier, redirect_uri, state, AgentProvider::Gemini),
+        _ => {
+            return Err(ApiError::Validation(
+                "This provider completes automatically; keep the dialog open while it polls.",
+            ));
+        }
     };
     let (code, callback_state) = parse_callback_value(&payload.callback_url)?;
     if callback_state
@@ -550,14 +569,22 @@ pub async fn complete_authorization(
         ));
     }
 
-    let token = exchange_claude_code(
-        &state,
-        &code,
-        &code_verifier,
-        &redirect_uri,
-        &expected_state,
-    )
-    .await?;
+    let token = match provider {
+        AgentProvider::Claude => {
+            exchange_claude_code(
+                &state,
+                &code,
+                &code_verifier,
+                &redirect_uri,
+                &expected_state,
+            )
+            .await?
+        }
+        AgentProvider::Gemini => {
+            exchange_gemini_code(&state, &code, &code_verifier, &redirect_uri).await?
+        }
+        _ => unreachable!("only callback providers reach the exchange"),
+    };
     finish_connection(&state, row, token).await.map(Json)
 }
 
@@ -609,6 +636,7 @@ async fn start_provider_authorization(
     match provider {
         AgentProvider::Chatgpt => start_codex_authorization(state).await,
         AgentProvider::Claude => start_claude_authorization(state),
+        AgentProvider::Gemini => start_gemini_authorization(state),
         AgentProvider::Grok => start_grok_authorization(state).await,
     }
 }
@@ -685,6 +713,39 @@ fn start_claude_authorization(state: &AppState) -> Result<StartedAuthorization, 
             authorization_url,
             code_verifier,
             redirect_uri: state.config.claude_redirect_url.clone(),
+            state: state_token,
+        },
+    })
+}
+
+fn start_gemini_authorization(state: &AppState) -> Result<StartedAuthorization, ApiError> {
+    let code_verifier = random_url_token(32);
+    let state_token = random_url_token(32);
+    let code_challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(code_verifier.as_bytes()));
+    let mut url = Url::parse(&state.config.gemini_authorize_url).map_err(|_| ApiError::Internal)?;
+    url.query_pairs_mut()
+        .append_pair("client_id", &state.config.gemini_client_id)
+        .append_pair("response_type", "code")
+        .append_pair("redirect_uri", &state.config.gemini_redirect_url)
+        .append_pair("scope", GEMINI_SCOPES)
+        .append_pair("code_challenge", &code_challenge)
+        .append_pair("code_challenge_method", "S256")
+        .append_pair("state", &state_token)
+        .append_pair("access_type", "offline")
+        .append_pair("prompt", "consent");
+    let expires_at = Utc::now() + Duration::minutes(15);
+    let authorization_url = url.to_string();
+
+    Ok(StartedAuthorization {
+        expires_at,
+        poll_after_seconds: DEFAULT_POLL_SECONDS,
+        prompt_url: authorization_url.clone(),
+        requires_callback_url: true,
+        user_code: None,
+        secret: AuthorizationSecret::Gemini {
+            authorization_url,
+            code_verifier,
+            redirect_uri: state.config.gemini_redirect_url.clone(),
             state: state_token,
         },
     })
@@ -855,6 +916,21 @@ async fn poll_pending_connection(
                 user_code: None,
             }),
         ),
+        AuthorizationSecret::Gemini {
+            authorization_url,
+            code_verifier: _,
+            redirect_uri: _,
+            state: _,
+        } => connection_from_row(
+            row,
+            Some(AgentAuthorizationPrompt {
+                authorization_url,
+                expires_at: authorization.expires_at,
+                poll_after_seconds: DEFAULT_POLL_SECONDS,
+                requires_callback_url: true,
+                user_code: None,
+            }),
+        ),
     }
 }
 
@@ -904,6 +980,102 @@ async fn exchange_claude_code(
         .await
         .map_err(|error| upstream_network_error(AgentProvider::Claude, error))?;
     parse_token_response(AgentProvider::Claude, response).await
+}
+
+async fn exchange_gemini_code(
+    state: &AppState,
+    code: &str,
+    code_verifier: &str,
+    redirect_uri: &str,
+) -> Result<Value, ApiError> {
+    let response = state
+        .http
+        .post(&state.config.gemini_token_url)
+        .form(&[
+            ("grant_type", "authorization_code"),
+            ("code", code),
+            ("redirect_uri", redirect_uri),
+            ("client_id", state.config.gemini_client_id.as_str()),
+            ("code_verifier", code_verifier),
+        ])
+        .send()
+        .await
+        .map_err(|error| upstream_network_error(AgentProvider::Gemini, error))?;
+    let token = parse_token_response(AgentProvider::Gemini, response).await?;
+    enrich_gemini_token(state, token).await
+}
+
+async fn enrich_gemini_token(state: &AppState, mut token: Value) -> Result<Value, ApiError> {
+    let access_token = token
+        .get("access_token")
+        .and_then(Value::as_str)
+        .ok_or_else(|| upstream_payload_error(AgentProvider::Gemini))?
+        .to_owned();
+    let userinfo = state
+        .http
+        .get(&state.config.gemini_userinfo_url)
+        .bearer_auth(&access_token)
+        .send()
+        .await
+        .map_err(|error| upstream_network_error(AgentProvider::Gemini, error))?;
+    let userinfo = parse_json_response(AgentProvider::Gemini, userinfo).await?;
+    let code_assist = state
+        .http
+        .post(format!(
+            "{}/v1internal:loadCodeAssist",
+            state.config.gemini_code_assist_url.trim_end_matches('/')
+        ))
+        .bearer_auth(&access_token)
+        .header("user-agent", "antigravity/1.2.0")
+        .json(&serde_json::json!({
+            "metadata": {
+                "ideType": "ANTIGRAVITY",
+                "platform": "PLATFORM_UNSPECIFIED",
+                "pluginType": "GEMINI"
+            }
+        }))
+        .send()
+        .await
+        .map_err(|error| upstream_network_error(AgentProvider::Gemini, error))?;
+    let code_assist = parse_json_response(AgentProvider::Gemini, code_assist).await?;
+    let project = code_assist
+        .get("cloudaicompanionProject")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| upstream_payload_error(AgentProvider::Gemini))?;
+    let object = token
+        .as_object_mut()
+        .ok_or_else(|| upstream_payload_error(AgentProvider::Gemini))?;
+    object.insert(
+        "cloudaicompanion_project".to_owned(),
+        Value::String(project.to_owned()),
+    );
+    if let Some(email) = userinfo.get("email").and_then(Value::as_str) {
+        object.insert("email".to_owned(), Value::String(email.to_owned()));
+    }
+    if let Some(plan) = code_assist
+        .pointer("/currentTier/name")
+        .or_else(|| code_assist.pointer("/currentTier/id"))
+        .or_else(|| code_assist.pointer("/paidTier/name"))
+        .and_then(Value::as_str)
+    {
+        object.insert("plan".to_owned(), Value::String(plan.to_owned()));
+    }
+    Ok(token)
+}
+
+async fn parse_json_response(
+    provider: AgentProvider,
+    response: reqwest::Response,
+) -> Result<Value, ApiError> {
+    let status = response.status();
+    if !status.is_success() {
+        return Err(upstream_status_error(provider, status));
+    }
+    response
+        .json::<Value>()
+        .await
+        .map_err(|_| upstream_payload_error(provider))
 }
 
 async fn parse_token_response(
@@ -1414,6 +1586,18 @@ async fn refresh_provider_token(
                 .send()
                 .await
         }
+        AgentProvider::Gemini => {
+            state
+                .http
+                .post(&state.config.gemini_token_url)
+                .form(&[
+                    ("grant_type", "refresh_token"),
+                    ("refresh_token", refresh_token),
+                    ("client_id", state.config.gemini_client_id.as_str()),
+                ])
+                .send()
+                .await
+        }
         AgentProvider::Grok => {
             grok_oauth_request(state, "/oauth2/token")
                 .form(&[
@@ -1772,11 +1956,11 @@ mod tests {
     use tokio::net::TcpListener;
 
     use super::{
-        AuthorizationSecret, CodexDeviceResponse, CredentialRefreshMode, GROK_SCOPES,
-        connection_metadata, decrypt_json, encrypt_json, mask_account_label, merge_token_response,
-        parse_callback_value, poll_seconds, refresh_requires_reauthorization,
-        should_refresh_credential, start_claude_authorization, start_grok_authorization,
-        token_claims, validate_prompt_url,
+        AuthorizationSecret, CodexDeviceResponse, CredentialRefreshMode, GEMINI_SCOPES,
+        GROK_SCOPES, connection_metadata, decrypt_json, encrypt_json, mask_account_label,
+        merge_token_response, parse_callback_value, poll_seconds, refresh_requires_reauthorization,
+        should_refresh_credential, start_claude_authorization, start_gemini_authorization,
+        start_grok_authorization, token_claims, validate_prompt_url,
     };
     use crate::AppConfig;
 
@@ -1817,6 +2001,33 @@ mod tests {
         assert_eq!(
             query.get("redirect_uri").unwrap(),
             "https://platform.claude.com/oauth/code/callback"
+        );
+        assert!(started.requires_callback_url);
+    }
+
+    #[tokio::test]
+    async fn gemini_authorization_uses_agy_google_oauth_with_pkce() {
+        let state = crate::AppState {
+            config: AppConfig::default(),
+            http: reqwest::Client::new(),
+            pool: sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://localhost/hub_william_test")
+                .unwrap(),
+        };
+        let started = start_gemini_authorization(&state).unwrap();
+        let url = reqwest::Url::parse(&started.prompt_url).unwrap();
+        let query = url
+            .query_pairs()
+            .collect::<std::collections::HashMap<_, _>>();
+
+        assert_eq!(url.host_str(), Some("accounts.google.com"));
+        assert_eq!(query.get("code_challenge_method").unwrap(), "S256");
+        assert_eq!(query.get("scope").unwrap(), GEMINI_SCOPES);
+        assert_eq!(query.get("access_type").unwrap(), "offline");
+        assert_eq!(query.get("prompt").unwrap(), "consent");
+        assert_eq!(
+            query.get("redirect_uri").unwrap(),
+            "https://antigravity.google/oauth-callback"
         );
         assert!(started.requires_callback_url);
     }

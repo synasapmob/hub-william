@@ -92,6 +92,9 @@ describe("collections", () => {
     expect(file?.source).toContain("ANTHROPIC_BASE_URL");
     expect(file?.source).toContain("/gateway/claude");
     expect(file?.source).toContain("/gateway/grok/v1");
+    expect(file?.source).toContain("/gateway/gemini");
+    expect(file?.source).toContain("GOOGLE_GEMINI_BASE_URL");
+    expect(file?.source).toContain("GEMINI_API_KEY");
     expect(file?.source).toContain("~/.codex/config.toml");
     expect(file?.source).toContain("python3 - --url=");
     expect(file?.source).toContain("--key=YOUR_GATEWAY_KEY");
