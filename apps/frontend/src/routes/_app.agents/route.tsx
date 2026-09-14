@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, Download } from "lucide-react";
 import { Link } from "react-router";
@@ -7,6 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import Flex from "@/components/ui/flex";
 import { useWorkspaceSession } from "@/components/workspace-shell/workspace-shell-session-context";
+import agentConnectionsService, {
+  AgentConnectionServiceError,
+  type AgentConnection,
+} from "@/services/agent-connections";
 import agentPoolsService, {
   AgentPoolServiceError,
   type AgentPool,
@@ -72,8 +76,8 @@ export default function AgentsRoute() {
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: agentPoolsService.queryKey }),
   });
-  const retryMutation = useMutation({
-    mutationFn: (poolId: string) => agentPoolsService.retry(poolId),
+  const refreshMutation = useMutation({
+    mutationFn: (poolId: string) => agentConnectionsService.refresh(poolId),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: agentPoolsService.queryKey }),
   });
@@ -84,9 +88,10 @@ export default function AgentsRoute() {
     poolsQuery.error ??
     decisionMutation.error ??
     removeMemberMutation.error ??
-    retryMutation.error;
+    refreshMutation.error;
   const errorMessage = routeError
-    ? routeError instanceof AgentPoolServiceError
+    ? routeError instanceof AgentPoolServiceError ||
+      routeError instanceof AgentConnectionServiceError
       ? routeError.message
       : "The account pools could not be loaded."
     : null;
@@ -128,10 +133,20 @@ export default function AgentsRoute() {
     });
   }
 
-  async function refreshPool() {
-    if (!reviewPool) return;
-    await retryMutation.mutateAsync(reviewPool.id);
+  async function refreshPool(): Promise<AgentConnection> {
+    if (!reviewPool) {
+      throw new AgentConnectionServiceError("Select a pool to refresh.");
+    }
+    return refreshMutation.mutateAsync(reviewPool.id);
   }
+
+  const refreshPoolData = useCallback(
+    () =>
+      void queryClient.invalidateQueries({
+        queryKey: agentPoolsService.queryKey,
+      }),
+    [queryClient],
+  );
 
   return (
     <section
@@ -249,7 +264,7 @@ export default function AgentsRoute() {
           decisionMutation.isPending ||
           inviteMutation.isPending ||
           removeMemberMutation.isPending ||
-          retryMutation.isPending
+          refreshMutation.isPending
         }
         open={reviewPool !== null}
         onDecision={decideRequest}
@@ -258,6 +273,7 @@ export default function AgentsRoute() {
           if (!open) setReviewPoolId(null);
         }}
         onRefresh={refreshPool}
+        onRefreshComplete={refreshPoolData}
         onRemoveMember={removeMember}
         pool={reviewPool}
       />

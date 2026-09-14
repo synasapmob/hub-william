@@ -80,6 +80,7 @@ pub enum AgentPoolAvailabilityStatus {
     Active,
     RateLimited,
     HalfOpen,
+    ReauthRequired,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -417,49 +418,6 @@ pub async fn remove_member(
 
 #[utoipa::path(
     post,
-    path = "/agent-pools/{connection_id}/retry",
-    params(("connection_id" = Uuid, Path, description = "Connected account identifier")),
-    responses(
-        (status = 200, description = "Pool armed for the next real gateway request", body = AgentPoolAvailability),
-        (status = 403, description = "Pool ownership required", body = crate::ErrorResponse)
-    ),
-    tag = "agent pools"
-)]
-pub async fn retry_pool(
-    State(state): State<AppState>,
-    jar: CookieJar,
-    Path(connection_id): Path<Uuid>,
-) -> Result<Json<AgentPoolAvailability>, ApiError> {
-    let owner_id = authenticated_user_id(&state, &jar).await?;
-    let values = sqlx::query_as::<_, (String, Option<DateTime<Utc>>)>(
-        "UPDATE agent_connections
-         SET availability_status = CASE
-               WHEN availability_status = 'active' THEN 'active'
-               ELSE 'half_open'
-             END,
-             rate_limited_until = CASE
-               WHEN availability_status = 'active' THEN rate_limited_until
-               ELSE NULL
-             END,
-             retry_claimed_at = CASE
-               WHEN availability_status = 'rate_limited' THEN NULL
-               ELSE retry_claimed_at
-             END,
-             updated_at = NOW()
-         WHERE id = $1 AND user_id = $2 AND status = 'connected'
-         RETURNING availability_status, rate_limited_until",
-    )
-    .bind(connection_id)
-    .bind(owner_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(database_error)?
-    .ok_or(ApiError::Forbidden)?;
-    Ok(Json(availability_from_values(&values.0, values.1)?))
-}
-
-#[utoipa::path(
-    post,
     path = "/agent-pools/{connection_id}/requests",
     params(("connection_id" = Uuid, Path, description = "Connected account identifier")),
     request_body = CreateAgentPoolJoinRequest,
@@ -616,6 +574,7 @@ fn availability_from_values(
         "active" => AgentPoolAvailabilityStatus::Active,
         "rate_limited" => AgentPoolAvailabilityStatus::RateLimited,
         "half_open" => AgentPoolAvailabilityStatus::HalfOpen,
+        "reauth_required" => AgentPoolAvailabilityStatus::ReauthRequired,
         _ => return Err(ApiError::Internal),
     };
     Ok(AgentPoolAvailability { retry_at, status })

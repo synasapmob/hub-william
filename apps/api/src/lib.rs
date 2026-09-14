@@ -33,7 +33,6 @@ pub use agent_pools::{
 };
 use agent_pools::{
     create_request, decide_request, invite_member, list as list_agent_pools, remove_member,
-    retry_pool,
 };
 pub use auth::{AuthenticatedUser, LoginRequest, RegisterRequest, SessionResponse};
 use auth::{login, logout, refresh, register, session};
@@ -42,7 +41,9 @@ pub use connections::{
     AgentConnection, AgentConnectionStatus, AgentProvider, CompleteAuthorizationRequest,
     StartAgentConnectionRequest,
 };
-use connections::{complete_authorization, disconnect, get_connection, list_connections, start};
+use connections::{
+    complete_authorization, disconnect, get_connection, list_connections, refresh_connection, start,
+};
 pub use error::ErrorResponse;
 pub use gateway::{CreatedGatewayKey, GatewayKey};
 use gateway::{
@@ -154,7 +155,6 @@ pub fn app(state: AppState) -> Router {
             "/agent-pools/{connection_id}/members/{username}",
             axum::routing::delete(remove_member),
         )
-        .route("/agent-pools/{connection_id}/retry", post(retry_pool))
         .route(
             "/agent-pool-requests/{request_id}/decision",
             post(decide_request),
@@ -168,6 +168,10 @@ pub fn app(state: AppState) -> Router {
         .route(
             "/agent-connections/{connection_id}/complete",
             post(complete_authorization),
+        )
+        .route(
+            "/agent-connections/{connection_id}/refresh",
+            post(refresh_connection),
         )
         .route("/gateway-keys", get(list_keys).post(create_key))
         .route("/gateway-keys/{key_id}", axum::routing::delete(revoke_key))

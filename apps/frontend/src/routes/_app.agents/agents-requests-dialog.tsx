@@ -1,7 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { skipToken, useMutation, useQuery } from "@tanstack/react-query";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   Check,
+  CheckCircle2,
+  LoaderCircle,
   RefreshCw,
   Search,
   Trash2,
@@ -16,6 +19,7 @@ import { z } from "zod";
 import Center from "@/components/ui/center";
 import Flex from "@/components/ui/flex";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,6 +32,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import agentConnectionsService, {
+  AgentConnectionServiceError,
+  type AgentConnection,
+} from "@/services/agent-connections";
 import type { AgentPool, AgentPoolRequestStatus } from "@/services/agent-pools";
 
 const decisionButton = tv({
@@ -43,6 +51,15 @@ interface InviteFormValues {
   username: string;
 }
 
+interface CallbackFormValues {
+  callbackUrl: string;
+}
+
+interface CompleteConnectionVariables {
+  callbackUrl: string;
+  connectionId: string;
+}
+
 interface AgentsRequestsDialogProps {
   busy: boolean;
   onDecision: (
@@ -51,7 +68,8 @@ interface AgentsRequestsDialogProps {
   ) => void;
   onInvite: (username: string) => Promise<void>;
   onOpenChange: (open: boolean) => void;
-  onRefresh: () => Promise<void>;
+  onRefresh: () => Promise<AgentConnection>;
+  onRefreshComplete: () => void;
   onRemoveMember: (username: string) => Promise<void>;
   open: boolean;
   pool: AgentPool | null;
@@ -63,27 +81,65 @@ export default function AgentsRequestsDialog({
   onInvite,
   onOpenChange,
   onRefresh,
+  onRefreshComplete,
   onRemoveMember,
   open,
   pool,
 }: AgentsRequestsDialogProps) {
   const [query, setQuery] = useState("");
+  const [refreshConnection, setRefreshConnection] =
+    useState<AgentConnection | null>(null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const inviteSchema = z.object({
+    username: z
+      .string()
+      .trim()
+      .min(3, "Enter a Hub William username.")
+      .max(32, "Username must be at most 32 characters.")
+      .regex(
+        /^[a-zA-Z0-9_-]+$/,
+        "Use letters, numbers, underscores, or hyphens.",
+      ),
+  });
   const form = useForm<InviteFormValues>({
     defaultValues: { username: "" },
-    resolver: zodResolver(
-      z.object({
-        username: z
-          .string()
-          .trim()
-          .min(3, "Enter a Hub William username.")
-          .max(32, "Username must be at most 32 characters.")
-          .regex(
-            /^[a-zA-Z0-9_-]+$/,
-            "Use letters, numbers, underscores, or hyphens.",
-          ),
-      }),
-    ),
+    resolver: zodResolver(inviteSchema),
   });
+  const callbackSchema = z.object({
+    callbackUrl: z
+      .string()
+      .trim()
+      .min(1, "Paste the callback URL or authorization code."),
+  });
+  const callbackForm = useForm<CallbackFormValues>({
+    defaultValues: { callbackUrl: "" },
+    resolver: zodResolver(callbackSchema),
+  });
+  const pollConnectionId =
+    refreshConnection?.authorization &&
+    !refreshConnection.authorization.requiresCallbackUrl
+      ? refreshConnection.id
+      : null;
+  const connectionStatusQuery = useQuery({
+    queryFn: pollConnectionId
+      ? () => agentConnectionsService.get(pollConnectionId)
+      : skipToken,
+    queryKey: [
+      ...agentConnectionsService.queryKey,
+      "refresh-status",
+      pollConnectionId,
+    ],
+    refetchInterval: (query) =>
+      query.state.data?.authorization
+        ? (query.state.data.authorization.pollAfterSeconds ?? 5) * 1_000
+        : false,
+  });
+  const completeMutation = useMutation({
+    mutationFn: ({ callbackUrl, connectionId }: CompleteConnectionVariables) =>
+      agentConnectionsService.complete(connectionId, callbackUrl),
+  });
+  const currentRefreshConnection =
+    connectionStatusQuery.data ?? refreshConnection;
   const normalizedQuery = query.trim().toLowerCase();
   const requests = (pool?.requests ?? []).filter(
     (request) =>
@@ -99,13 +155,82 @@ export default function AgentsRequestsDialog({
       ? "Active"
       : pool?.availability.status === "half_open"
         ? "Ready to retry"
-        : "Cooling down";
+        : pool?.availability.status === "reauth_required"
+          ? "Reconnect required"
+          : "Cooling down";
+
+  useEffect(() => {
+    const connection = connectionStatusQuery.data;
+    if (
+      connection?.status === "connected" &&
+      !connection.authorization &&
+      !connection.failureMessage
+    ) {
+      onRefreshComplete();
+    }
+  }, [connectionStatusQuery.data, onRefreshComplete]);
 
   function changeOpen(nextOpen: boolean) {
     onOpenChange(nextOpen);
     if (!nextOpen) {
       setQuery("");
+      setRefreshConnection(null);
+      setRefreshError(null);
       form.reset();
+      callbackForm.reset();
+    }
+  }
+
+  async function refreshCredential() {
+    const popup = window.open(
+      "about:blank",
+      "hub-william-agent-refresh",
+      "popup,width=720,height=820",
+    );
+    if (!popup) {
+      setRefreshError("Allow popups for Hub William, then try again.");
+      return;
+    }
+    popup.opener = null;
+    setRefreshError(null);
+
+    try {
+      const connection = await onRefresh();
+      setRefreshConnection(connection);
+      if (connection.authorization) {
+        popup.location.replace(connection.authorization.authorizationUrl);
+      } else {
+        popup.close();
+        onRefreshComplete();
+      }
+    } catch (error) {
+      popup.close();
+      setRefreshError(
+        error instanceof AgentConnectionServiceError
+          ? error.message
+          : "The provider credential could not be refreshed.",
+      );
+    }
+  }
+
+  async function completeReauthorization(values: CallbackFormValues) {
+    if (!currentRefreshConnection) return;
+
+    try {
+      const connection = await completeMutation.mutateAsync({
+        callbackUrl: values.callbackUrl,
+        connectionId: currentRefreshConnection.id,
+      });
+      setRefreshConnection(connection);
+      callbackForm.reset();
+      onRefreshComplete();
+    } catch (error) {
+      callbackForm.setError("root", {
+        message:
+          error instanceof AgentConnectionServiceError
+            ? error.message
+            : "The authorization code could not be exchanged.",
+      });
     }
   }
 
@@ -151,17 +276,16 @@ export default function AgentsRequestsDialog({
                 Pool availability
               </h3>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                {pool?.availability.status === "rate_limited" &&
-                pool.availability.retryAt
-                  ? `Automatic retry after ${new Date(pool.availability.retryAt).toLocaleString()}.`
-                  : "A retry is verified by the next real gateway request."}
+                Refresh stores the latest provider credential. If the provider
+                session ended, its official login opens so you can reconnect
+                this same pool.
               </p>
             </div>
             <Flex className="items-center gap-2">
               <Badge variant="outline">{availabilityLabel}</Badge>
               <Button
-                disabled={busy || pool?.availability.status === "active"}
-                onClick={() => void onRefresh()}
+                disabled={busy}
+                onClick={() => void refreshCredential()}
                 size="sm"
                 type="button"
                 variant="outline"
@@ -171,6 +295,87 @@ export default function AgentsRequestsDialog({
               </Button>
             </Flex>
           </Flex>
+
+          {currentRefreshConnection?.authorization ? (
+            <Alert>
+              <LoaderCircle aria-hidden="true" className="animate-spin" />
+              <AlertTitle>Waiting for provider authorization</AlertTitle>
+              <AlertDescription>
+                Finish signing in on the provider page.
+                {currentRefreshConnection.authorization.userCode
+                  ? ` Confirm code ${currentRefreshConnection.authorization.userCode}.`
+                  : ""}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
+          {currentRefreshConnection?.authorization?.requiresCallbackUrl ? (
+            <form
+              className="space-y-3"
+              onSubmit={callbackForm.handleSubmit(completeReauthorization)}
+            >
+              <div className="space-y-1.5">
+                <Label htmlFor="refresh-callback-url">
+                  Callback URL or code
+                </Label>
+                <Input
+                  id="refresh-callback-url"
+                  autoComplete="off"
+                  placeholder="Paste the URL shown after authorization"
+                  aria-invalid={Boolean(
+                    callbackForm.formState.errors.callbackUrl,
+                  )}
+                  {...callbackForm.register("callbackUrl")}
+                />
+                {callbackForm.formState.errors.callbackUrl ? (
+                  <p className="text-xs text-destructive">
+                    {callbackForm.formState.errors.callbackUrl.message}
+                  </p>
+                ) : null}
+              </div>
+
+              {callbackForm.formState.errors.root ? (
+                <p className="text-xs text-destructive">
+                  {callbackForm.formState.errors.root.message}
+                </p>
+              ) : null}
+
+              <Button
+                disabled={completeMutation.isPending}
+                size="sm"
+                type="submit"
+              >
+                {completeMutation.isPending
+                  ? "Reconnecting…"
+                  : "Complete reconnection"}
+              </Button>
+            </form>
+          ) : null}
+
+          {currentRefreshConnection &&
+          !currentRefreshConnection.authorization &&
+          !currentRefreshConnection.failureMessage ? (
+            <Alert className="border-emerald-200 bg-emerald-50 text-emerald-800">
+              <CheckCircle2 aria-hidden="true" />
+              <AlertTitle>Provider credential refreshed</AlertTitle>
+              <AlertDescription>
+                This pool is active with the latest provider session.
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
+          {(refreshError ??
+          connectionStatusQuery.error?.message ??
+          currentRefreshConnection?.failureMessage) ? (
+            <Alert variant="destructive">
+              <AlertTitle>Refresh failed</AlertTitle>
+              <AlertDescription>
+                {refreshError ??
+                  connectionStatusQuery.error?.message ??
+                  currentRefreshConnection?.failureMessage}
+              </AlertDescription>
+            </Alert>
+          ) : null}
         </section>
 
         <Separator />

@@ -219,6 +219,66 @@
         }
       }
     },
+    "/agent-connections/{connection_id}/refresh": {
+      "post": {
+        "tags": ["agent connections"],
+        "operationId": "refresh_connection",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "description": "Agent connection ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Credential refreshed or provider reauthorization started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentConnection"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Connection not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Provider refresh unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/agent-pool-requests/{request_id}/decision": {
       "post": {
         "tags": ["agent pools"],
@@ -451,46 +511,6 @@
           },
           "422": {
             "description": "Request rejected",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agent-pools/{connection_id}/retry": {
-      "post": {
-        "tags": ["agent pools"],
-        "operationId": "retry_pool",
-        "parameters": [
-          {
-            "name": "connection_id",
-            "in": "path",
-            "description": "Connected account identifier",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Pool armed for the next real gateway request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AgentPoolAvailability"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Pool ownership required",
             "content": {
               "application/json": {
                 "schema": {
@@ -943,7 +963,7 @@
       },
       "AgentPoolAvailabilityStatus": {
         "type": "string",
-        "enum": ["active", "rate_limited", "half_open"]
+        "enum": ["active", "rate_limited", "half_open", "reauth_required"]
       },
       "AgentPoolJoinRequest": {
         "type": "object",

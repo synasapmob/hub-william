@@ -62,6 +62,13 @@ struct ProviderCandidate {
     rate_limited_until: Option<DateTime<Utc>>,
 }
 
+#[derive(Debug, PartialEq)]
+enum UpstreamDisposition {
+    Return,
+    RateLimit,
+    Reauthorize,
+}
+
 #[utoipa::path(
     post,
     path = "/gateway-keys",
@@ -292,6 +299,7 @@ async fn proxy_request(
         connected_provider_candidates(state, authorized.user_id, expected_provider).await?;
     let upstream_url = append_query(upstream_url, original_uri.query());
     let mut saw_rate_limit = false;
+    let mut saw_reauthorization = false;
     let mut saw_share_exhausted = false;
     let mut last_error = None;
 
@@ -299,7 +307,11 @@ async fn proxy_request(
         let claimed_probe = match claim_candidate(state, &candidate).await {
             Ok(Some(claimed_probe)) => claimed_probe,
             Ok(None) => {
-                saw_rate_limit = true;
+                if candidate.availability_status == "reauth_required" {
+                    saw_reauthorization = true;
+                } else {
+                    saw_rate_limit = true;
+                }
                 continue;
             }
             Err(error) => return Err(error),
@@ -389,10 +401,18 @@ async fn proxy_request(
                 continue;
             }
         };
-        if upstream.status() == StatusCode::TOO_MANY_REQUESTS {
-            mark_rate_limited(state, candidate.id).await?;
-            saw_rate_limit = true;
-            continue;
+        match upstream_disposition(upstream.status()) {
+            UpstreamDisposition::RateLimit => {
+                mark_rate_limited(state, candidate.id).await?;
+                saw_rate_limit = true;
+                continue;
+            }
+            UpstreamDisposition::Reauthorize => {
+                mark_reauth_required(state, candidate.id).await?;
+                saw_reauthorization = true;
+                continue;
+            }
+            UpstreamDisposition::Return => {}
         }
         mark_active(state, candidate.id).await?;
         return upstream_response(
@@ -409,6 +429,10 @@ async fn proxy_request(
         Err(ApiError::ShareExhausted)
     } else if saw_rate_limit {
         Err(ApiError::RateLimited)
+    } else if saw_reauthorization {
+        Err(ApiError::Provider(
+            "Every accessible pool for this provider needs to reconnect.".to_owned(),
+        ))
     } else {
         Err(last_error.unwrap_or(ApiError::Forbidden))
     }
@@ -606,6 +630,7 @@ async fn claim_candidate(
             Ok((result.rows_affected() == 1).then_some(true))
         }
         "rate_limited" => Ok(None),
+        "reauth_required" => Ok(None),
         _ => Err(ApiError::Internal),
     }
 }
@@ -620,6 +645,22 @@ async fn mark_rate_limited(state: &AppState, connection_id: Uuid) -> Result<(), 
     )
     .bind(connection_id)
     .bind(retry_at)
+    .execute(&state.pool)
+    .await
+    .map_err(database_error)?;
+    Ok(())
+}
+
+async fn mark_reauth_required(state: &AppState, connection_id: Uuid) -> Result<(), ApiError> {
+    sqlx::query(
+        "UPDATE agent_connections
+         SET availability_status = 'reauth_required', rate_limited_until = NULL,
+             retry_claimed_at = NULL,
+             failure_message = 'Provider login is required. Reconnect this pool.',
+             updated_at = NOW()
+         WHERE id = $1",
+    )
+    .bind(connection_id)
     .execute(&state.pool)
     .await
     .map_err(database_error)?;
@@ -654,6 +695,14 @@ async fn release_probe(state: &AppState, connection_id: Uuid) -> Result<(), ApiE
 
 fn rate_limit_cooldown() -> Duration {
     Duration::minutes(30)
+}
+
+fn upstream_disposition(status: StatusCode) -> UpstreamDisposition {
+    match status {
+        StatusCode::TOO_MANY_REQUESTS => UpstreamDisposition::RateLimit,
+        StatusCode::UNAUTHORIZED => UpstreamDisposition::Reauthorize,
+        _ => UpstreamDisposition::Return,
+    }
 }
 
 fn generate_gateway_key() -> String {
@@ -759,7 +808,10 @@ mod tests {
     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
     use serde_json::json;
 
-    use super::{chatgpt_account_id, hash_gateway_key, merged_anthropic_beta, rate_limit_cooldown};
+    use super::{
+        UpstreamDisposition, chatgpt_account_id, hash_gateway_key, merged_anthropic_beta,
+        rate_limit_cooldown, upstream_disposition,
+    };
 
     #[test]
     fn gateway_key_hash_does_not_store_the_plaintext() {
@@ -805,5 +857,21 @@ mod tests {
     #[test]
     fn rate_limited_pools_cool_down_for_thirty_minutes() {
         assert_eq!(rate_limit_cooldown().num_minutes(), 30);
+    }
+
+    #[test]
+    fn upstream_authentication_and_rate_limits_advance_to_the_next_pool() {
+        assert_eq!(
+            upstream_disposition(axum::http::StatusCode::UNAUTHORIZED),
+            UpstreamDisposition::Reauthorize
+        );
+        assert_eq!(
+            upstream_disposition(axum::http::StatusCode::TOO_MANY_REQUESTS),
+            UpstreamDisposition::RateLimit
+        );
+        assert_eq!(
+            upstream_disposition(axum::http::StatusCode::BAD_REQUEST),
+            UpstreamDisposition::Return
+        );
     }
 }

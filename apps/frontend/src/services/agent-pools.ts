@@ -266,27 +266,6 @@ async function removeMember(poolId: string, username: string) {
   }
 }
 
-async function retry(poolId: string) {
-  try {
-    let result = await client.POST("/agent-pools/{connection_id}/retry", {
-      params: { path: { connection_id: poolId } },
-    });
-    if (result.response.status === 401 && (await refreshHubSession())) {
-      result = await client.POST("/agent-pools/{connection_id}/retry", {
-        params: { path: { connection_id: poolId } },
-      });
-    }
-    if (!result.data) throw serviceError(result.error);
-    return {
-      retryAt: result.data.retry_at ?? undefined,
-      status: result.data.status,
-    } satisfies AgentPoolAvailability;
-  } catch (error) {
-    if (error instanceof AgentPoolServiceError) throw error;
-    throw new AgentPoolServiceError("The pool could not be refreshed.");
-  }
-}
-
 function createdLabel(createdAt: string) {
   return new Intl.DateTimeFormat("en", {
     day: "2-digit",
@@ -304,7 +283,6 @@ const agentPoolsService = {
   queryKey: ["agent-pools"] as const,
   requestJoin,
   removeMember,
-  retry,
 };
 
 export default agentPoolsService;

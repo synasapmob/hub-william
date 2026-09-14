@@ -68,6 +68,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/agent-connections/{connection_id}/refresh": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["refresh_connection"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/agent-pool-requests/{request_id}/decision": {
     parameters: {
       query?: never;
@@ -142,22 +158,6 @@ export interface paths {
     get?: never;
     put?: never;
     post: operations["create_request"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/agent-pools/{connection_id}/retry": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations["retry_pool"];
     delete?: never;
     options?: never;
     head?: never;
@@ -343,7 +343,8 @@ export interface components {
       status: components["schemas"]["AgentPoolAvailabilityStatus"];
     };
     /** @enum {string} */
-    AgentPoolAvailabilityStatus: "active" | "rate_limited" | "half_open";
+    AgentPoolAvailabilityStatus:
+      "active" | "rate_limited" | "half_open" | "reauth_required";
     AgentPoolJoinRequest: {
       avatar_label: string;
       /** Format: uuid */
@@ -644,6 +645,56 @@ export interface operations {
       };
     };
   };
+  refresh_connection: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Agent connection ID */
+        connection_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Credential refreshed or provider reauthorization started */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AgentConnection"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Connection not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Provider refresh unavailable */
+      502: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
   decide_request: {
     parameters: {
       query?: never;
@@ -822,38 +873,6 @@ export interface operations {
       };
       /** @description Request rejected */
       422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-    };
-  };
-  retry_pool: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description Connected account identifier */
-        connection_id: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Pool armed for the next real gateway request */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["AgentPoolAvailability"];
-        };
-      };
-      /** @description Pool ownership required */
-      403: {
         headers: {
           [name: string]: unknown;
         };

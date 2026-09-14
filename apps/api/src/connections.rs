@@ -186,6 +186,16 @@ struct StartedAuthorization {
     user_code: Option<String>,
 }
 
+enum RefreshConnectionOutcome {
+    Connected(AgentConnection),
+    ReauthorizationRequired(ConnectionRow),
+}
+
+enum ProviderRefreshError {
+    ReauthorizationRequired,
+    Api(ApiError),
+}
+
 #[derive(Debug, Deserialize)]
 struct CodexDeviceResponse {
     device_auth_id: String,
@@ -291,6 +301,59 @@ pub async fn start(
     ))
 }
 
+async fn start_connection_reauthorization(
+    state: &AppState,
+    row: ConnectionRow,
+) -> Result<AgentConnection, ApiError> {
+    let provider = AgentProvider::from_str(&row.provider)?;
+    let started = start_provider_authorization(state, provider).await?;
+    let (secret_ciphertext, secret_nonce) =
+        encrypt_json(&state.config.credential_encryption_key, &started.secret)?;
+    let flow = if started.requires_callback_url {
+        "authorization_code"
+    } else {
+        "device_code"
+    };
+    let mut transaction = state.pool.begin().await.map_err(database_error)?;
+
+    sqlx::query(
+        "INSERT INTO agent_connection_authorizations
+            (connection_id, flow, secret_ciphertext, secret_nonce, expires_at)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (connection_id) DO UPDATE SET
+            flow = EXCLUDED.flow,
+            secret_ciphertext = EXCLUDED.secret_ciphertext,
+            secret_nonce = EXCLUDED.secret_nonce,
+            expires_at = EXCLUDED.expires_at,
+            created_at = NOW()",
+    )
+    .bind(row.id)
+    .bind(flow)
+    .bind(secret_ciphertext)
+    .bind(secret_nonce)
+    .bind(started.expires_at)
+    .execute(&mut *transaction)
+    .await
+    .map_err(database_error)?;
+    let updated = sqlx::query_as::<_, ConnectionRow>(
+        "UPDATE agent_connections
+         SET availability_status = 'reauth_required',
+             rate_limited_until = NULL,
+             retry_claimed_at = NULL,
+             failure_message = NULL,
+             updated_at = NOW()
+         WHERE id = $1
+         RETURNING id, provider, status, account_label, plan, failure_message, created_at, updated_at",
+    )
+    .bind(row.id)
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(database_error)?;
+    transaction.commit().await.map_err(database_error)?;
+
+    connection_from_row(updated, Some(prompt_from_started(started)))
+}
+
 #[utoipa::path(
     get,
     path = "/agent-connections",
@@ -340,14 +403,62 @@ pub async fn get_connection(
     let row = owned_connection(&state, user_id, connection_id).await?;
     let status = AgentConnectionStatus::from_str(&row.status)?;
 
-    if status == AgentConnectionStatus::Pending {
+    if status == AgentConnectionStatus::Pending
+        || connection_has_authorization(&state, row.id).await?
+    {
         return poll_pending_connection(&state, row).await.map(Json);
     }
     if status == AgentConnectionStatus::Connected {
-        return refresh_connected_connection(&state, row).await.map(Json);
+        let connection = match refresh_connected_connection(&state, row, false).await? {
+            RefreshConnectionOutcome::Connected(connection) => connection,
+            RefreshConnectionOutcome::ReauthorizationRequired(row) => {
+                fail_connection(
+                    &state,
+                    row,
+                    "Provider authorization expired. Refresh this pool to reconnect.",
+                )
+                .await?
+            }
+        };
+        return Ok(Json(connection));
     }
 
     connection_from_row(row, None).map(Json)
+}
+
+#[utoipa::path(
+    post,
+    path = "/agent-connections/{connection_id}/refresh",
+    params(("connection_id" = Uuid, Path, description = "Agent connection ID")),
+    responses(
+        (status = 200, description = "Credential refreshed or provider reauthorization started", body = AgentConnection),
+        (status = 401, description = "Hub login required", body = crate::ErrorResponse),
+        (status = 404, description = "Connection not found", body = crate::ErrorResponse),
+        (status = 502, description = "Provider refresh unavailable", body = crate::ErrorResponse)
+    ),
+    tag = "agent connections"
+)]
+pub async fn refresh_connection(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path(connection_id): Path<Uuid>,
+) -> Result<Json<AgentConnection>, ApiError> {
+    let user_id = authenticated_user_id(&state, &jar).await?;
+    let row = owned_connection(&state, user_id, connection_id).await?;
+    if AgentConnectionStatus::from_str(&row.status)? != AgentConnectionStatus::Connected {
+        return Err(ApiError::Validation(
+            "Only a connected account pool can be refreshed.",
+        ));
+    }
+
+    let connection = match refresh_connected_connection(&state, row, true).await? {
+        RefreshConnectionOutcome::Connected(connection) => connection,
+        RefreshConnectionOutcome::ReauthorizationRequired(row) => {
+            start_connection_reauthorization(&state, row).await?
+        }
+    };
+
+    Ok(Json(connection))
 }
 
 #[utoipa::path(
@@ -823,7 +934,8 @@ async fn finish_connection(
         .map_err(database_error)?;
     let updated = sqlx::query_as::<_, ConnectionRow>(
         "UPDATE agent_connections SET status = 'connected', account_label = $2, plan = $3,
-         failure_message = NULL, updated_at = NOW() WHERE id = $1
+         failure_message = NULL, availability_status = 'active', rate_limited_until = NULL,
+         retry_claimed_at = NULL, updated_at = NOW() WHERE id = $1
          RETURNING id, provider, status, account_label, plan, failure_message, created_at, updated_at",
     )
     .bind(row.id)
@@ -888,7 +1000,8 @@ fn normalize_plan_label(value: &str) -> String {
 async fn refresh_connected_connection(
     state: &AppState,
     row: ConnectionRow,
-) -> Result<AgentConnection, ApiError> {
+    force: bool,
+) -> Result<RefreshConnectionOutcome, ApiError> {
     let mut transaction = state.pool.begin().await.map_err(database_error)?;
     let credential = sqlx::query_as::<_, CredentialRow>(
         "SELECT credential_ciphertext, credential_nonce, access_token_expires_at,
@@ -898,22 +1011,26 @@ async fn refresh_connected_connection(
     .bind(row.id)
     .fetch_optional(&mut *transaction)
     .await
-    .map_err(database_error)?
-    .ok_or(ApiError::Internal)?;
+    .map_err(database_error)?;
+    let Some(credential) = credential else {
+        transaction.rollback().await.map_err(database_error)?;
+        return Ok(RefreshConnectionOutcome::ReauthorizationRequired(row));
+    };
 
-    let should_refresh = credential
-        .access_token_expires_at
-        .is_some_and(|expires_at| expires_at <= Utc::now() + Duration::minutes(5));
+    let should_refresh = force
+        || credential
+            .access_token_expires_at
+            .is_some_and(|expires_at| expires_at <= Utc::now() + Duration::minutes(5));
     if !should_refresh {
         transaction.commit().await.map_err(database_error)?;
-        return connection_from_row(row, None);
+        return connection_from_row(row, None).map(RefreshConnectionOutcome::Connected);
     }
     if credential
         .refresh_token_expires_at
         .is_some_and(|expires_at| expires_at <= Utc::now())
     {
         transaction.rollback().await.map_err(database_error)?;
-        return fail_connection(state, row, "Provider authorization expired. Connect again.").await;
+        return Ok(RefreshConnectionOutcome::ReauthorizationRequired(row));
     }
 
     let stored_token: Value = decrypt_json(
@@ -921,28 +1038,35 @@ async fn refresh_connected_connection(
         &credential.credential_ciphertext,
         &credential.credential_nonce,
     )?;
-    let refresh_token = stored_token
-        .get("refresh_token")
-        .and_then(Value::as_str)
-        .ok_or_else(|| {
-            ApiError::Provider(
-                "The provider session cannot be refreshed. Connect the account again.".to_owned(),
-            )
-        })?;
+    let Some(refresh_token) = stored_token.get("refresh_token").and_then(Value::as_str) else {
+        transaction.rollback().await.map_err(database_error)?;
+        return Ok(RefreshConnectionOutcome::ReauthorizationRequired(row));
+    };
     let provider = AgentProvider::from_str(&row.provider)?;
-    let refreshed = refresh_provider_token(state, provider, refresh_token, &stored_token).await?;
-    let merged = merge_token_response(stored_token, refreshed);
-    let (credential_ciphertext, credential_nonce) =
-        encrypt_json(&state.config.credential_encryption_key, &merged)?;
-    let access_token_expires_at = merged
+    let refreshed =
+        match refresh_provider_token(state, provider, refresh_token, &stored_token).await {
+            Ok(refreshed) => refreshed,
+            Err(ProviderRefreshError::ReauthorizationRequired) => {
+                transaction.rollback().await.map_err(database_error)?;
+                return Ok(RefreshConnectionOutcome::ReauthorizationRequired(row));
+            }
+            Err(ProviderRefreshError::Api(error)) => {
+                transaction.rollback().await.map_err(database_error)?;
+                return Err(error);
+            }
+        };
+    let access_token_expires_at = refreshed
         .get("expires_in")
         .and_then(Value::as_i64)
         .map(|seconds| Utc::now() + Duration::seconds(seconds));
-    let refresh_token_expires_at = merged
+    let refresh_token_expires_at = refreshed
         .get("refresh_token_expires_in")
         .and_then(Value::as_i64)
         .map(|seconds| Utc::now() + Duration::seconds(seconds))
         .or(credential.refresh_token_expires_at);
+    let merged = merge_token_response(stored_token, refreshed);
+    let (credential_ciphertext, credential_nonce) =
+        encrypt_json(&state.config.credential_encryption_key, &merged)?;
     let (account_label, plan) = connection_metadata(&merged);
 
     sqlx::query(
@@ -962,18 +1086,23 @@ async fn refresh_connected_connection(
         "UPDATE agent_connections SET
             account_label = COALESCE($2, account_label),
             plan = COALESCE($3, plan),
+            availability_status = CASE WHEN $4 THEN 'active' ELSE availability_status END,
+            rate_limited_until = CASE WHEN $4 THEN NULL ELSE rate_limited_until END,
+            retry_claimed_at = CASE WHEN $4 THEN NULL ELSE retry_claimed_at END,
+            failure_message = CASE WHEN $4 THEN NULL ELSE failure_message END,
             updated_at = NOW()
          WHERE id = $1",
     )
     .bind(row.id)
     .bind(account_label)
     .bind(plan)
+    .bind(force)
     .execute(&mut *transaction)
     .await
     .map_err(database_error)?;
     transaction.commit().await.map_err(database_error)?;
     let updated = owned_connection_by_id(state, row.id).await?;
-    connection_from_row(updated, None)
+    connection_from_row(updated, None).map(RefreshConnectionOutcome::Connected)
 }
 
 pub(crate) async fn provider_credential(
@@ -985,7 +1114,18 @@ pub(crate) async fn provider_credential(
         return Err(ApiError::Forbidden);
     }
 
-    refresh_connected_connection(state, row).await?;
+    match refresh_connected_connection(state, row, false).await? {
+        RefreshConnectionOutcome::Connected(_) => {}
+        RefreshConnectionOutcome::ReauthorizationRequired(row) => {
+            fail_connection(
+                state,
+                row,
+                "Provider authorization expired. Refresh this pool to reconnect.",
+            )
+            .await?;
+            return Err(ApiError::Forbidden);
+        }
+    }
     let row = owned_connection_by_id(state, connection_id).await?;
     if AgentConnectionStatus::from_str(&row.status)? != AgentConnectionStatus::Connected {
         return Err(ApiError::Forbidden);
@@ -1013,7 +1153,7 @@ async fn refresh_provider_token(
     provider: AgentProvider,
     refresh_token: &str,
     stored_token: &Value,
-) -> Result<Value, ApiError> {
+) -> Result<Value, ProviderRefreshError> {
     let response = match provider {
         AgentProvider::Chatgpt => {
             state
@@ -1060,9 +1200,22 @@ async fn refresh_provider_token(
                 .await
         }
     }
-    .map_err(|error| upstream_network_error(provider, error))?;
+    .map_err(|error| ProviderRefreshError::Api(upstream_network_error(provider, error)))?;
 
-    parse_token_response(provider, response).await
+    if refresh_requires_reauthorization(response.status()) {
+        return Err(ProviderRefreshError::ReauthorizationRequired);
+    }
+
+    parse_token_response(provider, response)
+        .await
+        .map_err(ProviderRefreshError::Api)
+}
+
+fn refresh_requires_reauthorization(status: reqwest::StatusCode) -> bool {
+    matches!(
+        status,
+        reqwest::StatusCode::BAD_REQUEST | reqwest::StatusCode::UNAUTHORIZED
+    )
 }
 
 fn merge_token_response(mut stored: Value, refreshed: Value) -> Value {
@@ -1089,7 +1242,14 @@ async fn fail_connection(
         .await
         .map_err(database_error)?;
     let updated = sqlx::query_as::<_, ConnectionRow>(
-        "UPDATE agent_connections SET status = 'failed', failure_message = $2, updated_at = NOW()
+        "UPDATE agent_connections
+         SET status = CASE WHEN status = 'connected' THEN 'connected' ELSE 'failed' END,
+             availability_status = CASE
+               WHEN status = 'connected' THEN 'reauth_required'
+               ELSE availability_status
+             END,
+             failure_message = $2,
+             updated_at = NOW()
          WHERE id = $1
          RETURNING id, provider, status, account_label, plan, failure_message, created_at, updated_at",
     )
@@ -1146,6 +1306,21 @@ async fn load_authorization(
     .await
     .map_err(database_error)?
     .ok_or(ApiError::NotFound)
+}
+
+async fn connection_has_authorization(
+    state: &AppState,
+    connection_id: Uuid,
+) -> Result<bool, ApiError> {
+    sqlx::query_scalar(
+        "SELECT EXISTS(
+            SELECT 1 FROM agent_connection_authorizations WHERE connection_id = $1
+         )",
+    )
+    .bind(connection_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(database_error)
 }
 
 fn prompt_from_started(started: StartedAuthorization) -> AgentAuthorizationPrompt {
@@ -1332,7 +1507,7 @@ mod tests {
     use super::{
         AuthorizationSecret, CodexDeviceResponse, connection_metadata, decrypt_json, encrypt_json,
         mask_account_label, merge_token_response, parse_callback_value, poll_seconds,
-        start_claude_authorization, token_claims,
+        refresh_requires_reauthorization, start_claude_authorization, token_claims,
     };
     use crate::AppConfig;
 
@@ -1479,5 +1654,18 @@ mod tests {
             json!({ "access_token": "new-access", "expires_in": 600 }),
         );
         assert_eq!(preserved["refresh_token"], "old-refresh");
+    }
+
+    #[test]
+    fn rejected_refresh_tokens_require_provider_authorization() {
+        assert!(refresh_requires_reauthorization(
+            reqwest::StatusCode::BAD_REQUEST
+        ));
+        assert!(refresh_requires_reauthorization(
+            reqwest::StatusCode::UNAUTHORIZED
+        ));
+        assert!(!refresh_requires_reauthorization(
+            reqwest::StatusCode::TOO_MANY_REQUESTS
+        ));
     }
 }
