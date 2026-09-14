@@ -403,7 +403,7 @@ export interface components {
       value: string;
     };
     /** @enum {string} */
-    AgentProvider: "chatgpt" | "claude" | "grok";
+    AgentProvider: "chatgpt" | "claude" | "gemini" | "grok";
     AuthenticatedUser: {
       /** Format: uuid */
       id: string;

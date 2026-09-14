@@ -9,7 +9,7 @@
 export const GATEWAY_KEY_PLACEHOLDER = "YOUR_GATEWAY_KEY";
 
 export interface GatewayAgentConfig {
-  agent: "claude" | "codex" | "grok";
+  agent: "agy-settings" | "agy-shell" | "claude" | "codex" | "grok";
   label: string;
   path: string;
   protocol: string;
@@ -57,6 +57,7 @@ export function gatewayAgentConfigs(
   const openaiBaseUrl = `${origin}/gateway/openai/v1`;
   const claudeBaseUrl = `${origin}/gateway/claude`;
   const grokBaseUrl = `${origin}/gateway/grok/v1`;
+  const geminiBaseUrl = `${origin}/gateway/gemini`;
 
   return [
     {
@@ -90,6 +91,26 @@ export function gatewayAgentConfigs(
         null,
         2,
       )}\n`,
+    },
+    {
+      agent: "agy-settings",
+      label: "Antigravity (AGY) settings",
+      path: "~/.gemini/antigravity-cli/settings.json",
+      protocol: "Gemini native API via Google OAuth",
+      source: `${JSON.stringify({ modelProvider: "gemini" }, null, 2)}\n`,
+    },
+    {
+      agent: "agy-shell",
+      label: "Antigravity (AGY) environment",
+      path: "~/.zshrc, ~/.bashrc, or ~/.profile",
+      protocol: "Gemini native API via Google OAuth",
+      source: [
+        "# >>> hub-william agy >>>",
+        `export GOOGLE_GEMINI_BASE_URL='${geminiBaseUrl}'`,
+        `export GEMINI_API_KEY='${key}'`,
+        "# <<< hub-william agy <<<",
+        "",
+      ].join("\n"),
     },
     {
       agent: "grok",

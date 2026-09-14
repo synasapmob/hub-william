@@ -96,6 +96,9 @@ describe("AgentsConnectDialog", () => {
       ).toBeEnabled(),
     );
     await user.click(screen.getByRole("button", { name: "Connect Agent" }));
+    expect(
+      screen.getByRole("button", { name: /gemini \/ agy/i }),
+    ).toBeEnabled();
     await user.click(screen.getByRole("button", { name: /claude/i }));
 
     expect(window.open).toHaveBeenCalledWith(

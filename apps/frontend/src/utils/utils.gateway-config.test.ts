@@ -78,4 +78,16 @@ describe("gatewayAgentConfigs", () => {
       `api_key = "${GATEWAY_KEY_PLACEHOLDER}"`,
     );
   });
+
+  it("points AGY native Gemini mode at the subscription gateway", () => {
+    expect(JSON.parse(byAgent["agy-settings"]?.source ?? "{}")).toEqual({
+      modelProvider: "gemini",
+    });
+    expect(byAgent["agy-shell"]?.source).toContain(
+      "GOOGLE_GEMINI_BASE_URL='https://hub.example/api/gateway/gemini'",
+    );
+    expect(byAgent["agy-shell"]?.source).toContain(
+      `GEMINI_API_KEY='${GATEWAY_KEY_PLACEHOLDER}'`,
+    );
+  });
 });

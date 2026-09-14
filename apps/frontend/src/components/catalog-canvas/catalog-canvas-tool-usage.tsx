@@ -88,8 +88,9 @@ export default function CatalogCanvasToolUsage({
 
           <p className={description()}>
             Paste your key into <code>--key</code>. The picker starts with
-            Codex, Claude Code, and Grok selected; Space toggles, Enter injects
-            into the selected configs, Escape exits without changes.
+            Codex, Claude Code, Antigravity, and Grok selected; Space toggles,
+            Enter injects into the selected configs, Escape exits without
+            changes.
           </p>
 
           <CopyCommand command={gatewayCommand(siteOrigin)} />

@@ -10,6 +10,7 @@ import json
 import os
 import re
 import select
+import shlex
 import shutil
 import sys
 import tempfile
@@ -21,6 +22,7 @@ from urllib.parse import urlparse
 AGENTS = (
     ("codex", "Codex", ".codex/config.toml"),
     ("claude", "Claude Code", ".claude/settings.json"),
+    ("agy", "Antigravity (AGY)", ".gemini/antigravity-cli/settings.json"),
     ("grok", "Grok", ".grok/config.toml"),
 )
 ESCAPE_GRACE = 0.06
@@ -177,6 +179,27 @@ def _read_json(path):
     return value
 
 
+def _upsert_managed_block(text, start, end, body):
+    start_index = text.find(start)
+    end_index = text.find(end)
+    block = "%s\n%s\n%s\n" % (start, body.rstrip("\n"), end)
+    if start_index < 0 and end_index < 0:
+        separator = "" if not text or text.endswith("\n\n") else "\n"
+        return text + separator + block
+    if start_index < 0 or end_index < start_index:
+        raise ValueError("cannot update malformed Hub William managed block")
+    end_index += len(end)
+    if end_index < len(text) and text[end_index] == "\n":
+        end_index += 1
+    return text[:start_index] + block + text[end_index:]
+
+
+def _shell_profile(home):
+    shell = os.path.basename(os.environ.get("SHELL", ""))
+    filename = {"bash": ".bashrc", "zsh": ".zshrc"}.get(shell, ".profile")
+    return os.path.join(home, filename)
+
+
 def build_changes(home, key, gateway_url, agents):
     changes = {}
     if "codex" in agents:
@@ -201,6 +224,26 @@ def build_changes(home, key, gateway_url, agents):
         environment["ANTHROPIC_BASE_URL"] = gateway_url + "/gateway/claude"
         environment["ANTHROPIC_AUTH_TOKEN"] = key
         changes[path] = json.dumps(document, indent=2, sort_keys=True) + "\n"
+    if "agy" in agents:
+        path = os.path.join(home, ".gemini", "antigravity-cli", "settings.json")
+        document = _read_json(path)
+        document["modelProvider"] = "gemini"
+        changes[path] = json.dumps(document, indent=2, sort_keys=True) + "\n"
+
+        profile = _shell_profile(home)
+        environment = "\n".join(
+            [
+                "export GOOGLE_GEMINI_BASE_URL=%s"
+                % shlex.quote(gateway_url + "/gateway/gemini"),
+                "export GEMINI_API_KEY=%s" % shlex.quote(key),
+            ]
+        )
+        changes[profile] = _upsert_managed_block(
+            _read_text(profile),
+            "# >>> hub-william agy >>>",
+            "# <<< hub-william agy <<<",
+            environment,
+        )
     if "grok" in agents:
         path = os.path.join(home, ".grok", "config.toml")
         text = _read_text(path)
@@ -256,7 +299,7 @@ def _validated_key(value):
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(
-        description="Point Codex, Claude Code, and Grok at a Hub William gateway key.",
+        description="Point Codex, Claude Code, Antigravity, and Grok at a Hub William gateway key.",
     )
     parser.add_argument(
         "--key",
@@ -295,6 +338,8 @@ def install(terminal, args):
         _atomic_write(path, text)
     terminal.write("\nInstalled Hub William gateway for %s.\n" % ", ".join(agents))
     terminal.write("Restart the selected agent CLIs to load the new gateway.\n")
+    if "agy" in agents:
+        terminal.write("Open a new shell before starting AGY so its environment is loaded.\n")
     terminal.flush()
     return 0
 

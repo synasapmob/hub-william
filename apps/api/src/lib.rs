@@ -48,8 +48,8 @@ use connections::{
 pub use error::ErrorResponse;
 pub use gateway::{CreatedGatewayKey, GatewayKey};
 use gateway::{
-    claude_count_tokens, claude_messages, create_key, grok_chat, grok_models, list_keys,
-    openai_responses, revoke_key,
+    claude_count_tokens, claude_messages, create_key, gemini_request, grok_chat, grok_models,
+    list_keys, openai_responses, revoke_key,
 };
 pub use health::HealthResponse;
 use health::health;
@@ -184,6 +184,10 @@ pub fn app(state: AppState) -> Router {
         )
         .route("/gateway/grok/v1/chat/completions", post(grok_chat))
         .route("/gateway/grok/v1/models", get(grok_models))
+        .route(
+            "/gateway/gemini/v1beta/models/{*operation}",
+            post(gemini_request),
+        )
         .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(cors)
         .with_state(state)
@@ -231,6 +235,31 @@ mod tests {
 
         assert_eq!(payload["status"], "ok");
         assert_eq!(payload["service"], "hub-william-backend");
+    }
+
+    #[tokio::test]
+    async fn gemini_native_model_routes_reach_gateway_authentication() {
+        let state = AppState {
+            config: AppConfig::default(),
+            http: Client::new(),
+            pool: PgPoolOptions::new()
+                .connect_lazy("postgres://localhost/hub_william_test")
+                .expect("test database URL should parse"),
+        };
+        let response = app(state)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/gateway/gemini/v1beta/models/gemini-test:generateContent")
+                    .header("content-type", "application/json")
+                    .header("x-goog-api-key", "invalid")
+                    .body(Body::from(r#"{"contents": []}"#))
+                    .expect("Gemini request should be valid"),
+            )
+            .await
+            .expect("Gemini route should respond");
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]

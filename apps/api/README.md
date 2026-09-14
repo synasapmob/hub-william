@@ -2,7 +2,7 @@
 
 Rust control-plane and streaming gateway service for Hub William. It owns
 username/password registration, rotating PostgreSQL-backed browser sessions,
-ChatGPT/Claude/Grok authorization, encrypted provider credentials, user-scoped
+ChatGPT/Claude/Gemini/Grok authorization, encrypted provider credentials, user-scoped
 gateway keys, runtime health, and generated OpenAPI documentation. Pool
 persistence, join requests, and private Telegram contacts, orders and payments
 are live; pool cards read live provider usage. Post-payment fulfilment remains a
@@ -32,6 +32,8 @@ populated values in the runtime secret store.
 - `/gateway-keys`: create-once, list metadata, and revoke operations.
 - `/gateway/openai/v1/responses`: Codex/OpenAI Responses streaming gateway.
 - `/gateway/claude/v1/messages`: Claude Messages streaming gateway.
+- `/gateway/gemini/v1beta/models/*`: AGY native Gemini protocol bridged to the
+  connected Google Code Assist subscription.
 - `/gateway/grok/v1/*`: Grok OpenAI-compatible gateway.
 - `/internal/telegram/*`: contacts, their language preference, their orders, and
   SePay bank transactions. Reachable only over Railway private networking and

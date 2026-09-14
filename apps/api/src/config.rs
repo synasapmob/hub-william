@@ -13,6 +13,12 @@ pub struct AppConfig {
     pub claude_authorize_url: String,
     pub claude_redirect_url: String,
     pub claude_token_url: String,
+    pub gemini_authorize_url: String,
+    pub gemini_client_id: String,
+    pub gemini_code_assist_url: String,
+    pub gemini_redirect_url: String,
+    pub gemini_token_url: String,
+    pub gemini_userinfo_url: String,
     pub grok_issuer: String,
     pub grok_client_id: String,
     pub grok_client_version: String,
@@ -76,6 +82,20 @@ impl AppConfig {
                 .unwrap_or_else(|_| "https://platform.claude.com/oauth/code/callback".to_owned()),
             claude_token_url: env::var("CLAUDE_TOKEN_URL")
                 .unwrap_or_else(|_| "https://platform.claude.com/v1/oauth/token".to_owned()),
+            gemini_authorize_url: env::var("GEMINI_AUTHORIZE_URL")
+                .unwrap_or_else(|_| "https://accounts.google.com/o/oauth2/auth".to_owned()),
+            gemini_client_id: env::var("GEMINI_OAUTH_CLIENT_ID").unwrap_or_else(|_| {
+                "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+                    .to_owned()
+            }),
+            gemini_code_assist_url: env::var("GEMINI_CODE_ASSIST_URL")
+                .unwrap_or_else(|_| "https://daily-cloudcode-pa.googleapis.com".to_owned()),
+            gemini_redirect_url: env::var("GEMINI_REDIRECT_URL")
+                .unwrap_or_else(|_| "https://antigravity.google/oauth-callback".to_owned()),
+            gemini_token_url: env::var("GEMINI_TOKEN_URL")
+                .unwrap_or_else(|_| "https://oauth2.googleapis.com/token".to_owned()),
+            gemini_userinfo_url: env::var("GEMINI_USERINFO_URL")
+                .unwrap_or_else(|_| "https://www.googleapis.com/oauth2/v2/userinfo".to_owned()),
             grok_issuer: env::var("GROK_AUTH_ISSUER")
                 .unwrap_or_else(|_| "https://auth.x.ai".to_owned()),
             grok_client_id: env::var("GROK_AUTH_CLIENT_ID")
@@ -98,6 +118,14 @@ impl Default for AppConfig {
             claude_authorize_url: "https://claude.com/cai/oauth/authorize".to_owned(),
             claude_redirect_url: "https://platform.claude.com/oauth/code/callback".to_owned(),
             claude_token_url: "https://platform.claude.com/v1/oauth/token".to_owned(),
+            gemini_authorize_url: "https://accounts.google.com/o/oauth2/auth".to_owned(),
+            gemini_client_id:
+                "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+                    .to_owned(),
+            gemini_code_assist_url: "https://daily-cloudcode-pa.googleapis.com".to_owned(),
+            gemini_redirect_url: "https://antigravity.google/oauth-callback".to_owned(),
+            gemini_token_url: "https://oauth2.googleapis.com/token".to_owned(),
+            gemini_userinfo_url: "https://www.googleapis.com/oauth2/v2/userinfo".to_owned(),
             grok_issuer: "https://auth.x.ai".to_owned(),
             grok_client_id: "b1a00492-073a-47ea-816f-4c329264a828".to_owned(),
             grok_client_version: "1.0.30".to_owned(),
