@@ -39,17 +39,19 @@ use auth::{login, logout, refresh, register, session};
 pub use config::AppConfig;
 pub use connections::{
     AgentConnection, AgentConnectionStatus, AgentProvider, CompleteAuthorizationRequest,
-    ProviderCredentialRefreshSummary, StartAgentConnectionRequest,
+    ConnectDeepseekRequest, ProviderCredentialRefreshSummary, StartAgentConnectionRequest,
     refresh_due_provider_credentials, refresh_stored_account_labels,
 };
 use connections::{
-    complete_authorization, disconnect, get_connection, list_connections, refresh_connection, start,
+    complete_authorization, connect_deepseek, disconnect, get_connection, list_connections,
+    refresh_connection, start,
 };
 pub use error::ErrorResponse;
 pub use gateway::{CreatedGatewayKey, GatewayKey};
 use gateway::{
-    claude_count_tokens, claude_messages, create_key, gemini_request, grok_chat, grok_models,
-    list_keys, openai_responses, revoke_key,
+    claude_count_tokens, claude_messages, claude_models, create_key, deepseek_chat,
+    deepseek_models, deepseek_responses, gemini_request, grok_chat, grok_models, list_keys,
+    openai_models, openai_responses, revoke_key,
 };
 pub use health::HealthResponse;
 use health::health;
@@ -161,6 +163,7 @@ pub fn app(state: AppState) -> Router {
             post(decide_request),
         )
         .route("/agent-connections", get(list_connections))
+        .route("/agent-connections/deepseek", post(connect_deepseek))
         .route("/agent-connections/start", post(start))
         .route(
             "/agent-connections/{connection_id}",
@@ -177,7 +180,9 @@ pub fn app(state: AppState) -> Router {
         .route("/gateway-keys", get(list_keys).post(create_key))
         .route("/gateway-keys/{key_id}", axum::routing::delete(revoke_key))
         .route("/gateway/openai/v1/responses", post(openai_responses))
+        .route("/gateway/openai/v1/models", get(openai_models))
         .route("/gateway/claude/v1/messages", post(claude_messages))
+        .route("/gateway/claude/v1/models", get(claude_models))
         .route(
             "/gateway/claude/v1/messages/count_tokens",
             post(claude_count_tokens),
@@ -188,6 +193,9 @@ pub fn app(state: AppState) -> Router {
             "/gateway/gemini/v1beta/models/{*operation}",
             post(gemini_request),
         )
+        .route("/gateway/deepseek/chat/completions", post(deepseek_chat))
+        .route("/gateway/deepseek/responses", post(deepseek_responses))
+        .route("/gateway/deepseek/models", get(deepseek_models))
         .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(cors)
         .with_state(state)

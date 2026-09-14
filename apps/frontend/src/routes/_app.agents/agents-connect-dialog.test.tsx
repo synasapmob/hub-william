@@ -115,6 +115,56 @@ describe("AgentsConnectDialog", () => {
     expect(screen.getByLabelText("Callback URL or code")).toBeVisible();
   });
 
+  it("connects a DeepSeek key without opening an OAuth popup", async () => {
+    const open = vi.spyOn(window, "open");
+    renderDialog(async (input, init) => {
+      const request = requestOptions(input, init);
+      if (request.pathname === "/auth/session") {
+        return jsonResponse({
+          user: { id: "user-1", recovery_email: null, username: "syn" },
+        });
+      }
+      if (
+        request.pathname === "/agent-connections/deepseek" &&
+        request.method === "POST"
+      ) {
+        return jsonResponse(
+          {
+            account_label: "API key ••••1234",
+            authorization: null,
+            created_at: "2026-09-15T01:00:00Z",
+            failure_message: null,
+            id: "8c4b1408-a1f1-4f70-853f-2fd0916c2e25",
+            plan: "API",
+            provider: "deepseek",
+            status: "connected",
+            updated_at: "2026-09-15T01:00:00Z",
+          },
+          201,
+        );
+      }
+      return jsonResponse([]);
+    });
+
+    const user = userEvent.setup();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Connect Agent" }),
+      ).toBeEnabled(),
+    );
+    await user.click(screen.getByRole("button", { name: "Connect Agent" }));
+    await user.click(screen.getByRole("button", { name: /deepseek/i }));
+    const input = screen.getByLabelText("DeepSeek API key");
+    expect(input).toHaveAttribute("type", "password");
+    await user.type(input, "sk-deepseek-secret-1234");
+    await user.click(screen.getByRole("button", { name: "Connect DeepSeek" }));
+
+    await waitFor(() =>
+      expect(screen.getByText("Agent connected")).toBeVisible(),
+    );
+    expect(open).not.toHaveBeenCalled();
+  });
+
   it("keeps every connected account for the same provider available", async () => {
     renderDialog(async (input, init) => {
       const request = requestOptions(input, init);

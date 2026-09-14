@@ -6,7 +6,13 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Bot, CheckCircle2, ExternalLink, LoaderCircle } from "lucide-react";
+import {
+  Bot,
+  CheckCircle2,
+  ExternalLink,
+  KeyRound,
+  LoaderCircle,
+} from "lucide-react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -32,7 +38,8 @@ import agentConnectionsService, {
   type AgentProvider,
 } from "@/services/agent-connections";
 
-interface CallbackFormValues {
+interface ConnectionFormValues {
+  apiKey: string;
   callbackUrl: string;
 }
 
@@ -53,17 +60,16 @@ interface CompleteConnectionVariables {
   connectionId: string;
 }
 
-const callbackSchema = z.object({
-  callbackUrl: z
-    .string()
-    .trim()
-    .min(1, "Paste the callback URL or authorization code."),
+const connectionSchema = z.object({
+  apiKey: z.string(),
+  callbackUrl: z.string(),
 });
 
 const providers: Array<{ label: string; provider: AgentProvider }> = [
   { label: "ChatGPT", provider: "chatgpt" },
   { label: "Claude", provider: "claude" },
   { label: "Gemini / AGY", provider: "gemini" },
+  { label: "DeepSeek", provider: "deepseek" },
   { label: "Grok", provider: "grok" },
 ];
 
@@ -96,7 +102,11 @@ function AgentProviderOption({
               {connectedCount} connected
             </Badge>
           ) : null}
-          <ExternalLink aria-hidden="true" className="size-3.5" />
+          {provider === "deepseek" ? (
+            <KeyRound aria-hidden="true" className="size-3.5" />
+          ) : (
+            <ExternalLink aria-hidden="true" className="size-3.5" />
+          )}
         </Flex>
       </Button>
     </li>
@@ -111,10 +121,11 @@ export default function AgentsConnectDialog({
   const [open, setOpen] = useState(false);
   const [activeConnection, setActiveConnection] =
     useState<AgentConnection | null>(null);
+  const [showDeepseekKey, setShowDeepseekKey] = useState(false);
   const [popupError, setPopupError] = useState<string | null>(null);
-  const form = useForm<CallbackFormValues>({
-    defaultValues: { callbackUrl: "" },
-    resolver: zodResolver(callbackSchema),
+  const form = useForm<ConnectionFormValues>({
+    defaultValues: { apiKey: "", callbackUrl: "" },
+    resolver: zodResolver(connectionSchema),
   });
   const connectionQueryKey = useMemo(
     () => [...agentConnectionsService.queryKey, session.user?.id ?? "guest"],
@@ -131,6 +142,9 @@ export default function AgentsConnectDialog({
   const completeMutation = useMutation({
     mutationFn: ({ callbackUrl, connectionId }: CompleteConnectionVariables) =>
       agentConnectionsService.complete(connectionId, callbackUrl),
+  });
+  const deepseekMutation = useMutation({
+    mutationFn: agentConnectionsService.connectDeepseek,
   });
   const pollConnectionId =
     activeConnection?.status === "pending" &&
@@ -153,6 +167,7 @@ export default function AgentsConnectDialog({
     connectionsQuery.error ??
     startMutation.error ??
     completeMutation.error ??
+    deepseekMutation.error ??
     connectionStatusQuery.error;
   const errorMessage =
     popupError ??
@@ -171,13 +186,23 @@ export default function AgentsConnectDialog({
     if (!nextOpen) {
       setActiveConnection(null);
       setPopupError(null);
+      setShowDeepseekKey(false);
       startMutation.reset();
       completeMutation.reset();
+      deepseekMutation.reset();
       form.reset();
     }
   }
 
   async function connect(provider: AgentProvider) {
+    if (provider === "deepseek") {
+      setActiveConnection(null);
+      setPopupError(null);
+      setShowDeepseekKey(true);
+      form.clearErrors();
+      return;
+    }
+    setShowDeepseekKey(false);
     const popup = window.open(
       "about:blank",
       "hub-william-agent-connect",
@@ -212,12 +237,19 @@ export default function AgentsConnectDialog({
     }
   }
 
-  async function complete(values: CallbackFormValues) {
+  async function complete(values: ConnectionFormValues) {
     if (!currentConnection) return;
+    const callbackUrl = values.callbackUrl.trim();
+    if (!callbackUrl) {
+      form.setError("callbackUrl", {
+        message: "Paste the callback URL or authorization code.",
+      });
+      return;
+    }
 
     try {
       const connection = await completeMutation.mutateAsync({
-        callbackUrl: values.callbackUrl,
+        callbackUrl,
         connectionId: currentConnection.id,
       });
       setActiveConnection(connection);
@@ -240,6 +272,32 @@ export default function AgentsConnectDialog({
     }
   }
 
+  async function connectDeepseek(values: ConnectionFormValues) {
+    const apiKey = values.apiKey.trim();
+    if (apiKey.length < 20 || /\s/.test(apiKey)) {
+      form.setError("apiKey", { message: "Enter a valid DeepSeek API key." });
+      return;
+    }
+    try {
+      const connection = await deepseekMutation.mutateAsync(apiKey);
+      setActiveConnection(connection);
+      setShowDeepseekKey(false);
+      queryClient.setQueryData<AgentConnection[]>(
+        connectionQueryKey,
+        (items) => [...(items ?? []), connection],
+      );
+      onConnected?.();
+      form.reset();
+    } catch (error) {
+      form.setError("root", {
+        message:
+          error instanceof AgentConnectionServiceError
+            ? error.message
+            : "The DeepSeek API key could not be connected.",
+      });
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={changeOpen}>
       <DialogTrigger asChild>
@@ -255,8 +313,8 @@ export default function AgentsConnectDialog({
           </Center>
           <DialogTitle>Connect an agent account</DialogTitle>
           <DialogDescription>
-            Hub William opens the provider&apos;s official authorization page.
-            Passwords never pass through this app.
+            Subscription accounts open their official authorization page.
+            DeepSeek API keys are verified once and encrypted server-side.
           </DialogDescription>
         </DialogHeader>
 
@@ -271,7 +329,7 @@ export default function AgentsConnectDialog({
                     connection.status === "connected",
                 ).length
               }
-              disabled={startMutation.isPending}
+              disabled={startMutation.isPending || deepseekMutation.isPending}
               label={label}
               onConnect={connect}
               provider={provider}
@@ -287,6 +345,42 @@ export default function AgentsConnectDialog({
             />
             Requesting a secure authorization code…
           </Flex>
+        ) : null}
+
+        {showDeepseekKey ? (
+          <form
+            className="space-y-3"
+            onSubmit={form.handleSubmit(connectDeepseek)}
+          >
+            <div className="space-y-1.5">
+              <Label htmlFor="deepseek-api-key">DeepSeek API key</Label>
+              <Input
+                id="deepseek-api-key"
+                aria-invalid={Boolean(form.formState.errors.apiKey)}
+                autoComplete="off"
+                placeholder="sk-…"
+                type="password"
+                {...form.register("apiKey")}
+              />
+              <p className="text-xs text-muted-foreground">
+                Hub validates the key with DeepSeek, then stores only encrypted
+                credential bytes. It is never returned to the browser.
+              </p>
+              {form.formState.errors.apiKey ? (
+                <p className="text-xs text-destructive">
+                  {form.formState.errors.apiKey.message}
+                </p>
+              ) : null}
+            </div>
+            {form.formState.errors.root ? (
+              <p className="text-xs text-destructive">
+                {form.formState.errors.root.message}
+              </p>
+            ) : null}
+            <Button disabled={deepseekMutation.isPending} type="submit">
+              {deepseekMutation.isPending ? "Verifying…" : "Connect DeepSeek"}
+            </Button>
+          </form>
         ) : null}
 
         {currentConnection?.status === "pending" ? (

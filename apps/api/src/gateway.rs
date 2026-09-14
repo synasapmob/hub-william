@@ -2,7 +2,7 @@ use axum::{
     Json,
     body::{Body, Bytes},
     extract::{OriginalUri, Path, State},
-    http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header},
+    http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, header},
     response::Response,
 };
 use axum_extra::extract::CookieJar;
@@ -24,6 +24,7 @@ use crate::{
 const OPENAI_RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
 const CLAUDE_MESSAGES_URL: &str = "https://api.anthropic.com/v1/messages";
 const CLAUDE_COUNT_TOKENS_URL: &str = "https://api.anthropic.com/v1/messages/count_tokens";
+const CLAUDE_MODELS_URL: &str = "https://api.anthropic.com/v1/models";
 const GROK_CHAT_URL: &str = "https://cli-chat-proxy.grok.com/v1/chat/completions";
 const GEMINI_CLIENT_VERSION: &str = "antigravity/1.2.0";
 
@@ -212,11 +213,30 @@ pub async fn openai_responses(
         &state,
         AgentProvider::Chatgpt,
         OPENAI_RESPONSES_URL,
+        Method::POST,
         &uri,
         &headers,
         body,
     )
     .await
+}
+
+pub async fn openai_models(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let authorized = authorize_gateway_key(&state, &headers).await?;
+    connected_provider_ids(&state, authorized.user_id, AgentProvider::Chatgpt).await?;
+
+    Ok(Json(json!({
+        "object": "list",
+        "data": [
+            { "id": "gpt-6-astra", "object": "model", "owned_by": "openai" },
+            { "id": "gpt-5.6-sol", "object": "model", "owned_by": "openai" },
+            { "id": "gpt-5.6-terra", "object": "model", "owned_by": "openai" },
+            { "id": "gpt-5.6-luna", "object": "model", "owned_by": "openai" }
+        ]
+    })))
 }
 
 pub async fn claude_messages(
@@ -229,6 +249,7 @@ pub async fn claude_messages(
         &state,
         AgentProvider::Claude,
         CLAUDE_MESSAGES_URL,
+        Method::POST,
         &uri,
         &headers,
         body,
@@ -246,6 +267,7 @@ pub async fn claude_count_tokens(
         &state,
         AgentProvider::Claude,
         CLAUDE_COUNT_TOKENS_URL,
+        Method::POST,
         &uri,
         &headers,
         body,
@@ -263,9 +285,80 @@ pub async fn grok_chat(
         &state,
         AgentProvider::Grok,
         GROK_CHAT_URL,
+        Method::POST,
         &uri,
         &headers,
         body,
+    )
+    .await
+}
+
+pub async fn claude_models(
+    State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    proxy_request(
+        &state,
+        AgentProvider::Claude,
+        CLAUDE_MODELS_URL,
+        Method::GET,
+        &uri,
+        &headers,
+        Bytes::new(),
+    )
+    .await
+}
+
+pub async fn deepseek_chat(
+    State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, ApiError> {
+    proxy_request(
+        &state,
+        AgentProvider::Deepseek,
+        &format!("{}/chat/completions", state.config.deepseek_api_url),
+        Method::POST,
+        &uri,
+        &headers,
+        body,
+    )
+    .await
+}
+
+pub async fn deepseek_responses(
+    State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, ApiError> {
+    proxy_request(
+        &state,
+        AgentProvider::Deepseek,
+        &format!("{}/responses", state.config.deepseek_api_url),
+        Method::POST,
+        &uri,
+        &headers,
+        body,
+    )
+    .await
+}
+
+pub async fn deepseek_models(
+    State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    proxy_request(
+        &state,
+        AgentProvider::Deepseek,
+        &format!("{}/models", state.config.deepseek_api_url),
+        Method::GET,
+        &uri,
+        &headers,
+        Bytes::new(),
     )
     .await
 }
@@ -649,6 +742,7 @@ async fn proxy_request(
     state: &AppState,
     expected_provider: AgentProvider,
     upstream_url: &str,
+    method: Method,
     original_uri: &axum::http::Uri,
     request_headers: &HeaderMap,
     body: Bytes,
@@ -702,7 +796,7 @@ async fn proxy_request(
                 continue;
             }
         };
-        let record_usage = !upstream_url.contains("count_tokens");
+        let record_usage = method != Method::GET && !upstream_url.contains("count_tokens");
         if record_usage
             && !pool_share::allow_gateway_request(
                 state,
@@ -721,7 +815,7 @@ async fn proxy_request(
 
         let mut request = state
             .http
-            .post(&upstream_url)
+            .request(method.clone(), &upstream_url)
             .bearer_auth(access_token)
             .body(body.clone());
 
@@ -741,9 +835,16 @@ async fn proxy_request(
                 request
             }
             AgentProvider::Claude => {
-                request.header("anthropic-beta", merged_anthropic_beta(request_headers))
+                let version = request_headers
+                    .get("anthropic-version")
+                    .cloned()
+                    .unwrap_or_else(|| HeaderValue::from_static("2023-06-01"));
+                request
+                    .header("anthropic-version", version)
+                    .header("anthropic-beta", merged_anthropic_beta(request_headers))
             }
             AgentProvider::Gemini => request,
+            AgentProvider::Deepseek => request,
             AgentProvider::Grok => request
                 .header("x-xai-token-auth", "xai-grok-cli")
                 .header("x-grok-client-version", "1.0.13")

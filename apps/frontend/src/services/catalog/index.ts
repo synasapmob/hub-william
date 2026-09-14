@@ -590,6 +590,11 @@ function gatewayInstallerUrl(origin?: string) {
   return siteAssetUrl("gateway.py", origin);
 }
 
+/** The OpenCode provider installer, published beside `gateway.py`. */
+function openCodeInstallerUrl(origin?: string) {
+  return siteAssetUrl("opencode.py", origin);
+}
+
 /** This document's own bytes, at a URL `curl` can take. */
 function documentUrl(entry: CatalogEntry) {
   return siteUrl(`${entry.id}.md`);
@@ -789,6 +794,7 @@ const catalogService = {
   listEntriesByCategory,
   matchesCollectionQuery,
   mcpProducts,
+  openCodeInstallerUrl,
   matchesQuery,
   usage,
   publishedSiteOrigin: PUBLISHED_SITE_ORIGIN,

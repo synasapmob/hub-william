@@ -20,6 +20,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/agent-connections/deepseek": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["connect_deepseek"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/agent-connections/start": {
     parameters: {
       query?: never;
@@ -403,7 +419,7 @@ export interface components {
       value: string;
     };
     /** @enum {string} */
-    AgentProvider: "chatgpt" | "claude" | "gemini" | "grok";
+    AgentProvider: "chatgpt" | "claude" | "gemini" | "deepseek" | "grok";
     AuthenticatedUser: {
       /** Format: uuid */
       id: string;
@@ -412,6 +428,9 @@ export interface components {
     };
     CompleteAuthorizationRequest: {
       callback_url: string;
+    };
+    ConnectDeepseekRequest: {
+      api_key: string;
     };
     CreateAgentPoolJoinRequest: {
       reason: string;
@@ -487,6 +506,57 @@ export interface operations {
       };
       /** @description Hub login required */
       401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  connect_deepseek: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ConnectDeepseekRequest"];
+      };
+    };
+    responses: {
+      /** @description DeepSeek API key validated and encrypted */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AgentConnection"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Invalid DeepSeek API key */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description DeepSeek validation unavailable */
+      502: {
         headers: {
           [name: string]: unknown;
         };

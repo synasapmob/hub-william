@@ -21,3 +21,4 @@ record and mark the old one superseded rather than rewriting its history.
 - [ADR-0012: Current Grok device authorization](0012-current-grok-device-authorization.md)
 - [ADR-0013: Periodic provider credential refresh](0013-periodic-provider-credential-refresh.md)
 - [ADR-0014: Google OAuth Gemini subscription gateway](0014-google-oauth-gemini-subscription-gateway.md)
+- [ADR-0015: DeepSeek API keys and OpenCode gateway installation](0015-deepseek-api-key-and-opencode-gateway.md)
