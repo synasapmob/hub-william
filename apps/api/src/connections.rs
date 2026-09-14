@@ -26,7 +26,8 @@ use crate::{AppState, auth::authenticated_user_id, error::ApiError};
 const CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const CLAUDE_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const CLAUDE_SCOPES: &str = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
-const GROK_CLIENT_ID: &str = "codex-grok-client";
+const GROK_SCOPES: &str = "openid profile email offline_access api:access";
+const GROK_CLIENT_SURFACE: &str = "grok-build";
 const DEFAULT_DEVICE_EXPIRY_SECONDS: i64 = 900;
 const DEFAULT_POLL_SECONDS: u64 = 5;
 
@@ -656,17 +657,11 @@ fn start_claude_authorization(state: &AppState) -> Result<StartedAuthorization, 
 }
 
 async fn start_grok_authorization(state: &AppState) -> Result<StartedAuthorization, ApiError> {
-    let url = format!(
-        "{}/oauth2/device/{}-surfacegrok-build",
-        state.config.grok_issuer, GROK_CLIENT_ID
-    );
-    let response = state
-        .http
-        .post(url)
-        .header("user-agent", "xai-grok-build/1.0.13")
-        .header("accept", "application/json")
-        .header("x-grok-client-version", "1.0.13")
-        .header("x-grok-client-identifier", "grok-shell")
+    let response = grok_oauth_request(state, "/oauth2/device/code")
+        .form(&[
+            ("client_id", state.config.grok_client_id.as_str()),
+            ("scope", GROK_SCOPES),
+        ])
         .send()
         .await
         .map_err(|error| upstream_network_error(AgentProvider::Grok, error))?;
@@ -675,10 +670,18 @@ async fn start_grok_authorization(state: &AppState) -> Result<StartedAuthorizati
         eprintln!("Grok device authorization returned HTTP {status}");
         return Err(upstream_status_error(AgentProvider::Grok, status));
     }
-    let payload = response
-        .json::<GrokDeviceResponse>()
-        .await
-        .map_err(|_| upstream_payload_error(AgentProvider::Grok))?;
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("missing")
+        .to_owned();
+    let payload = response.json::<GrokDeviceResponse>().await.map_err(|_| {
+        eprintln!(
+            "Grok device authorization returned HTTP {status} with content type {content_type}"
+        );
+        upstream_payload_error(AgentProvider::Grok)
+    })?;
     validate_prompt_url(
         &state.config.grok_issuer,
         &payload.verification_uri_complete,
@@ -768,13 +771,9 @@ async fn poll_pending_connection(
             user_code,
             verification_uri_complete,
         } => {
-            let response = state
-                .http
-                .post(format!("{}/oauth2/token", state.config.grok_issuer))
-                .header("user-agent", "xai-grok-build/1.0.13")
-                .header("x-grok-client-version", "1.0.13")
+            let response = grok_oauth_request(state, "/oauth2/token")
                 .form(&[
-                    ("client_id", GROK_CLIENT_ID),
+                    ("client_id", state.config.grok_client_id.as_str()),
                     ("device_code", device_code.as_str()),
                     ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
                 ])
@@ -1231,14 +1230,10 @@ async fn refresh_provider_token(
                 .await
         }
         AgentProvider::Grok => {
-            state
-                .http
-                .post(format!("{}/oauth2/token", state.config.grok_issuer))
-                .header("user-agent", "xai-grok-build/1.0.13")
-                .header("x-grok-client-version", "1.0.13")
+            grok_oauth_request(state, "/oauth2/token")
                 .form(&[
                     ("grant_type", "refresh_token"),
-                    ("client_id", GROK_CLIENT_ID),
+                    ("client_id", state.config.grok_client_id.as_str()),
                     ("refresh_token", refresh_token),
                 ])
                 .send()
@@ -1507,12 +1502,32 @@ fn token_claims(token: &Value) -> Option<Value> {
     })
 }
 
+fn grok_oauth_request(state: &AppState, path: &str) -> reqwest::RequestBuilder {
+    let user_agent = format!("xai-grok-build/{}", state.config.grok_client_version);
+    state
+        .http
+        .post(format!(
+            "{}{}",
+            state.config.grok_issuer.trim_end_matches('/'),
+            path
+        ))
+        .header("user-agent", user_agent)
+        .header("accept", "application/json")
+        .header("x-grok-client-version", &state.config.grok_client_version)
+        .header("x-grok-client-surface", GROK_CLIENT_SURFACE)
+}
+
 fn validate_prompt_url(issuer: &str, prompt_url: &str) -> Result<(), ApiError> {
     let issuer = Url::parse(issuer).map_err(|_| ApiError::Internal)?;
     let prompt = Url::parse(prompt_url).map_err(|_| upstream_payload_error(AgentProvider::Grok))?;
-    let same_origin = issuer.scheme() == prompt.scheme()
-        && issuer.host_str() == prompt.host_str()
-        && issuer.port_or_known_default() == prompt.port_or_known_default();
+    let expected_prompt = if issuer.host_str() == Some("auth.x.ai") {
+        Url::parse("https://accounts.x.ai").map_err(|_| ApiError::Internal)?
+    } else {
+        issuer
+    };
+    let same_origin = expected_prompt.scheme() == prompt.scheme()
+        && expected_prompt.host_str() == prompt.host_str()
+        && expected_prompt.port_or_known_default() == prompt.port_or_known_default();
     same_origin
         .then_some(())
         .ok_or_else(|| upstream_payload_error(AgentProvider::Grok))
@@ -1561,13 +1576,21 @@ fn database_error(error: sqlx::Error) -> ApiError {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        collections::HashMap,
+        sync::{Arc, Mutex},
+    };
+
+    use axum::{Form, Json, Router, http::HeaderMap, routing::post};
     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
     use serde_json::json;
+    use tokio::net::TcpListener;
 
     use super::{
-        AuthorizationSecret, CodexDeviceResponse, connection_metadata, decrypt_json, encrypt_json,
-        mask_account_label, merge_token_response, parse_callback_value, poll_seconds,
-        refresh_requires_reauthorization, start_claude_authorization, token_claims,
+        AuthorizationSecret, CodexDeviceResponse, GROK_SCOPES, connection_metadata, decrypt_json,
+        encrypt_json, mask_account_label, merge_token_response, parse_callback_value, poll_seconds,
+        refresh_requires_reauthorization, start_claude_authorization, start_grok_authorization,
+        token_claims, validate_prompt_url,
     };
     use crate::AppConfig;
 
@@ -1610,6 +1633,83 @@ mod tests {
             "https://platform.claude.com/oauth/code/callback"
         );
         assert!(started.requires_callback_url);
+    }
+
+    #[tokio::test]
+    async fn grok_device_authorization_uses_the_current_oauth_contract() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let issuer = format!("http://{}", listener.local_addr().unwrap());
+        let prompt_url = format!("{issuer}/oauth2/device?user_code=ABCD-EFGH");
+        let captured = Arc::new(Mutex::new(None));
+        let captured_request = captured.clone();
+        let response_prompt_url = prompt_url.clone();
+        let server = Router::new().route(
+            "/oauth2/device/code",
+            post(
+                move |headers: HeaderMap, Form(form): Form<HashMap<String, String>>| {
+                    let captured_request = captured_request.clone();
+                    let response_prompt_url = response_prompt_url.clone();
+                    async move {
+                        *captured_request.lock().unwrap() = Some((headers, form));
+                        Json(json!({
+                            "device_code": "device-secret",
+                            "user_code": "ABCD-EFGH",
+                            "verification_uri": response_prompt_url.clone(),
+                            "verification_uri_complete": response_prompt_url,
+                            "expires_in": 900,
+                            "interval": 5
+                        }))
+                    }
+                },
+            ),
+        );
+        let server_task = tokio::spawn(async move { axum::serve(listener, server).await });
+
+        let config = AppConfig {
+            grok_client_id: "current-client-id".to_owned(),
+            grok_client_version: "9.8.7".to_owned(),
+            grok_issuer: issuer,
+            ..AppConfig::default()
+        };
+        let state = crate::AppState {
+            config,
+            http: reqwest::Client::new(),
+            pool: sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://localhost/hub_william_test")
+                .unwrap(),
+        };
+
+        let started = start_grok_authorization(&state).await.unwrap();
+        server_task.abort();
+
+        let captured = captured.lock().unwrap();
+        let (headers, form) = captured.as_ref().unwrap();
+        assert_eq!(form.get("client_id").unwrap(), "current-client-id");
+        assert_eq!(form.get("scope").unwrap(), GROK_SCOPES);
+        assert_eq!(headers["x-grok-client-version"], "9.8.7");
+        assert_eq!(headers["x-grok-client-surface"], "grok-build");
+        assert_eq!(headers["user-agent"], "xai-grok-build/9.8.7");
+        assert_eq!(started.prompt_url, prompt_url);
+        assert_eq!(started.user_code.as_deref(), Some("ABCD-EFGH"));
+        assert!(!started.requires_callback_url);
+    }
+
+    #[test]
+    fn grok_device_prompt_is_restricted_to_the_official_account_origin() {
+        assert!(
+            validate_prompt_url(
+                "https://auth.x.ai",
+                "https://accounts.x.ai/oauth2/device?user_code=ABCD-EFGH"
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_prompt_url(
+                "https://auth.x.ai",
+                "https://accounts.x.ai.evil.example/oauth2/device"
+            )
+            .is_err()
+        );
     }
 
     #[test]
