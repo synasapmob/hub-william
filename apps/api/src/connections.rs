@@ -176,10 +176,12 @@ struct CredentialRow {
 }
 
 #[derive(Debug, FromRow)]
-struct AccountLabelCredentialRow {
+struct ConnectionMetadataCredentialRow {
     connection_id: Uuid,
     credential_ciphertext: Vec<u8>,
     credential_nonce: Vec<u8>,
+    plan: Option<String>,
+    provider: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -1204,6 +1206,8 @@ async fn finish_connection(
     row: ConnectionRow,
     token: Value,
 ) -> Result<AgentConnection, ApiError> {
+    let provider = AgentProvider::from_str(&row.provider)?;
+    let (account_label, plan) = resolved_connection_metadata(state, provider, &token).await;
     let (credential_ciphertext, credential_nonce) =
         encrypt_json(&state.config.credential_encryption_key, &token)?;
     let access_token_expires_at = token
@@ -1214,7 +1218,6 @@ async fn finish_connection(
         .get("refresh_token_expires_in")
         .and_then(Value::as_i64)
         .map(|seconds| Utc::now() + Duration::seconds(seconds));
-    let (account_label, plan) = connection_metadata(&token);
     let mut transaction = state.pool.begin().await.map_err(database_error)?;
 
     sqlx::query(
@@ -1259,7 +1262,11 @@ async fn finish_connection(
     connection_from_row(updated, None)
 }
 
-fn connection_metadata(token: &Value) -> (Option<String>, Option<String>) {
+fn connection_metadata(
+    provider: AgentProvider,
+    token: &Value,
+    provider_profile: Option<&Value>,
+) -> (Option<String>, Option<String>) {
     let claims = token_claims(token);
     let account_label = token
         .get("api_key_last_four")
@@ -1283,32 +1290,135 @@ fn connection_metadata(token: &Value) -> (Option<String>, Option<String>) {
                 .as_deref()
                 .map(mask_account_label)
         });
-    let plan = token
-        .get("subscription_type")
-        .or_else(|| token.get("rate_limit_tier"))
-        .or_else(|| token.get("plan"))
-        .or_else(|| {
-            claims.as_ref().and_then(|value| {
-                value
-                    .get("https://api.openai.com/auth.chatgpt_plan_type")
-                    .or_else(|| {
-                        value
-                            .get("https://api.openai.com/auth")
-                            .and_then(|auth| auth.get("chatgpt_plan_type"))
-                    })
-                    .or_else(|| value.get("plan"))
+    let token_plan = || {
+        token
+            .get("subscription_type")
+            .or_else(|| token.get("rate_limit_tier"))
+            .or_else(|| token.get("plan"))
+            .and_then(Value::as_str)
+    };
+    let plan = match provider {
+        AgentProvider::Chatgpt => token_plan()
+            .or_else(|| {
+                claims.as_ref().and_then(|value| {
+                    value
+                        .get("https://api.openai.com/auth.chatgpt_plan_type")
+                        .or_else(|| {
+                            value
+                                .get("https://api.openai.com/auth")
+                                .and_then(|auth| auth.get("chatgpt_plan_type"))
+                        })
+                        .or_else(|| value.get("plan"))
+                        .and_then(Value::as_str)
+                })
             })
-        })
-        .and_then(Value::as_str)
-        .map(normalize_plan_label);
+            .map(normalize_plan_label),
+        AgentProvider::Claude => provider_profile
+            .and_then(claude_plan_from_profile)
+            .or_else(|| token_plan().map(normalize_plan_label)),
+        AgentProvider::Gemini | AgentProvider::Deepseek => token_plan().map(normalize_plan_label),
+        AgentProvider::Grok => token_plan().and_then(grok_plan_label).or_else(|| {
+            token_claim(token, "tier")
+                .as_ref()
+                .and_then(grok_tier_label)
+        }),
+    };
 
     (account_label, plan)
 }
 
-pub async fn refresh_stored_account_labels(state: &AppState) -> Result<u64, sqlx::Error> {
-    let rows = sqlx::query_as::<_, AccountLabelCredentialRow>(
+async fn resolved_connection_metadata(
+    state: &AppState,
+    provider: AgentProvider,
+    token: &Value,
+) -> (Option<String>, Option<String>) {
+    let profile = if provider == AgentProvider::Claude {
+        fetch_claude_profile(state, token).await
+    } else {
+        None
+    };
+    connection_metadata(provider, token, profile.as_ref())
+}
+
+async fn fetch_claude_profile(state: &AppState, token: &Value) -> Option<Value> {
+    let access_token = token.get("access_token").and_then(Value::as_str)?;
+    let response = match state
+        .http
+        .get(&state.config.claude_profile_url)
+        .bearer_auth(access_token)
+        .header("accept", "application/json")
+        .header("cache-control", "no-cache")
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(error) => {
+            eprintln!("Claude profile request failed: {error}");
+            return None;
+        }
+    };
+    let status = response.status();
+    if !status.is_success() {
+        eprintln!("Claude profile returned HTTP {status}");
+        return None;
+    }
+    match response.json::<Value>().await {
+        Ok(profile) => Some(profile),
+        Err(_) => {
+            eprintln!("Claude profile returned an unexpected response");
+            None
+        }
+    }
+}
+
+fn claude_plan_from_profile(profile: &Value) -> Option<String> {
+    match profile
+        .pointer("/organization/organization_type")
+        .and_then(Value::as_str)?
+    {
+        "claude_max" => Some("MAX".to_owned()),
+        "claude_pro" => Some("Pro".to_owned()),
+        "claude_team" => Some("Team".to_owned()),
+        "claude_enterprise" => Some("Enterprise".to_owned()),
+        _ => None,
+    }
+}
+
+fn grok_plan_label(value: &str) -> Option<String> {
+    match value.trim().to_ascii_lowercase().replace(' ', "_").as_str() {
+        "grokpro" | "supergrok" => Some("Grok".to_owned()),
+        "supergrokpro" | "supergrok_heavy" => Some("Heavy".to_owned()),
+        "supergroklite" | "supergrok_lite" => Some("Lite".to_owned()),
+        "supergrokplus" | "supergrok_plus" => Some("Plus".to_owned()),
+        "xbasic" | "x_basic" => Some("X Basic".to_owned()),
+        "xpremium" | "x_premium" => Some("X Premium".to_owned()),
+        "xpremiumplus" | "x_premium_plus" => Some("X Premium+".to_owned()),
+        "free" => Some("Free".to_owned()),
+        _ => None,
+    }
+}
+
+fn grok_tier_label(value: &Value) -> Option<String> {
+    if let Some(value) = value.as_str() {
+        return grok_plan_label(value);
+    }
+    match value.as_u64()? {
+        0 => Some("Free".to_owned()),
+        1 => Some("Grok".to_owned()),
+        2 => Some("X Basic".to_owned()),
+        3 => Some("X Premium".to_owned()),
+        4 => Some("X Premium+".to_owned()),
+        5 => Some("Heavy".to_owned()),
+        6 => Some("Lite".to_owned()),
+        7 => Some("Plus".to_owned()),
+        _ => None,
+    }
+}
+
+pub async fn refresh_stored_connection_metadata(state: &AppState) -> Result<u64, sqlx::Error> {
+    let rows = sqlx::query_as::<_, ConnectionMetadataCredentialRow>(
         "SELECT connections.id AS connection_id, credentials.credential_ciphertext,
-                credentials.credential_nonce
+                credentials.credential_nonce, connections.plan, connections.provider
          FROM agent_connections AS connections
          JOIN agent_connection_credentials AS credentials
            ON credentials.connection_id = connections.id
@@ -1326,15 +1436,26 @@ pub async fn refresh_stored_account_labels(state: &AppState) -> Result<u64, sqlx
         ) else {
             continue;
         };
-        let (Some(account_label), _) = connection_metadata(&token) else {
+        let Ok(provider) = AgentProvider::from_str(&row.provider) else {
             continue;
         };
+        let (account_label, detected_plan) =
+            if provider == AgentProvider::Claude && row.plan.is_some() {
+                connection_metadata(provider, &token, None)
+            } else {
+                resolved_connection_metadata(state, provider, &token).await
+            };
+        let plan = detected_plan.or(row.plan);
         updated += sqlx::query(
-            "UPDATE agent_connections SET account_label = $2, updated_at = NOW()
-             WHERE id = $1 AND account_label IS DISTINCT FROM $2",
+            "UPDATE agent_connections SET account_label = COALESCE($2, account_label),
+                 plan = COALESCE($3, plan), updated_at = NOW()
+             WHERE id = $1
+               AND (account_label IS DISTINCT FROM COALESCE($2, account_label)
+                    OR plan IS DISTINCT FROM COALESCE($3, plan))",
         )
         .bind(row.connection_id)
         .bind(account_label)
+        .bind(plan)
         .execute(&state.pool)
         .await?
         .rows_affected();
@@ -1577,7 +1698,7 @@ async fn refresh_connected_connection(
     let merged = merge_token_response(stored_token, refreshed);
     let (credential_ciphertext, credential_nonce) =
         encrypt_json(&state.config.credential_encryption_key, &merged)?;
-    let (account_label, plan) = connection_metadata(&merged);
+    let (account_label, plan) = resolved_connection_metadata(state, provider, &merged).await;
 
     let restores_availability = mode.restores_availability();
     sqlx::query(
@@ -1996,11 +2117,23 @@ fn mask_account_label(email: &str) -> String {
     format!("{local_prefix}**{local_suffix}@{domain_prefix}**.{suffix}")
 }
 
+fn decoded_token_claims(encoded_token: &str) -> Option<Value> {
+    let encoded = encoded_token.split('.').nth(1)?;
+    let decoded = URL_SAFE_NO_PAD.decode(encoded).ok()?;
+    serde_json::from_slice(&decoded).ok()
+}
+
 fn token_claims(token: &Value) -> Option<Value> {
-    ["id_token", "access_token"].into_iter().find_map(|field| {
-        let encoded = token.get(field)?.as_str()?.split('.').nth(1)?;
-        let decoded = URL_SAFE_NO_PAD.decode(encoded).ok()?;
-        serde_json::from_slice(&decoded).ok()
+    ["id_token", "access_token"]
+        .into_iter()
+        .find_map(|field| decoded_token_claims(token.get(field)?.as_str()?))
+}
+
+fn token_claim(token: &Value, claim: &str) -> Option<Value> {
+    ["access_token", "id_token"].into_iter().find_map(|field| {
+        decoded_token_claims(token.get(field)?.as_str()?)?
+            .get(claim)
+            .cloned()
     })
 }
 
@@ -2093,12 +2226,12 @@ mod tests {
     use tokio::net::TcpListener;
 
     use super::{
-        AuthorizationSecret, CodexDeviceResponse, CredentialRefreshMode, GEMINI_SCOPES,
-        GROK_SCOPES, connection_metadata, decrypt_json, encrypt_json, mask_account_label,
-        merge_token_response, parse_callback_value, poll_seconds, refresh_requires_reauthorization,
-        should_refresh_credential, start_claude_authorization, start_gemini_authorization,
-        start_grok_authorization, token_claims, validate_api_key_input, validate_deepseek_key,
-        validate_prompt_url,
+        AgentProvider, AuthorizationSecret, CodexDeviceResponse, CredentialRefreshMode,
+        GEMINI_SCOPES, GROK_SCOPES, connection_metadata, decrypt_json, encrypt_json,
+        fetch_claude_profile, mask_account_label, merge_token_response, parse_callback_value,
+        poll_seconds, refresh_requires_reauthorization, should_refresh_credential,
+        start_claude_authorization, start_gemini_authorization, start_grok_authorization,
+        token_claims, validate_api_key_input, validate_deepseek_key, validate_prompt_url,
     };
     use crate::AppConfig;
 
@@ -2168,6 +2301,76 @@ mod tests {
             "https://antigravity.google/oauth-callback"
         );
         assert!(started.requires_callback_url);
+    }
+
+    #[tokio::test]
+    async fn claude_plan_is_read_from_the_oauth_profile_contract() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let captured = Arc::new(Mutex::new(None));
+        let captured_request = captured.clone();
+        let server = Router::new().route(
+            "/api/oauth/profile",
+            get(move |headers: HeaderMap| {
+                let captured_request = captured_request.clone();
+                async move {
+                    *captured_request.lock().unwrap() = Some(headers);
+                    Json(json!({
+                        "organization": {
+                            "organization_type": "claude_max",
+                            "organization_rate_limit_tier": "default_claude_max_5x"
+                        }
+                    }))
+                }
+            }),
+        );
+        let server_task = tokio::spawn(async move { axum::serve(listener, server).await });
+        let state = crate::AppState {
+            config: AppConfig {
+                claude_profile_url: format!("{origin}/api/oauth/profile"),
+                ..AppConfig::default()
+            },
+            http: reqwest::Client::new(),
+            pool: sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://localhost/hub_william_test")
+                .unwrap(),
+        };
+        let token = json!({ "access_token": "claude-access" });
+
+        let profile = fetch_claude_profile(&state, &token).await.unwrap();
+        server_task.abort();
+
+        let headers = captured.lock().unwrap();
+        let headers = headers.as_ref().unwrap();
+        assert_eq!(headers["authorization"], "Bearer claude-access");
+        assert_eq!(headers["cache-control"], "no-cache");
+        assert_eq!(
+            connection_metadata(AgentProvider::Claude, &token, Some(&profile)).1,
+            Some("MAX".to_owned())
+        );
+    }
+
+    #[test]
+    fn claude_profile_types_use_concise_plan_labels() {
+        for (organization_type, label) in [
+            ("claude_max", "MAX"),
+            ("claude_pro", "Pro"),
+            ("claude_team", "Team"),
+            ("claude_enterprise", "Enterprise"),
+        ] {
+            let profile = json!({
+                "organization": { "organization_type": organization_type }
+            });
+            assert_eq!(
+                connection_metadata(
+                    AgentProvider::Claude,
+                    &json!({ "access_token": "token" }),
+                    Some(&profile)
+                )
+                .1,
+                Some(label.to_owned())
+            );
+        }
     }
 
     #[tokio::test]
@@ -2300,11 +2503,15 @@ mod tests {
         assert!(validate_api_key_input("short").is_err());
         assert!(validate_api_key_input("sk-deepseek secret 123456").is_err());
 
-        let (label, plan) = connection_metadata(&json!({
-            "access_token": "sk-do-not-display",
-            "api_key_last_four": "3456",
-            "plan": "API"
-        }));
+        let (label, plan) = connection_metadata(
+            AgentProvider::Deepseek,
+            &json!({
+                "access_token": "sk-do-not-display",
+                "api_key_last_four": "3456",
+                "plan": "API"
+            }),
+            None,
+        );
         assert_eq!(label.as_deref(), Some("API key ••••3456"));
         assert_eq!(plan.as_deref(), Some("API"));
     }
@@ -2370,7 +2577,26 @@ mod tests {
             );
 
             assert_eq!(
-                connection_metadata(&json!({ "id_token": token })),
+                connection_metadata(AgentProvider::Chatgpt, &json!({ "id_token": token }), None),
+                (
+                    Some("ow**ner@exa**.com".to_owned()),
+                    Some(displayed_plan.to_owned())
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn grok_numeric_tiers_use_product_plan_labels() {
+        for (tier, displayed_plan) in [(1, "Grok"), (5, "Heavy"), (6, "Lite"), (7, "Plus")] {
+            let claims = json!({ "email": "owner@example.com", "tier": tier });
+            let token = format!(
+                "header.{}.signature",
+                URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap())
+            );
+
+            assert_eq!(
+                connection_metadata(AgentProvider::Grok, &json!({ "access_token": token }), None),
                 (
                     Some("ow**ner@exa**.com".to_owned()),
                     Some(displayed_plan.to_owned())

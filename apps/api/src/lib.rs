@@ -40,7 +40,7 @@ pub use config::AppConfig;
 pub use connections::{
     AgentConnection, AgentConnectionStatus, AgentProvider, CompleteAuthorizationRequest,
     ConnectDeepseekRequest, ProviderCredentialRefreshSummary, StartAgentConnectionRequest,
-    refresh_due_provider_credentials, refresh_stored_account_labels,
+    refresh_due_provider_credentials, refresh_stored_connection_metadata,
 };
 use connections::{
     complete_authorization, connect_deepseek, disconnect, get_connection, list_connections,
