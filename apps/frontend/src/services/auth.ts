@@ -81,7 +81,9 @@ async function session() {
   try {
     const current = await client.GET("/auth/session");
     if (current.data) return userFromApi(current.data.user);
-    if (current.response.status !== 401) return null;
+    if (current.response.status !== 204 && current.response.status !== 401) {
+      return null;
+    }
 
     const refreshed = await client.POST("/auth/refresh");
     return refreshed.data ? userFromApi(refreshed.data.user) : null;
