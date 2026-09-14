@@ -1,0 +1,19 @@
+version: 1
+
+projects:
+  CommandOSSLabs/dopamint-arena:
+    github_url: https://github.com/CommandOSSLabs/dopamint-arena
+    linear:
+      status: enabled
+      workspace_url: https://linear.app/commandoss
+      team_key: DOPAN
+
+  Southern-Discoveries/hub-william:
+    github_url: https://github.com/Southern-Discoveries/hub-william
+    linear:
+      status: disabled
+
+  Southern-Discoveries/sonix-study:
+    github_url: https://github.com/Southern-Discoveries/sonix-study
+    linear:
+      status: unconfigured
