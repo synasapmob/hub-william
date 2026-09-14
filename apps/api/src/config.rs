@@ -14,6 +14,8 @@ pub struct AppConfig {
     pub claude_redirect_url: String,
     pub claude_token_url: String,
     pub grok_issuer: String,
+    pub grok_client_id: String,
+    pub grok_client_version: String,
 }
 
 #[derive(Debug)]
@@ -75,7 +77,11 @@ impl AppConfig {
             claude_token_url: env::var("CLAUDE_TOKEN_URL")
                 .unwrap_or_else(|_| "https://platform.claude.com/v1/oauth/token".to_owned()),
             grok_issuer: env::var("GROK_AUTH_ISSUER")
-                .unwrap_or_else(|_| "https://accounts.x.ai".to_owned()),
+                .unwrap_or_else(|_| "https://auth.x.ai".to_owned()),
+            grok_client_id: env::var("GROK_AUTH_CLIENT_ID")
+                .unwrap_or_else(|_| "b1a00492-073a-47ea-816f-4c329264a828".to_owned()),
+            grok_client_version: env::var("GROK_CLIENT_VERSION")
+                .unwrap_or_else(|_| "1.0.30".to_owned()),
         })
     }
 }
@@ -92,7 +98,9 @@ impl Default for AppConfig {
             claude_authorize_url: "https://claude.com/cai/oauth/authorize".to_owned(),
             claude_redirect_url: "https://platform.claude.com/oauth/code/callback".to_owned(),
             claude_token_url: "https://platform.claude.com/v1/oauth/token".to_owned(),
-            grok_issuer: "https://accounts.x.ai".to_owned(),
+            grok_issuer: "https://auth.x.ai".to_owned(),
+            grok_client_id: "b1a00492-073a-47ea-816f-4c329264a828".to_owned(),
+            grok_client_version: "1.0.30".to_owned(),
         }
     }
 }

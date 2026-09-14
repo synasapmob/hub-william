@@ -96,7 +96,7 @@ function apiPerson(
 
 function poolFixture(requests: Array<Record<string, unknown>> = []) {
   return {
-    account_label: "duy**@**.com",
+    account_label: "du**y@exa**.com",
     agent: "ChatGPT",
     availability: { retry_at: null as string | null, status: "active" },
     capacity: 6,
@@ -131,7 +131,11 @@ function sessionResponse(user?: SessionFixture) {
     : jsonResponse({ message: "Log in to continue." }, 401);
 }
 
-function renderRoute(user?: SessionFixture, initialPools = [poolFixture()]) {
+function renderRoute(
+  user?: SessionFixture,
+  initialPools = [poolFixture()],
+  reauthorizationRequired = false,
+) {
   let pools = initialPools;
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -197,14 +201,56 @@ function renderRoute(user?: SessionFixture, initialPools = [poolFixture()]) {
         ];
         return new Response(null, { status: 204 });
       }
-      if (url.endsWith("/retry") && method === "POST") {
+      if (url.endsWith("/refresh") && method === "POST") {
+        const authorization = reauthorizationRequired
+          ? {
+              authorization_url:
+                "https://claude.com/oauth/authorize?refresh=true",
+              expires_at: "2026-09-14T17:00:00.000Z",
+              poll_after_seconds: 5,
+              requires_callback_url: true,
+              user_code: null,
+            }
+          : null;
         pools = [
           {
             ...pools[0],
-            availability: { retry_at: null, status: "half_open" },
+            availability: {
+              retry_at: null,
+              status: reauthorizationRequired ? "reauth_required" : "active",
+            },
           },
         ];
-        return jsonResponse({ retry_at: null, status: "half_open" });
+        return jsonResponse({
+          account_label: "du**y@exa**.com",
+          authorization,
+          created_at: "2026-09-04T08:30:00.000Z",
+          failure_message: null,
+          id: "44444444-4444-4444-8444-444444444444",
+          plan: "K12",
+          provider: pools[0].agent.toLowerCase(),
+          status: "connected",
+          updated_at: "2026-09-14T15:58:00.000Z",
+        });
+      }
+      if (url.endsWith("/complete") && method === "POST") {
+        pools = [
+          {
+            ...pools[0],
+            availability: { retry_at: null, status: "active" },
+          },
+        ];
+        return jsonResponse({
+          account_label: "du**y@exa**.com",
+          authorization: null,
+          created_at: "2026-09-04T08:30:00.000Z",
+          failure_message: null,
+          id: "44444444-4444-4444-8444-444444444444",
+          plan: "K12",
+          provider: "chatgpt",
+          status: "connected",
+          updated_at: "2026-09-14T15:59:00.000Z",
+        });
       }
       if (url.endsWith("/agent-connections") || url.endsWith("/gateway-keys")) {
         return jsonResponse([]);
@@ -229,6 +275,7 @@ function renderRoute(user?: SessionFixture, initialPools = [poolFixture()]) {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -240,7 +287,7 @@ describe("AgentsRoute", () => {
       "href",
       "/tools?node=gateway",
     );
-    expect(await screen.findByText("duy**@**.com")).toBeVisible();
+    expect(await screen.findByText("du**y@exa**.com")).toBeVisible();
     expect(
       fetchMock.mock.calls.some(
         ([request]) =>
@@ -276,14 +323,14 @@ describe("AgentsRoute", () => {
     const status = await screen.findByRole("status");
     expect(screen.getByText("Loading connected accounts")).toBeInTheDocument();
     expect(status.querySelectorAll("li")).toHaveLength(6);
-    expect(screen.queryByText("duy**@**.com")).not.toBeInTheDocument();
+    expect(screen.queryByText("du**y@exa**.com")).not.toBeInTheDocument();
   });
 
   it("shows no fixture cards when the API has no connected accounts", async () => {
     renderRoute(undefined, []);
 
     expect(await screen.findByText("No connected accounts yet.")).toBeVisible();
-    expect(screen.queryByText("duy**@**.com")).not.toBeInTheDocument();
+    expect(screen.queryByText("du**y@exa**.com")).not.toBeInTheDocument();
   });
 
   it("shows provider metadata and dynamic usage from the API", async () => {
@@ -498,23 +545,73 @@ describe("AgentsRoute", () => {
     );
   });
 
-  it("arms an unavailable pool for its next real gateway request", async () => {
+  it("refreshes the latest provider credential for an active pool", async () => {
+    const popup = {
+      close: vi.fn(),
+      location: { replace: vi.fn() },
+      opener: window,
+    };
+    vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
     const user = userEvent.setup();
-    renderRoute({ id: "owner-1", username: "synasapmob" }, [
-      {
-        ...poolFixture(),
-        availability: {
-          retry_at: "2026-09-10T04:00:00.000Z",
-          status: "rate_limited",
-        },
-      },
-    ]);
+    renderRoute({ id: "owner-1", username: "synasapmob" });
 
     await user.click(
       await screen.findByRole("button", { name: /check request/i }),
     );
-    expect(screen.getByText("Cooling down")).toBeVisible();
+    expect(screen.getByText("Active")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Refresh" }));
-    expect(await screen.findByText("Ready to retry")).toBeVisible();
+    expect(await screen.findByText("Active")).toBeVisible();
+    expect(screen.getByText("Provider credential refreshed")).toBeVisible();
+    expect(popup.close).toHaveBeenCalled();
+  });
+
+  it("opens provider authorization and reconnects the same pool when refresh is rejected", async () => {
+    const popup = {
+      close: vi.fn(),
+      location: { replace: vi.fn() },
+      opener: window,
+    };
+    vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
+    const user = userEvent.setup();
+    renderRoute(
+      { id: "owner-1", username: "synasapmob" },
+      [
+        {
+          ...poolFixture(),
+          agent: "Claude",
+          availability: { retry_at: null, status: "reauth_required" },
+        },
+      ],
+      true,
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: /check request/i }),
+    );
+    expect(screen.getByText("Reconnect required")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
+
+    await waitFor(() =>
+      expect(popup.location.replace).toHaveBeenCalledWith(
+        "https://claude.com/oauth/authorize?refresh=true",
+      ),
+    );
+    expect(popup.opener).toBeNull();
+    expect(
+      screen.getByText("Waiting for provider authorization"),
+    ).toBeVisible();
+
+    await user.type(
+      screen.getByLabelText("Callback URL or code"),
+      "callback-code#state-token",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Complete reconnection" }),
+    );
+
+    expect(
+      await screen.findByText("Provider credential refreshed"),
+    ).toBeVisible();
+    expect(screen.getByText("Active")).toBeVisible();
   });
 });

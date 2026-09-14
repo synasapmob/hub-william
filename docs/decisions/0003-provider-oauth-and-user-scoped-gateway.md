@@ -1,6 +1,6 @@
 # ADR-0003: Provider OAuth and a user-scoped agent gateway
 
-- Status: Accepted; gateway-account selection superseded by ADR-0005
+- Status: Accepted; gateway-account selection superseded by ADR-0005 and Grok authorization transport superseded by ADR-0012
 - Date: 2026-09-10
 - Supersedes: ADR-0002
 

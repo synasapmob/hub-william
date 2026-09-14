@@ -48,9 +48,13 @@ Gateway keys are shown once and stored only as hashes. A key can route through
 every connected account the user owns and every pool where their join request
 is accepted. Candidate pools are filtered strictly by the requested provider;
 an unusable credential advances to the next candidate. An upstream `429`
-persists a 30-minute cooldown, skips that pool during the wait, and advances to
-the next same-provider pool. The first real request after the timer is an
-atomic half-open probe; owners can arm the exact pool early through the pool
-management API. Provider token payloads are AES-256-GCM
-encrypted. Do not log request authorization headers, OAuth codes, device codes,
-callback URLs, or provider response bodies.
+persists a 30-minute cooldown, while an upstream `401` marks that account for
+reauthorization; both advance to the next same-provider pool. The first real
+request after a rate-limit timer is an atomic half-open probe. An owner can
+force-refresh the provider credential from pool management; a rejected or
+missing refresh token starts official authorization again on the same pool
+record. The API also refreshes connected provider credentials after 60 minutes
+without rotation, isolating per-account failures so one stale pool cannot stop
+the remaining sweep. Provider token payloads are AES-256-GCM encrypted. Do not
+log request authorization headers, OAuth codes, device codes, callback URLs, or
+provider response bodies.

@@ -157,6 +157,29 @@ async function list() {
   }
 }
 
+async function refresh(connectionId: string) {
+  try {
+    let result = await client.POST(
+      "/agent-connections/{connection_id}/refresh",
+      {
+        params: { path: { connection_id: connectionId } },
+      },
+    );
+    if (result.response.status === 401 && (await refreshHubSession())) {
+      result = await client.POST("/agent-connections/{connection_id}/refresh", {
+        params: { path: { connection_id: connectionId } },
+      });
+    }
+    if (!result.data) throw serviceError(result.error);
+    return connectionFromApi(result.data);
+  } catch (error) {
+    if (error instanceof AgentConnectionServiceError) throw error;
+    throw new AgentConnectionServiceError(
+      "The provider credential could not be refreshed.",
+    );
+  }
+}
+
 async function disconnect(connectionId: string) {
   try {
     let result = await client.DELETE("/agent-connections/{connection_id}", {
@@ -182,6 +205,7 @@ const agentConnectionsService = {
   get,
   list,
   queryKey: ["agent-connections"] as const,
+  refresh,
   start,
 };
 

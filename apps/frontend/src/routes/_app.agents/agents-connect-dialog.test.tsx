@@ -123,7 +123,7 @@ describe("AgentsConnectDialog", () => {
       if (request.pathname === "/agent-connections") {
         return jsonResponse([
           {
-            account_label: "fir*******@example.com",
+            account_label: "fi**rst@exa**.com",
             authorization: null,
             created_at: "2026-09-09T11:45:00Z",
             failure_message: null,
@@ -134,7 +134,7 @@ describe("AgentsConnectDialog", () => {
             updated_at: "2026-09-09T11:45:00Z",
           },
           {
-            account_label: "sec*******@example.com",
+            account_label: "se**ond@exa**.com",
             authorization: null,
             created_at: "2026-09-09T11:46:00Z",
             failure_message: null,
