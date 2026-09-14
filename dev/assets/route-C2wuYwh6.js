@@ -1,4 +1,4 @@
-import{s as e,t}from"./jsx-runtime-Cjbcb6-c.js";import{t as n}from"./lib-CGETqbK8.js";import{a as r,i,n as a,o,r as s,t as c}from"./utils.site-origin-DT-Fmgk3.js";import{t as l}from"./external-link-DqLfTevd.js";import{t as u}from"./layers-CA7tjWCZ.js";import{t as d}from"./flex-Dxklyjp3.js";var f=t();function p(){let e=c();return(0,f.jsx)(s,{command:`curl -fsSL ${r.installerUrl(e)} | python3 -`})}var m=`contributors/<your-github-login>/
+import{s as e,t}from"./jsx-runtime-Cjbcb6-c.js";import{t as n}from"./lib-CGETqbK8.js";import{a as r,i,n as a,o,r as s,t as c}from"./utils.site-origin-CoC07km7.js";import{t as l}from"./external-link-DqLfTevd.js";import{t as u}from"./layers-CA7tjWCZ.js";import{t as d}from"./flex-Dxklyjp3.js";var f=t();function p(){let e=c();return(0,f.jsx)(s,{command:`curl -fsSL ${r.installerUrl(e)} | python3 -`})}var m=`contributors/<your-github-login>/
 ├── libraries/
 │   ├── harness/<name>.md          an execution mode
 │   ├── skills/<name>/SKILL.md     a skill, with YAML front matter
