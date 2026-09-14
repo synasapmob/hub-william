@@ -53,6 +53,8 @@ reauthorization; both advance to the next same-provider pool. The first real
 request after a rate-limit timer is an atomic half-open probe. An owner can
 force-refresh the provider credential from pool management; a rejected or
 missing refresh token starts official authorization again on the same pool
-record. Provider token payloads are AES-256-GCM encrypted. Do not log request
-authorization headers, OAuth codes, device codes, callback URLs, or provider
-response bodies.
+record. The API also refreshes connected provider credentials after 60 minutes
+without rotation, isolating per-account failures so one stale pool cannot stop
+the remaining sweep. Provider token payloads are AES-256-GCM encrypted. Do not
+log request authorization headers, OAuth codes, device codes, callback URLs, or
+provider response bodies.
