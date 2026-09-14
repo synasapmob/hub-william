@@ -7,7 +7,7 @@ import CatalogCanvasMenu from "@/components/catalog-canvas/catalog-canvas-menu";
  * How to get the catalogue onto a machine.
  *
  * A separate collection view from `/library`: a reader installing Documents
- * or MCP servers should not have to walk the contract catalogue to get there.
+ * CLIs or MCP servers should not have to walk the contract catalogue to get there.
  */
 export default function ToolsRoute() {
   const { contributor = null } = useParams();
@@ -19,7 +19,7 @@ export default function ToolsRoute() {
       searchPlaceholder={
         contributor
           ? `Search @${contributor}'s tools...`
-          : "Search Documents and MCP..."
+          : "Search tools and installers..."
       }
       menu={<CatalogCanvasMenu contributor={contributor} section="tools" />}
     />

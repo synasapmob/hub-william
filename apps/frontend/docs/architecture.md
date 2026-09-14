@@ -128,8 +128,8 @@ zoom. Search checks both collection metadata and every file inside it.
 
 Selecting a card writes its collection id to `?node=` and opens one sheet with
 an introduction, the complete downloadable file list, a build-generated ZIP
-and usage instructions. `/tools` uses the same interaction but has exactly two
-nodes: `DOCUMENTS` and `MCP`.
+and usage instructions. `/tools` uses the same interaction for four focused
+nodes: `DOCUMENTS`, `GATEWAY`, `OPENCODE`, and `MCP`.
 
 ## Downloading a document
 
@@ -145,6 +145,11 @@ as agent instructions. `apps/frontend/public/install.py` is its
 dependency-free bootstrap: it maintains a sparse checkout, hands global setup
 to the existing TUI, expands MCP product selections to registry servers, or
 installs a managed project copy under `.agents/rules/hub-william`.
+
+`gateway.py` merges Hub gateway endpoints into the supported agent CLIs, while
+`opencode.py` discovers the models reachable by one Hub gateway key and merges
+custom providers into OpenCode. Both preserve unrelated configuration, create
+a one-time backup, and use owner-only atomic writes.
 
 Its own suite (`bash apps/frontend/scripts/machine/tests/run.sh`) pins the catalogue's layout on
 purpose, and runs in CI for that reason. A contract that moves without its

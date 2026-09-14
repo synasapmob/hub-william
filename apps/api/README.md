@@ -2,7 +2,8 @@
 
 Rust control-plane and streaming gateway service for Hub William. It owns
 username/password registration, rotating PostgreSQL-backed browser sessions,
-ChatGPT/Claude/Gemini/Grok authorization, encrypted provider credentials, user-scoped
+ChatGPT/Claude/Gemini/Grok authorization, encrypted DeepSeek API keys and
+provider credentials, user-scoped
 gateway keys, runtime health, and generated OpenAPI documentation. Pool
 persistence, join requests, and private Telegram contacts, orders and payments
 are live; pool cards read live provider usage. Post-payment fulfilment remains a
@@ -28,13 +29,15 @@ populated values in the runtime secret store.
 
 - `/auth/*`: five-hour access session and rotating seven-day refresh session.
 - `/agent-connections/*`: official provider authorization start, poll, callback,
-  disconnect, and refresh-on-read lifecycle.
+  DeepSeek API-key connection, disconnect, and refresh-on-read lifecycle.
 - `/gateway-keys`: create-once, list metadata, and revoke operations.
 - `/gateway/openai/v1/responses`: Codex/OpenAI Responses streaming gateway.
 - `/gateway/claude/v1/messages`: Claude Messages streaming gateway.
 - `/gateway/gemini/v1beta/models/*`: AGY native Gemini protocol bridged to the
   connected Google Code Assist subscription.
 - `/gateway/grok/v1/*`: Grok OpenAI-compatible gateway.
+- `/gateway/deepseek/*`: DeepSeek OpenAI-compatible chat, Responses, and live
+  model-list gateway.
 - `/internal/telegram/*`: contacts, their language preference, their orders, and
   SePay bank transactions. Reachable only over Railway private networking and
   only with `TELEGRAM_SERVICE_TOKEN`; never exposed through the frontend proxy.
@@ -55,8 +58,9 @@ reauthorization; both advance to the next same-provider pool. The first real
 request after a rate-limit timer is an atomic half-open probe. An owner can
 force-refresh the provider credential from pool management; a rejected or
 missing refresh token starts official authorization again on the same pool
-record. The API also refreshes connected provider credentials after 60 minutes
-without rotation, isolating per-account failures so one stale pool cannot stop
-the remaining sweep. Provider token payloads are AES-256-GCM encrypted. Do not
-log request authorization headers, OAuth codes, device codes, callback URLs, or
-provider response bodies.
+record. The API also refreshes connected OAuth provider credentials after 60
+minutes without rotation, isolating per-account failures so one stale pool
+cannot stop the remaining sweep. Static DeepSeek keys are validated when
+connected and on manual refresh instead. Provider credential payloads are
+AES-256-GCM encrypted. Do not log request authorization headers, API keys,
+OAuth codes, device codes, callback URLs, or provider response bodies.

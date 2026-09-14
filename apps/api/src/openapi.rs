@@ -4,9 +4,10 @@ use crate::{
     AgentConnection, AgentConnectionStatus, AgentPool, AgentPoolAvailability,
     AgentPoolAvailabilityStatus, AgentPoolJoinRequest, AgentPoolPerson, AgentPoolRequestStatus,
     AgentPoolShareEvidence, AgentPoolUsageMetric, AgentProvider, AuthenticatedUser,
-    CompleteAuthorizationRequest, CreateAgentPoolJoinRequest, CreatedGatewayKey,
-    DecideAgentPoolJoinRequest, ErrorResponse, GatewayKey, HealthResponse, InviteAgentPoolMember,
-    LoginRequest, RegisterRequest, SessionResponse, StartAgentConnectionRequest,
+    CompleteAuthorizationRequest, ConnectDeepseekRequest, CreateAgentPoolJoinRequest,
+    CreatedGatewayKey, DecideAgentPoolJoinRequest, ErrorResponse, GatewayKey, HealthResponse,
+    InviteAgentPoolMember, LoginRequest, RegisterRequest, SessionResponse,
+    StartAgentConnectionRequest,
 };
 
 #[derive(OpenApi)]
@@ -30,6 +31,7 @@ use crate::{
         crate::agent_pools::remove_member,
         crate::connections::list_connections,
         crate::connections::start,
+        crate::connections::connect_deepseek,
         crate::connections::get_connection,
         crate::connections::refresh_connection,
         crate::connections::complete_authorization,
@@ -52,6 +54,7 @@ use crate::{
         AgentPoolUsageMetric,
         AgentProvider,
         CompleteAuthorizationRequest,
+        ConnectDeepseekRequest,
         CreateAgentPoolJoinRequest,
         CreatedGatewayKey,
         DecideAgentPoolJoinRequest,

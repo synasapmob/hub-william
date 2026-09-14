@@ -96,8 +96,9 @@ export default function AgentsGatewayKeyDialog() {
             <Badge variant="outline">{keys.length} active</Badge>
           </Flex>
           <DialogDescription>
-            One key configures every selected agent. Paste it into Codex, Claude
-            Code, Antigravity, or Grok from{" "}
+            One key configures every selected agent or OpenCode provider. Use
+            the installers for Codex, Claude Code, Antigravity, Grok, and
+            DeepSeek from{" "}
             <Link
               className="font-medium text-indigo-600 hover:underline"
               onClick={() => changeOpen(false)}

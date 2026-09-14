@@ -11,6 +11,7 @@ import {
   gatewayInstallCommand,
   resolveGatewayOrigin,
 } from "@/utils/utils.gateway-config";
+import { openCodeInstallCommand } from "@/utils/utils.opencode-config";
 import useSiteOrigin from "@/utils/utils.site-origin";
 
 const toolUsage = tv({
@@ -37,6 +38,13 @@ function gatewayCommand(origin: string) {
   return gatewayInstallCommand({
     gatewayOrigin: resolveGatewayOrigin(origin),
     installerUrl: catalogService.gatewayInstallerUrl(origin),
+  });
+}
+
+function openCodeCommand(origin: string) {
+  return openCodeInstallCommand({
+    gatewayOrigin: resolveGatewayOrigin(origin),
+    installerUrl: catalogService.openCodeInstallerUrl(origin),
   });
 }
 
@@ -117,6 +125,47 @@ export default function CatalogCanvasToolUsage({
             <CopyBlock source={config.source} />
           </div>
         ))}
+      </div>
+    );
+  }
+
+  if (collection.id === "opencode") {
+    return (
+      <div className={container()}>
+        <div className={section()}>
+          <p className={label()}>Install all live providers</p>
+
+          <p className={description()}>
+            Replace <code>{GATEWAY_KEY_PLACEHOLDER}</code> with one Hub gateway
+            key. The installer discovers models from your connected Codex,
+            Claude, Gemini/AGY, Grok, and DeepSeek pools and merges them into
+            OpenCode.
+          </p>
+
+          <CopyCommand command={openCodeCommand(siteOrigin)} />
+        </div>
+
+        <div className={section()}>
+          <p className={label()}>Use in OpenCode</p>
+
+          <p className={description()}>
+            Start <code>opencode</code>, use <code>/models</code> to switch
+            provider or model, and use the native <code>/variants</code> picker
+            for reasoning effort. Supported models default to medium effort. AGY
+            models whose effort is part of the model ID stay selectable in{" "}
+            <code>/models</code>.
+          </p>
+        </div>
+
+        <div className={section()}>
+          <p className={label()}>Safer shared-machine install</p>
+
+          <p className={description()}>
+            Remove the <code>--key=…</code> argument to type the Hub key in a
+            hidden prompt instead of saving it in shell history. Upstream
+            provider credentials stay encrypted on Hub William.
+          </p>
+        </div>
       </div>
     );
   }

@@ -93,6 +93,26 @@ async function start(provider: AgentProvider) {
   }
 }
 
+async function connectDeepseek(apiKey: string) {
+  try {
+    let result = await client.POST("/agent-connections/deepseek", {
+      body: { api_key: apiKey },
+    });
+    if (result.response.status === 401 && (await refreshHubSession())) {
+      result = await client.POST("/agent-connections/deepseek", {
+        body: { api_key: apiKey },
+      });
+    }
+    if (!result.data) throw serviceError(result.error);
+    return connectionFromApi(result.data);
+  } catch (error) {
+    if (error instanceof AgentConnectionServiceError) throw error;
+    throw new AgentConnectionServiceError(
+      "The provider connection service is unavailable.",
+    );
+  }
+}
+
 async function get(connectionId: string) {
   try {
     let result = await client.GET("/agent-connections/{connection_id}", {
@@ -201,6 +221,7 @@ async function disconnect(connectionId: string) {
 
 const agentConnectionsService = {
   complete,
+  connectDeepseek,
   disconnect,
   get,
   list,

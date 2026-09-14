@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import {
+  Bot,
   CircleGauge,
   CircleHelp,
   Clock3,
@@ -9,6 +10,7 @@ import {
 import { tv } from "tailwind-variants";
 
 import Flex from "@/components/ui/flex";
+import Center from "@/components/ui/center";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardFooter, CardHeader } from "@/components/ui/card";
@@ -63,7 +65,7 @@ const shareHelpButton = tv({
   },
 });
 
-const agentIcons: Record<AgentProvider, string> = {
+const agentIcons: Partial<Record<AgentProvider, string>> = {
   ChatGPT: assetPath("assets/chatgpt-icon.png"),
   Claude: assetPath("assets/claude-icon.png"),
   Gemini: assetPath("assets/gemini-icon.svg"),
@@ -383,7 +385,13 @@ export default function AgentsPoolCard({
         <CardHeader className="gap-4 border-b border-slate-100 py-4 flex-1 flex flex-col">
           <Flex className="justify-between flex-wrap gap-3 flex-1 w-full">
             <Flex className="gap-3">
-              <img src={agentIcons[pool.agent]} alt="" className="size-9" />
+              {agentIcons[pool.agent] ? (
+                <img src={agentIcons[pool.agent]} alt="" className="size-9" />
+              ) : (
+                <Center className="size-9 rounded-lg bg-sky-50 text-sky-700">
+                  <Bot aria-hidden="true" className="size-5" />
+                </Center>
+              )}
 
               <div>
                 <p className="truncate font-mono text-sm font-semibold">

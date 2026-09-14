@@ -170,6 +170,12 @@ async fn fetch_provider_usage(
             )],
             windows: Vec::new(),
         },
+        AgentProvider::Deepseek => ConnectionUsage {
+            metrics: vec![unavailable(
+                "DeepSeek does not expose account quota through this connection.",
+            )],
+            windows: Vec::new(),
+        },
         AgentProvider::Grok => grok_usage(state, access_token).await,
     }
 }

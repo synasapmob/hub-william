@@ -178,8 +178,8 @@ export default function AgentsRoute() {
 
           <p className="mt-3 max-w-2xl text-muted-foreground text-sm/relaxed sm:text-base">
             Find people sharing an account, then connect Codex, Claude Code,
-            Antigravity, or Grok through the available pool. Browsing is public;
-            login is only required when you request to join.
+            Antigravity, Grok, or DeepSeek through the available pool. Browsing
+            is public; login is only required when you request to join.
           </p>
         </header>
 

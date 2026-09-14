@@ -2,7 +2,8 @@ import createClient from "openapi-fetch";
 
 import type { components, paths } from "./api.generated";
 
-export type AgentProvider = "ChatGPT" | "Claude" | "Gemini" | "Grok";
+export type AgentProvider =
+  "ChatGPT" | "Claude" | "DeepSeek" | "Gemini" | "Grok";
 export type AgentPoolRequestStatus =
   components["schemas"]["AgentPoolRequestStatus"];
 export type AgentPoolAvailabilityStatus =

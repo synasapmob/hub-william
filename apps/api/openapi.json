@@ -40,6 +40,64 @@
         }
       }
     },
+    "/agent-connections/deepseek": {
+      "post": {
+        "tags": ["agent connections"],
+        "operationId": "connect_deepseek",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectDeepseekRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "DeepSeek API key validated and encrypted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentConnection"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid DeepSeek API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "DeepSeek validation unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/agent-connections/start": {
       "post": {
         "tags": ["agent connections"],
@@ -1126,7 +1184,7 @@
       },
       "AgentProvider": {
         "type": "string",
-        "enum": ["chatgpt", "claude", "gemini", "grok"]
+        "enum": ["chatgpt", "claude", "gemini", "deepseek", "grok"]
       },
       "AuthenticatedUser": {
         "type": "object",
@@ -1149,6 +1207,15 @@
         "required": ["callback_url"],
         "properties": {
           "callback_url": {
+            "type": "string"
+          }
+        }
+      },
+      "ConnectDeepseekRequest": {
+        "type": "object",
+        "required": ["api_key"],
+        "properties": {
+          "api_key": {
             "type": "string"
           }
         }

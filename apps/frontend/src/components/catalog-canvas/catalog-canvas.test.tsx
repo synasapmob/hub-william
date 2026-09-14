@@ -21,7 +21,7 @@ function renderTools(initialUrl = "/tools") {
     <MemoryRouter initialEntries={[initialUrl]}>
       <CatalogCanvas
         section="tools"
-        searchPlaceholder="Search Documents and MCP..."
+        searchPlaceholder="Search tools and installers..."
       />
     </MemoryRouter>,
   );
@@ -101,5 +101,14 @@ describe("CatalogCanvas", () => {
     expect(
       screen.getByText(/python3 - --url=.* --key=YOUR_GATEWAY_KEY/),
     ).toBeVisible();
+  });
+
+  it("shows the OpenCode installer and native model controls", () => {
+    renderTools("/tools?node=opencode");
+
+    expect(screen.getByRole("heading", { name: "OpenCode" })).toBeVisible();
+    expect(screen.getByText(/opencode\.py.*YOUR_GATEWAY_KEY/)).toBeVisible();
+    expect(screen.getAllByText("/models", { exact: true })).not.toHaveLength(0);
+    expect(screen.getByText("/variants", { exact: true })).toBeVisible();
   });
 });
