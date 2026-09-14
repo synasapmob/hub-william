@@ -1,6 +1,6 @@
 # ADR-0007: Pool cooldown and owner membership controls
 
-- Status: Accepted; owner refresh behavior superseded by ADR-0010
+- Status: Accepted; owner refresh behavior superseded by ADR-0010 and account-label masking superseded by ADR-0011
 - Date: 2026-09-10
 - Supersedes: ADR-0006 rate-limit availability handling only
 

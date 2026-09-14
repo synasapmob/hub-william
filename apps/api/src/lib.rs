@@ -39,7 +39,7 @@ use auth::{login, logout, refresh, register, session};
 pub use config::AppConfig;
 pub use connections::{
     AgentConnection, AgentConnectionStatus, AgentProvider, CompleteAuthorizationRequest,
-    StartAgentConnectionRequest,
+    StartAgentConnectionRequest, refresh_stored_account_labels,
 };
 use connections::{
     complete_authorization, disconnect, get_connection, list_connections, refresh_connection, start,

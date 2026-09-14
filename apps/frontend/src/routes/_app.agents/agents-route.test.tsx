@@ -96,7 +96,7 @@ function apiPerson(
 
 function poolFixture(requests: Array<Record<string, unknown>> = []) {
   return {
-    account_label: "duy**@**.com",
+    account_label: "du**y@exa**.com",
     agent: "ChatGPT",
     availability: { retry_at: null as string | null, status: "active" },
     capacity: 6,
@@ -222,7 +222,7 @@ function renderRoute(
           },
         ];
         return jsonResponse({
-          account_label: "duy**@**.com",
+          account_label: "du**y@exa**.com",
           authorization,
           created_at: "2026-09-04T08:30:00.000Z",
           failure_message: null,
@@ -241,7 +241,7 @@ function renderRoute(
           },
         ];
         return jsonResponse({
-          account_label: "duy**@**.com",
+          account_label: "du**y@exa**.com",
           authorization: null,
           created_at: "2026-09-04T08:30:00.000Z",
           failure_message: null,
@@ -287,7 +287,7 @@ describe("AgentsRoute", () => {
       "href",
       "/tools?node=gateway",
     );
-    expect(await screen.findByText("duy**@**.com")).toBeVisible();
+    expect(await screen.findByText("du**y@exa**.com")).toBeVisible();
     expect(
       fetchMock.mock.calls.some(
         ([request]) =>
@@ -323,14 +323,14 @@ describe("AgentsRoute", () => {
     const status = await screen.findByRole("status");
     expect(screen.getByText("Loading connected accounts")).toBeInTheDocument();
     expect(status.querySelectorAll("li")).toHaveLength(6);
-    expect(screen.queryByText("duy**@**.com")).not.toBeInTheDocument();
+    expect(screen.queryByText("du**y@exa**.com")).not.toBeInTheDocument();
   });
 
   it("shows no fixture cards when the API has no connected accounts", async () => {
     renderRoute(undefined, []);
 
     expect(await screen.findByText("No connected accounts yet.")).toBeVisible();
-    expect(screen.queryByText("duy**@**.com")).not.toBeInTheDocument();
+    expect(screen.queryByText("du**y@exa**.com")).not.toBeInTheDocument();
   });
 
   it("shows provider metadata and dynamic usage from the API", async () => {

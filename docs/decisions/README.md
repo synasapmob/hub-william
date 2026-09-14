@@ -17,3 +17,4 @@ record and mark the old one superseded rather than rewriting its history.
 - [ADR-0008: Application layout and staged gateway extraction](0008-application-layout-and-staged-gateway-extraction.md)
 - [ADR-0009: Telegram webhook adapter boundary](0009-telegram-webhook-adapter-boundary.md)
 - [ADR-0010: Credential-aware pool recovery](0010-credential-aware-pool-recovery.md)
+- [ADR-0011: Readable masked account labels](0011-readable-masked-account-labels.md)

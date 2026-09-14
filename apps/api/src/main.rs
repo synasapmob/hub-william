@@ -32,10 +32,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .user_agent(concat!("hub-william/", env!("CARGO_PKG_VERSION")))
         .build()?;
     let state = hub_william_backend::AppState { config, http, pool };
+    let refreshed_account_labels =
+        hub_william_backend::refresh_stored_account_labels(&state).await?;
 
     println!(
-        "hub-william-backend listening on {}",
-        listener.local_addr()?
+        "hub-william-backend listening on {}; refreshed {refreshed_account_labels} account labels",
+        listener.local_addr()?,
     );
 
     axum::serve(listener, hub_william_backend::app(state))

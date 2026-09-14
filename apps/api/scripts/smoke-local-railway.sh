@@ -95,10 +95,10 @@ fi
 
 task_connection_id=$(uuidgen | tr '[:upper:]' '[:lower:]')
 task_connection_id=$(psql "$task_db_url" -v ON_ERROR_STOP=1 -Atq -c \
-  "INSERT INTO agent_connections (id, user_id, provider, status, account_label, plan) VALUES ('${task_connection_id}', '${task_user_id}', 'grok', 'connected', 'int**@**.com', 'K12') RETURNING id")
+  "INSERT INTO agent_connections (id, user_id, provider, status, account_label, plan) VALUES ('${task_connection_id}', '${task_user_id}', 'grok', 'in**nal@exa**.com', 'K12') RETURNING id")
 task_connection_id_two=$(uuidgen | tr '[:upper:]' '[:lower:]')
 task_connection_id_two=$(psql "$task_db_url" -v ON_ERROR_STOP=1 -Atq -c \
-  "INSERT INTO agent_connections (id, user_id, provider, status, account_label, plan) VALUES ('${task_connection_id_two}', '${task_user_id}', 'grok', 'connected', 'sec**@**.com', 'Plus') RETURNING id")
+  "INSERT INTO agent_connections (id, user_id, provider, status, account_label, plan) VALUES ('${task_connection_id_two}', '${task_user_id}', 'grok', 'se**ond@exa**.com', 'Plus') RETURNING id")
 same_provider_connection_count=$(psql "$task_db_url" -v ON_ERROR_STOP=1 -Atq -c \
   "SELECT COUNT(*) FROM agent_connections WHERE user_id = '${task_user_id}' AND provider = 'grok' AND status = 'connected'")
 [[ "$same_provider_connection_count" == "2" ]]

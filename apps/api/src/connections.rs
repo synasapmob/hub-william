@@ -157,6 +157,13 @@ struct CredentialRow {
     refresh_token_expires_at: Option<DateTime<Utc>>,
 }
 
+#[derive(Debug, FromRow)]
+struct AccountLabelCredentialRow {
+    connection_id: Uuid,
+    credential_ciphertext: Vec<u8>,
+    credential_nonce: Vec<u8>,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "provider", rename_all = "snake_case")]
 enum AuthorizationSecret {
@@ -988,6 +995,44 @@ fn connection_metadata(token: &Value) -> (Option<String>, Option<String>) {
     (account_label, plan)
 }
 
+pub async fn refresh_stored_account_labels(state: &AppState) -> Result<u64, sqlx::Error> {
+    let rows = sqlx::query_as::<_, AccountLabelCredentialRow>(
+        "SELECT connections.id AS connection_id, credentials.credential_ciphertext,
+                credentials.credential_nonce
+         FROM agent_connections AS connections
+         JOIN agent_connection_credentials AS credentials
+           ON credentials.connection_id = connections.id
+         WHERE connections.status = 'connected'",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+
+    let mut updated = 0;
+    for row in rows {
+        let Ok(token) = decrypt_json::<Value>(
+            &state.config.credential_encryption_key,
+            &row.credential_ciphertext,
+            &row.credential_nonce,
+        ) else {
+            continue;
+        };
+        let (Some(account_label), _) = connection_metadata(&token) else {
+            continue;
+        };
+        updated += sqlx::query(
+            "UPDATE agent_connections SET account_label = $2, updated_at = NOW()
+             WHERE id = $1 AND account_label IS DISTINCT FROM $2",
+        )
+        .bind(row.connection_id)
+        .bind(account_label)
+        .execute(&state.pool)
+        .await?
+        .rows_affected();
+    }
+
+    Ok(updated)
+}
+
 fn normalize_plan_label(value: &str) -> String {
     match value.trim().to_ascii_lowercase().as_str() {
         "k12" => "K12".to_owned(),
@@ -1429,14 +1474,29 @@ fn mask_account_label(email: &str) -> String {
     let Some((local, domain)) = email.split_once('@') else {
         return "connected account".to_owned();
     };
-    let Some((_, suffix)) = domain.rsplit_once('.') else {
+    let local = local.split_once('+').map_or(local, |(base, _)| base);
+    let Some((domain_without_suffix, suffix)) = domain.rsplit_once('.') else {
         return "connected account".to_owned();
     };
-    let visible = local.chars().take(3).collect::<String>();
-    if visible.is_empty() || suffix.is_empty() {
+    let domain_prefix = domain_without_suffix
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .chars()
+        .take(3)
+        .collect::<String>();
+    let local_chars = local.chars().collect::<Vec<_>>();
+    if local_chars.is_empty() || domain_prefix.is_empty() || suffix.is_empty() {
         return "connected account".to_owned();
     }
-    format!("{visible}**@**.{suffix}")
+    let local_prefix_len = local_chars.len().min(2);
+    let local_prefix = local_chars
+        .iter()
+        .take(local_prefix_len)
+        .collect::<String>();
+    let suffix_start = local_chars.len().saturating_sub(3).max(local_prefix_len);
+    let local_suffix = local_chars.iter().skip(suffix_start).collect::<String>();
+    format!("{local_prefix}**{local_suffix}@{domain_prefix}**.{suffix}")
 }
 
 fn token_claims(token: &Value) -> Option<Value> {
@@ -1586,11 +1646,12 @@ mod tests {
 
     #[test]
     fn account_labels_are_masked_before_browser_storage() {
-        assert_eq!(mask_account_label("duy@example.com"), "duy**@**.com");
         assert_eq!(
-            mask_account_label("102@utc2eduvn.onmicrosoft.com"),
-            "102**@**.com"
+            mask_account_label("10279579+maplenorth@utc2eduvn.onmicrosoft.com"),
+            "10**579@utc**.com"
         );
+        assert_eq!(mask_account_label("duy@example.com"), "du**y@exa**.com");
+        assert_eq!(mask_account_label("ab@x.dev"), "ab**@x**.dev");
         assert_eq!(mask_account_label("not-an-email"), "connected account");
         assert_eq!(json!({ "masked": true })["masked"], true);
     }
@@ -1626,7 +1687,7 @@ mod tests {
             assert_eq!(
                 connection_metadata(&json!({ "id_token": token })),
                 (
-                    Some("own**@**.com".to_owned()),
+                    Some("ow**ner@exa**.com".to_owned()),
                     Some(displayed_plan.to_owned())
                 )
             );
