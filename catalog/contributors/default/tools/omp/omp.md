@@ -38,9 +38,10 @@ DeepSeek's Responses mapping avoids treating a long coding-agent turn as a
 successful Chat Completions stream unless the provider actually sends a
 terminal event.
 
-The installer does not add input-token, output-token, context, or request-size
-limits. OMP and the selected upstream provider keep their native behavior; add
-a local override yourself only when you want a smaller budget.
+The installer and gateway do not add input-token, output-token, context,
+request-size, or total-generation-duration limits. OMP and the selected
+upstream provider keep their native behavior; add a local override yourself
+only when you want a smaller budget.
 
 Grok connections created before the current Build scopes were introduced must
 be reconnected once in `/agents`, then this installer must be run again. The

@@ -42,9 +42,10 @@ includes the selectable high, medium, and low AGY variants documented by the
 Installing OpenCode does not require a local `agy` executable. If no Gemini
 pool is connected, that provider is omitted and the installer prints why.
 
-The installer does not add input-token, output-token, context, or request-size
-limits. OpenCode and the selected upstream provider keep their native behavior;
-add a local override yourself only when you want a smaller budget.
+The installer and gateway do not add input-token, output-token, context,
+request-size, or total-generation-duration limits. OpenCode and the selected
+upstream provider keep their native behavior; add a local override yourself
+only when you want a smaller budget.
 
 Grok connections created before the current Build scopes were introduced must
 be reconnected once in `/agents`, then this installer must be run again. The
