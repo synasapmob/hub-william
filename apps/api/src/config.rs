@@ -16,6 +16,7 @@ pub struct AppConfig {
     pub claude_token_url: String,
     pub gemini_authorize_url: String,
     pub gemini_client_id: String,
+    pub gemini_client_secret: String,
     pub gemini_code_assist_url: String,
     pub gemini_redirect_url: String,
     pub gemini_token_url: String,
@@ -92,6 +93,12 @@ impl AppConfig {
                 "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
                     .to_owned()
             }),
+            gemini_client_secret: env::var("GEMINI_OAUTH_CLIENT_SECRET").map_err(|_| {
+                ConfigError(
+                    "GEMINI_OAUTH_CLIENT_SECRET must be set for Google subscription authorization"
+                        .to_owned(),
+                )
+            })?,
             gemini_code_assist_url: env::var("GEMINI_CODE_ASSIST_URL")
                 .unwrap_or_else(|_| "https://daily-cloudcode-pa.googleapis.com".to_owned()),
             gemini_redirect_url: env::var("GEMINI_REDIRECT_URL")
@@ -131,6 +138,7 @@ impl Default for AppConfig {
             gemini_client_id:
                 "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
                     .to_owned(),
+            gemini_client_secret: "test-gemini-client-secret".to_owned(),
             gemini_code_assist_url: "https://daily-cloudcode-pa.googleapis.com".to_owned(),
             gemini_redirect_url: "https://antigravity.google/oauth-callback".to_owned(),
             gemini_token_url: "https://oauth2.googleapis.com/token".to_owned(),

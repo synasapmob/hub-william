@@ -1096,6 +1096,7 @@ async fn exchange_gemini_code(
             ("code", code),
             ("redirect_uri", redirect_uri),
             ("client_id", state.config.gemini_client_id.as_str()),
+            ("client_secret", state.config.gemini_client_secret.as_str()),
             ("code_verifier", code_verifier),
         ])
         .send()
@@ -1847,6 +1848,7 @@ async fn refresh_provider_token(
                     ("grant_type", "refresh_token"),
                     ("refresh_token", refresh_token),
                     ("client_id", state.config.gemini_client_id.as_str()),
+                    ("client_secret", state.config.gemini_client_secret.as_str()),
                 ])
                 .send()
                 .await
@@ -2228,10 +2230,11 @@ mod tests {
     use super::{
         AgentProvider, AuthorizationSecret, CodexDeviceResponse, CredentialRefreshMode,
         GEMINI_SCOPES, GROK_SCOPES, connection_metadata, decrypt_json, encrypt_json,
-        fetch_claude_profile, mask_account_label, merge_token_response, parse_callback_value,
-        poll_seconds, refresh_requires_reauthorization, should_refresh_credential,
-        start_claude_authorization, start_gemini_authorization, start_grok_authorization,
-        token_claims, validate_api_key_input, validate_deepseek_key, validate_prompt_url,
+        exchange_gemini_code, fetch_claude_profile, mask_account_label, merge_token_response,
+        parse_callback_value, poll_seconds, refresh_provider_token,
+        refresh_requires_reauthorization, should_refresh_credential, start_claude_authorization,
+        start_gemini_authorization, start_grok_authorization, token_claims, validate_api_key_input,
+        validate_deepseek_key, validate_prompt_url,
     };
     use crate::AppConfig;
 
@@ -2371,6 +2374,131 @@ mod tests {
                 Some(label.to_owned())
             );
         }
+    }
+
+    #[tokio::test]
+    async fn gemini_token_exchange_sends_the_agy_client_secret() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let issuer = format!("http://{}", listener.local_addr().unwrap());
+        let captured = Arc::new(Mutex::new(None));
+        let captured_request = captured.clone();
+        let server = Router::new()
+            .route(
+                "/token",
+                post(move |Form(form): Form<HashMap<String, String>>| {
+                    let captured_request = captured_request.clone();
+                    async move {
+                        *captured_request.lock().unwrap() = Some(form);
+                        Json(json!({
+                            "access_token": "google-access-token",
+                            "refresh_token": "google-refresh-token"
+                        }))
+                    }
+                }),
+            )
+            .route(
+                "/userinfo",
+                get(|| async { Json(json!({ "email": "owner@example.com" })) }),
+            )
+            .route(
+                "/v1internal:loadCodeAssist",
+                post(|| async {
+                    Json(json!({
+                        "cloudaicompanionProject": "subscription-project",
+                        "currentTier": { "name": "Google AI Pro" }
+                    }))
+                }),
+            );
+        let server_task = tokio::spawn(async move { axum::serve(listener, server).await });
+
+        let state = crate::AppState {
+            config: AppConfig {
+                gemini_client_id: "agy-client-id".to_owned(),
+                gemini_client_secret: "agy-client-secret".to_owned(),
+                gemini_code_assist_url: issuer.clone(),
+                gemini_token_url: format!("{issuer}/token"),
+                gemini_userinfo_url: format!("{issuer}/userinfo"),
+                ..AppConfig::default()
+            },
+            http: reqwest::Client::new(),
+            pool: sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://localhost/hub_william_test")
+                .unwrap(),
+        };
+
+        let token = exchange_gemini_code(
+            &state,
+            "one-time-code",
+            "pkce-code-verifier",
+            "https://antigravity.google/oauth-callback",
+        )
+        .await
+        .unwrap();
+        server_task.abort();
+
+        let captured = captured.lock().unwrap();
+        let form = captured.as_ref().unwrap();
+        assert_eq!(form.get("client_id").unwrap(), "agy-client-id");
+        assert_eq!(form.get("client_secret").unwrap(), "agy-client-secret");
+        assert_eq!(form.get("code_verifier").unwrap(), "pkce-code-verifier");
+        assert_eq!(
+            token.get("cloudaicompanion_project").unwrap(),
+            "subscription-project"
+        );
+    }
+
+    #[tokio::test]
+    async fn gemini_token_refresh_sends_the_agy_client_secret() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let issuer = format!("http://{}", listener.local_addr().unwrap());
+        let captured = Arc::new(Mutex::new(None));
+        let captured_request = captured.clone();
+        let server = Router::new().route(
+            "/token",
+            post(move |Form(form): Form<HashMap<String, String>>| {
+                let captured_request = captured_request.clone();
+                async move {
+                    *captured_request.lock().unwrap() = Some(form);
+                    Json(json!({ "access_token": "refreshed-access-token" }))
+                }
+            }),
+        );
+        let server_task = tokio::spawn(async move { axum::serve(listener, server).await });
+
+        let state = crate::AppState {
+            config: AppConfig {
+                gemini_client_id: "agy-client-id".to_owned(),
+                gemini_client_secret: "agy-client-secret".to_owned(),
+                gemini_token_url: format!("{issuer}/token"),
+                ..AppConfig::default()
+            },
+            http: reqwest::Client::new(),
+            pool: sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://localhost/hub_william_test")
+                .unwrap(),
+        };
+
+        let refreshed = match refresh_provider_token(
+            &state,
+            AgentProvider::Gemini,
+            "google-refresh-token",
+            &json!({}),
+        )
+        .await
+        {
+            Ok(token) => token,
+            Err(_) => panic!("Gemini token refresh should succeed"),
+        };
+        server_task.abort();
+
+        let captured = captured.lock().unwrap();
+        let form = captured.as_ref().unwrap();
+        assert_eq!(form.get("grant_type").unwrap(), "refresh_token");
+        assert_eq!(form.get("client_secret").unwrap(), "agy-client-secret");
+        assert_eq!(
+            refreshed.get("access_token").unwrap(),
+            "refreshed-access-token"
+        );
     }
 
     #[tokio::test]
