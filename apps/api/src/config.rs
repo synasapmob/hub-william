@@ -11,6 +11,7 @@ pub struct AppConfig {
     pub telegram_service_token: Option<Vec<u8>>,
     pub codex_issuer: String,
     pub claude_authorize_url: String,
+    pub claude_profile_url: String,
     pub claude_redirect_url: String,
     pub claude_token_url: String,
     pub gemini_authorize_url: String,
@@ -79,6 +80,8 @@ impl AppConfig {
                 .unwrap_or_else(|_| "https://auth.openai.com".to_owned()),
             claude_authorize_url: env::var("CLAUDE_AUTHORIZE_URL")
                 .unwrap_or_else(|_| "https://claude.com/cai/oauth/authorize".to_owned()),
+            claude_profile_url: env::var("CLAUDE_PROFILE_URL")
+                .unwrap_or_else(|_| "https://api.anthropic.com/api/oauth/profile".to_owned()),
             claude_redirect_url: env::var("CLAUDE_REDIRECT_URL")
                 .unwrap_or_else(|_| "https://platform.claude.com/oauth/code/callback".to_owned()),
             claude_token_url: env::var("CLAUDE_TOKEN_URL")
@@ -121,6 +124,7 @@ impl Default for AppConfig {
             telegram_service_token: None,
             codex_issuer: "https://auth.openai.com".to_owned(),
             claude_authorize_url: "https://claude.com/cai/oauth/authorize".to_owned(),
+            claude_profile_url: "https://api.anthropic.com/api/oauth/profile".to_owned(),
             claude_redirect_url: "https://platform.claude.com/oauth/code/callback".to_owned(),
             claude_token_url: "https://platform.claude.com/v1/oauth/token".to_owned(),
             gemini_authorize_url: "https://accounts.google.com/o/oauth2/auth".to_owned(),

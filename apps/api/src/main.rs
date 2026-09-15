@@ -37,11 +37,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .user_agent(concat!("hub-william/", env!("CARGO_PKG_VERSION")))
         .build()?;
     let state = hub_william_backend::AppState { config, http, pool };
-    let refreshed_account_labels =
-        hub_william_backend::refresh_stored_account_labels(&state).await?;
+    let refreshed_connection_metadata =
+        hub_william_backend::refresh_stored_connection_metadata(&state).await?;
 
     println!(
-        "hub-william-backend listening on {}; refreshed {refreshed_account_labels} account labels",
+        "hub-william-backend listening on {}; refreshed {refreshed_connection_metadata} connection metadata records",
         listener.local_addr()?,
     );
 
