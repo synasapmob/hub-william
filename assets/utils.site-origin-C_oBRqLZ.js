@@ -1537,10 +1537,11 @@ let OMP migrate it before rerunning the installer.
 Run \`omp\` and use \`/model\` to switch provider or model. Re-run the install
 command whenever a connected pool's catalogue changes. Claude, Grok, and
 DeepSeek model IDs come from their authenticated live Hub catalogues. Codex IDs
-come from the Hub Codex catalogue. Gemini/AGY IDs come from the locally installed
-\`agy models\` command after a non-generating \`countTokens\` probe confirms the Hub
-key can reach a Gemini pool; the installer tries later AGY models if an earlier
-one is unavailable.
+come from the Hub Codex catalogue. Gemini/AGY IDs come from the authenticated
+Hub catalogue, restricted to the connected pool's live intersection with the
+current [Antigravity model set](https://antigravity.google/docs/models/#models)
+and its selectable [headless CLI variants](https://www.antigravity.google/docs/cli/headless/).
+Installing OMP does not require a local \`agy\` executable.
 
 The provider mappings use OMP's native custom-provider APIs:
 
@@ -1595,11 +1596,13 @@ DeepSeek model IDs are fetched through the live Hub pools; Grok uses its
 authenticated Build catalogue and Responses protocol. Codex model IDs and
 supported reasoning levels come from the installed \`codex app-server\`; when
 Codex is unavailable, the installer uses the current supported fallback list.
-Gemini/AGY model IDs come from the installed \`agy models\` command after a
-non-generating \`countTokens\` probe confirms that the Hub key can reach a Gemini
-pool. The installer tries each local AGY model until one passes. If AGY is not
-installed or no Gemini pool is connected, that provider is omitted and the
-installer prints why.
+Gemini/AGY IDs come from the authenticated Hub catalogue, which exposes only
+the intersection of the connected pool's live models and the current
+[Antigravity model set](https://antigravity.google/docs/models/#models). This
+includes the selectable high, medium, and low AGY variants documented by the
+[headless CLI reference](https://www.antigravity.google/docs/cli/headless/).
+Installing OpenCode does not require a local \`agy\` executable. If no Gemini
+pool is connected, that provider is omitted and the installer prints why.
 
 Grok connections created before the current Build scopes were introduced must
 be reconnected once in \`/agents\`, then this installer must be run again. The
