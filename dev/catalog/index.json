@@ -199,7 +199,7 @@
       "id": "contributors/default/tools/opencode/opencode",
       "path": "contributors/default/tools/opencode/opencode.md",
       "url": "/hub-william/dev/catalog/contributors/default/tools/opencode/opencode.md",
-      "bytes": 2110
+      "bytes": 2496
     },
     {
       "id": "contributors/synasapmob/libraries/harness/dopa-tps",
@@ -279,14 +279,14 @@
       "id": "contributors",
       "path": "contributors.zip",
       "url": "/hub-william/dev/catalog/contributors.zip",
-      "bytes": 70584,
+      "bytes": 70762,
       "files": 45
     },
     {
       "id": "contributors/default",
       "path": "contributors/default.zip",
       "url": "/hub-william/dev/catalog/contributors/default.zip",
-      "bytes": 54227,
+      "bytes": 54405,
       "files": 33
     },
     {
@@ -321,7 +321,7 @@
       "id": "contributors/default/tools",
       "path": "contributors/default/tools.zip",
       "url": "/hub-william/dev/catalog/contributors/default/tools.zip",
-      "bytes": 6484,
+      "bytes": 6662,
       "files": 5
     },
     {
@@ -349,7 +349,7 @@
       "id": "contributors/default/tools/opencode",
       "path": "contributors/default/tools/opencode.zip",
       "url": "/hub-william/dev/catalog/contributors/default/tools/opencode.zip",
-      "bytes": 1250,
+      "bytes": 1428,
       "files": 1
     },
     {
@@ -449,7 +449,7 @@
       "id": "default/tools/opencode",
       "path": "collections/default/tools/opencode.zip",
       "url": "/hub-william/dev/catalog/collections/default/tools/opencode.zip",
-      "bytes": 1250,
+      "bytes": 1428,
       "files": 1
     },
     {

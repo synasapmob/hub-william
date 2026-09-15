@@ -29,13 +29,19 @@ the provider supports effort. AGY exposes some effort levels as separate model
 IDs, so those remain separately selectable in `/models`.
 
 Re-run the command whenever provider catalogues change. Claude, Grok, and
-DeepSeek model IDs are fetched through the live Hub pools. Codex model IDs and
+DeepSeek model IDs are fetched through the live Hub pools; Grok uses its
+authenticated Build catalogue and Responses protocol. Codex model IDs and
 supported reasoning levels come from the installed `codex app-server`; when
 Codex is unavailable, the installer uses the current supported fallback list.
 Gemini/AGY model IDs come from the installed `agy models` command after a
 non-generating `countTokens` probe confirms that the Hub key can reach a Gemini
-pool. If AGY is not installed or no Gemini pool is connected, that provider is
-omitted.
+pool. The installer tries each local AGY model until one passes. If AGY is not
+installed or no Gemini pool is connected, that provider is omitted and the
+installer prints why.
+
+Grok connections created before the current Build scopes were introduced must
+be reconnected once in `/agents`, then this installer must be run again. The
+installer never falls back from subscription quota to a paid xAI API key.
 
 ## Security
 
