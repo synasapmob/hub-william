@@ -20,7 +20,10 @@ cargo run --manifest-path apps/api/Cargo.toml
 Copy `.env.example` into your local secret manager or run through Railway so
 `DATABASE_URL` is available. The binary applies SQLx migrations before it starts
 listening. `PROVIDER_CREDENTIAL_ENCRYPTION_KEY` must be an unpadded URL-safe
-base64 encoding of exactly 32 random bytes. `PORT` defaults to `8080`;
+base64 encoding of exactly 32 random bytes. `GEMINI_OAUTH_CLIENT_SECRET` must
+contain the AGY OAuth client credential and must remain in the runtime secret
+store; it is sent for both authorization-code exchange and token refresh.
+`PORT` defaults to `8080`;
 `FRONTEND_ORIGIN` restricts credentialed browser requests and
 `COOKIE_SECURE=true` enables secure cookies for production. Keep all
 populated values in the runtime secret store.
