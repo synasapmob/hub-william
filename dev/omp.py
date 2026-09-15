@@ -10,11 +10,10 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlparse
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 
@@ -103,6 +102,7 @@ def _gateway_models(gateway_url, key, provider):
     paths = {
         "codex": "/gateway/openai/v1/models",
         "claude": "/gateway/claude/v1/models?limit=1000",
+        "gemini": "/gateway/gemini/v1beta/models",
         "deepseek": "/gateway/deepseek/models",
         "grok": "/gateway/grok/v1/models",
     }
@@ -120,56 +120,6 @@ def _gateway_models(gateway_url, key, provider):
         return []
     models = payload.get("data", []) if isinstance(payload, dict) else []
     return [model for model in models if isinstance(model, dict) and model.get("id")]
-
-
-def _agy_models():
-    if not shutil.which("agy"):
-        return []
-    try:
-        result = subprocess.run(
-            ["agy", "models"],
-            capture_output=True,
-            check=False,
-            text=True,
-            timeout=15,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return []
-    if result.returncode != 0:
-        return []
-    models = []
-    for line in result.stdout.splitlines():
-        identifier, separator, name = line.partition("\t")
-        if separator and re.fullmatch(r"[A-Za-z0-9._-]+", identifier):
-            models.append({"id": identifier, "name": name.strip() or identifier})
-    return models
-
-
-def _gemini_available(gateway_url, key, models):
-    for model in models:
-        identifier = quote(model["id"], safe="._-")
-        request = Request(
-            gateway_url
-            + "/gateway/gemini/v1beta/models/"
-            + identifier
-            + ":countTokens",
-            data=b'{"contents":[]}',
-            headers={
-                "Authorization": "Bearer " + key,
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
-        try:
-            with urlopen(request, timeout=12) as response:
-                if 200 <= response.status < 300:
-                    return True
-        except HTTPError as error:
-            error.close()
-            continue
-        except (URLError, TimeoutError, ValueError):
-            continue
-    return False
 
 
 def _yaml_string(value):
@@ -332,20 +282,10 @@ def install(terminal, args, home=None):
     )
     terminal.write("Discovering models from connected Hub pools…\n")
     terminal.flush()
-    gemini_models = _agy_models()
-    gemini_available = _gemini_available(gateway_url, key, gemini_models)
-    if not gemini_models:
-        terminal.write(
-            "Skipped Hub Gemini / AGY: `agy models` returned no local catalogue.\n"
-        )
-    elif not gemini_available:
-        terminal.write(
-            "Skipped Hub Gemini / AGY: no AGY model passed the gateway countTokens probe.\n"
-        )
     catalogues = {
         "codex": _gateway_models(gateway_url, key, "codex"),
         "claude": _gateway_models(gateway_url, key, "claude"),
-        "gemini": gemini_models if gemini_available else [],
+        "gemini": _gateway_models(gateway_url, key, "gemini"),
         "grok": _gateway_models(gateway_url, key, "grok"),
         "deepseek": _gateway_models(gateway_url, key, "deepseek"),
     }
