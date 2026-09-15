@@ -17,8 +17,11 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
-    AgentProvider, AppState, auth::authenticated_user_id, connections::provider_credential,
-    error::ApiError, pool_share, usage,
+    AgentProvider, AppState,
+    auth::authenticated_user_id,
+    connections::{ANTIGRAVITY_CLIENT_VERSION, load_gemini_code_assist, provider_credential},
+    error::ApiError,
+    pool_share, usage,
 };
 
 const OPENAI_RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
@@ -28,7 +31,22 @@ const CLAUDE_MODELS_URL: &str = "https://api.anthropic.com/v1/models";
 const GROK_CHAT_URL: &str = "https://cli-chat-proxy.grok.com/v1/chat/completions";
 const GROK_RESPONSES_URL: &str = "https://cli-chat-proxy.grok.com/v1/responses";
 const GROK_MODELS_URL: &str = "https://cli-chat-proxy.grok.com/v1/models-v2";
-const GEMINI_CLIENT_VERSION: &str = "antigravity/1.2.0";
+const ANTIGRAVITY_MODELS: [&str; 14] = [
+    "gemini-3.8-flash-high",
+    "gemini-3.8-flash-medium",
+    "gemini-3.8-flash-low",
+    "gemini-3.7-flash-high",
+    "gemini-3.7-flash-medium",
+    "gemini-3.7-flash-low",
+    "gemini-3.6-flash-high",
+    "gemini-3.6-flash-medium",
+    "gemini-3.6-flash-low",
+    "gemini-3.1-pro-high",
+    "gemini-3.1-pro-low",
+    "claude-sonnet-4-6",
+    "claude-opus-4-6-thinking",
+    "gpt-oss-120b-medium",
+];
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct GatewayKey {
@@ -463,6 +481,7 @@ pub async fn gemini_models(
             last_error = Some(ApiError::Forbidden);
             continue;
         }
+        let project = current_gemini_project(&state, access_token, project).await;
         let upstream = match state
             .http
             .post(format!(
@@ -470,7 +489,7 @@ pub async fn gemini_models(
                 state.config.gemini_code_assist_url.trim_end_matches('/')
             ))
             .bearer_auth(access_token)
-            .header("user-agent", GEMINI_CLIENT_VERSION)
+            .header("user-agent", ANTIGRAVITY_CLIENT_VERSION)
             .json(&json!({ "project": project }))
             .send()
             .await
@@ -567,6 +586,24 @@ fn parse_gemini_operation(path: &str) -> Result<(&str, GeminiOperation), ApiErro
     Ok((model, operation))
 }
 
+async fn current_gemini_project(
+    state: &AppState,
+    access_token: &str,
+    stored_project: &str,
+) -> String {
+    load_gemini_code_assist(state, access_token, Some(stored_project))
+        .await
+        .ok()
+        .and_then(|payload| {
+            payload
+                .get("cloudaicompanionProject")
+                .and_then(Value::as_str)
+                .filter(|project| !project.is_empty())
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| stored_project.to_owned())
+}
+
 async fn gemini_proxy_request(
     state: &AppState,
     model: &str,
@@ -634,6 +671,7 @@ async fn gemini_proxy_request(
             ));
             continue;
         };
+        let project = current_gemini_project(state, access_token, project).await;
         if operation.records_usage()
             && !pool_share::allow_gateway_request(
                 state,
@@ -650,7 +688,7 @@ async fn gemini_proxy_request(
             continue;
         }
 
-        let upstream_body = gemini_code_assist_request(model, project, operation, &request_body);
+        let upstream_body = gemini_code_assist_request(model, &project, operation, &request_body);
         let upstream_url = format!(
             "{}{}",
             state.config.gemini_code_assist_url.trim_end_matches('/'),
@@ -660,7 +698,7 @@ async fn gemini_proxy_request(
             .http
             .post(upstream_url)
             .bearer_auth(access_token)
-            .header("user-agent", GEMINI_CLIENT_VERSION)
+            .header("user-agent", ANTIGRAVITY_CLIENT_VERSION)
             .header("content-type", "application/json")
             .json(&upstream_body)
             .send()
@@ -718,7 +756,7 @@ fn gemini_code_assist_request(
     operation: GeminiOperation,
     request: &Value,
 ) -> Value {
-    let model = model.trim_start_matches("models/");
+    let model = antigravity_model_id(model.trim_start_matches("models/"), request);
     match operation {
         GeminiOperation::CountTokens => json!({
             "request": {
@@ -729,19 +767,54 @@ fn gemini_code_assist_request(
         GeminiOperation::Generate | GeminiOperation::StreamGenerate => json!({
             "model": model,
             "project": project,
-            "user_prompt_id": Uuid::new_v4().to_string(),
-            "request": request
+            "requestId": format!(
+                "agent/{}/{}/{}/0",
+                Uuid::new_v4(),
+                Utc::now().timestamp_millis(),
+                Uuid::new_v4()
+            ),
+            "request": request,
+            "userAgent": "antigravity",
+            "requestType": "agent"
         }),
     }
 }
 
+fn antigravity_model_id(model: &str, request: &Value) -> String {
+    let thinking_budget = request
+        .pointer("/generationConfig/thinkingConfig/thinkingBudget")
+        .and_then(Value::as_i64);
+    let flash_variant = || match thinking_budget {
+        Some(-1) => "high",
+        Some(budget) if budget <= 1_000 => "low",
+        _ => "medium",
+    };
+    match model {
+        "gemini-3.8-flash" => format!("gemini-3.8-flash-{}", flash_variant()),
+        "gemini-3.7-flash" => format!("gemini-3.7-flash-{}", flash_variant()),
+        "gemini-3.6-flash" => format!("gemini-3.6-flash-{}", flash_variant()),
+        "gemini-3.1-pro-preview-customtools" => "gemini-3.1-pro-high".to_owned(),
+        "gemini-3.1-pro-preview" | "gemini-3.1-pro" => {
+            if thinking_budget == Some(-1) {
+                "gemini-3.1-pro-high".to_owned()
+            } else {
+                "gemini-3.1-pro-low".to_owned()
+            }
+        }
+        _ => model.to_owned(),
+    }
+}
+
 fn gemini_model_catalogue(payload: &Value) -> Value {
-    let mut models = payload
+    let available = payload
         .get("models")
         .and_then(Value::as_object)
-        .into_iter()
-        .flatten()
-        .filter_map(|(identifier, metadata)| {
+        .cloned()
+        .unwrap_or_default();
+    let models = ANTIGRAVITY_MODELS
+        .iter()
+        .filter_map(|identifier| {
+            let metadata = available.get(*identifier)?;
             let display_name = metadata.get("displayName").and_then(Value::as_str)?;
             if display_name.is_empty()
                 || metadata
@@ -759,7 +832,6 @@ fn gemini_model_catalogue(payload: &Value) -> Value {
             }))
         })
         .collect::<Vec<_>>();
-    models.sort_by(|left, right| left["id"].as_str().cmp(&right["id"].as_str()));
     json!({ "object": "list", "data": models })
 }
 
@@ -886,17 +958,21 @@ fn transform_gemini_sse_line(line: &[u8]) -> Vec<u8> {
     let has_newline = line.ends_with(b"\n");
     let text = String::from_utf8_lossy(line);
     let trimmed = text.trim_end_matches(['\r', '\n']);
+    let normalized = || format!("{trimmed}{}", if has_newline { "\n" } else { "" }).into_bytes();
+    if trimmed.is_empty() {
+        return normalized();
+    }
     let Some(payload) = trimmed.strip_prefix("data:").map(str::trim) else {
-        return line.to_vec();
+        return normalized();
     };
     if payload.is_empty() || payload == "[DONE]" {
-        return line.to_vec();
+        return normalized();
     }
     let Ok(wrapper) = serde_json::from_str::<Value>(payload) else {
-        return line.to_vec();
+        return normalized();
     };
     let Ok(serialized) = serde_json::to_string(&unwrap_gemini_response(wrapper)) else {
-        return line.to_vec();
+        return normalized();
     };
     format!("data: {serialized}{}", if has_newline { "\n" } else { "" }).into_bytes()
 }
@@ -1508,9 +1584,9 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        GeminiOperation, GeminiSseTransformer, UpstreamDisposition, chatgpt_account_id,
-        gemini_code_assist_request, gemini_model_catalogue, grok_proxy_headers, hash_gateway_key,
-        merged_anthropic_beta, parse_gemini_operation, rate_limit_cooldown,
+        GeminiOperation, GeminiSseTransformer, UpstreamDisposition, antigravity_model_id,
+        chatgpt_account_id, gemini_code_assist_request, gemini_model_catalogue, grok_proxy_headers,
+        hash_gateway_key, merged_anthropic_beta, parse_gemini_operation, rate_limit_cooldown,
         strip_unsupported_codex_fields, unwrap_gemini_response, upstream_disposition,
     };
 
@@ -1607,30 +1683,73 @@ mod tests {
     #[test]
     fn gemini_native_requests_are_wrapped_for_code_assist() {
         let wrapped = gemini_code_assist_request(
-            "gemini-3.1-pro-preview",
+            "gemini-3.8-flash-medium",
             "project-123",
             GeminiOperation::Generate,
             &json!({"contents": [{"role": "user", "parts": [{"text": "Hi"}]}]}),
         );
-        assert_eq!(wrapped["model"], "gemini-3.1-pro-preview");
+        assert_eq!(wrapped["model"], "gemini-3.8-flash-medium");
         assert_eq!(wrapped["project"], "project-123");
         assert_eq!(wrapped["request"]["contents"][0]["role"], "user");
-        assert!(wrapped["user_prompt_id"].as_str().is_some());
+        assert!(
+            wrapped["requestId"]
+                .as_str()
+                .is_some_and(|request_id| request_id.starts_with("agent/"))
+        );
+        assert_eq!(wrapped["userAgent"], "antigravity");
+        assert_eq!(wrapped["requestType"], "agent");
     }
 
     #[test]
-    fn gemini_model_catalogue_keeps_only_user_facing_live_models() {
+    fn gemini_native_base_models_map_to_current_agy_effort_ids() {
+        assert_eq!(
+            antigravity_model_id(
+                "gemini-3.8-flash",
+                &json!({"generationConfig": {"thinkingConfig": {"thinkingBudget": -1}}})
+            ),
+            "gemini-3.8-flash-high"
+        );
+        assert_eq!(
+            antigravity_model_id(
+                "gemini-3.8-flash",
+                &json!({"generationConfig": {"thinkingConfig": {"thinkingBudget": 4000}}})
+            ),
+            "gemini-3.8-flash-medium"
+        );
+        assert_eq!(
+            antigravity_model_id(
+                "gemini-3.8-flash",
+                &json!({"generationConfig": {"thinkingConfig": {"thinkingBudget": 1000}}})
+            ),
+            "gemini-3.8-flash-low"
+        );
+        assert_eq!(
+            antigravity_model_id("gemini-3.1-pro-preview-customtools", &json!({})),
+            "gemini-3.1-pro-high"
+        );
+        assert_eq!(
+            antigravity_model_id(
+                "gemini-3.1-pro-preview",
+                &json!({"generationConfig": {"thinkingConfig": {"thinkingBudget": 1024}}})
+            ),
+            "gemini-3.1-pro-low"
+        );
+    }
+
+    #[test]
+    fn gemini_model_catalogue_keeps_only_current_antigravity_models() {
         let catalogue = gemini_model_catalogue(&json!({
             "models": {
-                "gemini-live": {"displayName": "Gemini Live"},
-                "internal-model": {"displayName": "Internal", "isInternal": true},
-                "unnamed-model": {"quotaInfo": {"remainingFraction": 1.0}}
+                "gemini-3.8-flash-high": {"displayName": "Gemini 3.8 Flash (High)"},
+                "gemini-3.7-flash-medium": {"displayName": "Gemini 3.7 Flash (Medium)"},
+                "gemini-3.6-flash-low": {"displayName": "Gemini 3.6 Flash (Low)", "isInternal": true},
+                "gemini-2.5-pro": {"displayName": "Gemini 2.5 Pro"}
             }
         }));
         assert_eq!(catalogue["object"], "list");
-        assert_eq!(catalogue["data"].as_array().unwrap().len(), 1);
-        assert_eq!(catalogue["data"][0]["id"], "gemini-live");
-        assert_eq!(catalogue["data"][0]["name"], "Gemini Live");
+        assert_eq!(catalogue["data"].as_array().unwrap().len(), 2);
+        assert_eq!(catalogue["data"][0]["id"], "gemini-3.8-flash-high");
+        assert_eq!(catalogue["data"][1]["id"], "gemini-3.7-flash-medium");
     }
 
     #[test]
@@ -1665,5 +1784,15 @@ mod tests {
         let text = String::from_utf8(output.to_vec()).unwrap();
         assert!(text.contains(r#""responseId":"trace-1""#));
         assert!(!text.contains(r#""response":{"#));
+    }
+
+    #[test]
+    fn gemini_sse_transformer_normalizes_crlf_event_boundaries() {
+        let mut transformer = GeminiSseTransformer::default();
+        let output = transformer
+            .push(b"data: {\"response\":{\"candidates\":[]},\"traceId\":\"trace-1\"}\r\n\r\n");
+        let text = String::from_utf8(output.to_vec()).unwrap();
+        assert!(!text.contains('\r'));
+        assert!(text.ends_with("\n\n"));
     }
 }
