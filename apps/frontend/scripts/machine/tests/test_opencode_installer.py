@@ -198,6 +198,22 @@ class OpenCodeInstallerTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             opencode._validated_gateway_url("http://hub.example")
 
+    def test_key_flag_never_opens_the_terminal_device(self):
+        with mock.patch.object(opencode, "install", return_value=0) as install, mock.patch(
+            "builtins.open", side_effect=AssertionError("/dev/tty must not be opened")
+        ):
+            self.assertEqual(
+                opencode.main(
+                    [
+                        "--url=https://api.hub.example",
+                        "--key=hw_gateway_secret",
+                    ]
+                ),
+                0,
+            )
+
+        self.assertIs(install.call_args.args[0], opencode.sys.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
