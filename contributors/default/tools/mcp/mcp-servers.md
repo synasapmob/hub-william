@@ -4,6 +4,20 @@ Model Context Protocol servers are registered per agent, in each agent's own
 configuration format. The installer writes those blocks so the three formats
 stay in step.
 
+## Quick install
+
+```bash
+# All configured MCP servers
+curl -fsSL https://synasapmob.github.io/hub-william/install.py | python3 - --mcp all
+
+# Selected products
+curl -fsSL https://synasapmob.github.io/hub-william/install.py | python3 - --mcp linear,playwright
+```
+
+The product identifiers are `notion`, `linear`, `playwright`,
+`chrome-browser` and `supabase`. Supabase expands to the configured
+project-scoped servers; it never creates one account-wide connection.
+
 ## Adding one
 
 ```bash

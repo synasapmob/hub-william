@@ -14,7 +14,7 @@ Contributions land on `dev`. Production is `main`, and it moves only by merging
   into `main`. Do not open a feature pull request against `main`.
 
 `dev` deploys to the preview site; `main` deploys to production. See
-[architecture.md](../docs/architecture.md).
+[architecture.md](../apps/frontend/docs/architecture.md).
 
 ## Add a catalogue document
 
@@ -43,8 +43,8 @@ pnpm install
 pnpm dev
 ```
 
-Read [the frontend conventions](../docs/frontend-conventions.md) before a
-user-visible change. The [architecture guide](../docs/architecture.md) explains
+Read [the frontend conventions](../apps/frontend/docs/frontend-conventions.md) before a
+user-visible change. The [architecture guide](../apps/frontend/docs/architecture.md) explains
 the static catalogue and the boundaries between the site and installer.
 
 Before opening a pull request, run the same checks as CI:
@@ -56,7 +56,7 @@ pnpm check:tailwind
 pnpm typecheck
 pnpm test
 pnpm build
-bash scripts/machine/tests/run.sh
+bash apps/frontend/scripts/machine/tests/run.sh
 ```
 
 Keep a pull request focused on one outcome, add regression coverage for changed

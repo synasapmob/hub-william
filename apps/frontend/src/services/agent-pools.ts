@@ -1,0 +1,289 @@
+import createClient from "openapi-fetch";
+
+import type { components, paths } from "./api.generated";
+
+export type AgentProvider =
+  "ChatGPT" | "Claude" | "DeepSeek" | "Gemini" | "Grok";
+export type AgentPoolRequestStatus =
+  components["schemas"]["AgentPoolRequestStatus"];
+export type AgentPoolAvailabilityStatus =
+  components["schemas"]["AgentPoolAvailabilityStatus"];
+
+export interface AgentPoolAvailability {
+  retryAt?: string;
+  status: AgentPoolAvailabilityStatus;
+}
+
+export interface AgentPoolShareEvidence {
+  availablePercent: number;
+  budgetUnits?: number;
+  capUnits?: number;
+  failOpenReason?: string;
+  memberCount: number;
+  poolCachedTokens: number;
+  poolInputTokens: number;
+  poolOutputTokens: number;
+  poolUnits: number;
+  providerUsedPercent?: number;
+  remainingUnits?: number;
+  userCachedTokens: number;
+  userInputTokens: number;
+  userOutputTokens: number;
+  userUnits: number;
+  windowLabel?: string;
+}
+
+export interface AgentPoolPerson {
+  avatarLabel: string;
+  joinedAt: string;
+  share: AgentPoolShareEvidence;
+  usageAvailablePercent: number;
+  username: string;
+}
+
+export interface AgentPoolUsageMetric {
+  detail?: string;
+  label: string;
+  value: string;
+}
+
+export interface AgentPoolJoinRequest {
+  avatarLabel: string;
+  id: string;
+  reason: string;
+  status: AgentPoolRequestStatus;
+  telegram: string;
+  username: string;
+}
+
+export interface AgentPool {
+  accountLabel: string;
+  agent: AgentProvider;
+  availability: AgentPoolAvailability;
+  capacity: number;
+  createdAt: string;
+  id: string;
+  members: AgentPoolPerson[];
+  owner: AgentPoolPerson;
+  plan: string;
+  requests: AgentPoolJoinRequest[];
+  usage: AgentPoolUsageMetric[];
+}
+
+interface CreateJoinRequest {
+  reason: string;
+  telegram: string;
+}
+
+type ApiAgentPool = components["schemas"]["AgentPool"];
+type ApiAgentPoolPerson = components["schemas"]["AgentPoolPerson"];
+type ApiAgentPoolJoinRequest = components["schemas"]["AgentPoolJoinRequest"];
+type ErrorResponse = components["schemas"]["ErrorResponse"];
+
+const apiBaseUrl = (
+  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080"
+).replace(/\/$/, "");
+const client = createClient<paths>({
+  baseUrl: apiBaseUrl,
+  credentials: "include",
+  fetch: (...args) => globalThis.fetch(...args),
+});
+
+export class AgentPoolServiceError extends Error {}
+
+function shareFromApi(
+  share: ApiAgentPoolPerson["share"],
+): AgentPoolShareEvidence {
+  return {
+    availablePercent: share.available_percent,
+    budgetUnits: share.budget_units ?? undefined,
+    capUnits: share.cap_units ?? undefined,
+    failOpenReason: share.fail_open_reason ?? undefined,
+    memberCount: share.member_count,
+    poolCachedTokens: share.pool_cached_tokens,
+    poolInputTokens: share.pool_input_tokens,
+    poolOutputTokens: share.pool_output_tokens,
+    poolUnits: share.pool_units,
+    providerUsedPercent: share.provider_used_percent ?? undefined,
+    remainingUnits: share.remaining_units ?? undefined,
+    userCachedTokens: share.user_cached_tokens,
+    userInputTokens: share.user_input_tokens,
+    userOutputTokens: share.user_output_tokens,
+    userUnits: share.user_units,
+    windowLabel: share.window_label ?? undefined,
+  };
+}
+
+function personFromApi(person: ApiAgentPoolPerson): AgentPoolPerson {
+  return {
+    avatarLabel: person.avatar_label,
+    joinedAt: person.joined_at,
+    share: shareFromApi(person.share),
+    usageAvailablePercent: person.usage_available_percent,
+    username: person.username,
+  };
+}
+
+function requestFromApi(
+  request: ApiAgentPoolJoinRequest,
+): AgentPoolJoinRequest {
+  return {
+    avatarLabel: request.avatar_label,
+    id: request.id,
+    reason: request.reason,
+    status: request.status,
+    telegram: request.telegram,
+    username: request.username,
+  };
+}
+
+function poolFromApi(pool: ApiAgentPool): AgentPool {
+  return {
+    accountLabel: pool.account_label,
+    agent: pool.agent as AgentProvider,
+    availability: {
+      retryAt: pool.availability.retry_at ?? undefined,
+      status: pool.availability.status,
+    },
+    capacity: pool.capacity,
+    createdAt: pool.created_at,
+    id: pool.id,
+    members: pool.members.map(personFromApi),
+    owner: personFromApi(pool.owner),
+    plan: pool.plan,
+    requests: pool.requests.map(requestFromApi),
+    usage: pool.usage.map((metric) => ({
+      detail: metric.detail ?? undefined,
+      label: metric.label,
+      value: metric.value,
+    })),
+  };
+}
+
+function serviceError(error?: ErrorResponse) {
+  return new AgentPoolServiceError(
+    error?.message ?? "The account pools could not be loaded.",
+  );
+}
+
+async function refreshHubSession() {
+  const { data } = await client.POST("/auth/refresh");
+  return Boolean(data);
+}
+
+async function list() {
+  try {
+    const result = await client.GET("/agent-pools");
+    if (!result.data) throw serviceError(result.error);
+    return result.data.map(poolFromApi);
+  } catch (error) {
+    if (error instanceof AgentPoolServiceError) throw error;
+    throw new AgentPoolServiceError("The account pool service is unavailable.");
+  }
+}
+
+async function requestJoin(poolId: string, values: CreateJoinRequest) {
+  try {
+    let result = await client.POST("/agent-pools/{connection_id}/requests", {
+      body: values,
+      params: { path: { connection_id: poolId } },
+    });
+    if (result.response.status === 401 && (await refreshHubSession())) {
+      result = await client.POST("/agent-pools/{connection_id}/requests", {
+        body: values,
+        params: { path: { connection_id: poolId } },
+      });
+    }
+    if (!result.data) throw serviceError(result.error);
+    return requestFromApi(result.data);
+  } catch (error) {
+    if (error instanceof AgentPoolServiceError) throw error;
+    throw new AgentPoolServiceError("The join request could not be sent.");
+  }
+}
+
+async function decide(
+  requestId: string,
+  status: Exclude<AgentPoolRequestStatus, "pending">,
+) {
+  try {
+    let result = await client.POST(
+      "/agent-pool-requests/{request_id}/decision",
+      {
+        body: { status },
+        params: { path: { request_id: requestId } },
+      },
+    );
+    if (result.response.status === 401 && (await refreshHubSession())) {
+      result = await client.POST("/agent-pool-requests/{request_id}/decision", {
+        body: { status },
+        params: { path: { request_id: requestId } },
+      });
+    }
+    if (!result.data) throw serviceError(result.error);
+    return requestFromApi(result.data);
+  } catch (error) {
+    if (error instanceof AgentPoolServiceError) throw error;
+    throw new AgentPoolServiceError("The join request could not be updated.");
+  }
+}
+
+async function invite(poolId: string, username: string) {
+  try {
+    let result = await client.POST("/agent-pools/{connection_id}/members", {
+      body: { username },
+      params: { path: { connection_id: poolId } },
+    });
+    if (result.response.status === 401 && (await refreshHubSession())) {
+      result = await client.POST("/agent-pools/{connection_id}/members", {
+        body: { username },
+        params: { path: { connection_id: poolId } },
+      });
+    }
+    if (!result.data) throw serviceError(result.error);
+    return personFromApi(result.data);
+  } catch (error) {
+    if (error instanceof AgentPoolServiceError) throw error;
+    throw new AgentPoolServiceError("The member could not be invited.");
+  }
+}
+
+async function removeMember(poolId: string, username: string) {
+  try {
+    let result = await client.DELETE(
+      "/agent-pools/{connection_id}/members/{username}",
+      { params: { path: { connection_id: poolId, username } } },
+    );
+    if (result.response.status === 401 && (await refreshHubSession())) {
+      result = await client.DELETE(
+        "/agent-pools/{connection_id}/members/{username}",
+        { params: { path: { connection_id: poolId, username } } },
+      );
+    }
+    if (!result.response.ok) throw serviceError(result.error);
+  } catch (error) {
+    if (error instanceof AgentPoolServiceError) throw error;
+    throw new AgentPoolServiceError("The member could not be removed.");
+  }
+}
+
+function createdLabel(createdAt: string) {
+  return new Intl.DateTimeFormat("en", {
+    day: "2-digit",
+    month: "short",
+    timeZone: "UTC",
+    year: "numeric",
+  }).format(new Date(createdAt));
+}
+
+const agentPoolsService = {
+  createdLabel,
+  decide,
+  invite,
+  list,
+  queryKey: ["agent-pools"] as const,
+  requestJoin,
+  removeMember,
+};
+
+export default agentPoolsService;
