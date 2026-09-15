@@ -483,7 +483,7 @@ pub async fn gemini_models(
         }
         let project = current_gemini_project(&state, access_token, project).await;
         let upstream = match state
-            .http
+            .gateway_http
             .post(format!(
                 "{}/v1internal:fetchAvailableModels",
                 state.config.gemini_code_assist_url.trim_end_matches('/')
@@ -695,7 +695,7 @@ async fn gemini_proxy_request(
             operation.path()
         );
         let upstream = match state
-            .http
+            .gateway_http
             .post(upstream_url)
             .bearer_auth(access_token)
             .header("user-agent", ANTIGRAVITY_CLIENT_VERSION)
@@ -1053,7 +1053,7 @@ async fn proxy_request(
         }
 
         let mut request = state
-            .http
+            .gateway_http
             .request(method.clone(), &upstream_url)
             .bearer_auth(access_token)
             .body(body.clone());

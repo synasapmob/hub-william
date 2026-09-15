@@ -17,8 +17,9 @@ The target production topology has four Railway services:
   delivery is explicitly designed; Telegram webhooks are owned by `telegram`.
 - Provider-bound gateway traffic will leave through the API's gateway module.
   The `/api/gateway/*` proxy and private `/gateway/*` router do not impose a
-  Hub-owned request-size or token budget; non-gateway API routes retain their
-  default body limits.
+  Hub-owned request-size, token, or total response-duration budget;
+  non-gateway API routes retain their default body and request limits. Gateway
+  connection and between-byte liveness checks remain in place.
 
 `apps/frontend/Dockerfile` and `apps/api/Dockerfile` own reproducible service builds.
 Production secrets stay in Railway variables. The API receives

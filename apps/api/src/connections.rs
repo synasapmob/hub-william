@@ -2275,6 +2275,7 @@ mod tests {
         let state = crate::AppState {
             config: AppConfig::default(),
             http: reqwest::Client::new(),
+            gateway_http: reqwest::Client::new(),
             pool: sqlx::postgres::PgPoolOptions::new()
                 .connect_lazy("postgres://localhost/hub_william_test")
                 .unwrap(),
@@ -2298,6 +2299,7 @@ mod tests {
         let state = crate::AppState {
             config: AppConfig::default(),
             http: reqwest::Client::new(),
+            gateway_http: reqwest::Client::new(),
             pool: sqlx::postgres::PgPoolOptions::new()
                 .connect_lazy("postgres://localhost/hub_william_test")
                 .unwrap(),
@@ -2348,6 +2350,7 @@ mod tests {
                 ..AppConfig::default()
             },
             http: reqwest::Client::new(),
+            gateway_http: reqwest::Client::new(),
             pool: sqlx::postgres::PgPoolOptions::new()
                 .connect_lazy("postgres://localhost/hub_william_test")
                 .unwrap(),
@@ -2440,6 +2443,7 @@ mod tests {
                 ..AppConfig::default()
             },
             http: reqwest::Client::new(),
+            gateway_http: reqwest::Client::new(),
             pool: sqlx::postgres::PgPoolOptions::new()
                 .connect_lazy("postgres://localhost/hub_william_test")
                 .unwrap(),
@@ -2507,6 +2511,7 @@ mod tests {
                 ..AppConfig::default()
             },
             http: reqwest::Client::new(),
+            gateway_http: reqwest::Client::new(),
             pool: sqlx::postgres::PgPoolOptions::new()
                 .connect_lazy("postgres://localhost/hub_william_test")
                 .unwrap(),
@@ -2574,6 +2579,7 @@ mod tests {
         let state = crate::AppState {
             config,
             http: reqwest::Client::new(),
+            gateway_http: reqwest::Client::new(),
             pool: sqlx::postgres::PgPoolOptions::new()
                 .connect_lazy("postgres://localhost/hub_william_test")
                 .unwrap(),
@@ -2703,6 +2709,7 @@ mod tests {
                 ..AppConfig::default()
             },
             http: reqwest::Client::new(),
+            gateway_http: reqwest::Client::new(),
             pool: sqlx::postgres::PgPoolOptions::new()
                 .connect_lazy("postgres://localhost/hub_william_test")
                 .unwrap(),

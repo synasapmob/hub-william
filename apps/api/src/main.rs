@@ -36,7 +36,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .timeout(Duration::from_secs(30))
         .user_agent(concat!("hub-william/", env!("CARGO_PKG_VERSION")))
         .build()?;
-    let state = hub_william_backend::AppState { config, http, pool };
+    let gateway_http = hub_william_backend::gateway_http_client()?;
+    let state = hub_william_backend::AppState {
+        config,
+        http,
+        gateway_http,
+        pool,
+    };
     let refreshed_connection_metadata =
         hub_william_backend::refresh_stored_connection_metadata(&state).await?;
 
