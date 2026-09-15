@@ -11,6 +11,18 @@ harness at those exact home paths after moving it to a timestamped backup. They
 never remove a repository's own `AGENTS.md` or `CLAUDE.md`; those project files
 remain available for project-specific rules such as Linear routing.
 
+A contributor can optionally supply `libraries/harness/AGENTS.md` to append
+personal instructions, `libraries/harness/codex-policy.md` for native Codex
+`developer_instructions`, and `libraries/agents/codex/*.toml` for personal
+Codex roles. Select one with `sync --contributor <login>`; the selection is
+saved in this machine's profile. `default` installs no contributor extras.
+Existing user instructions and unrelated config remain intact. Only owned
+roles and the managed policy block are removed when changing contributors or
+turning the Codex harness off. Foreign role files are preserved and reported.
+
+For the operator-specific workflow and live verification, see
+[the synasapmob contribution](../../contributors/synasapmob/tools/installer/codex-workflow.md).
+
 The delivery templates are local too:
 `contributors/synasapmob/libraries/templates/github-pull-request.md` and
 `contributors/synasapmob/libraries/templates/linear-issue.md`. The first is vendored from dopamint-arena's

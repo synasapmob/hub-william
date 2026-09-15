@@ -25,25 +25,25 @@ tags containing an `auto` segment are unsupported and perform no action.
 - `contributors/default/libraries/harness/github/clickable-references.md` — clickable Linear,
   PR and commit labels with verified lifecycle markers.
 - `contributors/default/libraries/harness/github/report-summary.md` — Git/PR final summary.
-- `contributors/synasapmob/contributors/default/libraries/harness/linear/creation-policy.md` — default-deny issue
+- `contributors/synasapmob/libraries/harness/linear/creation-policy.md` — default-deny issue
   creation budget and no automatic decomposition/blocking relationships.
-- `contributors/synasapmob/contributors/default/libraries/harness/linear/delivery-readiness.md` — fill missing
+- `contributors/synasapmob/libraries/harness/linear/delivery-readiness.md` — fill missing
   assignee/estimate metadata for delivery from an existing issue.
-- `contributors/synasapmob/contributors/default/libraries/harness/linear/requirements-freshness.md` — pre-code and
+- `contributors/synasapmob/libraries/harness/linear/requirements-freshness.md` — pre-code and
   final traceability audit for verified existing-issue delivery.
-- `contributors/synasapmob/contributors/default/libraries/harness/linear/freshness-report-summary.md` — compact
+- `contributors/synasapmob/libraries/harness/linear/freshness-report-summary.md` — compact
   freshness verdict, sources, reconciliation, conflicts and artifact handoff.
-- `contributors/synasapmob/contributors/default/libraries/harness/linear/report-summary.md` — Linear final summary.
+- `contributors/synasapmob/libraries/harness/linear/report-summary.md` — Linear final summary.
 - `contributors/default/libraries/harness/evidence/test-evidence.md` — backend/frontend test
   logs, history and the compact final handoff.
 - `contributors/default/libraries/harness/evidence/approach-history.md` — shared append-only
   per-task implementation approach and before/after flow.
 - `contributors/default/libraries/harness/evidence/report-summary.md` — evidence final summary.
-- `contributors/synasapmob/contributors/default/libraries/harness/playwright/report-summary.md` — browser flow,
+- `contributors/synasapmob/libraries/harness/playwright/report-summary.md` — browser flow,
   screenshots, observed/fixed bugs and scoped cleanup summary.
-- `contributors/synasapmob/contributors/default/libraries/harness/projects/routing.md` — Git-remote-first GitHub,
+- `contributors/synasapmob/libraries/harness/projects/routing.md` — Git-remote-first GitHub,
   Linear and delivery-base preflight.
-- `contributors/synasapmob/contributors/default/libraries/harness/projects/registry.yaml` — direct per-project GitHub
+- `contributors/synasapmob/libraries/harness/projects/registry.yaml` — direct per-project GitHub
   URL and Linear workspace/team configuration.
 - `contributors/synasapmob/libraries/hooks/supabase-routing.md` — repository-to-MCP routing,
   migrations, deploys and token/CLI restrictions.
@@ -460,12 +460,12 @@ verification, required CI/CD or honest failure reporting.
 ## Important paths and tools
 
 - Canonical harness: `~/.hub-william/contributors/default/libraries/harness/AGENTS.md`
-- PR template: `~/.hub-william/contributors/synasapmob/contributors/default/libraries/templates/github-pull-request.md`
-- Linear template: `~/.hub-william/contributors/synasapmob/contributors/default/libraries/templates/linear-issue.md`
+- PR template: `~/.hub-william/contributors/synasapmob/libraries/templates/github-pull-request.md`
+- Linear template: `~/.hub-william/contributors/synasapmob/libraries/templates/linear-issue.md`
 - Test evidence template: `~/.hub-william/contributors/default/libraries/templates/test-evidence.md`
 - Approach history template: `~/.hub-william/contributors/default/libraries/templates/approach-history.md`
 - Requirements freshness template: `~/.hub-william/contributors/default/libraries/templates/requirements-freshness.md`
-- Project registry: `~/.hub-william/contributors/synasapmob/contributors/default/libraries/harness/projects/registry.yaml`
+- Project registry: `~/.hub-william/contributors/synasapmob/libraries/harness/projects/registry.yaml`
 - GitHub PR operations: `gh` only.
 - Linear operations: Linear MCP only.
 - Browser verification: Playwright MCP only.

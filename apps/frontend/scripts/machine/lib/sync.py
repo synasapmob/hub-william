@@ -19,7 +19,7 @@ closures the plan built. That split is what makes the `init` preview honest.
 import os
 import shutil
 
-from . import atomic, catalog, generated, paths, shellrc, ui
+from . import atomic, catalog, codex_policy, generated, paths, shellrc, tomlfile, ui
 from .agents import AGENT_NAMES, get as get_agent
 from .agents.base import AgentConfigError
 
@@ -82,10 +82,15 @@ class Reconciler(object):
 
     # -- planning ---------------------------------------------------------
     def plan(self):
+        contributor = catalog.check_name(self.profile.contributor)
+        self.contributor_root = os.path.join(paths.contributors_dir(), contributor, 'libraries')
+        if not os.path.isdir(self.contributor_root):
+            raise catalog.CatalogError('unknown contributor: %s' % contributor)
         changes = []
         changes.extend(self._plan_skills())
         changes.extend(self._plan_mcp())
         changes.extend(self._plan_harness())
+        changes.extend(self._plan_codex_contributor())
         changes.extend(self._plan_compat())
         if self.options.shared:
             changes.extend(self._plan_zsh())
@@ -166,14 +171,79 @@ class Reconciler(object):
             return []
         changes = []
         target = paths.harness_file()
+        overlay = os.path.join(self.contributor_root, 'harness', 'AGENTS.md')
+        extra = ''
+        if self.profile.contributor != 'default' and os.path.isfile(overlay):
+            extra = '\n\n' + generated.document(overlay, os.path.relpath(overlay, paths.repo_root()))
         for agent in self.agents:
             wanted = bool(self.profile.agent(agent.name).harness)
-            changes.append(self._ensure_generated_markdown(
+            changes.append(self._ensure_generated_document(
                 agent.harness_path(), target, "harness",
                 agent.harness_filename, agent.name, wanted,
                 "" if wanted else "harness off for this agent",
                 replace_existing=wanted,
+                extra=extra,
             ))
+        return changes
+
+    def _plan_codex_contributor(self):
+        agent = next((item for item in self.agents if item.name == 'codex'), None)
+        if agent is None:
+            return []
+        wanted = bool(self.profile.agent('codex').harness)
+        changes = []
+        source_dir = os.path.join(self.contributor_root, 'agents', 'codex')
+        sources = {}
+        for filename in sorted(os.listdir(source_dir)) if os.path.isdir(source_dir) else []:
+            if not filename.endswith('.toml') or filename.startswith('.'):
+                continue
+            name = catalog.check_name(filename[:-5])
+            source = os.path.join(source_dir, filename)
+            sources[name] = source
+            # Parse before proposing any install: malformed roles never replace
+            # the last working managed copy.
+            role = tomlfile.load_data(atomic.read_text(source, default=''))
+            if role.get('name') != name or not role.get('description') or not role.get('developer_instructions'):
+                raise catalog.CatalogError('invalid Codex role: %s' % source)
+            changes.append(self._ensure_generated_document(
+                os.path.join(agent.home_dir(), 'agents', name + '.toml'),
+                source, 'role', name, 'codex', wanted,
+                '' if wanted else 'harness off for this agent',
+            ))
+        for path, record in self.state.generated(kind='role', agent='codex'):
+            if record.get('name') not in sources:
+                changes.append(self._ensure_generated_document(
+                    path, '', 'role', record.get('name'), 'codex', False,
+                    'not in selected contributor',
+                ))
+        config_path = agent.mcp_config_path()
+        policy_path = os.path.join(self.contributor_root, 'harness', 'codex-policy.md')
+        original = atomic.read_text(config_path, default='')
+        policy = atomic.read_text(policy_path, default='')
+        policy_enabled = wanted and bool(policy.strip())
+        if not policy_enabled and codex_policy.BEGIN not in original and codex_policy.END not in original:
+            return changes
+        try:
+            desired = codex_policy.configure(original, policy, policy_enabled)
+        except tomlfile.TomlError as exc:
+            raise catalog.CatalogError('cannot configure Codex contributor policy: %s' % exc)
+        if desired == original:
+            return changes
+
+        def apply_policy():
+            # Earlier MCP changes intentionally share this file. Recompose on
+            # its latest content, rather than restoring the planning snapshot.
+            latest = atomic.read_text(config_path, default='')
+            updated = codex_policy.configure(latest, policy, policy_enabled)
+            if updated != latest:
+                backup = atomic.backup_copy(config_path, 'before-hub-workflow')
+                if backup:
+                    self.state.record_backup(config_path, backup, 'Codex workflow policy')
+                atomic.atomic_write_text(config_path, updated)
+
+        changes.append(Change('update' if policy_enabled else 'remove', 'policy',
+                              'contributor', 'codex', detail=paths.tilde(config_path),
+                              reason='native developer instructions; preserves user content', run=apply_policy))
         return changes
 
     # -- grok's view of ~/.claude/skills ----------------------------------
@@ -444,21 +514,21 @@ class Reconciler(object):
         return changes
 
     # -- primitives -------------------------------------------------------
-    def _ensure_generated_markdown(self, path, source, kind, name, agent,
-                                   wanted, reason="", replace_existing=False):
+    def _ensure_generated_document(self, path, source, kind, name, agent,
+                                   wanted, reason="", replace_existing=False, extra=''):
         state = self.state
         display = paths.tilde(path)
         record = state.generated_record(path)
         legacy = state.link_record(path)
-        desired = generated.markdown(source, "contributors/default/contributors/default/libraries/harness/AGENTS.md")
-        owned = bool(record or legacy or generated.is_markdown(path))
+        desired = (generated.document(source, os.path.relpath(source, paths.repo_root())) + extra) if wanted else None
+        owned = bool(record or legacy or generated.is_document(path))
         legacy_link = os.path.islink(path) and atomic.is_symlink_to(path, source)
         owned = owned or legacy_link
 
         if wanted:
             if not os.path.lexists(path):
                 verb, why = "add", ""
-            elif generated.markdown_matches(path, desired):
+            elif generated.document_matches(path, desired):
                 if record and not legacy:
                     return Change("keep", kind, name, agent, detail=display)
                 def adopt():
@@ -478,7 +548,7 @@ class Reconciler(object):
                     backup = atomic.backup_once(path, "before-hub-william-harness")
                     if backup:
                         state.record_backup(path, backup, "replaced global harness")
-                generated.write_markdown(path, desired)
+                generated.write_document(path, desired)
                 state.record_generated(path, kind, name, agent, source)
                 state.forget_link(path)
             return Change(verb, kind, name, agent, detail=display,
@@ -773,7 +843,7 @@ class Reconciler(object):
                 continue
             try:
                 change.run()
-            except (ChangeFailed, AgentConfigError, OSError, IOError) as exc:
+            except (ChangeFailed, AgentConfigError, tomlfile.TomlError, OSError, IOError) as exc:
                 change.error = str(exc)
                 failures.append(change)
         self.state.save()

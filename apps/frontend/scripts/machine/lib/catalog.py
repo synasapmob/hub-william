@@ -22,7 +22,7 @@ class CatalogError(Exception):
 
 def check_name(name):
     """Names become path segments and TOML keys. Keep them boring."""
-    if not NAME_RE.match(name or "") or name in (".", ".."):
+    if not isinstance(name, str) or not NAME_RE.match(name) or name in (".", ".."):
         raise CatalogError(
             "bad name %r: use letters, digits, dot, dash or underscore" % name
         )

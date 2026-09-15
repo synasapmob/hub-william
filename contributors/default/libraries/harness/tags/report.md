@@ -165,7 +165,7 @@ When a concrete gap deserves a follow-up, suggest a Linear task without
 creating it. Give a short proposed title, why it is needed, minimal scope,
 acceptance criteria and the proposed blocks/blocked-by/related relationship.
 Label it `not created`; discovery and suggestion never grant creation or
-relationship-write authorization under `../../../contributors/synasapmob/contributors/default/libraries/harness/linear/creation-policy.md`.
+relationship-write authorization under `../../../../synasapmob/libraries/harness/linear/creation-policy.md`.
 If no gap is evidenced, say that no follow-up task is currently supported by
 the covered sources.
 

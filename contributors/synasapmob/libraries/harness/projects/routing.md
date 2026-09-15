@@ -3,7 +3,7 @@
 Before the first GitHub or Linear read or write, resolve the active project and
 read the complete direct registry at:
 
-`/Users/synasapmob/.hub-william/contributors/synasapmob/contributors/default/libraries/harness/projects/registry.yaml`
+`/Users/synasapmob/.hub-william/contributors/synasapmob/libraries/harness/projects/registry.yaml`
 
 The registry is the only personal mapping from a Git repository to its GitHub
 repository and Linear destination. Never route an external action solely from
