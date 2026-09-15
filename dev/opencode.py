@@ -460,6 +460,8 @@ def install(terminal, args, home=None):
 def main(argv=None):
     args = parse_args(sys.argv[1:] if argv is None else argv)
     try:
+        if args.key is not None:
+            return install(sys.stderr, args)
         with open("/dev/tty", "r+", buffering=1) as terminal:
             return install(terminal, args)
     except (OSError, ValueError) as error:
