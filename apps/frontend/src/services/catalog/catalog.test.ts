@@ -70,12 +70,12 @@ describe("collections", () => {
     );
   });
 
-  it("reduces Tools to Documents, Gateway, OpenCode, and MCP", () => {
+  it("reduces Tools to Documents, Gateway, OpenCode, OMP, and MCP", () => {
     expect(
       catalogService
         .collectionsInSection("tools")
         .map((collection) => collection.id),
-    ).toEqual(["documents", "gateway", "opencode", "mcp"]);
+    ).toEqual(["documents", "gateway", "opencode", "omp", "mcp"]);
   });
 
   it("documents the agent config the gateway installer writes", () => {
@@ -231,6 +231,14 @@ describe("openCodeInstallerUrl", () => {
   it("keeps opencode.py on the same published origin", () => {
     expect(catalogService.openCodeInstallerUrl("https://hub.example")).toBe(
       "https://hub.example/opencode.py",
+    );
+  });
+});
+
+describe("ompInstallerUrl", () => {
+  it("keeps omp.py on the same published origin", () => {
+    expect(catalogService.ompInstallerUrl("https://hub.example")).toBe(
+      "https://hub.example/omp.py",
     );
   });
 });

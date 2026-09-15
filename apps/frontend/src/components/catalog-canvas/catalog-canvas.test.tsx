@@ -111,4 +111,13 @@ describe("CatalogCanvas", () => {
     expect(screen.getAllByText("/models", { exact: true })).not.toHaveLength(0);
     expect(screen.getByText("/variants", { exact: true })).toBeVisible();
   });
+
+  it("shows the OMP installer and native model picker", () => {
+    renderTools("/tools?node=omp");
+
+    expect(screen.getByRole("heading", { name: "OMP" })).toBeVisible();
+    expect(screen.getByText(/omp\.py.*YOUR_GATEWAY_KEY/)).toBeVisible();
+    expect(screen.getByText("models.yml", { exact: true })).toBeVisible();
+    expect(screen.getByText("/model", { exact: true })).toBeVisible();
+  });
 });

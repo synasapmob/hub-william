@@ -12,6 +12,7 @@ import {
   resolveGatewayOrigin,
 } from "@/utils/utils.gateway-config";
 import { openCodeInstallCommand } from "@/utils/utils.opencode-config";
+import { ompInstallCommand } from "@/utils/utils.omp-config";
 import useSiteOrigin from "@/utils/utils.site-origin";
 
 const toolUsage = tv({
@@ -45,6 +46,13 @@ function openCodeCommand(origin: string) {
   return openCodeInstallCommand({
     gatewayOrigin: resolveGatewayOrigin(origin),
     installerUrl: catalogService.openCodeInstallerUrl(origin),
+  });
+}
+
+function ompCommand(origin: string) {
+  return ompInstallCommand({
+    gatewayOrigin: resolveGatewayOrigin(origin),
+    installerUrl: catalogService.ompInstallerUrl(origin),
   });
 }
 
@@ -164,6 +172,46 @@ export default function CatalogCanvasToolUsage({
             Remove the <code>--key=…</code> argument to type the Hub key in a
             hidden prompt instead of saving it in shell history. Upstream
             provider credentials stay encrypted on Hub William.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (collection.id === "omp") {
+    return (
+      <div className={container()}>
+        <div className={section()}>
+          <p className={label()}>Install all live providers</p>
+
+          <p className={description()}>
+            Replace <code>{GATEWAY_KEY_PLACEHOLDER}</code> with one Hub gateway
+            key. The installer discovers models from your connected Codex,
+            Claude, Gemini/AGY, Grok, and DeepSeek pools and merges namespaced
+            providers into OMP&rsquo;s native <code>models.yml</code>.
+          </p>
+
+          <CopyCommand command={ompCommand(siteOrigin)} />
+        </div>
+
+        <div className={section()}>
+          <p className={label()}>Use in OMP</p>
+
+          <p className={description()}>
+            Start <code>omp</code> and use <code>/model</code> to switch between
+            the installed Hub providers and models. Re-run the command when a
+            connected provider&rsquo;s live catalogue changes.
+          </p>
+        </div>
+
+        <div className={section()}>
+          <p className={label()}>Safer shared-machine install</p>
+
+          <p className={description()}>
+            Remove the <code>--key=…</code> argument to type the Hub key in a
+            hidden prompt instead of saving it in shell history. The installer
+            preserves providers outside its marked block and keeps upstream
+            credentials encrypted on Hub William.
           </p>
         </div>
       </div>
