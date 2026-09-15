@@ -1553,6 +1553,10 @@ DeepSeek's Responses mapping avoids treating a long coding-agent turn as a
 successful Chat Completions stream unless the provider actually sends a
 terminal event.
 
+The installer does not add input-token, output-token, context, or request-size
+limits. OMP and the selected upstream provider keep their native behavior; add
+a local override yourself only when you want a smaller budget.
+
 Grok connections created before the current Build scopes were introduced must
 be reconnected once in \`/agents\`, then this installer must be run again. The
 installer never falls back from subscription quota to a paid xAI API key.
@@ -1607,6 +1611,10 @@ includes the selectable high, medium, and low AGY variants documented by the
 [headless CLI reference](https://www.antigravity.google/docs/cli/headless/).
 Installing OpenCode does not require a local \`agy\` executable. If no Gemini
 pool is connected, that provider is omitted and the installer prints why.
+
+The installer does not add input-token, output-token, context, or request-size
+limits. OpenCode and the selected upstream provider keep their native behavior;
+add a local override yourself only when you want a smaller budget.
 
 Grok connections created before the current Build scopes were introduced must
 be reconnected once in \`/agents\`, then this installer must be run again. The
