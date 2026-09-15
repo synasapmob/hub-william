@@ -96,6 +96,10 @@ class OpenCodeInstallerTest(unittest.TestCase):
             "@ai-sdk/openai",
         )
         self.assertEqual(
+            document["provider"]["hub-deepseek"]["npm"],
+            "@ai-sdk/openai",
+        )
+        self.assertEqual(
             document["provider"]["hub-claude"]["models"][
                 "claude-sonnet-live"
             ]["variants"]["medium"],
