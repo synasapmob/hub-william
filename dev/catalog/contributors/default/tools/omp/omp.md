@@ -22,10 +22,11 @@ let OMP migrate it before rerunning the installer.
 Run `omp` and use `/model` to switch provider or model. Re-run the install
 command whenever a connected pool's catalogue changes. Claude, Grok, and
 DeepSeek model IDs come from their authenticated live Hub catalogues. Codex IDs
-come from the Hub Codex catalogue. Gemini/AGY IDs come from the locally installed
-`agy models` command after a non-generating `countTokens` probe confirms the Hub
-key can reach a Gemini pool; the installer tries later AGY models if an earlier
-one is unavailable.
+come from the Hub Codex catalogue. Gemini/AGY IDs come from the authenticated
+Hub catalogue, restricted to the connected pool's live intersection with the
+current [Antigravity model set](https://antigravity.google/docs/models/#models)
+and its selectable [headless CLI variants](https://www.antigravity.google/docs/cli/headless/).
+Installing OMP does not require a local `agy` executable.
 
 The provider mappings use OMP's native custom-provider APIs:
 

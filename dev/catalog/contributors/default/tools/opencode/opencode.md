@@ -33,11 +33,13 @@ DeepSeek model IDs are fetched through the live Hub pools; Grok uses its
 authenticated Build catalogue and Responses protocol. Codex model IDs and
 supported reasoning levels come from the installed `codex app-server`; when
 Codex is unavailable, the installer uses the current supported fallback list.
-Gemini/AGY model IDs come from the installed `agy models` command after a
-non-generating `countTokens` probe confirms that the Hub key can reach a Gemini
-pool. The installer tries each local AGY model until one passes. If AGY is not
-installed or no Gemini pool is connected, that provider is omitted and the
-installer prints why.
+Gemini/AGY IDs come from the authenticated Hub catalogue, which exposes only
+the intersection of the connected pool's live models and the current
+[Antigravity model set](https://antigravity.google/docs/models/#models). This
+includes the selectable high, medium, and low AGY variants documented by the
+[headless CLI reference](https://www.antigravity.google/docs/cli/headless/).
+Installing OpenCode does not require a local `agy` executable. If no Gemini
+pool is connected, that provider is omitted and the installer prints why.
 
 Grok connections created before the current Build scopes were introduced must
 be reconnected once in `/agents`, then this installer must be run again. The
