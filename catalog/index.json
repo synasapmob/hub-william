@@ -1,0 +1,576 @@
+{
+  "description": "Every document in the Hub William catalogue. Fetch `url` for the file exactly as it is in the repository, or an archive's `url` for a whole folder — its members keep these same paths, so unzipping into a checkout puts them where an agent reads them.",
+  "repository": "https://github.com/synasapmob/hub-william",
+  "count": 51,
+  "documents": [
+    {
+      "id": "contributors/default/libraries/harness/AGENTS",
+      "path": "contributors/default/libraries/harness/AGENTS.md",
+      "url": "/hub-william/catalog/contributors/default/libraries/harness/AGENTS.md",
+      "bytes": 14497
+    },
+    {
+      "id": "contributors/default/libraries/harness/evidence/approach-history",
+      "path": "contributors/default/libraries/harness/evidence/approach-history.md",
+      "url": "/hub-william/catalog/contributors/default/libraries/harness/evidence/approach-history.md",
+      "bytes": 4027
+    },
+    {
+      "id": "contributors/default/libraries/harness/evidence/report-summary",
+      "path": "contributors/default/libraries/harness/evidence/report-summary.md",
+      "url": "/hub-william/catalog/contributors/default/libraries/harness/evidence/report-summary.md",
+      "bytes": 1460
+    },
+    {
+      "id": "contributors/default/libraries/harness/evidence/test-evidence",
+      "path": "contributors/default/libraries/harness/evidence/test-evidence.md",
+      "url": "/hub-william/catalog/contributors/default/libraries/harness/evidence/test-evidence.md",
+      "bytes": 3466
+    },
+    {
+      "id": "contributors/default/libraries/harness/github/clickable-references",
+      "path": "contributors/default/libraries/harness/github/clickable-references.md",
+      "url": "/hub-william/catalog/contributors/default/libraries/harness/github/clickable-references.md",
+      "bytes": 6644
+    },
+    {
+      "id": "contributors/default/libraries/harness/github/gh-cli",
+      "path": "contributors/default/libraries/harness/github/gh-cli.md",
+      "url": "/hub-william/catalog/contributors/default/libraries/harness/github/gh-cli.md",
+      "bytes": 1068
+    },
+    {
+      "id": "contributors/default/libraries/harness/github/report-summary",
+      "path": "contributors/default/libraries/harness/github/report-summary.md",
+      "url": "/hub-william/catalog/contributors/default/libraries/harness/github/report-summary.md",
+      "bytes": 1306
+    },
+    {
+      "id": "contributors/default/libraries/harness/tags/answer",
+      "path": "contributors/default/libraries/harness/tags/answer.md",
+      "url": "/hub-william/catalog/contributors/default/libraries/harness/tags/answer.md",
+      "bytes": 1793
+    },
+    {
+      "id": "contributors/default/libraries/harness/tags/delivery-verify",
+      "path": "contributors/default/libraries/harness/tags/delivery-verify.md",
+      "url": "/hub-william/catalog/contributors/default/libraries/harness/tags/delivery-verify.md",
+      "bytes": 2707
+    },
+    {
+      "id": "contributors/default/libraries/harness/tags/delivery",
+      "path": "contributors/default/libraries/harness/tags/delivery.md",
+      "url": "/hub-william/catalog/contributors/default/libraries/harness/tags/delivery.md",
+      "bytes": 4145
+    },
+    {
+      "id": "contributors/default/libraries/harness/tags/draft",
+      "path": "contributors/default/libraries/harness/tags/draft.md",
+      "url": "/hub-william/catalog/contributors/default/libraries/harness/tags/draft.md",
+      "bytes": 1115
+    },
+    {
+      "id": "contributors/default/libraries/harness/tags/guess",
+      "path": "contributors/default/libraries/harness/tags/guess.md",
+      "url": "/hub-william/catalog/contributors/default/libraries/harness/tags/guess.md",
+      "bytes": 1601
+    },
+    {
+      "id": "contributors/default/libraries/harness/tags/ignore",
+      "path": "contributors/default/libraries/harness/tags/ignore.md",
+      "url": "/hub-william/catalog/contributors/default/libraries/harness/tags/ignore.md",
+      "bytes": 975
+    },
+    {
+      "id": "contributors/default/libraries/harness/tags/linear",
+      "path": "contributors/default/libraries/harness/tags/linear.md",
+      "url": "/hub-william/catalog/contributors/default/libraries/harness/tags/linear.md",
+      "bytes": 4339
+    },
+    {
+      "id": "contributors/default/libraries/harness/tags/merge",
+      "path": "contributors/default/libraries/harness/tags/merge.md",
+      "url": "/hub-william/catalog/contributors/default/libraries/harness/tags/merge.md",
+      "bytes": 2887
+    },
+    {
+      "id": "contributors/default/libraries/harness/tags/mergeable",
+      "path": "contributors/default/libraries/harness/tags/mergeable.md",
+      "url": "/hub-william/catalog/contributors/default/libraries/harness/tags/mergeable.md",
+      "bytes": 4902
+    },
+    {
+      "id": "contributors/default/libraries/harness/tags/plan",
+      "path": "contributors/default/libraries/harness/tags/plan.md",
+      "url": "/hub-william/catalog/contributors/default/libraries/harness/tags/plan.md",
+      "bytes": 584
+    },
+    {
+      "id": "contributors/default/libraries/harness/tags/playwright",
+      "path": "contributors/default/libraries/harness/tags/playwright.md",
+      "url": "/hub-william/catalog/contributors/default/libraries/harness/tags/playwright.md",
+      "bytes": 2451
+    },
+    {
+      "id": "contributors/default/libraries/harness/tags/rebase",
+      "path": "contributors/default/libraries/harness/tags/rebase.md",
+      "url": "/hub-william/catalog/contributors/default/libraries/harness/tags/rebase.md",
+      "bytes": 2362
+    },
+    {
+      "id": "contributors/default/libraries/harness/tags/report",
+      "path": "contributors/default/libraries/harness/tags/report.md",
+      "url": "/hub-william/catalog/contributors/default/libraries/harness/tags/report.md",
+      "bytes": 8464
+    },
+    {
+      "id": "contributors/default/libraries/harness/tags/worktree",
+      "path": "contributors/default/libraries/harness/tags/worktree.md",
+      "url": "/hub-william/catalog/contributors/default/libraries/harness/tags/worktree.md",
+      "bytes": 787
+    },
+    {
+      "id": "contributors/default/libraries/skills/frontend-convention/SKILL",
+      "path": "contributors/default/libraries/skills/frontend-convention/SKILL.md",
+      "url": "/hub-william/catalog/contributors/default/libraries/skills/frontend-convention/SKILL.md",
+      "bytes": 2474
+    },
+    {
+      "id": "contributors/default/libraries/skills/frontend-convention/references/frontend-conventions",
+      "path": "contributors/default/libraries/skills/frontend-convention/references/frontend-conventions.md",
+      "url": "/hub-william/catalog/contributors/default/libraries/skills/frontend-convention/references/frontend-conventions.md",
+      "bytes": 10157
+    },
+    {
+      "id": "contributors/default/libraries/skills/frontend-verify/SKILL",
+      "path": "contributors/default/libraries/skills/frontend-verify/SKILL.md",
+      "url": "/hub-william/catalog/contributors/default/libraries/skills/frontend-verify/SKILL.md",
+      "bytes": 1195
+    },
+    {
+      "id": "contributors/default/libraries/skills/supabase-remote/SKILL",
+      "path": "contributors/default/libraries/skills/supabase-remote/SKILL.md",
+      "url": "/hub-william/catalog/contributors/default/libraries/skills/supabase-remote/SKILL.md",
+      "bytes": 2525
+    },
+    {
+      "id": "contributors/default/libraries/templates/approach-history",
+      "path": "contributors/default/libraries/templates/approach-history.md",
+      "url": "/hub-william/catalog/contributors/default/libraries/templates/approach-history.md",
+      "bytes": 664
+    },
+    {
+      "id": "contributors/default/libraries/templates/requirements-freshness",
+      "path": "contributors/default/libraries/templates/requirements-freshness.md",
+      "url": "/hub-william/catalog/contributors/default/libraries/templates/requirements-freshness.md",
+      "bytes": 957
+    },
+    {
+      "id": "contributors/default/libraries/templates/test-evidence",
+      "path": "contributors/default/libraries/templates/test-evidence.md",
+      "url": "/hub-william/catalog/contributors/default/libraries/templates/test-evidence.md",
+      "bytes": 1260
+    },
+    {
+      "id": "contributors/default/tools/gateway/gateway",
+      "path": "contributors/default/tools/gateway/gateway.md",
+      "url": "/hub-william/catalog/contributors/default/tools/gateway/gateway.md",
+      "bytes": 3642
+    },
+    {
+      "id": "contributors/default/tools/installer/download-and-inject",
+      "path": "contributors/default/tools/installer/download-and-inject.md",
+      "url": "/hub-william/catalog/contributors/default/tools/installer/download-and-inject.md",
+      "bytes": 1497
+    },
+    {
+      "id": "contributors/default/tools/installer/machine-installer",
+      "path": "contributors/default/tools/installer/machine-installer.md",
+      "url": "/hub-william/catalog/contributors/default/tools/installer/machine-installer.md",
+      "bytes": 2457
+    },
+    {
+      "id": "contributors/default/tools/mcp/mcp-servers",
+      "path": "contributors/default/tools/mcp/mcp-servers.md",
+      "url": "/hub-william/catalog/contributors/default/tools/mcp/mcp-servers.md",
+      "bytes": 1881
+    },
+    {
+      "id": "contributors/default/tools/opencode/opencode",
+      "path": "contributors/default/tools/opencode/opencode.md",
+      "url": "/hub-william/catalog/contributors/default/tools/opencode/opencode.md",
+      "bytes": 2496
+    },
+    {
+      "id": "contributors/synasapmob/libraries/agents/codex/hub-reviewer.toml",
+      "path": "contributors/synasapmob/libraries/agents/codex/hub-reviewer.toml",
+      "url": "/hub-william/catalog/contributors/synasapmob/libraries/agents/codex/hub-reviewer.toml",
+      "bytes": 1109
+    },
+    {
+      "id": "contributors/synasapmob/libraries/agents/codex/hub-scout.toml",
+      "path": "contributors/synasapmob/libraries/agents/codex/hub-scout.toml",
+      "url": "/hub-william/catalog/contributors/synasapmob/libraries/agents/codex/hub-scout.toml",
+      "bytes": 851
+    },
+    {
+      "id": "contributors/synasapmob/libraries/agents/codex/hub-verifier.toml",
+      "path": "contributors/synasapmob/libraries/agents/codex/hub-verifier.toml",
+      "url": "/hub-william/catalog/contributors/synasapmob/libraries/agents/codex/hub-verifier.toml",
+      "bytes": 1003
+    },
+    {
+      "id": "contributors/synasapmob/libraries/harness/AGENTS",
+      "path": "contributors/synasapmob/libraries/harness/AGENTS.md",
+      "url": "/hub-william/catalog/contributors/synasapmob/libraries/harness/AGENTS.md",
+      "bytes": 1345
+    },
+    {
+      "id": "contributors/synasapmob/libraries/harness/codex-policy",
+      "path": "contributors/synasapmob/libraries/harness/codex-policy.md",
+      "url": "/hub-william/catalog/contributors/synasapmob/libraries/harness/codex-policy.md",
+      "bytes": 3020
+    },
+    {
+      "id": "contributors/synasapmob/libraries/harness/dopa-tps",
+      "path": "contributors/synasapmob/libraries/harness/dopa-tps.md",
+      "url": "/hub-william/catalog/contributors/synasapmob/libraries/harness/dopa-tps.md",
+      "bytes": 3739
+    },
+    {
+      "id": "contributors/synasapmob/libraries/harness/linear/creation-policy",
+      "path": "contributors/synasapmob/libraries/harness/linear/creation-policy.md",
+      "url": "/hub-william/catalog/contributors/synasapmob/libraries/harness/linear/creation-policy.md",
+      "bytes": 3587
+    },
+    {
+      "id": "contributors/synasapmob/libraries/harness/linear/delivery-readiness",
+      "path": "contributors/synasapmob/libraries/harness/linear/delivery-readiness.md",
+      "url": "/hub-william/catalog/contributors/synasapmob/libraries/harness/linear/delivery-readiness.md",
+      "bytes": 2752
+    },
+    {
+      "id": "contributors/synasapmob/libraries/harness/linear/freshness-report-summary",
+      "path": "contributors/synasapmob/libraries/harness/linear/freshness-report-summary.md",
+      "url": "/hub-william/catalog/contributors/synasapmob/libraries/harness/linear/freshness-report-summary.md",
+      "bytes": 979
+    },
+    {
+      "id": "contributors/synasapmob/libraries/harness/linear/report-summary",
+      "path": "contributors/synasapmob/libraries/harness/linear/report-summary.md",
+      "url": "/hub-william/catalog/contributors/synasapmob/libraries/harness/linear/report-summary.md",
+      "bytes": 1683
+    },
+    {
+      "id": "contributors/synasapmob/libraries/harness/linear/requirements-freshness",
+      "path": "contributors/synasapmob/libraries/harness/linear/requirements-freshness.md",
+      "url": "/hub-william/catalog/contributors/synasapmob/libraries/harness/linear/requirements-freshness.md",
+      "bytes": 4560
+    },
+    {
+      "id": "contributors/synasapmob/libraries/harness/playwright/report-summary",
+      "path": "contributors/synasapmob/libraries/harness/playwright/report-summary.md",
+      "url": "/hub-william/catalog/contributors/synasapmob/libraries/harness/playwright/report-summary.md",
+      "bytes": 2027
+    },
+    {
+      "id": "contributors/synasapmob/libraries/harness/projects/registry.yaml",
+      "path": "contributors/synasapmob/libraries/harness/projects/registry.yaml",
+      "url": "/hub-william/catalog/contributors/synasapmob/libraries/harness/projects/registry.yaml",
+      "bytes": 631
+    },
+    {
+      "id": "contributors/synasapmob/libraries/harness/projects/routing",
+      "path": "contributors/synasapmob/libraries/harness/projects/routing.md",
+      "url": "/hub-william/catalog/contributors/synasapmob/libraries/harness/projects/routing.md",
+      "bytes": 4638
+    },
+    {
+      "id": "contributors/synasapmob/libraries/hooks/supabase-routing",
+      "path": "contributors/synasapmob/libraries/hooks/supabase-routing.md",
+      "url": "/hub-william/catalog/contributors/synasapmob/libraries/hooks/supabase-routing.md",
+      "bytes": 1262
+    },
+    {
+      "id": "contributors/synasapmob/libraries/templates/github-pull-request",
+      "path": "contributors/synasapmob/libraries/templates/github-pull-request.md",
+      "url": "/hub-william/catalog/contributors/synasapmob/libraries/templates/github-pull-request.md",
+      "bytes": 1150
+    },
+    {
+      "id": "contributors/synasapmob/libraries/templates/linear-issue",
+      "path": "contributors/synasapmob/libraries/templates/linear-issue.md",
+      "url": "/hub-william/catalog/contributors/synasapmob/libraries/templates/linear-issue.md",
+      "bytes": 1670
+    },
+    {
+      "id": "contributors/synasapmob/tools/installer/codex-workflow",
+      "path": "contributors/synasapmob/tools/installer/codex-workflow.md",
+      "url": "/hub-william/catalog/contributors/synasapmob/tools/installer/codex-workflow.md",
+      "bytes": 2985
+    }
+  ],
+  "archives": [
+    {
+      "id": "contributors",
+      "path": "contributors.zip",
+      "url": "/hub-william/catalog/contributors.zip",
+      "bytes": 77308,
+      "files": 51
+    },
+    {
+      "id": "contributors/default",
+      "path": "contributors/default.zip",
+      "url": "/hub-william/catalog/contributors/default.zip",
+      "bytes": 54437,
+      "files": 33
+    },
+    {
+      "id": "contributors/default/libraries",
+      "path": "contributors/default/libraries.zip",
+      "url": "/hub-william/catalog/contributors/default/libraries.zip",
+      "bytes": 47797,
+      "files": 28
+    },
+    {
+      "id": "contributors/default/libraries/harness",
+      "path": "contributors/default/libraries/harness.zip",
+      "url": "/hub-william/catalog/contributors/default/libraries/harness.zip",
+      "bytes": 36945,
+      "files": 21
+    },
+    {
+      "id": "contributors/default/libraries/skills",
+      "path": "contributors/default/libraries/skills.zip",
+      "url": "/hub-william/catalog/contributors/default/libraries/skills.zip",
+      "bytes": 8616,
+      "files": 4
+    },
+    {
+      "id": "contributors/default/libraries/templates",
+      "path": "contributors/default/libraries/templates.zip",
+      "url": "/hub-william/catalog/contributors/default/libraries/templates.zip",
+      "bytes": 2280,
+      "files": 3
+    },
+    {
+      "id": "contributors/default/tools",
+      "path": "contributors/default/tools.zip",
+      "url": "/hub-william/catalog/contributors/default/tools.zip",
+      "bytes": 6662,
+      "files": 5
+    },
+    {
+      "id": "contributors/default/tools/gateway",
+      "path": "contributors/default/tools/gateway.zip",
+      "url": "/hub-william/catalog/contributors/default/tools/gateway.zip",
+      "bytes": 1840,
+      "files": 1
+    },
+    {
+      "id": "contributors/default/tools/installer",
+      "path": "contributors/default/tools/installer.zip",
+      "url": "/hub-william/catalog/contributors/default/tools/installer.zip",
+      "bytes": 2408,
+      "files": 2
+    },
+    {
+      "id": "contributors/default/tools/mcp",
+      "path": "contributors/default/tools/mcp.zip",
+      "url": "/hub-william/catalog/contributors/default/tools/mcp.zip",
+      "bytes": 1052,
+      "files": 1
+    },
+    {
+      "id": "contributors/default/tools/opencode",
+      "path": "contributors/default/tools/opencode.zip",
+      "url": "/hub-william/catalog/contributors/default/tools/opencode.zip",
+      "bytes": 1428,
+      "files": 1
+    },
+    {
+      "id": "contributors/synasapmob",
+      "path": "contributors/synasapmob.zip",
+      "url": "/hub-william/catalog/contributors/synasapmob.zip",
+      "bytes": 22893,
+      "files": 18
+    },
+    {
+      "id": "contributors/synasapmob/libraries",
+      "path": "contributors/synasapmob/libraries.zip",
+      "url": "/hub-william/catalog/contributors/synasapmob/libraries.zip",
+      "bytes": 21231,
+      "files": 17
+    },
+    {
+      "id": "contributors/synasapmob/libraries/agents",
+      "path": "contributors/synasapmob/libraries/agents.zip",
+      "url": "/hub-william/catalog/contributors/synasapmob/libraries/agents.zip",
+      "bytes": 2293,
+      "files": 3
+    },
+    {
+      "id": "contributors/synasapmob/libraries/harness",
+      "path": "contributors/synasapmob/libraries/harness.zip",
+      "url": "/hub-william/catalog/contributors/synasapmob/libraries/harness.zip",
+      "bytes": 16184,
+      "files": 11
+    },
+    {
+      "id": "contributors/synasapmob/libraries/hooks",
+      "path": "contributors/synasapmob/libraries/hooks.zip",
+      "url": "/hub-william/catalog/contributors/synasapmob/libraries/hooks.zip",
+      "bytes": 879,
+      "files": 1
+    },
+    {
+      "id": "contributors/synasapmob/libraries/templates",
+      "path": "contributors/synasapmob/libraries/templates.zip",
+      "url": "/hub-william/catalog/contributors/synasapmob/libraries/templates.zip",
+      "bytes": 1941,
+      "files": 2
+    },
+    {
+      "id": "contributors/synasapmob/tools",
+      "path": "contributors/synasapmob/tools.zip",
+      "url": "/hub-william/catalog/contributors/synasapmob/tools.zip",
+      "bytes": 1684,
+      "files": 1
+    },
+    {
+      "id": "contributors/synasapmob/tools/installer",
+      "path": "contributors/synasapmob/tools/installer.zip",
+      "url": "/hub-william/catalog/contributors/synasapmob/tools/installer.zip",
+      "bytes": 1684,
+      "files": 1
+    }
+  ],
+  "collections": [
+    {
+      "id": "default/library/evidences",
+      "path": "collections/default/library/evidences.zip",
+      "url": "/hub-william/catalog/collections/default/library/evidences.zip",
+      "bytes": 5233,
+      "files": 3
+    },
+    {
+      "id": "default/library/github",
+      "path": "collections/default/library/github.zip",
+      "url": "/hub-william/catalog/collections/default/library/github.zip",
+      "bytes": 11043,
+      "files": 7
+    },
+    {
+      "id": "default/library/skills",
+      "path": "collections/default/library/skills.zip",
+      "url": "/hub-william/catalog/collections/default/library/skills.zip",
+      "bytes": 8616,
+      "files": 4
+    },
+    {
+      "id": "default/library/tags",
+      "path": "collections/default/library/tags.zip",
+      "url": "/hub-william/catalog/collections/default/library/tags.zip",
+      "bytes": 20713,
+      "files": 11
+    },
+    {
+      "id": "default/library/templates",
+      "path": "collections/default/library/templates.zip",
+      "url": "/hub-william/catalog/collections/default/library/templates.zip",
+      "bytes": 2280,
+      "files": 3
+    },
+    {
+      "id": "default/tools/documents",
+      "path": "collections/default/tools/documents.zip",
+      "url": "/hub-william/catalog/collections/default/tools/documents.zip",
+      "bytes": 2408,
+      "files": 2
+    },
+    {
+      "id": "default/tools/gateway",
+      "path": "collections/default/tools/gateway.zip",
+      "url": "/hub-william/catalog/collections/default/tools/gateway.zip",
+      "bytes": 1840,
+      "files": 1
+    },
+    {
+      "id": "default/tools/mcp",
+      "path": "collections/default/tools/mcp.zip",
+      "url": "/hub-william/catalog/collections/default/tools/mcp.zip",
+      "bytes": 1052,
+      "files": 1
+    },
+    {
+      "id": "default/tools/opencode",
+      "path": "collections/default/tools/opencode.zip",
+      "url": "/hub-william/catalog/collections/default/tools/opencode.zip",
+      "bytes": 1428,
+      "files": 1
+    },
+    {
+      "id": "synasapmob/library/codex",
+      "path": "collections/synasapmob/library/codex.zip",
+      "url": "/hub-william/catalog/collections/synasapmob/library/codex.zip",
+      "bytes": 2293,
+      "files": 3
+    },
+    {
+      "id": "synasapmob/library/harness",
+      "path": "collections/synasapmob/library/harness.zip",
+      "url": "/hub-william/catalog/collections/synasapmob/library/harness.zip",
+      "bytes": 3595,
+      "files": 2
+    },
+    {
+      "id": "synasapmob/library/hooks",
+      "path": "collections/synasapmob/library/hooks.zip",
+      "url": "/hub-william/catalog/collections/synasapmob/library/hooks.zip",
+      "bytes": 879,
+      "files": 1
+    },
+    {
+      "id": "synasapmob/library/linear",
+      "path": "collections/synasapmob/library/linear.zip",
+      "url": "/hub-william/catalog/collections/synasapmob/library/linear.zip",
+      "bytes": 7694,
+      "files": 5
+    },
+    {
+      "id": "synasapmob/library/playwright",
+      "path": "collections/synasapmob/library/playwright.zip",
+      "url": "/hub-william/catalog/collections/synasapmob/library/playwright.zip",
+      "bytes": 1294,
+      "files": 1
+    },
+    {
+      "id": "synasapmob/library/projects",
+      "path": "collections/synasapmob/library/projects.zip",
+      "url": "/hub-william/catalog/collections/synasapmob/library/projects.zip",
+      "bytes": 2769,
+      "files": 2
+    },
+    {
+      "id": "synasapmob/library/tags",
+      "path": "collections/synasapmob/library/tags.zip",
+      "url": "/hub-william/catalog/collections/synasapmob/library/tags.zip",
+      "bytes": 920,
+      "files": 1
+    },
+    {
+      "id": "synasapmob/library/templates",
+      "path": "collections/synasapmob/library/templates.zip",
+      "url": "/hub-william/catalog/collections/synasapmob/library/templates.zip",
+      "bytes": 1941,
+      "files": 2
+    },
+    {
+      "id": "synasapmob/tools/documents",
+      "path": "collections/synasapmob/tools/documents.zip",
+      "url": "/hub-william/catalog/collections/synasapmob/tools/documents.zip",
+      "bytes": 1684,
+      "files": 1
+    }
+  ]
+}

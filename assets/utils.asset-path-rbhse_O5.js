@@ -1,0 +1,1 @@
+function e(e){return`/hub-william/${e.replace(/^\/+/,``)}`}export{e as t};
