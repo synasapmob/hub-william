@@ -30,10 +30,13 @@ Installing OMP does not require a local `agy` executable.
 
 The provider mappings use OMP's native custom-provider APIs:
 
-- Codex and Grok use `openai-responses`.
+- Codex, Grok, and DeepSeek use `openai-responses`.
 - Claude uses `anthropic-messages`.
 - Gemini/AGY uses `google-generative-ai`.
-- DeepSeek uses `openai-completions`.
+
+DeepSeek's Responses mapping avoids treating a long coding-agent turn as a
+successful Chat Completions stream unless the provider actually sends a
+terminal event.
 
 Grok connections created before the current Build scopes were introduced must
 be reconnected once in `/agents`, then this installer must be run again. The
