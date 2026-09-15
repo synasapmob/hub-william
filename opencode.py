@@ -339,7 +339,7 @@ def build_config(existing, gateway_url, key, catalogues):
         },
         "hub-deepseek": {
             "name": "Hub William · DeepSeek",
-            "npm": "@ai-sdk/openai-compatible",
+            "npm": "@ai-sdk/openai",
             "options": {
                 "apiKey": key,
                 "baseURL": gateway_url + "/gateway/deepseek",

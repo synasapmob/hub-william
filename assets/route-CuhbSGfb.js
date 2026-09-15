@@ -1,1 +1,0 @@
-import{m as e,s as t,t as n}from"./jsx-runtime-Cjbcb6-c.js";import{n as r,t as i}from"./catalog-canvas-menu-DuReGqwe.js";var a=n(),o=t(function(){let{contributor:t=null}=e();return(0,a.jsx)(r,{section:`tools`,contributor:t,searchPlaceholder:t?`Search @${t}'s tools...`:`Search tools and installers...`,menu:(0,a.jsx)(i,{contributor:t,section:`tools`})})});export{o as default};

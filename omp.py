@@ -186,7 +186,7 @@ def _render_managed_providers(gateway_url, key, catalogues):
         (
             "hub-deepseek",
             gateway_url + "/gateway/deepseek",
-            "openai-completions",
+            "openai-responses",
             catalogues.get("deepseek", []),
         ),
     )
