@@ -62,7 +62,10 @@ an unusable credential advances to the next candidate. An upstream `429`
 persists a 30-minute cooldown, while an upstream `401` marks that account for
 reauthorization. A Grok `403` does the same because expanded subscription
 scopes require an explicit reconnect. These failures advance to the next
-same-provider pool. The first real
+same-provider pool. Before any response is returned to the client, network
+failures and upstream `408`, `500`, `502`, `503`, and `504` responses use one
+four-attempt budget across all same-provider pools with bounded exponential
+backoff; partial streams are never combined with a retry. The first real
 request after a rate-limit timer is an atomic half-open probe. An owner can
 force-refresh the provider credential from pool management; a rejected or
 missing refresh token starts official authorization again on the same pool
