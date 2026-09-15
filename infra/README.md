@@ -16,6 +16,9 @@ The target production topology has four Railway services:
 - SePay will need an authenticated public webhook boundary when payment
   delivery is explicitly designed; Telegram webhooks are owned by `telegram`.
 - Provider-bound gateway traffic will leave through the API's gateway module.
+  The `/api/gateway/*` proxy and private `/gateway/*` router do not impose a
+  Hub-owned request-size or token budget; non-gateway API routes retain their
+  default body limits.
 
 `apps/frontend/Dockerfile` and `apps/api/Dockerfile` own reproducible service builds.
 Production secrets stay in Railway variables. The API receives
