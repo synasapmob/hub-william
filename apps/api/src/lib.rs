@@ -11,6 +11,8 @@ mod telegram;
 mod telegram_catalogue;
 mod usage;
 
+use std::time::Duration;
+
 use axum::{
     Router,
     extract::DefaultBodyLimit,
@@ -76,7 +78,15 @@ use telegram_catalogue::{
 pub struct AppState {
     pub config: AppConfig,
     pub http: Client,
+    pub gateway_http: Client,
     pub pool: PgPool,
+}
+
+pub fn gateway_http_client() -> Result<Client, reqwest::Error> {
+    Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .user_agent(concat!("hub-william/", env!("CARGO_PKG_VERSION")))
+        .build()
 }
 
 pub fn app(state: AppState) -> Router {
@@ -219,13 +229,14 @@ mod tests {
 
     use sqlx::postgres::PgPoolOptions;
 
-    use super::{AppConfig, AppState, app};
+    use super::{AppConfig, AppState, app, gateway_http_client};
 
     #[tokio::test]
     async fn health_endpoint_identifies_the_service() {
         let state = AppState {
             config: AppConfig::default(),
             http: Client::new(),
+            gateway_http: Client::new(),
             pool: PgPoolOptions::new()
                 .connect_lazy("postgres://localhost/hub_william_test")
                 .expect("test database URL should parse"),
@@ -257,6 +268,7 @@ mod tests {
         let state = AppState {
             config: AppConfig::default(),
             http: Client::new(),
+            gateway_http: Client::new(),
             pool: PgPoolOptions::new()
                 .connect_lazy("postgres://localhost/hub_william_test")
                 .expect("test database URL should parse"),
@@ -290,11 +302,23 @@ mod tests {
         assert_eq!(browser_response.status(), StatusCode::PAYLOAD_TOO_LARGE);
     }
 
+    #[test]
+    fn gateway_http_client_has_no_total_request_timeout() {
+        let client = gateway_http_client().expect("gateway client should build");
+        let debug = format!("{client:?}");
+
+        assert!(
+            !debug.contains("TotalTimeout"),
+            "gateway client unexpectedly has a total request timeout: {debug}"
+        );
+    }
+
     #[tokio::test]
     async fn gemini_native_model_routes_reach_gateway_authentication() {
         let state = AppState {
             config: AppConfig::default(),
             http: Client::new(),
+            gateway_http: Client::new(),
             pool: PgPoolOptions::new()
                 .connect_lazy("postgres://localhost/hub_william_test")
                 .expect("test database URL should parse"),
@@ -324,6 +348,7 @@ mod tests {
         let state = AppState {
             config,
             http: Client::new(),
+            gateway_http: Client::new(),
             pool: PgPoolOptions::new()
                 .connect_lazy("postgres://localhost/hub_william_test")
                 .expect("test database URL should parse"),
