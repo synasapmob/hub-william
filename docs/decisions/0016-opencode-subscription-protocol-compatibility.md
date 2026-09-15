@@ -1,6 +1,6 @@
 # ADR-0016: OpenCode subscription protocol compatibility
 
-- Status: Accepted
+- Status: Accepted; AGY catalogue discovery superseded by ADR-0018
 - Date: 2026-09-15
 - Supersedes: ADR-0012 Grok OAuth scope list only
 

@@ -142,7 +142,7 @@ class OpenCodeInstallerTest(unittest.TestCase):
         def models(_url, _key, provider):
             return [{"id": "gpt-live"}] if provider == "codex" else []
 
-        with mock.patch.object(opencode, "_gateway_models", side_effect=models), mock.patch.object(
+        with mock.patch.object(opencode, "_gateway_models", side_effect=models) as gateway_models, mock.patch.object(
             opencode,
             "_codex_models",
             return_value=[
@@ -154,8 +154,6 @@ class OpenCodeInstallerTest(unittest.TestCase):
                     ],
                 }
             ],
-        ), mock.patch.object(opencode, "_agy_models", return_value=[]), mock.patch.object(
-            opencode, "_gemini_available", return_value=False
         ):
             self.assertEqual(opencode.install(terminal, args, self.home.name), 0)
 
@@ -168,51 +166,10 @@ class OpenCodeInstallerTest(unittest.TestCase):
         self.assertNotIn("hub-deepseek", document["provider"])
         self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
         self.assertIn("/variants", terminal.getvalue())
-
-    def test_uses_live_agy_model_catalogue(self):
-        result = mock.Mock(
-            returncode=0,
-            stdout=(
-                "gemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)\n"
-                "claude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)\n"
-            ),
+        self.assertIn(
+            mock.call("https://api.hub.example", "hw_gateway_secret", "gemini"),
+            gateway_models.call_args_list,
         )
-        with mock.patch.object(opencode.shutil, "which", return_value="/bin/agy"), mock.patch.object(
-            opencode.subprocess, "run", return_value=result
-        ):
-            self.assertEqual(
-                opencode._agy_models(),
-                [
-                    {
-                        "id": "gemini-3.8-flash-medium",
-                        "name": "Gemini 3.8 Flash (Medium)",
-                    },
-                    {
-                        "id": "claude-sonnet-4-6",
-                        "name": "Claude Sonnet 4.6 (Thinking)",
-                    },
-                ],
-            )
-
-    def test_agy_probe_tries_later_models_after_one_is_unavailable(self):
-        success = mock.MagicMock()
-        success.__enter__.return_value.status = 200
-        unavailable = opencode.HTTPError(
-            "https://api.hub.example/first", 404, "not found", {}, None
-        )
-        models = [{"id": "first"}, {"id": "second"}]
-
-        with mock.patch.object(
-            opencode, "urlopen", side_effect=[unavailable, success]
-        ) as request:
-            self.assertTrue(
-                opencode._gemini_available(
-                    "https://api.hub.example", "hw_gateway_secret", models
-                )
-            )
-
-        self.assertEqual(request.call_count, 2)
-        self.assertIn("models/second:countTokens", request.call_args.args[0].full_url)
 
     def test_gateway_url_rejects_cleartext_remote_origins(self):
         self.assertEqual(

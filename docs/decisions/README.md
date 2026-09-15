@@ -24,3 +24,4 @@ record and mark the old one superseded rather than rewriting its history.
 - [ADR-0015: DeepSeek API keys and OpenCode gateway installation](0015-deepseek-api-key-and-opencode-gateway.md)
 - [ADR-0016: OpenCode subscription protocol compatibility](0016-opencode-subscription-protocol-compatibility.md)
 - [ADR-0017: OMP one-command provider installation](0017-omp-one-command-provider-installation.md)
+- [ADR-0018: Provider-backed AGY model discovery](0018-provider-backed-agy-model-discovery.md)

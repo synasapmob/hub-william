@@ -112,9 +112,7 @@ class OmpInstallerTest(unittest.TestCase):
         def models(_url, _key, provider):
             return [{"id": provider + "-live"}]
 
-        with mock.patch.object(omp, "_gateway_models", side_effect=models), mock.patch.object(
-            omp, "_agy_models", return_value=[{"id": "gemini-live"}]
-        ), mock.patch.object(omp, "_gemini_available", return_value=True):
+        with mock.patch.object(omp, "_gateway_models", side_effect=models) as gateway_models:
             self.assertEqual(omp.install(terminal, args, self.home.name), 0)
 
         path = os.path.join(self.home.name, ".omp", "agent", "models.yml")
@@ -124,28 +122,10 @@ class OmpInstallerTest(unittest.TestCase):
             self.assertIn("  %s:\n" % provider_id, document)
         self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
         self.assertIn("/model", terminal.getvalue())
-
-    def test_agy_probe_tries_later_models_after_one_is_unavailable(self):
-        success = mock.MagicMock()
-        success.__enter__.return_value.status = 200
-        unavailable = omp.HTTPError(
-            "https://api.hub.example/first", 404, "not found", {}, io.BytesIO()
+        self.assertIn(
+            mock.call("https://api.hub.example", "hw_gateway_secret", "gemini"),
+            gateway_models.call_args_list,
         )
-
-        with mock.patch.object(
-            omp, "urlopen", side_effect=[unavailable, success]
-        ) as request:
-            self.assertTrue(
-                omp._gemini_available(
-                    "https://api.hub.example",
-                    "hw_gateway_secret",
-                    [{"id": "first"}, {"id": "second"}],
-                )
-            )
-
-        self.assertEqual(request.call_count, 2)
-        self.assertTrue(unavailable.fp.closed)
-        self.assertIn("models/second:countTokens", request.call_args.args[0].full_url)
 
     def test_uses_existing_models_yaml_and_refuses_legacy_json(self):
         agent = os.path.join(self.home.name, ".omp", "agent")

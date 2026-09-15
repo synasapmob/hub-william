@@ -411,6 +411,120 @@ pub async fn gemini_request(
     gemini_proxy_request(&state, model, operation, &headers, body).await
 }
 
+pub async fn gemini_models(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let authorized = authorize_gateway_key(&state, &headers).await?;
+    let candidates =
+        connected_provider_candidates(&state, authorized.user_id, AgentProvider::Gemini).await?;
+    let mut saw_rate_limit = false;
+    let mut saw_reauthorization = false;
+    let mut last_error = None;
+
+    for candidate in candidates {
+        let claimed_probe = match claim_candidate(&state, &candidate).await {
+            Ok(Some(claimed_probe)) => claimed_probe,
+            Ok(None) => {
+                if candidate.availability_status == "reauth_required" {
+                    saw_reauthorization = true;
+                } else {
+                    saw_rate_limit = true;
+                }
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+        let (credential_provider, token) = match provider_credential(&state, candidate.id).await {
+            Ok(credential) => credential,
+            Err(error) => {
+                if claimed_probe {
+                    release_probe(&state, candidate.id).await?;
+                }
+                last_error = Some(error);
+                continue;
+            }
+        };
+        let access_token = token.get("access_token").and_then(Value::as_str);
+        let project = token
+            .get("cloudaicompanion_project")
+            .and_then(Value::as_str);
+        let (Some(access_token), Some(project)) = (access_token, project) else {
+            if claimed_probe {
+                release_probe(&state, candidate.id).await?;
+            }
+            last_error = Some(ApiError::Forbidden);
+            continue;
+        };
+        if credential_provider != AgentProvider::Gemini {
+            if claimed_probe {
+                release_probe(&state, candidate.id).await?;
+            }
+            last_error = Some(ApiError::Forbidden);
+            continue;
+        }
+        let upstream = match state
+            .http
+            .post(format!(
+                "{}/v1internal:fetchAvailableModels",
+                state.config.gemini_code_assist_url.trim_end_matches('/')
+            ))
+            .bearer_auth(access_token)
+            .header("user-agent", GEMINI_CLIENT_VERSION)
+            .json(&json!({ "project": project }))
+            .send()
+            .await
+        {
+            Ok(upstream) => upstream,
+            Err(error) => {
+                if claimed_probe {
+                    release_probe(&state, candidate.id).await?;
+                }
+                last_error = Some(upstream_network_error(AgentProvider::Gemini, error));
+                continue;
+            }
+        };
+        match upstream_disposition(upstream.status()) {
+            UpstreamDisposition::RateLimit => {
+                mark_rate_limited(&state, candidate.id).await?;
+                saw_rate_limit = true;
+                continue;
+            }
+            UpstreamDisposition::Reauthorize => {
+                mark_reauth_required(&state, candidate.id).await?;
+                saw_reauthorization = true;
+                continue;
+            }
+            UpstreamDisposition::Return if !upstream.status().is_success() => {
+                if claimed_probe {
+                    release_probe(&state, candidate.id).await?;
+                }
+                last_error = Some(ApiError::Provider(format!(
+                    "Google model discovery returned HTTP {}.",
+                    upstream.status()
+                )));
+                continue;
+            }
+            UpstreamDisposition::Return => {}
+        }
+        let payload = upstream.json::<Value>().await.map_err(|_| {
+            ApiError::Provider("Google returned an invalid Gemini model catalogue.".to_owned())
+        })?;
+        mark_active(&state, candidate.id).await?;
+        return Ok(Json(gemini_model_catalogue(&payload)));
+    }
+
+    if saw_rate_limit {
+        Err(ApiError::RateLimited)
+    } else if saw_reauthorization {
+        Err(ApiError::Provider(
+            "Every accessible pool for this provider needs to reconnect.".to_owned(),
+        ))
+    } else {
+        Err(last_error.unwrap_or(ApiError::Forbidden))
+    }
+}
+
 #[derive(Clone, Copy)]
 enum GeminiOperation {
     Generate,
@@ -619,6 +733,34 @@ fn gemini_code_assist_request(
             "request": request
         }),
     }
+}
+
+fn gemini_model_catalogue(payload: &Value) -> Value {
+    let mut models = payload
+        .get("models")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .filter_map(|(identifier, metadata)| {
+            let display_name = metadata.get("displayName").and_then(Value::as_str)?;
+            if display_name.is_empty()
+                || metadata
+                    .get("isInternal")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+            {
+                return None;
+            }
+            Some(json!({
+                "id": identifier,
+                "object": "model",
+                "owned_by": "google",
+                "name": display_name,
+            }))
+        })
+        .collect::<Vec<_>>();
+    models.sort_by(|left, right| left["id"].as_str().cmp(&right["id"].as_str()));
+    json!({ "object": "list", "data": models })
 }
 
 fn unwrap_gemini_response(mut wrapper: Value) -> Value {
@@ -1367,9 +1509,9 @@ mod tests {
 
     use super::{
         GeminiOperation, GeminiSseTransformer, UpstreamDisposition, chatgpt_account_id,
-        gemini_code_assist_request, grok_proxy_headers, hash_gateway_key, merged_anthropic_beta,
-        parse_gemini_operation, rate_limit_cooldown, strip_unsupported_codex_fields,
-        unwrap_gemini_response, upstream_disposition,
+        gemini_code_assist_request, gemini_model_catalogue, grok_proxy_headers, hash_gateway_key,
+        merged_anthropic_beta, parse_gemini_operation, rate_limit_cooldown,
+        strip_unsupported_codex_fields, unwrap_gemini_response, upstream_disposition,
     };
 
     #[test]
@@ -1474,6 +1616,21 @@ mod tests {
         assert_eq!(wrapped["project"], "project-123");
         assert_eq!(wrapped["request"]["contents"][0]["role"], "user");
         assert!(wrapped["user_prompt_id"].as_str().is_some());
+    }
+
+    #[test]
+    fn gemini_model_catalogue_keeps_only_user_facing_live_models() {
+        let catalogue = gemini_model_catalogue(&json!({
+            "models": {
+                "gemini-live": {"displayName": "Gemini Live"},
+                "internal-model": {"displayName": "Internal", "isInternal": true},
+                "unnamed-model": {"quotaInfo": {"remainingFraction": 1.0}}
+            }
+        }));
+        assert_eq!(catalogue["object"], "list");
+        assert_eq!(catalogue["data"].as_array().unwrap().len(), 1);
+        assert_eq!(catalogue["data"][0]["id"], "gemini-live");
+        assert_eq!(catalogue["data"][0]["name"], "Gemini Live");
     }
 
     #[test]
