@@ -1,7 +1,7 @@
 {
   "description": "Every document in the Hub William catalogue. Fetch `url` for the file exactly as it is in the repository, or an archive's `url` for a whole folder — its members keep these same paths, so unzipping into a checkout puts them where an agent reads them.",
   "repository": "https://github.com/synasapmob/hub-william",
-  "count": 51,
+  "count": 52,
   "documents": [
     {
       "id": "contributors/default/libraries/harness/AGENTS",
@@ -196,6 +196,12 @@
       "bytes": 1881
     },
     {
+      "id": "contributors/default/tools/omp/omp",
+      "path": "contributors/default/tools/omp/omp.md",
+      "url": "/hub-william/dev/catalog/contributors/default/tools/omp/omp.md",
+      "bytes": 2153
+    },
+    {
       "id": "contributors/default/tools/opencode/opencode",
       "path": "contributors/default/tools/opencode/opencode.md",
       "url": "/hub-william/dev/catalog/contributors/default/tools/opencode/opencode.md",
@@ -315,15 +321,15 @@
       "id": "contributors",
       "path": "contributors.zip",
       "url": "/hub-william/dev/catalog/contributors.zip",
-      "bytes": 77308,
-      "files": 51
+      "bytes": 78608,
+      "files": 52
     },
     {
       "id": "contributors/default",
       "path": "contributors/default.zip",
       "url": "/hub-william/dev/catalog/contributors/default.zip",
-      "bytes": 54437,
-      "files": 33
+      "bytes": 55737,
+      "files": 34
     },
     {
       "id": "contributors/default/libraries",
@@ -357,8 +363,8 @@
       "id": "contributors/default/tools",
       "path": "contributors/default/tools.zip",
       "url": "/hub-william/dev/catalog/contributors/default/tools.zip",
-      "bytes": 6662,
-      "files": 5
+      "bytes": 7962,
+      "files": 6
     },
     {
       "id": "contributors/default/tools/gateway",
@@ -379,6 +385,13 @@
       "path": "contributors/default/tools/mcp.zip",
       "url": "/hub-william/dev/catalog/contributors/default/tools/mcp.zip",
       "bytes": 1052,
+      "files": 1
+    },
+    {
+      "id": "contributors/default/tools/omp",
+      "path": "contributors/default/tools/omp.zip",
+      "url": "/hub-william/dev/catalog/contributors/default/tools/omp.zip",
+      "bytes": 1322,
       "files": 1
     },
     {
@@ -500,6 +513,13 @@
       "path": "collections/default/tools/mcp.zip",
       "url": "/hub-william/dev/catalog/collections/default/tools/mcp.zip",
       "bytes": 1052,
+      "files": 1
+    },
+    {
+      "id": "default/tools/omp",
+      "path": "collections/default/tools/omp.zip",
+      "url": "/hub-william/dev/catalog/collections/default/tools/omp.zip",
+      "bytes": 1322,
       "files": 1
     },
     {
