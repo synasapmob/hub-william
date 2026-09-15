@@ -13,6 +13,7 @@ mod usage;
 
 use axum::{
     Router,
+    extract::DefaultBodyLimit,
     http::{
         Method,
         header::{AUTHORIZATION, CONTENT_TYPE},
@@ -100,6 +101,28 @@ pub fn app(state: AppState) -> Router {
         .allow_headers([AUTHORIZATION, CONTENT_TYPE])
         .allow_credentials(true);
 
+    let gateway_routes = Router::new()
+        .route("/gateway/openai/v1/responses", post(openai_responses))
+        .route("/gateway/openai/v1/models", get(openai_models))
+        .route("/gateway/claude/v1/messages", post(claude_messages))
+        .route("/gateway/claude/v1/models", get(claude_models))
+        .route(
+            "/gateway/claude/v1/messages/count_tokens",
+            post(claude_count_tokens),
+        )
+        .route("/gateway/grok/v1/chat/completions", post(grok_chat))
+        .route("/gateway/grok/v1/responses", post(grok_responses))
+        .route("/gateway/grok/v1/models", get(grok_models))
+        .route("/gateway/gemini/v1beta/models", get(gemini_models))
+        .route(
+            "/gateway/gemini/v1beta/models/{*operation}",
+            post(gemini_request),
+        )
+        .route("/gateway/deepseek/chat/completions", post(deepseek_chat))
+        .route("/gateway/deepseek/responses", post(deepseek_responses))
+        .route("/gateway/deepseek/models", get(deepseek_models))
+        .layer(DefaultBodyLimit::disable());
+
     Router::new()
         .route("/health", get(health))
         .route("/auth/register", post(register))
@@ -179,25 +202,7 @@ pub fn app(state: AppState) -> Router {
         )
         .route("/gateway-keys", get(list_keys).post(create_key))
         .route("/gateway-keys/{key_id}", axum::routing::delete(revoke_key))
-        .route("/gateway/openai/v1/responses", post(openai_responses))
-        .route("/gateway/openai/v1/models", get(openai_models))
-        .route("/gateway/claude/v1/messages", post(claude_messages))
-        .route("/gateway/claude/v1/models", get(claude_models))
-        .route(
-            "/gateway/claude/v1/messages/count_tokens",
-            post(claude_count_tokens),
-        )
-        .route("/gateway/grok/v1/chat/completions", post(grok_chat))
-        .route("/gateway/grok/v1/responses", post(grok_responses))
-        .route("/gateway/grok/v1/models", get(grok_models))
-        .route("/gateway/gemini/v1beta/models", get(gemini_models))
-        .route(
-            "/gateway/gemini/v1beta/models/{*operation}",
-            post(gemini_request),
-        )
-        .route("/gateway/deepseek/chat/completions", post(deepseek_chat))
-        .route("/gateway/deepseek/responses", post(deepseek_responses))
-        .route("/gateway/deepseek/models", get(deepseek_models))
+        .merge(gateway_routes)
         .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(cors)
         .with_state(state)
@@ -245,6 +250,44 @@ mod tests {
 
         assert_eq!(payload["status"], "ok");
         assert_eq!(payload["service"], "hub-william-backend");
+    }
+
+    #[tokio::test]
+    async fn only_gateway_routes_accept_large_request_bodies() {
+        let state = AppState {
+            config: AppConfig::default(),
+            http: Client::new(),
+            pool: PgPoolOptions::new()
+                .connect_lazy("postgres://localhost/hub_william_test")
+                .expect("test database URL should parse"),
+        };
+        let gateway_body = vec![b' '; 17 * 1024 * 1024];
+
+        let gateway_response = app(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/gateway/deepseek/responses")
+                    .header("content-type", "application/json")
+                    .body(Body::from(gateway_body))
+                    .expect("large gateway request should build"),
+            )
+            .await
+            .expect("gateway should respond");
+        assert_eq!(gateway_response.status(), StatusCode::UNAUTHORIZED);
+
+        let browser_response = app(state)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(vec![b' '; 3 * 1024 * 1024]))
+                    .expect("large browser request should build"),
+            )
+            .await
+            .expect("browser API should respond");
+        assert_eq!(browser_response.status(), StatusCode::PAYLOAD_TOO_LARGE);
     }
 
     #[tokio::test]

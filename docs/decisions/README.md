@@ -27,3 +27,4 @@ record and mark the old one superseded rather than rewriting its history.
 - [ADR-0018: Provider-backed AGY model discovery](0018-provider-backed-agy-model-discovery.md)
 - [ADR-0019: Current Antigravity model and generation contract](0019-current-antigravity-model-contract.md)
 - [ADR-0020: DeepSeek Responses for coding-agent clients](0020-deepseek-responses-for-coding-agent-clients.md)
+- [ADR-0021: Transparent request sizing for agent gateway routes](0021-transparent-request-sizing-agent-gateway.md)

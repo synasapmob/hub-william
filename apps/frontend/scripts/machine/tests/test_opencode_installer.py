@@ -99,6 +99,11 @@ class OpenCodeInstallerTest(unittest.TestCase):
             document["provider"]["hub-deepseek"]["npm"],
             "@ai-sdk/openai",
         )
+        deepseek_model = document["provider"]["hub-deepseek"]["models"][
+            "deepseek-v4-pro"
+        ]
+        self.assertNotIn("contextWindow", deepseek_model)
+        self.assertNotIn("maxTokens", deepseek_model)
         self.assertEqual(
             document["provider"]["hub-claude"]["models"][
                 "claude-sonnet-live"

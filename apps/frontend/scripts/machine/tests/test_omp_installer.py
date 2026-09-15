@@ -54,6 +54,8 @@ class OmpInstallerTest(unittest.TestCase):
             omp.END, 1
         )[0]
         self.assertIn('api: "openai-responses"', deepseek_block)
+        self.assertNotIn("contextWindow", deepseek_block)
+        self.assertNotIn("maxTokens", deepseek_block)
         self.assertIn('apiKey: "hw_gateway_secret"', document)
         self.assertEqual(document.count(omp.BEGIN), 1)
         self.assertEqual(document.count(omp.END), 1)
