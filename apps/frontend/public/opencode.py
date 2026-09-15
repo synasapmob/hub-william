@@ -260,26 +260,27 @@ def _agy_models():
 
 
 def _gemini_available(gateway_url, key, models):
-    if not models:
-        return False
-    identifier = quote(models[0]["id"], safe="._-")
-    request = Request(
-        gateway_url
-        + "/gateway/gemini/v1beta/models/"
-        + identifier
-        + ":countTokens",
-        data=b'{"contents":[]}',
-        headers={
-            "Authorization": "Bearer " + key,
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-    try:
-        with urlopen(request, timeout=12) as response:
-            return 200 <= response.status < 300
-    except (HTTPError, URLError, TimeoutError, ValueError):
-        return False
+    for model in models:
+        identifier = quote(model["id"], safe="._-")
+        request = Request(
+            gateway_url
+            + "/gateway/gemini/v1beta/models/"
+            + identifier
+            + ":countTokens",
+            data=b'{"contents":[]}',
+            headers={
+                "Authorization": "Bearer " + key,
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=12) as response:
+                if 200 <= response.status < 300:
+                    return True
+        except (HTTPError, URLError, TimeoutError, ValueError):
+            continue
+    return False
 
 
 def _variants(efforts):
@@ -375,7 +376,7 @@ def build_config(existing, gateway_url, key, catalogues):
         },
         "hub-grok": {
             "name": "Hub William · Grok",
-            "npm": "@ai-sdk/openai-compatible",
+            "npm": "@ai-sdk/openai",
             "options": {
                 "apiKey": key,
                 "baseURL": gateway_url + "/gateway/grok/v1",
@@ -434,12 +435,19 @@ def install(terminal, args, home=None):
     terminal.flush()
     codex_available = _gateway_models(gateway_url, key, "codex")
     gemini_models = _agy_models()
+    gemini_available = _gemini_available(gateway_url, key, gemini_models)
+    if not gemini_models:
+        terminal.write(
+            "Skipped Hub Gemini / AGY: `agy models` returned no local catalogue.\n"
+        )
+    elif not gemini_available:
+        terminal.write(
+            "Skipped Hub Gemini / AGY: no AGY model passed the gateway countTokens probe.\n"
+        )
     catalogues = {
         "codex": _codex_models() if codex_available else None,
         "claude": _gateway_models(gateway_url, key, "claude"),
-        "gemini": gemini_models
-        if _gemini_available(gateway_url, key, gemini_models)
-        else [],
+        "gemini": gemini_models if gemini_available else [],
         "grok": _gateway_models(gateway_url, key, "grok"),
         "deepseek": _gateway_models(gateway_url, key, "deepseek"),
     }

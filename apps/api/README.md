@@ -38,7 +38,8 @@ populated values in the runtime secret store.
 - `/gateway/claude/v1/messages`: Claude Messages streaming gateway.
 - `/gateway/gemini/v1beta/models/*`: AGY native Gemini protocol bridged to the
   connected Google Code Assist subscription.
-- `/gateway/grok/v1/*`: Grok OpenAI-compatible gateway.
+- `/gateway/grok/v1/*`: Grok Build Responses, chat-completions compatibility,
+  and authenticated live model catalogue gateway.
 - `/gateway/deepseek/*`: DeepSeek OpenAI-compatible chat, Responses, and live
   model-list gateway.
 - `/internal/telegram/*`: contacts, their language preference, their orders, and
@@ -57,7 +58,9 @@ every connected account the user owns and every pool where their join request
 is accepted. Candidate pools are filtered strictly by the requested provider;
 an unusable credential advances to the next candidate. An upstream `429`
 persists a 30-minute cooldown, while an upstream `401` marks that account for
-reauthorization; both advance to the next same-provider pool. The first real
+reauthorization. A Grok `403` does the same because expanded subscription
+scopes require an explicit reconnect. These failures advance to the next
+same-provider pool. The first real
 request after a rate-limit timer is an atomic half-open probe. An owner can
 force-refresh the provider credential from pool management; a rejected or
 missing refresh token starts official authorization again on the same pool

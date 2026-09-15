@@ -50,8 +50,8 @@ pub use error::ErrorResponse;
 pub use gateway::{CreatedGatewayKey, GatewayKey};
 use gateway::{
     claude_count_tokens, claude_messages, claude_models, create_key, deepseek_chat,
-    deepseek_models, deepseek_responses, gemini_request, grok_chat, grok_models, list_keys,
-    openai_models, openai_responses, revoke_key,
+    deepseek_models, deepseek_responses, gemini_request, grok_chat, grok_models, grok_responses,
+    list_keys, openai_models, openai_responses, revoke_key,
 };
 pub use health::HealthResponse;
 use health::health;
@@ -188,6 +188,7 @@ pub fn app(state: AppState) -> Router {
             post(claude_count_tokens),
         )
         .route("/gateway/grok/v1/chat/completions", post(grok_chat))
+        .route("/gateway/grok/v1/responses", post(grok_responses))
         .route("/gateway/grok/v1/models", get(grok_models))
         .route(
             "/gateway/gemini/v1beta/models/{*operation}",

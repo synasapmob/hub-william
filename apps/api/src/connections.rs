@@ -27,7 +27,7 @@ const CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const CLAUDE_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const CLAUDE_SCOPES: &str = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
 const GEMINI_SCOPES: &str = "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/cclog https://www.googleapis.com/auth/experimentsandconfigs";
-const GROK_SCOPES: &str = "openid profile email offline_access api:access";
+const GROK_SCOPES: &str = "openid profile email offline_access grok-cli:access api:access conversations:read conversations:write workspaces:read workspaces:write";
 const GROK_CLIENT_SURFACE: &str = "grok-build";
 const DEFAULT_DEVICE_EXPIRY_SECONDS: i64 = 900;
 const DEFAULT_POLL_SECONDS: u64 = 5;
@@ -2552,6 +2552,10 @@ mod tests {
         let (headers, form) = captured.as_ref().unwrap();
         assert_eq!(form.get("client_id").unwrap(), "current-client-id");
         assert_eq!(form.get("scope").unwrap(), GROK_SCOPES);
+        assert_eq!(
+            GROK_SCOPES,
+            "openid profile email offline_access grok-cli:access api:access conversations:read conversations:write workspaces:read workspaces:write"
+        );
         assert_eq!(headers["x-grok-client-version"], "9.8.7");
         assert_eq!(headers["x-grok-client-surface"], "grok-build");
         assert_eq!(headers["user-agent"], "xai-grok-build/9.8.7");

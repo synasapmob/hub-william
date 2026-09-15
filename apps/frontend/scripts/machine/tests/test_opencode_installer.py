@@ -92,6 +92,10 @@ class OpenCodeInstallerTest(unittest.TestCase):
             "hub-william",
         )
         self.assertEqual(
+            document["provider"]["hub-grok"]["npm"],
+            "@ai-sdk/openai",
+        )
+        self.assertEqual(
             document["provider"]["hub-claude"]["models"][
                 "claude-sonnet-live"
             ]["variants"]["medium"],
@@ -189,6 +193,26 @@ class OpenCodeInstallerTest(unittest.TestCase):
                     },
                 ],
             )
+
+    def test_agy_probe_tries_later_models_after_one_is_unavailable(self):
+        success = mock.MagicMock()
+        success.__enter__.return_value.status = 200
+        unavailable = opencode.HTTPError(
+            "https://api.hub.example/first", 404, "not found", {}, None
+        )
+        models = [{"id": "first"}, {"id": "second"}]
+
+        with mock.patch.object(
+            opencode, "urlopen", side_effect=[unavailable, success]
+        ) as request:
+            self.assertTrue(
+                opencode._gemini_available(
+                    "https://api.hub.example", "hw_gateway_secret", models
+                )
+            )
+
+        self.assertEqual(request.call_count, 2)
+        self.assertIn("models/second:countTokens", request.call_args.args[0].full_url)
 
     def test_gateway_url_rejects_cleartext_remote_origins(self):
         self.assertEqual(

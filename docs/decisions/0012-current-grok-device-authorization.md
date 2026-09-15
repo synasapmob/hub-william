@@ -1,6 +1,6 @@
 # ADR-0012: Current Grok device authorization
 
-- Status: Accepted
+- Status: Accepted; OAuth scope list superseded by ADR-0016
 - Date: 2026-09-15
 - Supersedes: ADR-0003 Grok authorization transport only
 

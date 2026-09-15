@@ -26,6 +26,8 @@ const CLAUDE_MESSAGES_URL: &str = "https://api.anthropic.com/v1/messages";
 const CLAUDE_COUNT_TOKENS_URL: &str = "https://api.anthropic.com/v1/messages/count_tokens";
 const CLAUDE_MODELS_URL: &str = "https://api.anthropic.com/v1/models";
 const GROK_CHAT_URL: &str = "https://cli-chat-proxy.grok.com/v1/chat/completions";
+const GROK_RESPONSES_URL: &str = "https://cli-chat-proxy.grok.com/v1/responses";
+const GROK_MODELS_URL: &str = "https://cli-chat-proxy.grok.com/v1/models-v2";
 const GEMINI_CLIENT_VERSION: &str = "antigravity/1.2.0";
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -209,6 +211,7 @@ pub async fn openai_responses(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, ApiError> {
+    let body = strip_unsupported_codex_fields(body);
     proxy_request(
         &state,
         AgentProvider::Chatgpt,
@@ -293,6 +296,24 @@ pub async fn grok_chat(
     .await
 }
 
+pub async fn grok_responses(
+    State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, ApiError> {
+    proxy_request(
+        &state,
+        AgentProvider::Grok,
+        GROK_RESPONSES_URL,
+        Method::POST,
+        &uri,
+        &headers,
+        body,
+    )
+    .await
+}
+
 pub async fn claude_models(
     State(state): State<AppState>,
     OriginalUri(uri): OriginalUri,
@@ -365,19 +386,19 @@ pub async fn deepseek_models(
 
 pub async fn grok_models(
     State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
     headers: HeaderMap,
-) -> Result<Json<Value>, ApiError> {
-    let authorized = authorize_gateway_key(&state, &headers).await?;
-    connected_provider_ids(&state, authorized.user_id, AgentProvider::Grok).await?;
-
-    Ok(Json(json!({
-        "object": "list",
-        "data": [{
-            "id": "grok-build",
-            "object": "model",
-            "owned_by": "xai"
-        }]
-    })))
+) -> Result<Response, ApiError> {
+    proxy_request(
+        &state,
+        AgentProvider::Grok,
+        GROK_MODELS_URL,
+        Method::GET,
+        &uri,
+        &headers,
+        Bytes::new(),
+    )
+    .await
 }
 
 pub async fn gemini_request(
@@ -845,11 +866,14 @@ async fn proxy_request(
             }
             AgentProvider::Gemini => request,
             AgentProvider::Deepseek => request,
-            AgentProvider::Grok => request
-                .header("x-xai-token-auth", "xai-grok-cli")
-                .header("x-grok-client-version", "1.0.13")
-                .header("x-grok-client-identifier", "grok-shell")
-                .header("user-agent", "xai-grok-build/1.0.13"),
+            AgentProvider::Grok => {
+                let grok_headers = grok_proxy_headers(
+                    &state.config.grok_client_version,
+                    &body,
+                    method != Method::GET,
+                );
+                request.headers(grok_headers)
+            }
         };
 
         let upstream = match request.send().await {
@@ -862,7 +886,14 @@ async fn proxy_request(
                 continue;
             }
         };
-        match upstream_disposition(upstream.status()) {
+        let disposition = if expected_provider == AgentProvider::Grok
+            && upstream.status() == StatusCode::FORBIDDEN
+        {
+            UpstreamDisposition::Reauthorize
+        } else {
+            upstream_disposition(upstream.status())
+        };
+        match disposition {
             UpstreamDisposition::RateLimit => {
                 mark_rate_limited(state, candidate.id).await?;
                 saw_rate_limit = true;
@@ -1185,6 +1216,61 @@ fn append_query(url: &str, query: Option<&str>) -> String {
     query.map_or_else(|| url.to_owned(), |query| format!("{url}?{query}"))
 }
 
+fn strip_unsupported_codex_fields(body: Bytes) -> Bytes {
+    let Ok(mut payload) = serde_json::from_slice::<Value>(&body) else {
+        return body;
+    };
+    let Some(payload) = payload.as_object_mut() else {
+        return body;
+    };
+    if payload.remove("max_output_tokens").is_none() {
+        return body;
+    }
+    Bytes::from(serde_json::to_vec(&payload).unwrap_or_else(|_| body.to_vec()))
+}
+
+fn grok_proxy_headers(client_version: &str, body: &Bytes, include_affinity: bool) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert("x-xai-token-auth", HeaderValue::from_static("xai-grok-cli"));
+    headers.insert(
+        "x-authenticateresponse",
+        HeaderValue::from_static("authenticate-response"),
+    );
+    headers.insert(
+        "x-grok-client-identifier",
+        HeaderValue::from_static("hub-william"),
+    );
+    headers.insert("x-grok-client-mode", HeaderValue::from_static("headless"));
+    if let Ok(version) = HeaderValue::from_str(client_version) {
+        headers.insert("x-grok-client-version", version);
+    }
+    headers.insert(
+        header::USER_AGENT,
+        HeaderValue::from_static(concat!("hub-william/", env!("CARGO_PKG_VERSION"))),
+    );
+    if !include_affinity {
+        return headers;
+    }
+
+    let session_id = Uuid::new_v4().to_string();
+    let request_id = Uuid::new_v4().to_string();
+    let model = serde_json::from_slice::<Value>(body)
+        .ok()
+        .and_then(|payload| payload.get("model")?.as_str().map(str::to_owned))
+        .unwrap_or_else(|| "grok-build".to_owned());
+    for (name, value) in [
+        ("x-grok-conv-id", session_id.as_str()),
+        ("x-grok-req-id", request_id.as_str()),
+        ("x-grok-model-override", model.as_str()),
+        ("x-grok-session-id", session_id.as_str()),
+    ] {
+        if let Ok(value) = HeaderValue::from_str(value) {
+            headers.insert(HeaderName::from_static(name), value);
+        }
+    }
+    headers
+}
+
 fn should_forward_request_header(name: &HeaderName) -> bool {
     !matches!(
         name.as_str(),
@@ -1271,14 +1357,19 @@ fn database_error(error: sqlx::Error) -> ApiError {
 
 #[cfg(test)]
 mod tests {
-    use axum::http::{HeaderMap, HeaderValue};
+    use axum::{
+        body::Bytes,
+        http::{HeaderMap, HeaderValue},
+    };
     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
     use serde_json::json;
+    use uuid::Uuid;
 
     use super::{
         GeminiOperation, GeminiSseTransformer, UpstreamDisposition, chatgpt_account_id,
-        gemini_code_assist_request, hash_gateway_key, merged_anthropic_beta,
-        parse_gemini_operation, rate_limit_cooldown, unwrap_gemini_response, upstream_disposition,
+        gemini_code_assist_request, grok_proxy_headers, hash_gateway_key, merged_anthropic_beta,
+        parse_gemini_operation, rate_limit_cooldown, strip_unsupported_codex_fields,
+        unwrap_gemini_response, upstream_disposition,
     };
 
     #[test]
@@ -1287,6 +1378,34 @@ mod tests {
         let hash = hash_gateway_key(key);
         assert_ne!(hash, key.as_bytes());
         assert_eq!(hash.len(), 32);
+    }
+
+    #[test]
+    fn codex_subscription_requests_drop_the_unsupported_output_limit() {
+        let body = Bytes::from_static(
+            br#"{"model":"gpt-5.6-sol","input":"hello","max_output_tokens":32000}"#,
+        );
+        let normalized = strip_unsupported_codex_fields(body);
+        let payload: serde_json::Value = serde_json::from_slice(&normalized).unwrap();
+
+        assert_eq!(payload["model"], "gpt-5.6-sol");
+        assert_eq!(payload["input"], "hello");
+        assert!(payload.get("max_output_tokens").is_none());
+    }
+
+    #[test]
+    fn grok_proxy_headers_match_the_current_subscription_contract() {
+        let body = Bytes::from_static(br#"{"model":"grok-4.6","input":"hello"}"#);
+        let headers = grok_proxy_headers("1.0.30", &body, true);
+
+        assert_eq!(headers["x-xai-token-auth"], "xai-grok-cli");
+        assert_eq!(headers["x-authenticateresponse"], "authenticate-response");
+        assert_eq!(headers["x-grok-client-identifier"], "hub-william");
+        assert_eq!(headers["x-grok-client-mode"], "headless");
+        assert_eq!(headers["x-grok-client-version"], "1.0.30");
+        assert_eq!(headers["x-grok-model-override"], "grok-4.6");
+        assert_eq!(headers["x-grok-conv-id"], headers["x-grok-session-id"]);
+        assert!(Uuid::parse_str(headers["x-grok-req-id"].to_str().unwrap()).is_ok());
     }
 
     #[test]
