@@ -595,6 +595,11 @@ function openCodeInstallerUrl(origin?: string) {
   return siteAssetUrl("opencode.py", origin);
 }
 
+/** The OMP provider installer, published beside `opencode.py`. */
+function ompInstallerUrl(origin?: string) {
+  return siteAssetUrl("omp.py", origin);
+}
+
 /** This document's own bytes, at a URL `curl` can take. */
 function documentUrl(entry: CatalogEntry) {
   return siteUrl(`${entry.id}.md`);
@@ -795,6 +800,7 @@ const catalogService = {
   matchesCollectionQuery,
   mcpProducts,
   openCodeInstallerUrl,
+  ompInstallerUrl,
   matchesQuery,
   usage,
   publishedSiteOrigin: PUBLISHED_SITE_ORIGIN,

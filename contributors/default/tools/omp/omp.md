@@ -1,0 +1,47 @@
+# OMP
+
+Install one OMP configuration for every provider pool available through your
+Hub William gateway key. OMP is the coding agent “with the IDE wired in”; this
+installer adds Hub providers without replacing your existing OMP models.
+
+## Install
+
+```sh
+curl -fsSL https://hub.example/omp.py | python3 - --url=https://api.hub.example --key=YOUR_GATEWAY_KEY
+```
+
+Omit `--key` to enter the key in a hidden prompt and keep it out of shell
+history. The installer writes namespaced providers into a managed block in
+`~/.omp/agent/models.yml` (or an existing `models.yaml`), preserves unrelated
+providers byte-for-byte, creates one backup, and writes with owner-only
+permissions. If OMP still has a legacy `models.json`, run `omp models` once to
+let OMP migrate it before rerunning the installer.
+
+## Models
+
+Run `omp` and use `/model` to switch provider or model. Re-run the install
+command whenever a connected pool's catalogue changes. Claude, Grok, and
+DeepSeek model IDs come from their authenticated live Hub catalogues. Codex IDs
+come from the Hub Codex catalogue. Gemini/AGY IDs come from the locally installed
+`agy models` command after a non-generating `countTokens` probe confirms the Hub
+key can reach a Gemini pool; the installer tries later AGY models if an earlier
+one is unavailable.
+
+The provider mappings use OMP's native custom-provider APIs:
+
+- Codex and Grok use `openai-responses`.
+- Claude uses `anthropic-messages`.
+- Gemini/AGY uses `google-generative-ai`.
+- DeepSeek uses `openai-completions`.
+
+Grok connections created before the current Build scopes were introduced must
+be reconnected once in `/agents`, then this installer must be run again. The
+installer never falls back from subscription quota to a paid xAI API key.
+
+## Ownership and security
+
+The installer owns only content between its two `hub-william: providers`
+markers. It refuses to claim an existing `hub-*` provider outside those markers
+or a malformed YAML root. The OMP file contains one revocable Hub gateway key,
+never an upstream API key or provider OAuth token. Treat it as a password and
+revoke it from Hub William if the machine is lost or compromised.

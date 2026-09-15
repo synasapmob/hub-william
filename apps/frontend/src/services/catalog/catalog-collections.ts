@@ -53,6 +53,11 @@ const COLLECTION_PRESENTATION: Record<string, CatalogCollectionPresentation> = {
     summary:
       "Install every live Hub provider and model into OpenCode with one revocable gateway key.",
   },
+  omp: {
+    label: "OMP",
+    summary:
+      "Install every live Hub provider and model into OMP with one revocable gateway key.",
+  },
   skills: {
     label: "Skills",
     summary:
@@ -72,7 +77,7 @@ const COLLECTION_PRESENTATION: Record<string, CatalogCollectionPresentation> = {
 
 const COLLECTION_ORDER: Record<CatalogCollectionSection, string[]> = {
   library: ["evidences", "github", "tags", "skills", "templates"],
-  tools: ["documents", "gateway", "opencode", "mcp"],
+  tools: ["documents", "gateway", "opencode", "omp", "mcp"],
 };
 
 function fileStem(path: string) {

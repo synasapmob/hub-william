@@ -54,6 +54,9 @@ contributors/
 │   │   └── templates/           the shapes work is written into
 │   └── tools/
 │       ├── installer/           getting the catalogue onto a machine
+│       ├── gateway/             connecting supported agent CLIs to Hub
+│       ├── opencode/            installing Hub providers into OpenCode
+│       ├── omp/                 installing Hub providers into OMP
 │       └── mcp/                 registering MCP servers across agents
 └── <your-login>/                the same two folders, yours
     ├── libraries/
@@ -65,7 +68,8 @@ apps/frontend/scripts/machine/        the installer, and its own test suite
 `/library` groups documents by the job they do rather than duplicating the
 source tree. A GitHub workflow tag such as `mergeable` therefore appears in the
 same `GITHUB` collection as `gh-cli.md`, while both keep their original paths.
-`/tools` reduces installation to two collections: `DOCUMENTS` and `MCP`.
+`/tools` reduces installation to five collections: `DOCUMENTS`, `GATEWAY`,
+`OPENCODE`, `OMP`, and `MCP`.
 
 **Start from these, and change what does not fit.** They are written for one
 operator's machine and one set of tools; a repository with different CI, a
