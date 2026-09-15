@@ -19,7 +19,8 @@ OpenCode.
   `/tools/omp` collection.
 - Discover reachable model IDs at install time and map them to OMP's native
   custom-provider APIs: `openai-responses`, `anthropic-messages`,
-  `google-generative-ai`, and `openai-completions`.
+  and `google-generative-ai`. DeepSeek uses `openai-responses` as amended by
+  ADR-0020.
 - Store only the revocable Hub gateway key locally. Upstream OAuth credentials
   and provider API keys remain encrypted in Hub William.
 - Preserve unrelated YAML bytes. The installer owns one marked region inside

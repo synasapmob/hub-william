@@ -30,9 +30,10 @@ IDs, so those remain separately selectable in `/models`.
 
 Re-run the command whenever provider catalogues change. Claude, Grok, and
 DeepSeek model IDs are fetched through the live Hub pools; Grok uses its
-authenticated Build catalogue and Responses protocol. Codex model IDs and
-supported reasoning levels come from the installed `codex app-server`; when
-Codex is unavailable, the installer uses the current supported fallback list.
+authenticated Build catalogue, and Grok and DeepSeek use the Responses
+protocol. Codex model IDs and supported reasoning levels come from the
+installed `codex app-server`; when Codex is unavailable, the installer uses the
+current supported fallback list.
 Gemini/AGY IDs come from the authenticated Hub catalogue, which exposes only
 the intersection of the connected pool's live models and the current
 [Antigravity model set](https://antigravity.google/docs/models/#models). This

@@ -26,3 +26,4 @@ record and mark the old one superseded rather than rewriting its history.
 - [ADR-0017: OMP one-command provider installation](0017-omp-one-command-provider-installation.md)
 - [ADR-0018: Provider-backed AGY model discovery](0018-provider-backed-agy-model-discovery.md)
 - [ADR-0019: Current Antigravity model and generation contract](0019-current-antigravity-model-contract.md)
+- [ADR-0020: DeepSeek Responses for coding-agent clients](0020-deepseek-responses-for-coding-agent-clients.md)

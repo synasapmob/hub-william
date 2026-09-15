@@ -50,7 +50,10 @@ class OmpInstallerTest(unittest.TestCase):
         self.assertIn('api: "openai-responses"', document)
         self.assertIn('api: "anthropic-messages"', document)
         self.assertIn('api: "google-generative-ai"', document)
-        self.assertIn('api: "openai-completions"', document)
+        deepseek_block = document.split("  hub-deepseek:\n", 1)[1].split(
+            omp.END, 1
+        )[0]
+        self.assertIn('api: "openai-responses"', deepseek_block)
         self.assertIn('apiKey: "hw_gateway_secret"', document)
         self.assertEqual(document.count(omp.BEGIN), 1)
         self.assertEqual(document.count(omp.END), 1)
