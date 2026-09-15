@@ -2,8 +2,8 @@
 
 ## Status
 
-Accepted — 2026-09-15. Supersedes ADR-0016's local AGY catalogue and
-`countTokens` availability probe.
+Superseded by ADR-0019 — 2026-09-15. Previously superseded ADR-0016's local AGY
+catalogue and `countTokens` availability probe.
 
 ## Context
 

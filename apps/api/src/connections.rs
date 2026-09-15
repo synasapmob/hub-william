@@ -26,6 +26,7 @@ use crate::{AppState, auth::authenticated_user_id, error::ApiError};
 const CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const CLAUDE_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const CLAUDE_SCOPES: &str = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
+pub(crate) const ANTIGRAVITY_CLIENT_VERSION: &str = "antigravity/cli/1.2.3 (aidev_client; os_type=linux; arch=amd64; cl=981443618; auth_method=consumer)";
 const GEMINI_SCOPES: &str = "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/cclog https://www.googleapis.com/auth/experimentsandconfigs";
 const GROK_SCOPES: &str = "openid profile email offline_access grok-cli:access api:access conversations:read conversations:write workspaces:read workspaces:write";
 const GROK_CLIENT_SURFACE: &str = "grok-build";
@@ -1120,25 +1121,7 @@ async fn enrich_gemini_token(state: &AppState, mut token: Value) -> Result<Value
         .await
         .map_err(|error| upstream_network_error(AgentProvider::Gemini, error))?;
     let userinfo = parse_json_response(AgentProvider::Gemini, userinfo).await?;
-    let code_assist = state
-        .http
-        .post(format!(
-            "{}/v1internal:loadCodeAssist",
-            state.config.gemini_code_assist_url.trim_end_matches('/')
-        ))
-        .bearer_auth(&access_token)
-        .header("user-agent", "antigravity/1.2.0")
-        .json(&serde_json::json!({
-            "metadata": {
-                "ideType": "ANTIGRAVITY",
-                "platform": "PLATFORM_UNSPECIFIED",
-                "pluginType": "GEMINI"
-            }
-        }))
-        .send()
-        .await
-        .map_err(|error| upstream_network_error(AgentProvider::Gemini, error))?;
-    let code_assist = parse_json_response(AgentProvider::Gemini, code_assist).await?;
+    let code_assist = load_gemini_code_assist(state, &access_token, None).await?;
     let project = code_assist
         .get("cloudaicompanionProject")
         .and_then(Value::as_str)
@@ -1163,6 +1146,37 @@ async fn enrich_gemini_token(state: &AppState, mut token: Value) -> Result<Value
         object.insert("plan".to_owned(), Value::String(plan.to_owned()));
     }
     Ok(token)
+}
+
+pub(crate) async fn load_gemini_code_assist(
+    state: &AppState,
+    access_token: &str,
+    project: Option<&str>,
+) -> Result<Value, ApiError> {
+    let body = gemini_code_assist_body(project);
+    let code_assist = state
+        .http
+        .post(format!(
+            "{}/v1internal:loadCodeAssist",
+            state.config.gemini_code_assist_url.trim_end_matches('/')
+        ))
+        .bearer_auth(access_token)
+        .header("user-agent", ANTIGRAVITY_CLIENT_VERSION)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|error| upstream_network_error(AgentProvider::Gemini, error))?;
+    parse_json_response(AgentProvider::Gemini, code_assist).await
+}
+
+fn gemini_code_assist_body(project: Option<&str>) -> Value {
+    let mut body = serde_json::json!({
+        "metadata": { "ideType": "ANTIGRAVITY" }
+    });
+    if let Some(project) = project.filter(|project| !project.is_empty()) {
+        body["cloudaicompanionProject"] = Value::String(project.to_owned());
+    }
+    body
 }
 
 async fn parse_json_response(
@@ -2224,17 +2238,17 @@ mod tests {
         routing::{get, post},
     };
     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-    use serde_json::json;
+    use serde_json::{Value, json};
     use tokio::net::TcpListener;
 
     use super::{
-        AgentProvider, AuthorizationSecret, CodexDeviceResponse, CredentialRefreshMode,
-        GEMINI_SCOPES, GROK_SCOPES, connection_metadata, decrypt_json, encrypt_json,
-        exchange_gemini_code, fetch_claude_profile, mask_account_label, merge_token_response,
-        parse_callback_value, poll_seconds, refresh_provider_token,
-        refresh_requires_reauthorization, should_refresh_credential, start_claude_authorization,
-        start_gemini_authorization, start_grok_authorization, token_claims, validate_api_key_input,
-        validate_deepseek_key, validate_prompt_url,
+        ANTIGRAVITY_CLIENT_VERSION, AgentProvider, AuthorizationSecret, CodexDeviceResponse,
+        CredentialRefreshMode, GEMINI_SCOPES, GROK_SCOPES, connection_metadata, decrypt_json,
+        encrypt_json, exchange_gemini_code, fetch_claude_profile, gemini_code_assist_body,
+        mask_account_label, merge_token_response, parse_callback_value, poll_seconds,
+        refresh_provider_token, refresh_requires_reauthorization, should_refresh_credential,
+        start_claude_authorization, start_gemini_authorization, start_grok_authorization,
+        token_claims, validate_api_key_input, validate_deepseek_key, validate_prompt_url,
     };
     use crate::AppConfig;
 
@@ -2382,6 +2396,8 @@ mod tests {
         let issuer = format!("http://{}", listener.local_addr().unwrap());
         let captured = Arc::new(Mutex::new(None));
         let captured_request = captured.clone();
+        let captured_load_headers = Arc::new(Mutex::new(None));
+        let load_headers = captured_load_headers.clone();
         let server = Router::new()
             .route(
                 "/token",
@@ -2402,12 +2418,15 @@ mod tests {
             )
             .route(
                 "/v1internal:loadCodeAssist",
-                post(|| async {
-                    Json(json!({
-                        "cloudaicompanionProject": "subscription-project",
-                        "currentTier": { "name": "Google AI Pro" }
-                    }))
-                }),
+                post(
+                    move |headers: HeaderMap, Json(body): Json<Value>| async move {
+                        *load_headers.lock().unwrap() = Some((headers, body));
+                        Json(json!({
+                            "cloudaicompanionProject": "subscription-project",
+                            "currentTier": { "name": "Google AI Pro" }
+                        }))
+                    },
+                ),
             );
         let server_task = tokio::spawn(async move { axum::serve(listener, server).await });
 
@@ -2441,9 +2460,24 @@ mod tests {
         assert_eq!(form.get("client_id").unwrap(), "agy-client-id");
         assert_eq!(form.get("client_secret").unwrap(), "agy-client-secret");
         assert_eq!(form.get("code_verifier").unwrap(), "pkce-code-verifier");
+        let load_headers = captured_load_headers.lock().unwrap();
+        let (headers, body) = load_headers.as_ref().unwrap();
+        assert_eq!(headers["user-agent"], ANTIGRAVITY_CLIENT_VERSION);
+        assert_eq!(body, &json!({ "metadata": { "ideType": "ANTIGRAVITY" } }));
         assert_eq!(
             token.get("cloudaicompanion_project").unwrap(),
             "subscription-project"
+        );
+    }
+
+    #[test]
+    fn gemini_code_assist_refresh_matches_the_current_agy_metadata_shape() {
+        assert_eq!(
+            gemini_code_assist_body(Some("aicode-consumers")),
+            json!({
+                "cloudaicompanionProject": "aicode-consumers",
+                "metadata": { "ideType": "ANTIGRAVITY" }
+            })
         );
     }
 

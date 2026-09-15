@@ -36,8 +36,8 @@ populated values in the runtime secret store.
 - `/gateway-keys`: create-once, list metadata, and revoke operations.
 - `/gateway/openai/v1/responses`: Codex/OpenAI Responses streaming gateway.
 - `/gateway/claude/v1/messages`: Claude Messages streaming gateway.
-- `/gateway/gemini/v1beta/models`: live AGY model catalogue from the connected
-  Google Code Assist subscription.
+- `/gateway/gemini/v1beta/models`: the current public AGY model set intersected
+  with the connected Google Code Assist subscription's live catalogue.
 - `/gateway/gemini/v1beta/models/*`: AGY native Gemini generation protocol
   bridged to the connected Google Code Assist subscription.
 - `/gateway/grok/v1/*`: Grok Build Responses, chat-completions compatibility,
