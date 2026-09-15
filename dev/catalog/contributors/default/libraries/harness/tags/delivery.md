@@ -32,7 +32,7 @@ focused on the selected issue. Bugs, gaps or future work discovered during
 either mode are reported as uncreated suggestions unless the operator
 explicitly authorizes another issue.
 
-For `[delivery-linear-<ISSUE-ID>]`, load `../../../contributors/synasapmob/contributors/default/libraries/harness/linear/delivery-readiness.md`
+For `[delivery-linear-<ISSUE-ID>]`, load `../../../../synasapmob/libraries/harness/linear/delivery-readiness.md`
 immediately after validating the selected issue. Before implementation, assign
 an unassigned issue to the verified operator and set an unset estimate using the
 verified team scale. Preserve either field when already populated; both final
@@ -70,4 +70,4 @@ the remote PR head SHA is the verified SHA and all required checks are green.
 
 `[delivery-verify-linear-<ISSUE-ID>]` loads this complete existing-issue
 delivery contract, then adds the mandatory pre-code and final freshness checks
-from `delivery-verify.md` and `../../../contributors/synasapmob/contributors/default/libraries/harness/linear/requirements-freshness.md`.
+from `delivery-verify.md` and `../../../../synasapmob/libraries/harness/linear/requirements-freshness.md`.

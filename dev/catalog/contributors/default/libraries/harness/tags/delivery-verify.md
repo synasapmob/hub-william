@@ -4,7 +4,7 @@
 
 Deliver exactly one existing Linear issue end to end, but do not implement
 until its requirements have passed the freshness gate in
-`../../../contributors/synasapmob/contributors/default/libraries/harness/linear/requirements-freshness.md`. For example,
+`../../../../synasapmob/libraries/harness/linear/requirements-freshness.md`. For example,
 `[delivery-verify-linear-DOPAN-1722]` binds only DOPAN-1722.
 
 This mode inherits the complete `[delivery-linear-<ISSUE-ID>]` contract:
