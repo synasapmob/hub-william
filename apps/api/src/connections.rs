@@ -1215,10 +1215,35 @@ async fn finish_connection(
     };
     let (account_label, plan) = connection_metadata(provider, &token, profile.as_ref());
     let account_identity = provider_account_identity(provider, &token, profile.as_ref());
-    ensure_reauthorization_matches(state, &row, provider, account_identity.as_deref()).await?;
-    if let (Some(identity), Some(token)) = (account_identity, token.as_object_mut()) {
-        token.insert("hub_account_identity".to_owned(), Value::String(identity));
+    let Some(account_identity) = account_identity else {
+        return Err(ApiError::Validation(
+            "The provider did not return a stable account identity.",
+        ));
+    };
+    ensure_reauthorization_matches(state, &row, provider, Some(account_identity.as_str())).await?;
+    if let Some(token) = token.as_object_mut() {
+        token.insert(
+            "hub_account_identity".to_owned(),
+            Value::String(account_identity.clone()),
+        );
     }
+    let pending_owner_id = connection_owner_id(state, row.id).await?;
+    let duplicate_id =
+        find_duplicate_connection(state, provider, row.id, account_identity.as_str()).await?;
+    let target_id = if let Some(duplicate_id) = duplicate_id {
+        let duplicate_owner_id = connection_owner_id(state, duplicate_id).await?;
+        if duplicate_owner_id != pending_owner_id
+            && connection_exists_for_user_provider(state, pending_owner_id, provider, duplicate_id)
+                .await?
+        {
+            return Err(ApiError::Validation(
+                "This user already owns a connected pool for this provider.",
+            ));
+        }
+        duplicate_id
+    } else {
+        row.id
+    };
     let (credential_ciphertext, credential_nonce) =
         encrypt_json(&state.config.credential_encryption_key, &token)?;
     let access_token_expires_at = token
@@ -1243,7 +1268,7 @@ async fn finish_connection(
             refresh_token_expires_at = EXCLUDED.refresh_token_expires_at,
             updated_at = NOW()",
     )
-    .bind(row.id)
+    .bind(target_id)
     .bind(credential_ciphertext)
     .bind(credential_nonce)
     .bind(access_token_expires_at)
@@ -1258,19 +1283,86 @@ async fn finish_connection(
         .map_err(database_error)?;
     let updated = sqlx::query_as::<_, ConnectionRow>(
         "UPDATE agent_connections SET status = 'connected', account_label = $2, plan = $3,
-         failure_message = NULL, availability_status = 'active', rate_limited_until = NULL,
-         retry_claimed_at = NULL, updated_at = NOW() WHERE id = $1
-         RETURNING id, provider, status, account_label, plan, failure_message, created_at, updated_at",
+          failure_message = NULL, availability_status = 'active', rate_limited_until = NULL,
+          retry_claimed_at = NULL, user_id = $4, updated_at = NOW() WHERE id = $1
+          RETURNING id, provider, status, account_label, plan, failure_message, created_at, updated_at",
     )
-    .bind(row.id)
+    .bind(target_id)
     .bind(account_label)
     .bind(plan)
+    .bind(pending_owner_id)
     .fetch_one(&mut *transaction)
     .await
     .map_err(database_error)?;
+    if target_id != row.id {
+        sqlx::query("DELETE FROM agent_connections WHERE id = $1")
+            .bind(row.id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(database_error)?;
+    }
     transaction.commit().await.map_err(database_error)?;
 
     connection_from_row(updated, None)
+}
+
+async fn connection_owner_id(state: &AppState, connection_id: Uuid) -> Result<Uuid, ApiError> {
+    sqlx::query_scalar::<_, Uuid>("SELECT user_id FROM agent_connections WHERE id = $1")
+        .bind(connection_id)
+        .fetch_one(&state.pool)
+        .await
+        .map_err(database_error)
+}
+
+async fn find_duplicate_connection(
+    state: &AppState,
+    provider: AgentProvider,
+    excluded_id: Uuid,
+    identity: &str,
+) -> Result<Option<Uuid>, ApiError> {
+    let rows = sqlx::query_as::<_, (Uuid, Vec<u8>, Vec<u8>)>(
+        "SELECT connections.id, credentials.credential_ciphertext,
+                credentials.credential_nonce
+         FROM agent_connections AS connections
+         JOIN agent_connection_credentials AS credentials
+           ON credentials.connection_id = connections.id
+         WHERE connections.provider = $1
+           AND connections.status = 'connected'
+           AND connections.id <> $2",
+    )
+    .bind(provider.to_string())
+    .bind(excluded_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(database_error)?;
+    for (connection_id, ciphertext, nonce) in rows {
+        let token: Value =
+            decrypt_json(&state.config.credential_encryption_key, &ciphertext, &nonce)?;
+        if provider_account_identity(provider, &token, None).as_deref() == Some(identity) {
+            return Ok(Some(connection_id));
+        }
+    }
+    Ok(None)
+}
+
+async fn connection_exists_for_user_provider(
+    state: &AppState,
+    user_id: Uuid,
+    provider: AgentProvider,
+    excluded_id: Uuid,
+) -> Result<bool, ApiError> {
+    sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(
+             SELECT 1 FROM agent_connections
+             WHERE user_id = $1 AND provider = $2 AND id <> $3
+         )",
+    )
+    .bind(user_id)
+    .bind(provider.to_string())
+    .bind(excluded_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(database_error)
 }
 
 async fn ensure_reauthorization_matches(
@@ -1356,6 +1448,12 @@ fn provider_account_identity(
     .filter(|value| !value.is_empty());
     if let Some(provider_id) = provider_id {
         return Some(format!("id:{provider_id}"));
+    }
+
+    if provider == AgentProvider::Deepseek {
+        let access_token = token.get("access_token").and_then(Value::as_str)?;
+        let digest = Sha256::digest(access_token.as_bytes());
+        return Some(format!("key:{digest:x}"));
     }
 
     token
