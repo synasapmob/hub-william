@@ -982,7 +982,10 @@ async fn exchange_codex_code(
     let response = state
         .http
         .post(format!("{}/oauth/token", state.config.codex_issuer))
-        .header("user-agent", "codex_cli_rs/0.153.4")
+        .header(
+            "user-agent",
+            format!("codex_cli_rs/{}", state.config.codex_client_version),
+        )
         .form(&[
             ("grant_type", "authorization_code"),
             ("client_id", CODEX_CLIENT_ID),
@@ -1975,7 +1978,10 @@ async fn refresh_provider_token(
             state
                 .http
                 .post(format!("{}/oauth/token", state.config.codex_issuer))
-                .header("user-agent", "codex_cli_rs/0.153.4")
+                .header(
+                    "user-agent",
+                    format!("codex_cli_rs/{}", state.config.codex_client_version),
+                )
                 .form(&[
                     ("grant_type", "refresh_token"),
                     ("client_id", CODEX_CLIENT_ID),

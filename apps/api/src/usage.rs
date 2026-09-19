@@ -185,7 +185,10 @@ async fn chatgpt_usage(state: &AppState, token: &Value, access_token: &str) -> C
         .http
         .get("https://chatgpt.com/backend-api/wham/usage")
         .bearer_auth(access_token)
-        .header("user-agent", "codex_cli_rs/0.153.4")
+        .header(
+            "user-agent",
+            format!("codex_cli_rs/{}", state.config.codex_client_version),
+        )
         .header("originator", "codex_cli_rs");
     if let Some(account_id) = chatgpt_account_id(token) {
         request = request.header("chatgpt-account-id", account_id);
@@ -205,7 +208,10 @@ async fn chatgpt_usage(state: &AppState, token: &Value, access_token: &str) -> C
         .http
         .get("https://chatgpt.com/backend-api/wham/rate-limit-reset-credits")
         .bearer_auth(access_token)
-        .header("user-agent", "codex_cli_rs/0.153.4");
+        .header(
+            "user-agent",
+            format!("codex_cli_rs/{}", state.config.codex_client_version),
+        );
     if let Some(account_id) = chatgpt_account_id(token) {
         credits_request = credits_request.header("chatgpt-account-id", account_id);
     }
@@ -221,7 +227,10 @@ async fn claude_usage(state: &AppState, access_token: &str) -> ConnectionUsage {
         .get("https://api.anthropic.com/api/oauth/usage")
         .bearer_auth(access_token)
         .header("anthropic-beta", "oauth-2025-04-20")
-        .header("user-agent", "claude-code/2.1.121")
+        .header(
+            "user-agent",
+            format!("claude-code/{}", state.config.claude_client_version),
+        )
         .header("accept", "application/json");
     match send_json(request).await {
         Ok(body) => parse_claude(&body).into_connection_usage(),

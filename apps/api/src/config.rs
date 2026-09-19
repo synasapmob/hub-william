@@ -9,8 +9,10 @@ pub struct AppConfig {
     pub credential_encryption_key: [u8; 32],
     pub frontend_origin: HeaderValue,
     pub telegram_service_token: Option<Vec<u8>>,
+    pub codex_client_version: String,
     pub codex_issuer: String,
     pub claude_authorize_url: String,
+    pub claude_client_version: String,
     pub claude_profile_url: String,
     pub claude_redirect_url: String,
     pub claude_token_url: String,
@@ -77,10 +79,14 @@ impl AppConfig {
                 .ok()
                 .filter(|token| !token.trim().is_empty())
                 .map(String::into_bytes),
+            codex_client_version: env::var("CODEX_CLIENT_VERSION")
+                .unwrap_or_else(|_| "0.153.4".to_owned()),
             codex_issuer: env::var("CODEX_AUTH_ISSUER")
                 .unwrap_or_else(|_| "https://auth.openai.com".to_owned()),
             claude_authorize_url: env::var("CLAUDE_AUTHORIZE_URL")
                 .unwrap_or_else(|_| "https://claude.com/cai/oauth/authorize".to_owned()),
+            claude_client_version: env::var("CLAUDE_CLIENT_VERSION")
+                .unwrap_or_else(|_| "2.1.121".to_owned()),
             claude_profile_url: env::var("CLAUDE_PROFILE_URL")
                 .unwrap_or_else(|_| "https://api.anthropic.com/api/oauth/profile".to_owned()),
             claude_redirect_url: env::var("CLAUDE_REDIRECT_URL")
@@ -129,8 +135,10 @@ impl Default for AppConfig {
             credential_encryption_key: [7; 32],
             frontend_origin: HeaderValue::from_static("http://localhost:5173"),
             telegram_service_token: None,
+            codex_client_version: "0.153.4".to_owned(),
             codex_issuer: "https://auth.openai.com".to_owned(),
             claude_authorize_url: "https://claude.com/cai/oauth/authorize".to_owned(),
+            claude_client_version: "2.1.121".to_owned(),
             claude_profile_url: "https://api.anthropic.com/api/oauth/profile".to_owned(),
             claude_redirect_url: "https://platform.claude.com/oauth/code/callback".to_owned(),
             claude_token_url: "https://platform.claude.com/v1/oauth/token".to_owned(),

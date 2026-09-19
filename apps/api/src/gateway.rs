@@ -1164,9 +1164,10 @@ async fn proxy_request(
             }
             request = match expected_provider {
                 AgentProvider::Chatgpt => {
-                    let mut request = request
-                        .header("originator", "codex_cli_rs")
-                        .header("user-agent", "codex_cli_rs/0.153.4");
+                    let mut request = request.header("originator", "codex_cli_rs").header(
+                        "user-agent",
+                        format!("codex_cli_rs/{}", state.config.codex_client_version),
+                    );
                     if let Some(account_id) = chatgpt_account_id(&token) {
                         request = request.header("chatgpt-account-id", account_id);
                     }
