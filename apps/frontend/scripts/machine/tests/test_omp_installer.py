@@ -21,7 +21,7 @@ class OmpInstallerTest(unittest.TestCase):
         self.home = tempfile.TemporaryDirectory(prefix="hub-omp-")
         self.addCleanup(self.home.cleanup)
 
-    def test_build_document_preserves_unrelated_provider_bytes(self):
+    def test_build_document_overwrites_unrelated_provider_bytes(self):
         existing = (
             "# personal models\n"
             "providers:\n"
@@ -45,7 +45,7 @@ class OmpInstallerTest(unittest.TestCase):
             },
         )
 
-        self.assertIn(existing, document)
+        self.assertNotIn("personal:", document)
         self.assertEqual(installed, list(omp.PROVIDER_IDS))
         self.assertIn('api: "openai-responses"', document)
         self.assertIn('api: "anthropic-messages"', document)
@@ -60,7 +60,7 @@ class OmpInstallerTest(unittest.TestCase):
         self.assertEqual(document.count(omp.BEGIN), 1)
         self.assertEqual(document.count(omp.END), 1)
 
-    def test_rerun_replaces_only_the_managed_provider_region(self):
+    def test_rerun_replaces_the_entire_provider_document(self):
         first, _ = omp.build_document(
             "providers:\n  personal:\n    auth: none\n",
             "https://old.example",
@@ -86,27 +86,31 @@ class OmpInstallerTest(unittest.TestCase):
             },
         )
 
-        self.assertEqual(installed, ["hub-claude"])
-        self.assertIn("  personal:\n    auth: none\n", second)
+        self.assertEqual(installed, ["hub-claude", "hub-grok"])
+        self.assertNotIn("personal:", second)
         self.assertNotIn("old.example", second)
         self.assertNotIn("old-model", second)
         self.assertIn("new.example", second)
         self.assertEqual(second.count(omp.BEGIN), 1)
 
-    def test_existing_hub_provider_without_markers_is_not_claimed(self):
-        with self.assertRaisesRegex(ValueError, "outside Hub William"):
-            omp.build_document(
-                "providers:\n  hub-codex:\n    auth: none\n",
-                "https://api.hub.example",
-                "hw_gateway_secret",
-                {
-                    "codex": [{"id": "gpt-live"}],
-                    "claude": [],
-                    "gemini": [],
-                    "grok": [],
-                    "deepseek": [],
-                },
-            )
+    def test_existing_hub_provider_is_replaced(self):
+        document, installed = omp.build_document(
+            "providers:\n  hub-codex:\n    auth: none\n",
+            "https://api.hub.example",
+            "hw_gateway_secret",
+            {
+                "codex": [{"id": "gpt-live"}],
+                "claude": [],
+                "gemini": [],
+                "grok": [],
+                "deepseek": [],
+            },
+        )
+
+        self.assertEqual(installed, ["hub-codex", "hub-grok"])
+        self.assertIn('baseUrl: "https://api.hub.example/gateway/openai/v1"', document)
+        self.assertIn('id: "grok-build"', document)
+        self.assertNotIn("auth: none", document)
 
     def test_install_discovers_models_and_writes_owner_only_yaml(self):
         terminal = io.StringIO()

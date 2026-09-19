@@ -22,7 +22,7 @@ class OpenCodeInstallerTest(unittest.TestCase):
         self.home = tempfile.TemporaryDirectory(prefix="hub-opencode-")
         self.addCleanup(self.home.cleanup)
 
-    def test_build_config_preserves_settings_and_disables_zen(self):
+    def test_build_config_overwrites_old_settings_and_includes_grok(self):
         document = opencode.build_config(
             {"theme": "system", "provider": {"personal": {"npm": "custom"}}},
             "https://api.hub.example",
@@ -63,8 +63,8 @@ class OpenCodeInstallerTest(unittest.TestCase):
             },
         )
 
-        self.assertEqual(document["theme"], "system")
-        self.assertIn("personal", document["provider"])
+        self.assertNotIn("theme", document)
+        self.assertNotIn("personal", document["provider"])
         self.assertEqual(document["model"], "hub-codex/gpt-live")
         self.assertEqual(
             list(
@@ -112,7 +112,7 @@ class OpenCodeInstallerTest(unittest.TestCase):
         )
         self.assertIn("opencode", document["disabled_providers"])
 
-    def test_unreachable_pool_is_not_added(self):
+    def test_unreachable_pool_keeps_grok_provider_for_reconnect(self):
         document = opencode.build_config(
             {},
             "https://api.hub.example",
@@ -125,7 +125,10 @@ class OpenCodeInstallerTest(unittest.TestCase):
                 "grok": [],
             },
         )
-        self.assertEqual(document["provider"], {})
+        self.assertEqual(
+            document["provider"]["hub-grok"]["models"],
+            {"grok-build": {"name": "Grok Build"}},
+        )
         self.assertNotIn("model", document)
 
     def test_reads_jsonc_and_preserves_unrelated_values(self):

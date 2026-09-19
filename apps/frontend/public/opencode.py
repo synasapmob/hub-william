@@ -45,6 +45,8 @@ DEFAULT_CODEX_MODELS = (
     ),
 )
 
+DEFAULT_GROK_MODELS = [{"id": "grok-build", "name": "Grok Build"}]
+
 
 def _validated_gateway_url(value):
     value = (value or "").strip().rstrip("/")
@@ -293,11 +295,13 @@ def _provider_model_config(models, effort_option=None):
 
 
 def build_config(existing, gateway_url, key, catalogues):
-    document = dict(existing)
-    providers = document.get("provider")
-    if not isinstance(providers, dict):
-        providers = {}
-        document["provider"] = providers
+    del existing
+    providers = {}
+    document = {
+        "$schema": "https://opencode.ai/config.json",
+        "disabled_providers": ["opencode"],
+        "provider": providers,
+    }
 
     provider_specs = {
         "hub-codex": {
@@ -335,7 +339,9 @@ def build_config(existing, gateway_url, key, catalogues):
                 "apiKey": key,
                 "baseURL": gateway_url + "/gateway/grok/v1",
             },
-            "models": _provider_model_config(catalogues.get("grok", [])),
+            "models": _provider_model_config(
+                catalogues.get("grok", []) or DEFAULT_GROK_MODELS
+            ),
         },
         "hub-deepseek": {
             "name": "Hub William · DeepSeek",
@@ -353,12 +359,6 @@ def build_config(existing, gateway_url, key, catalogues):
         else:
             providers.pop(provider_id, None)
 
-    disabled = document.get("disabled_providers")
-    if not isinstance(disabled, list):
-        disabled = []
-    if "opencode" not in disabled:
-        disabled.append("opencode")
-    document["disabled_providers"] = disabled
     if "model" not in document and "hub-codex" in providers:
         preferred = "gpt-5.6-sol"
         if preferred not in providers["hub-codex"]["models"]:
@@ -398,7 +398,7 @@ def install(terminal, args, home=None):
     path = os.path.join(
         home or os.path.expanduser("~"), ".config", "opencode", "opencode.json"
     )
-    document = build_config(_read_document(path), gateway_url, key, catalogues)
+    document = build_config({}, gateway_url, key, catalogues)
     if not document.get("provider"):
         raise ValueError("the key has no reachable provider pools")
     _atomic_write(path, json.dumps(document, indent=2, sort_keys=True) + "\n")
