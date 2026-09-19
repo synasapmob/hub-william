@@ -367,22 +367,36 @@ fn parse_claude(body: &Value) -> ParsedUsage {
 fn parse_grok(body: &Value) -> ParsedUsage {
     let config = body.get("config").unwrap_or(body);
     let mut parsed = ParsedUsage::default();
-    let used = json_f64(config, "creditUsagePercent", "credit_usage_percent");
+    let used = json_f64(config, "creditUsagePercent", "credit_usage_percent")
+        .or_else(|| json_f64(config, "usagePercent", "usage_percent"));
     let period = config
         .get("currentPeriod")
-        .or_else(|| config.get("current_period"));
+        .or_else(|| config.get("current_period"))
+        .or_else(|| config.get("billingPeriod"))
+        .or_else(|| config.get("billing_period"));
     let period_type = period
-        .and_then(|value| json_str(value, "type", "type"))
-        .map(|value| value.trim_start_matches("USAGE_PERIOD_TYPE_").to_owned());
+        .and_then(|value| {
+            json_str(value, "type", "type").or_else(|| json_str(value, "periodType", "period_type"))
+        })
+        .map(|value| {
+            value
+                .trim_start_matches("USAGE_PERIOD_TYPE_")
+                .to_ascii_uppercase()
+        });
     let reset_at = period
-        .and_then(|value| value.get("end"))
+        .and_then(|value| {
+            value
+                .get("end")
+                .or_else(|| value.get("endAt"))
+                .or_else(|| value.get("end_at"))
+        })
         .or_else(|| config.get("billingPeriodEnd"))
         .or_else(|| config.get("billing_period_end"))
         .and_then(|value| parse_reset_at(Some(value)));
     if let Some(used) = used {
         let (label, window_seconds) = match period_type.as_deref() {
-            Some("WEEKLY") | Some("weekly") => ("Weekly limit", Some(WEEKLY_SECONDS)),
-            Some("MONTHLY") | Some("monthly") => ("Monthly limit", None),
+            Some("WEEKLY") => ("Weekly limit", Some(WEEKLY_SECONDS)),
+            Some("MONTHLY") => ("Monthly limit", None),
             _ => ("Usage limit", None),
         };
         parsed.metrics.push(metric(
@@ -560,7 +574,11 @@ fn json_f64(value: &Value, camel: &str, snake: &str) -> Option<f64> {
     value
         .get(camel)
         .or_else(|| value.get(snake))
-        .and_then(|item| item.as_f64().or_else(|| item.as_i64().map(|n| n as f64)))
+        .and_then(|item| {
+            item.as_f64()
+                .or_else(|| item.as_i64().map(|n| n as f64))
+                .or_else(|| item.as_str().and_then(|value| value.parse().ok()))
+        })
 }
 
 fn json_str<'a>(value: &'a Value, camel: &str, snake: &str) -> Option<&'a str> {
@@ -796,6 +814,23 @@ mod tests {
         assert_eq!(metrics[1].label, "Build usage");
         assert_eq!(metrics[2].label, "Prepaid balance");
         assert_eq!(metrics[2].value, "$12.50");
+    }
+
+    #[test]
+    fn grok_reads_weekly_usage_when_billing_fields_are_strings_or_snake_case() {
+        let metrics = parse_grok(&json!({
+            "config": {
+                "credit_usage_percent": "26",
+                "current_period": {
+                    "period_type": "USAGE_PERIOD_TYPE_WEEKLY",
+                    "end_at": "2030-01-08T00:00:00Z"
+                }
+            }
+        }))
+        .metrics;
+
+        assert_eq!(metrics[0].label, "Weekly limit");
+        assert_eq!(metrics[0].value, "74% remaining");
     }
 
     #[test]
