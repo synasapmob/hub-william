@@ -244,7 +244,7 @@ function AgentsPoolCardSheet({
         <Button
           type="button"
           variant="outline"
-          className="w-full justify-between"
+          className="w-full justify-between p-2 h-fit items-start"
         >
           <span className="inline-flex items-center gap-1.5">
             {triggerIcon}

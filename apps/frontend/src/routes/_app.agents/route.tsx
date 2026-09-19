@@ -238,14 +238,14 @@ export default function AgentsRoute() {
           <div role="status">
             <p className="sr-only">Loading connected accounts</p>
 
-            <ul className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <ul className="my-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {AGENTS_POOL_CARD_SKELETONS.map((skeleton) => (
                 <AgentsPoolCardSkeleton key={skeleton} />
               ))}
             </ul>
           </div>
         ) : pools.length > 0 ? (
-          <ul className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <ul className="my-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {pools.map((pool) => (
               <AgentsPoolCard
                 key={pool.id}
