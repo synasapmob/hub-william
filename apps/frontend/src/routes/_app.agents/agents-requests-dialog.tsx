@@ -66,6 +66,7 @@ interface AgentsRequestsDialogProps {
     requestId: string,
     status: Exclude<AgentPoolRequestStatus, "pending">,
   ) => void;
+  onDelete: () => Promise<void>;
   onInvite: (username: string) => Promise<void>;
   onOpenChange: (open: boolean) => void;
   onRefresh: () => Promise<AgentConnection>;
@@ -78,6 +79,7 @@ interface AgentsRequestsDialogProps {
 export default function AgentsRequestsDialog({
   busy,
   onDecision,
+  onDelete,
   onInvite,
   onOpenChange,
   onRefresh,
@@ -281,7 +283,7 @@ export default function AgentsRequestsDialog({
                 this same pool.
               </p>
             </div>
-            <Flex className="items-center gap-2">
+            <Flex className="flex-wrap items-center justify-end gap-2">
               <Badge variant="outline">{availabilityLabel}</Badge>
               <Button
                 disabled={busy}
@@ -292,6 +294,16 @@ export default function AgentsRequestsDialog({
               >
                 <RefreshCw aria-hidden="true" data-icon="inline-start" />
                 Refresh
+              </Button>
+              <Button
+                disabled={busy}
+                onClick={() => void onDelete()}
+                size="sm"
+                type="button"
+                variant="destructive"
+              >
+                <Trash2 aria-hidden="true" data-icon="inline-start" />
+                Delete
               </Button>
             </Flex>
           </Flex>

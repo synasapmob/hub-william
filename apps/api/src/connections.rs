@@ -656,7 +656,7 @@ pub async fn complete_authorization(
     path = "/agent-connections/{connection_id}",
     params(("connection_id" = Uuid, Path, description = "Agent connection ID")),
     responses(
-        (status = 204, description = "Connection credential removed"),
+        (status = 204, description = "Connected account pool deleted"),
         (status = 404, description = "Connection not found", body = crate::ErrorResponse)
     ),
     tag = "agent connections"
@@ -668,26 +668,12 @@ pub async fn disconnect(
 ) -> Result<StatusCode, ApiError> {
     let user_id = authenticated_user_id(&state, &jar).await?;
     owned_connection(&state, user_id, connection_id).await?;
-    let mut transaction = state.pool.begin().await.map_err(database_error)?;
-    sqlx::query("DELETE FROM agent_connection_authorizations WHERE connection_id = $1")
+    sqlx::query("DELETE FROM agent_connections WHERE id = $1 AND user_id = $2")
         .bind(connection_id)
-        .execute(&mut *transaction)
+        .bind(user_id)
+        .execute(&state.pool)
         .await
         .map_err(database_error)?;
-    sqlx::query("DELETE FROM agent_connection_credentials WHERE connection_id = $1")
-        .bind(connection_id)
-        .execute(&mut *transaction)
-        .await
-        .map_err(database_error)?;
-    sqlx::query(
-        "UPDATE agent_connections SET status = 'disconnected', account_label = NULL,
-         plan = NULL, failure_message = NULL, updated_at = NOW() WHERE id = $1",
-    )
-    .bind(connection_id)
-    .execute(&mut *transaction)
-    .await
-    .map_err(database_error)?;
-    transaction.commit().await.map_err(database_error)?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1219,10 +1205,20 @@ async fn parse_token_response(
 async fn finish_connection(
     state: &AppState,
     row: ConnectionRow,
-    token: Value,
+    mut token: Value,
 ) -> Result<AgentConnection, ApiError> {
     let provider = AgentProvider::from_str(&row.provider)?;
-    let (account_label, plan) = resolved_connection_metadata(state, provider, &token).await;
+    let profile = if provider == AgentProvider::Claude {
+        fetch_claude_profile(state, &token).await
+    } else {
+        None
+    };
+    let (account_label, plan) = connection_metadata(provider, &token, profile.as_ref());
+    let account_identity = provider_account_identity(provider, &token, profile.as_ref());
+    ensure_reauthorization_matches(state, &row, provider, account_identity.as_deref()).await?;
+    if let (Some(identity), Some(token)) = (account_identity, token.as_object_mut()) {
+        token.insert("hub_account_identity".to_owned(), Value::String(identity));
+    }
     let (credential_ciphertext, credential_nonce) =
         encrypt_json(&state.config.credential_encryption_key, &token)?;
     let access_token_expires_at = token
@@ -1275,6 +1271,113 @@ async fn finish_connection(
     transaction.commit().await.map_err(database_error)?;
 
     connection_from_row(updated, None)
+}
+
+async fn ensure_reauthorization_matches(
+    state: &AppState,
+    row: &ConnectionRow,
+    provider: AgentProvider,
+    new_identity: Option<&str>,
+) -> Result<(), ApiError> {
+    let credential = sqlx::query_as::<_, (Vec<u8>, Vec<u8>)>(
+        "SELECT credential_ciphertext, credential_nonce
+         FROM agent_connection_credentials WHERE connection_id = $1",
+    )
+    .bind(row.id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(database_error)?;
+    let Some((ciphertext, nonce)) = credential else {
+        return Ok(());
+    };
+    let stored_token: Value =
+        decrypt_json(&state.config.credential_encryption_key, &ciphertext, &nonce)?;
+    let stored_identity = stored_token
+        .get("hub_account_identity")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .or_else(|| provider_account_identity(provider, &stored_token, None));
+
+    if !reauthorization_identity_matches(stored_identity.as_deref(), new_identity) {
+        return Err(ApiError::Validation(
+            "Reconnect with the same provider account that owns this pool.",
+        ));
+    }
+    Ok(())
+}
+
+fn reauthorization_identity_matches(stored: Option<&str>, new: Option<&str>) -> bool {
+    matches!((stored, new), (Some(stored), Some(new)) if stored == new)
+}
+
+fn provider_account_identity(
+    provider: AgentProvider,
+    token: &Value,
+    provider_profile: Option<&Value>,
+) -> Option<String> {
+    if let Some(identity) = token
+        .get("hub_account_identity")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(identity.to_owned());
+    }
+    let claims = token_claims(token);
+    let provider_id = match provider {
+        AgentProvider::Chatgpt => token.get("account_id").and_then(Value::as_str).or_else(|| {
+            claims
+                .as_ref()?
+                .get("https://api.openai.com/auth.chatgpt_account_id")
+                .or_else(|| {
+                    claims
+                        .as_ref()?
+                        .pointer("/https:~1~1api.openai.com~1auth/chatgpt_account_id")
+                })
+                .and_then(Value::as_str)
+        }),
+        _ => None,
+    }
+    .or_else(|| token.pointer("/account/id").and_then(Value::as_str))
+    .or_else(|| token.pointer("/account/uuid").and_then(Value::as_str))
+    .or_else(|| {
+        let profile = provider_profile?;
+        profile
+            .pointer("/account/id")
+            .or_else(|| profile.pointer("/account/uuid"))
+            .or_else(|| profile.pointer("/user/id"))
+            .and_then(Value::as_str)
+    })
+    .or_else(|| {
+        claims
+            .as_ref()
+            .and_then(|value| value.get("sub"))
+            .and_then(Value::as_str)
+    })
+    .filter(|value| !value.is_empty());
+    if let Some(provider_id) = provider_id {
+        return Some(format!("id:{provider_id}"));
+    }
+
+    token
+        .pointer("/account/email_address")
+        .or_else(|| token.pointer("/account/email"))
+        .or_else(|| token.get("email"))
+        .and_then(Value::as_str)
+        .or_else(|| {
+            let profile = provider_profile?;
+            profile
+                .pointer("/account/email_address")
+                .or_else(|| profile.pointer("/account/email"))
+                .or_else(|| profile.pointer("/user/email"))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            claims
+                .as_ref()
+                .and_then(|value| value.get("email"))
+                .and_then(Value::as_str)
+        })
+        .map(|email| format!("email:{}", email.trim().to_ascii_lowercase()))
 }
 
 fn connection_metadata(
@@ -2246,9 +2349,10 @@ mod tests {
         CredentialRefreshMode, GEMINI_SCOPES, GROK_SCOPES, connection_metadata, decrypt_json,
         encrypt_json, exchange_gemini_code, fetch_claude_profile, gemini_code_assist_body,
         mask_account_label, merge_token_response, parse_callback_value, poll_seconds,
-        refresh_provider_token, refresh_requires_reauthorization, should_refresh_credential,
-        start_claude_authorization, start_gemini_authorization, start_grok_authorization,
-        token_claims, validate_api_key_input, validate_deepseek_key, validate_prompt_url,
+        provider_account_identity, reauthorization_identity_matches, refresh_provider_token,
+        refresh_requires_reauthorization, should_refresh_credential, start_claude_authorization,
+        start_gemini_authorization, start_grok_authorization, token_claims, validate_api_key_input,
+        validate_deepseek_key, validate_prompt_url,
     };
     use crate::AppConfig;
 
@@ -2733,6 +2837,46 @@ mod tests {
         );
 
         assert_eq!(token_claims(&json!({ "id_token": token })), Some(claims));
+    }
+
+    #[test]
+    fn provider_account_identity_prefers_stable_ids_and_normalizes_email() {
+        let claims = json!({
+            "email": "OTHER@example.com",
+            "https://api.openai.com/auth.chatgpt_account_id": "account-123"
+        });
+        let token = format!(
+            "header.{}.signature",
+            URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap())
+        );
+        assert_eq!(
+            provider_account_identity(AgentProvider::Chatgpt, &json!({ "id_token": token }), None),
+            Some("id:account-123".to_owned())
+        );
+        assert_eq!(
+            provider_account_identity(
+                AgentProvider::Gemini,
+                &json!({ "email": " Owner@Example.COM " }),
+                None
+            ),
+            Some("email:owner@example.com".to_owned())
+        );
+    }
+
+    #[test]
+    fn reauthorization_requires_the_exact_same_provider_identity() {
+        assert!(reauthorization_identity_matches(
+            Some("id:account-1"),
+            Some("id:account-1")
+        ));
+        assert!(!reauthorization_identity_matches(
+            Some("id:account-1"),
+            Some("id:account-2")
+        ));
+        assert!(!reauthorization_identity_matches(
+            Some("id:account-1"),
+            None
+        ));
     }
 
     #[test]

@@ -252,6 +252,12 @@ function renderRoute(
           updated_at: "2026-09-14T15:59:00.000Z",
         });
       }
+      if (url.includes("/agent-connections/") && method === "DELETE") {
+        pools = pools.filter(
+          (pool) => !url.endsWith(`/agent-connections/${pool.id}`),
+        );
+        return new Response(null, { status: 204 });
+      }
       if (url.endsWith("/agent-connections") || url.endsWith("/gateway-keys")) {
         return jsonResponse([]);
       }
@@ -544,6 +550,19 @@ describe("AgentsRoute", () => {
         screen.queryByRole("button", { name: "Remove huycodes" }),
       ).not.toBeInTheDocument(),
     );
+  });
+
+  it("lets the owner delete the connected account pool", async () => {
+    const user = userEvent.setup();
+    renderRoute({ id: "owner-1", username: "synasapmob" });
+
+    await user.click(
+      await screen.findByRole("button", { name: /check request/i }),
+    );
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    expect(await screen.findByText("No connected accounts yet.")).toBeVisible();
+    expect(screen.queryByText("Manage pool access")).not.toBeInTheDocument();
   });
 
   it("refreshes the latest provider credential for an active pool", async () => {

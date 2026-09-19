@@ -652,7 +652,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Connection credential removed */
+      /** @description Connected account pool deleted */
       204: {
         headers: {
           [name: string]: unknown;

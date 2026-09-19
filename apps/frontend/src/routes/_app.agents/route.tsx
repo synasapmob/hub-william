@@ -81,6 +81,15 @@ export default function AgentsRoute() {
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: agentPoolsService.queryKey }),
   });
+  const deletePoolMutation = useMutation({
+    mutationFn: (poolId: string) => agentConnectionsService.disconnect(poolId),
+    onSuccess: async () => {
+      setReviewPoolId(null);
+      await queryClient.invalidateQueries({
+        queryKey: agentPoolsService.queryKey,
+      });
+    },
+  });
   const pools = poolsQuery.data ?? [];
   const requestPool = pools.find((pool) => pool.id === requestPoolId) ?? null;
   const reviewPool = pools.find((pool) => pool.id === reviewPoolId) ?? null;
@@ -88,6 +97,7 @@ export default function AgentsRoute() {
     poolsQuery.error ??
     decisionMutation.error ??
     removeMemberMutation.error ??
+    deletePoolMutation.error ??
     refreshMutation.error;
   const errorMessage = routeError
     ? routeError instanceof AgentPoolServiceError ||
@@ -138,6 +148,11 @@ export default function AgentsRoute() {
       throw new AgentConnectionServiceError("Select a pool to refresh.");
     }
     return refreshMutation.mutateAsync(reviewPool.id);
+  }
+
+  async function deletePool() {
+    if (!reviewPool) return;
+    await deletePoolMutation.mutateAsync(reviewPool.id);
   }
 
   const refreshPoolData = useCallback(
@@ -264,10 +279,12 @@ export default function AgentsRoute() {
           decisionMutation.isPending ||
           inviteMutation.isPending ||
           removeMemberMutation.isPending ||
+          deletePoolMutation.isPending ||
           refreshMutation.isPending
         }
         open={reviewPool !== null}
         onDecision={decideRequest}
+        onDelete={deletePool}
         onInvite={inviteMember}
         onOpenChange={(open) => {
           if (!open) setReviewPoolId(null);

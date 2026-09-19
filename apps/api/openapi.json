@@ -202,7 +202,7 @@
         ],
         "responses": {
           "204": {
-            "description": "Connection credential removed"
+            "description": "Connected account pool deleted"
           },
           "404": {
             "description": "Connection not found",
