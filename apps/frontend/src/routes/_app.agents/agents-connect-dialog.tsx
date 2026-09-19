@@ -256,7 +256,10 @@ export default function AgentsConnectDialog({
       queryClient.setQueryData<AgentConnection[]>(
         connectionQueryKey,
         (items) => [
-          ...(items ?? []).filter((item) => item.id !== connection.id),
+          ...(items ?? []).filter(
+            (item) =>
+              item.id !== connection.id && item.id !== currentConnection.id,
+          ),
           connection,
         ],
       );
@@ -284,7 +287,10 @@ export default function AgentsConnectDialog({
       setShowDeepseekKey(false);
       queryClient.setQueryData<AgentConnection[]>(
         connectionQueryKey,
-        (items) => [...(items ?? []), connection],
+        (items) => [
+          ...(items ?? []).filter((item) => item.id !== connection.id),
+          connection,
+        ],
       );
       onConnected?.();
       form.reset();
@@ -385,13 +391,24 @@ export default function AgentsConnectDialog({
 
         {currentConnection?.status === "pending" ? (
           <Alert>
-            <LoaderCircle aria-hidden="true" className="animate-spin" />
-            <AlertTitle>Waiting for authorization</AlertTitle>
+            {currentConnection.authorization?.requiresCallbackUrl ? (
+              <ExternalLink aria-hidden="true" />
+            ) : (
+              <LoaderCircle aria-hidden="true" className="animate-spin" />
+            )}
+            <AlertTitle>
+              {currentConnection.authorization?.requiresCallbackUrl
+                ? "Paste the callback URL"
+                : "Waiting for authorization"}
+            </AlertTitle>
             <AlertDescription>
-              Finish signing in on the provider page.
-              {currentConnection.authorization?.userCode
-                ? ` Confirm code ${currentConnection.authorization.userCode}.`
-                : ""}
+              {currentConnection.authorization?.requiresCallbackUrl
+                ? "Finish signing in, then copy the final callback URL from the browser and paste it below."
+                : `Finish signing in on the provider page.${
+                    currentConnection.authorization?.userCode
+                      ? ` Confirm code ${currentConnection.authorization.userCode}.`
+                      : ""
+                  }`}
             </AlertDescription>
           </Alert>
         ) : null}

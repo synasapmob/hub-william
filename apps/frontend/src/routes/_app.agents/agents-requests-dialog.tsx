@@ -313,10 +313,13 @@ export default function AgentsRequestsDialog({
               <LoaderCircle aria-hidden="true" className="animate-spin" />
               <AlertTitle>Waiting for provider authorization</AlertTitle>
               <AlertDescription>
-                Finish signing in on the provider page.
-                {currentRefreshConnection.authorization.userCode
-                  ? ` Confirm code ${currentRefreshConnection.authorization.userCode}.`
-                  : ""}
+                {currentRefreshConnection.authorization.requiresCallbackUrl
+                  ? "Finish signing in, then copy the final callback URL from the browser and paste it below."
+                  : `Finish signing in on the provider page.${
+                      currentRefreshConnection.authorization.userCode
+                        ? ` Confirm code ${currentRefreshConnection.authorization.userCode}.`
+                        : ""
+                    }`}
               </AlertDescription>
             </Alert>
           ) : null}

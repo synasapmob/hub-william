@@ -112,6 +112,7 @@ describe("AgentsConnectDialog", () => {
       ),
     );
     expect(popup.opener).toBeNull();
+    expect(screen.getByText("Paste the callback URL")).toBeVisible();
     expect(screen.getByLabelText("Callback URL or code")).toBeVisible();
   });
 

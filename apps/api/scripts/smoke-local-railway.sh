@@ -73,8 +73,9 @@ chatgpt_status=$(curl --max-time 30 -sS -b "$task_tmp/cookies.txt" -o "$task_tmp
   -w '%{http_code}' -H 'content-type: application/json' --data '{"provider":"chatgpt"}' \
   http://127.0.0.1:8080/agent-connections/start || true)
 if [[ "$chatgpt_status" == "201" ]]; then
-  [[ "$(jq -r '.authorization.authorization_url | startswith("https://auth.openai.com/codex/device?user_code=")' "$task_tmp/chatgpt.json")" == "true" ]]
-  echo "ChatGPT start: 201 official device authorization URL"
+  [[ "$(jq -r '.authorization.authorization_url | startswith("https://auth.openai.com/oauth/authorize?")' "$task_tmp/chatgpt.json")" == "true" ]]
+  [[ "$(jq -r '.authorization.requires_callback_url' "$task_tmp/chatgpt.json")" == "true" ]]
+  echo "ChatGPT start: 201 official browser authorization + manual callback flow"
 else
   [[ "$chatgpt_status" == "502" ]]
   [[ "$(jq -r '.code' "$task_tmp/chatgpt.json")" == "provider_unavailable" ]]
