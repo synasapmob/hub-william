@@ -199,13 +199,13 @@
       "id": "contributors/default/tools/omp/omp",
       "path": "contributors/default/tools/omp/omp.md",
       "url": "/hub-william/dev/catalog/contributors/default/tools/omp/omp.md",
-      "bytes": 2674
+      "bytes": 2584
     },
     {
       "id": "contributors/default/tools/opencode/opencode",
       "path": "contributors/default/tools/opencode/opencode.md",
       "url": "/hub-william/dev/catalog/contributors/default/tools/opencode/opencode.md",
-      "bytes": 2985
+      "bytes": 3156
     },
     {
       "id": "contributors/synasapmob/libraries/agents/codex/hub-reviewer.toml",
@@ -321,14 +321,14 @@
       "id": "contributors",
       "path": "contributors.zip",
       "url": "/hub-william/dev/catalog/contributors.zip",
-      "bytes": 79067,
+      "bytes": 79064,
       "files": 52
     },
     {
       "id": "contributors/default",
       "path": "contributors/default.zip",
       "url": "/hub-william/dev/catalog/contributors/default.zip",
-      "bytes": 56196,
+      "bytes": 56193,
       "files": 34
     },
     {
@@ -363,7 +363,7 @@
       "id": "contributors/default/tools",
       "path": "contributors/default/tools.zip",
       "url": "/hub-william/dev/catalog/contributors/default/tools.zip",
-      "bytes": 8421,
+      "bytes": 8418,
       "files": 6
     },
     {
@@ -391,14 +391,14 @@
       "id": "contributors/default/tools/omp",
       "path": "contributors/default/tools/omp.zip",
       "url": "/hub-william/dev/catalog/contributors/default/tools/omp.zip",
-      "bytes": 1560,
+      "bytes": 1498,
       "files": 1
     },
     {
       "id": "contributors/default/tools/opencode",
       "path": "contributors/default/tools/opencode.zip",
       "url": "/hub-william/dev/catalog/contributors/default/tools/opencode.zip",
-      "bytes": 1649,
+      "bytes": 1708,
       "files": 1
     },
     {
@@ -519,14 +519,14 @@
       "id": "default/tools/omp",
       "path": "collections/default/tools/omp.zip",
       "url": "/hub-william/dev/catalog/collections/default/tools/omp.zip",
-      "bytes": 1560,
+      "bytes": 1498,
       "files": 1
     },
     {
       "id": "default/tools/opencode",
       "path": "collections/default/tools/opencode.zip",
       "url": "/hub-william/dev/catalog/collections/default/tools/opencode.zip",
-      "bytes": 1649,
+      "bytes": 1708,
       "files": 1
     },
     {

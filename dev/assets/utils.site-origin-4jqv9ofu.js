@@ -1517,7 +1517,7 @@ so a server you registered by hand is safe.
 
 Install one OMP configuration for every provider pool available through your
 Hub William gateway key. OMP is the coding agent “with the IDE wired in”; this
-installer adds Hub providers without replacing your existing OMP models.
+installer replaces the existing OMP provider config with a fresh Hub catalogue.
 
 ## Install
 
@@ -1526,11 +1526,10 @@ curl -fsSL https://hub.example/omp.py | python3 - --url=https://api.hub.example 
 \`\`\`
 
 Omit \`--key\` to enter the key in a hidden prompt and keep it out of shell
-history. The installer writes namespaced providers into a managed block in
-\`~/.omp/agent/models.yml\` (or an existing \`models.yaml\`), preserves unrelated
-providers byte-for-byte, creates one backup, and writes with owner-only
-permissions. If OMP still has a legacy \`models.json\`, run \`omp models\` once to
-let OMP migrate it before rerunning the installer.
+history. The installer writes a fresh \`providers:\` document to
+\`~/.omp/agent/models.yml\` (or an existing \`models.yaml\`), creates one backup,
+and writes with owner-only permissions. If OMP still has a legacy \`models.json\`,
+run \`omp models\` once to let OMP migrate it before rerunning the installer.
 
 ## Models
 
@@ -1559,22 +1558,22 @@ upstream provider keep their native behavior; add a local override yourself
 only when you want a smaller budget.
 
 Grok connections created before the current Build scopes were introduced must
-be reconnected once in \`/agents\`, then this installer must be run again. The
-installer never falls back from subscription quota to a paid xAI API key.
+be reconnected once in \`/agents\`, then this installer must be run again. If the
+live Grok catalogue is temporarily unavailable, the installer still writes the
+\`hub-grok/grok-build\` entry so the provider remains selectable. It never falls
+back from subscription quota to a paid xAI API key.
 
 ## Ownership and security
 
-The installer owns only content between its two \`hub-william: providers\`
-markers. It refuses to claim an existing \`hub-*\` provider outside those markers
-or a malformed YAML root. The OMP file contains one revocable Hub gateway key,
-never an upstream API key or provider OAuth token. Treat it as a password and
-revoke it from Hub William if the machine is lost or compromised.
+The OMP file contains one revocable Hub gateway key, never an upstream API key
+or provider OAuth token. Treat it as a password and revoke it from Hub William
+if the machine is lost or compromised.
 `,D=`# OpenCode
 
 Install one OpenCode configuration for every provider pool available through
 your Hub William gateway key. The installer discovers provider models at run
-time, preserves unrelated OpenCode settings, makes one backup, and writes the
-result atomically with owner-only permissions.
+time, replaces the existing OpenCode config with a fresh provider catalogue,
+makes one backup, and writes the result atomically with owner-only permissions.
 
 ## Install
 
@@ -1619,8 +1618,10 @@ upstream provider keep their native behavior; add a local override yourself
 only when you want a smaller budget.
 
 Grok connections created before the current Build scopes were introduced must
-be reconnected once in \`/agents\`, then this installer must be run again. The
-installer never falls back from subscription quota to a paid xAI API key.
+be reconnected once in \`/agents\`, then this installer must be run again. If the
+live Grok catalogue is temporarily unavailable, the installer still writes the
+\`hub-grok/grok-build\` entry so the provider remains selectable. It never falls
+back from subscription quota to a paid xAI API key.
 
 ## Security
 
