@@ -130,7 +130,7 @@ describe("AgentsConnectDialog", () => {
       ) {
         return jsonResponse(
           {
-            account_label: "API key ••••1234",
+            account_label: "••••1234",
             authorization: null,
             created_at: "2026-09-15T01:00:00Z",
             failure_message: null,

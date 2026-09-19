@@ -1,12 +1,5 @@
-import { useState, type ReactNode } from "react";
-import {
-  Bot,
-  CircleGauge,
-  CircleHelp,
-  Clock3,
-  UserRound,
-  Users,
-} from "lucide-react";
+import { type ReactNode } from "react";
+import { Bot, CircleGauge, Clock3, UserRound, Users } from "lucide-react";
 import { tv } from "tailwind-variants";
 
 import Flex from "@/components/ui/flex";
@@ -33,7 +26,6 @@ import {
 import agentPoolsService, {
   type AgentPool,
   type AgentPoolPerson,
-  type AgentPoolShareEvidence,
   type AgentProvider,
 } from "@/services/agent-pools";
 import assetPath from "@/utils/utils.asset-path";
@@ -51,16 +43,6 @@ const actionButton = tv({
       pending: "border-amber-200 bg-amber-50 text-amber-800",
       rejected: "border-red-200 bg-red-50 text-red-700",
       request: "",
-    },
-  },
-});
-
-const shareHelpButton = tv({
-  base: "inline-flex size-4 shrink-0 items-center justify-center rounded-full",
-  variants: {
-    open: {
-      false: "text-muted-foreground",
-      true: "bg-zinc-200 text-slate-800",
     },
   },
 });
@@ -88,15 +70,21 @@ interface AgentsPoolCardSheetProps {
   title: string;
   triggerIcon: ReactNode;
   triggerLabel: string;
-  triggerValue: string;
+  triggerValue: ReactNode;
+}
+
+interface AgentsPoolCardUsageWindow {
+  label: string;
+  metricLabel: string;
 }
 
 interface AgentsPoolCardMemberRowProps {
   member: AgentPoolPerson;
 }
 
-interface AgentsPoolCardShareEvidenceProps {
-  share: AgentPoolShareEvidence;
+interface AgentsPoolCardTokenUsage {
+  label: string;
+  value: number;
 }
 
 interface AgentsPoolCardMembersDialogProps {
@@ -119,16 +107,26 @@ function actionState(
 }
 
 function usageTriggerValue(pool: AgentPool) {
-  const fiveHour = pool.usage.find((metric) => metric.label === "5-hour limit");
-  const weekly = pool.usage.find((metric) => metric.label === "Weekly limit");
+  const windows: AgentsPoolCardUsageWindow[] = [
+    { label: "5 hours limit", metricLabel: "5-hour limit" },
+    { label: "Weekly limit", metricLabel: "Weekly limit" },
+  ];
 
-  if (fiveHour) return fiveHour.value;
-  if (weekly) return weekly.value;
-  if (pool.usage.some((metric) => metric.value === "Unavailable")) {
-    return "Unavailable";
-  }
-  if (pool.usage.length === 0) return "No live usage";
-  return `${pool.usage.length} metrics`;
+  return (
+    <span className="grid justify-items-end gap-0.5 text-right leading-tight">
+      {windows.map(({ label, metricLabel }) => {
+        const metric = pool.usage.find((item) => item.label === metricLabel);
+        const value =
+          metric && metric.value !== "Unavailable" ? metric.value : "N/A";
+
+        return (
+          <span key={metricLabel}>
+            {value} | {label}
+          </span>
+        );
+      })}
+    </span>
+  );
 }
 
 function membersTriggerValue(pool: AgentPool) {
@@ -136,88 +134,18 @@ function membersTriggerValue(pool: AgentPool) {
 }
 
 function formatTokenCount(value: number) {
-  return new Intl.NumberFormat("en", { maximumFractionDigits: 0 }).format(
-    value,
-  );
-}
-
-function formatUsedPercent(value: number) {
-  return Number.isInteger(value) ? String(value) : value.toFixed(1);
-}
-
-function formatUsedFraction(value: number) {
-  return (value / 100).toFixed(2);
-}
-
-function AgentsPoolCardShareEvidence({
-  share,
-}: AgentsPoolCardShareEvidenceProps) {
-  const providerUsed = share.providerUsedPercent;
-  const windowLabel = share.windowLabel ?? "live window";
-
-  return (
-    <div className="mt-2 space-y-1 rounded-lg bg-zinc-50 p-2">
-      <p className="font-mono text-[10px] text-slate-700">
-        U = input + output + cached
-      </p>
-      <p className="font-mono text-[10px] text-slate-700">
-        You used {formatTokenCount(share.userInputTokens)} +{" "}
-        {formatTokenCount(share.userOutputTokens)} +{" "}
-        {formatTokenCount(share.userCachedTokens)} ={" "}
-        {formatTokenCount(share.userUnits)}
-      </p>
-      <p className="font-mono text-[10px] text-slate-700">
-        Pool used {formatTokenCount(share.poolInputTokens)} +{" "}
-        {formatTokenCount(share.poolOutputTokens)} +{" "}
-        {formatTokenCount(share.poolCachedTokens)} ={" "}
-        {formatTokenCount(share.poolUnits)}
-      </p>
-      {providerUsed != null ? (
-        <p className="font-mono text-[10px] text-slate-700">
-          Provider used p = {formatUsedPercent(providerUsed)}% of the{" "}
-          {windowLabel}
-        </p>
-      ) : (
-        <p className="font-mono text-[10px] text-slate-700">
-          No live 5-hour or weekly window was reported.
-        </p>
-      )}
-      {share.budgetUnits != null &&
-      share.capUnits != null &&
-      share.remainingUnits != null &&
-      providerUsed != null ? (
-        <>
-          <p className="font-mono text-[10px] text-slate-700">
-            B = U_pool / p = {formatTokenCount(share.poolUnits)} /{" "}
-            {formatUsedFraction(providerUsed)} ={" "}
-            {formatTokenCount(share.budgetUnits)}
-          </p>
-          <p className="font-mono text-[10px] text-slate-700">
-            N = {share.memberCount} members
-          </p>
-          <p className="font-mono text-[10px] text-slate-700">
-            Cap = B / N = {formatTokenCount(share.capUnits)}
-          </p>
-          <p className="font-mono text-[10px] text-slate-700">
-            Remaining = cap − you = {formatTokenCount(share.remainingUnits)}
-          </p>
-          <p className="font-mono text-[10px] font-semibold text-slate-800">
-            Available = remaining / cap = {share.availablePercent}%
-          </p>
-        </>
-      ) : null}
-      {share.failOpenReason ? (
-        <p className="text-[10px] text-muted-foreground">
-          {share.failOpenReason} Available stays {share.availablePercent}% until
-          Hub can estimate the cap.
-        </p>
-      ) : null}
-    </div>
-  );
+  return new Intl.NumberFormat("en", {
+    maximumFractionDigits: 1,
+    notation: "compact",
+  }).format(value);
 }
 
 function AgentsPoolCardMemberRow({ member }: AgentsPoolCardMemberRowProps) {
-  const [open, setOpen] = useState(false);
+  const tokenUsage: AgentsPoolCardTokenUsage[] = [
+    { label: "Token Input", value: member.share.userInputTokens },
+    { label: "Token Cached", value: member.share.userCachedTokens },
+    { label: "Token Output", value: member.share.userOutputTokens },
+  ].filter(({ value }) => value > 0);
 
   return (
     <div>
@@ -225,20 +153,23 @@ function AgentsPoolCardMemberRow({ member }: AgentsPoolCardMemberRowProps) {
         <p className="min-w-0 truncate text-sm font-semibold">
           {member.username}
         </p>
-        <Flex className="shrink-0 justify-end gap-1">
-          <p className="font-mono text-xs font-semibold">
-            {member.usageAvailablePercent}% available
-          </p>
-          <button
-            type="button"
-            className={shareHelpButton({ open })}
-            onClick={() => setOpen((current) => !current)}
-          >
-            <CircleHelp aria-hidden="true" className="size-3" />
-            <span className="sr-only">Why this available percent</span>
-          </button>
-        </Flex>
       </Flex>
+      {tokenUsage.length > 0 ? (
+        <dl className="mt-2 space-y-1">
+          {tokenUsage.map(({ label, value }) => (
+            <Flex key={label} className="justify-between gap-3 text-[10px]">
+              <dt className="text-muted-foreground">{label}</dt>
+              <dd className="font-mono font-semibold text-slate-700">
+                {formatTokenCount(value)}
+              </dd>
+            </Flex>
+          ))}
+        </dl>
+      ) : (
+        <p className="mt-2 text-[10px] text-muted-foreground">
+          No recorded tokens in the current usage window.
+        </p>
+      )}
       <Flex className="mt-1 gap-1 text-[10px] text-muted-foreground">
         <Clock3 aria-hidden="true" className="size-3" />
         Joined{" "}
@@ -246,7 +177,6 @@ function AgentsPoolCardMemberRow({ member }: AgentsPoolCardMemberRowProps) {
           {agentPoolsService.createdLabel(member.joinedAt)}
         </time>
       </Flex>
-      {open ? <AgentsPoolCardShareEvidence share={member.share} /> : null}
     </div>
   );
 }
@@ -275,7 +205,7 @@ function AgentsPoolCardMembersDialog({
         <DialogHeader>
           <DialogTitle>Pool members</DialogTitle>
           <DialogDescription>
-            Joined members and remaining share of the live window.
+            Joined members and their recorded token usage in the current window.
           </DialogDescription>
         </DialogHeader>
 

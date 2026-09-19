@@ -345,13 +345,16 @@ describe("AgentsRoute", () => {
 
     expect(
       screen.getByRole("button", { name: /view usages/i }),
-    ).toHaveTextContent("68% used");
+    ).toHaveTextContent("68% used | 5 hours limit");
+    expect(
+      screen.getByRole("button", { name: /view usages/i }),
+    ).toHaveTextContent("N/A | Weekly limit");
     await user.click(screen.getByRole("button", { name: /view usages/i }));
     expect(screen.getByText("5-hour limit")).toBeVisible();
-    expect(screen.getAllByText("68% used").length).toBeGreaterThan(1);
+    expect(screen.getByText("68% used", { exact: true })).toBeVisible();
   });
 
-  it("shows joined members with remaining share and join date", async () => {
+  it("shows joined members with token usage and join date", async () => {
     const user = userEvent.setup();
     renderRoute(undefined, [
       {
@@ -403,19 +406,14 @@ describe("AgentsRoute", () => {
 
     expect(screen.getByRole("dialog", { name: /pool members/i })).toBeVisible();
     expect(screen.getAllByText("huycodes").length).toBeGreaterThan(0);
-    expect(screen.getByText("40% available")).toBeVisible();
-    expect(screen.getByText("85% available")).toBeVisible();
+    expect(screen.getAllByText("Token Input")).toHaveLength(2);
+    expect(screen.getByText("48")).toBeVisible();
+    expect(screen.getAllByText("12")).toHaveLength(2);
+    expect(screen.getAllByText("Token Output")).toHaveLength(2);
+    expect(screen.queryByText("100% available")).not.toBeInTheDocument();
     expect(
       document.querySelector('time[datetime="2026-09-10T12:00:00.000Z"]'),
     ).toBeVisible();
-
-    await user.click(
-      screen.getAllByRole("button", { name: /why this available percent/i })[0],
-    );
-    expect(screen.getByText("U = input + output + cached")).toBeVisible();
-    expect(screen.getByText("You used 48 + 12 + 0 = 60")).toBeVisible();
-    expect(screen.getByText("B = U_pool / p = 100 / 0.50 = 200")).toBeVisible();
-    expect(screen.getByText("Available = remaining / cap = 40%")).toBeVisible();
   });
 
   it("says so when a provider reports no usage instead of opening blank", async () => {
@@ -424,7 +422,10 @@ describe("AgentsRoute", () => {
 
     expect(
       await screen.findByRole("button", { name: /view usages/i }),
-    ).toHaveTextContent("No live usage");
+    ).toHaveTextContent("N/A | 5 hours limit");
+    expect(
+      screen.getByRole("button", { name: /view usages/i }),
+    ).toHaveTextContent("N/A | Weekly limit");
     await user.click(screen.getByRole("button", { name: /view usages/i }));
 
     expect(

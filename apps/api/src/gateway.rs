@@ -21,7 +21,7 @@ use crate::{
     auth::authenticated_user_id,
     connections::{ANTIGRAVITY_CLIENT_VERSION, load_gemini_code_assist, provider_credential},
     error::ApiError,
-    pool_share, usage,
+    usage,
 };
 
 const OPENAI_RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
@@ -678,7 +678,6 @@ async fn gemini_proxy_request(
         .map_err(|_| ApiError::Validation("The Gemini request body must be valid JSON."))?;
     let mut saw_rate_limit = false;
     let mut saw_reauthorization = false;
-    let mut saw_share_exhausted = false;
     let mut last_error = None;
     let candidate_count = candidates.len();
     let mut attempts_used = 0;
@@ -737,22 +736,6 @@ async fn gemini_proxy_request(
             continue;
         };
         let project = current_gemini_project(state, access_token, project).await;
-        if operation.records_usage()
-            && !pool_share::allow_gateway_request(
-                state,
-                candidate.id,
-                authorized.user_id,
-                AgentProvider::Gemini,
-            )
-            .await
-        {
-            if claimed_probe {
-                release_probe(state, candidate.id).await?;
-            }
-            saw_share_exhausted = true;
-            continue;
-        }
-
         let upstream_body = gemini_code_assist_request(model, &project, operation, &request_body);
         let upstream_url = format!(
             "{}{}",
@@ -863,9 +846,7 @@ async fn gemini_proxy_request(
         }
     }
 
-    if saw_share_exhausted {
-        Err(ApiError::ShareExhausted)
-    } else if saw_rate_limit {
+    if saw_rate_limit {
         Err(ApiError::RateLimited)
     } else if saw_reauthorization {
         Err(ApiError::Provider(
@@ -1118,7 +1099,6 @@ async fn proxy_request(
     let upstream_url = append_query(upstream_url, original_uri.query());
     let mut saw_rate_limit = false;
     let mut saw_reauthorization = false;
-    let mut saw_share_exhausted = false;
     let mut last_error = None;
     let candidate_count = candidates.len();
     let mut attempts_used = 0;
@@ -1167,22 +1147,6 @@ async fn proxy_request(
             }
         };
         let record_usage = method != Method::GET && !upstream_url.contains("count_tokens");
-        if record_usage
-            && !pool_share::allow_gateway_request(
-                state,
-                candidate.id,
-                authorized.user_id,
-                expected_provider,
-            )
-            .await
-        {
-            if claimed_probe {
-                release_probe(state, candidate.id).await?;
-            }
-            saw_share_exhausted = true;
-            continue;
-        }
-
         let mut candidate_attempts = 0;
         loop {
             attempts_used += 1;
@@ -1330,9 +1294,7 @@ async fn proxy_request(
         }
     }
 
-    if saw_share_exhausted {
-        Err(ApiError::ShareExhausted)
-    } else if saw_rate_limit {
+    if saw_rate_limit {
         Err(ApiError::RateLimited)
     } else if saw_reauthorization {
         Err(ApiError::Provider(

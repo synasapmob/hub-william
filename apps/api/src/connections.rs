@@ -1287,7 +1287,7 @@ fn connection_metadata(
         .get("api_key_last_four")
         .and_then(Value::as_str)
         .filter(|value| value.len() == 4 && value.is_ascii())
-        .map(|value| format!("API key ••••{value}"))
+        .map(|value| format!("••••{value}"))
         .or_else(|| {
             token
                 .pointer("/account/email_address")
@@ -2684,7 +2684,7 @@ mod tests {
             }),
             None,
         );
-        assert_eq!(label.as_deref(), Some("API key ••••3456"));
+        assert_eq!(label.as_deref(), Some("••••3456"));
         assert_eq!(plan.as_deref(), Some("API"));
     }
 
