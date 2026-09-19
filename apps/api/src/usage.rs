@@ -238,9 +238,12 @@ async fn grok_usage(state: &AppState, access_token: &str) -> ConnectionUsage {
         .get("https://cli-chat-proxy.grok.com/v1/billing?format=credits")
         .bearer_auth(access_token)
         .header("x-xai-token-auth", "xai-grok-cli")
-        .header("x-grok-client-version", "1.0.13")
+        .header("x-grok-client-version", &state.config.grok_client_version)
         .header("x-grok-client-identifier", "grok-shell")
-        .header("user-agent", "xai-grok-build/1.0.13");
+        .header(
+            "user-agent",
+            format!("xai-grok-build/{}", state.config.grok_client_version),
+        );
     match send_json(request).await {
         Ok(body) => parse_grok(&body).into_connection_usage(),
         Err(detail) => ConnectionUsage {
