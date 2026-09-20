@@ -82,11 +82,6 @@ interface AgentsPoolCardMemberRowProps {
   member: AgentPoolPerson;
 }
 
-interface AgentsPoolCardTokenUsage {
-  label: string;
-  value: number;
-}
-
 interface AgentsPoolCardMembersDialogProps {
   pool: AgentPool;
 }
@@ -133,20 +128,7 @@ function membersTriggerValue(pool: AgentPool) {
   return `${pool.members.length} joined`;
 }
 
-function formatTokenCount(value: number) {
-  return new Intl.NumberFormat("en", {
-    maximumFractionDigits: 1,
-    notation: "compact",
-  }).format(value);
-}
-
 function AgentsPoolCardMemberRow({ member }: AgentsPoolCardMemberRowProps) {
-  const tokenUsage: AgentsPoolCardTokenUsage[] = [
-    { label: "Token Input", value: member.share.userInputTokens },
-    { label: "Token Cached", value: member.share.userCachedTokens },
-    { label: "Token Output", value: member.share.userOutputTokens },
-  ].filter(({ value }) => value > 0);
-
   return (
     <div>
       <Flex className="justify-between gap-3">
@@ -154,22 +136,6 @@ function AgentsPoolCardMemberRow({ member }: AgentsPoolCardMemberRowProps) {
           {member.username}
         </p>
       </Flex>
-      {tokenUsage.length > 0 ? (
-        <dl className="mt-2 space-y-1">
-          {tokenUsage.map(({ label, value }) => (
-            <Flex key={label} className="justify-between gap-3 text-[10px]">
-              <dt className="text-muted-foreground">{label}</dt>
-              <dd className="font-mono font-semibold text-slate-700">
-                {formatTokenCount(value)}
-              </dd>
-            </Flex>
-          ))}
-        </dl>
-      ) : (
-        <p className="mt-2 text-[10px] text-muted-foreground">
-          No recorded tokens in the current usage window.
-        </p>
-      )}
       <Flex className="mt-1 gap-1 text-[10px] text-muted-foreground">
         <Clock3 aria-hidden="true" className="size-3" />
         Joined{" "}
@@ -205,7 +171,7 @@ function AgentsPoolCardMembersDialog({
         <DialogHeader>
           <DialogTitle>Pool members</DialogTitle>
           <DialogDescription>
-            Joined members and their recorded token usage in the current window.
+            Joined members in this account pool.
           </DialogDescription>
         </DialogHeader>
 

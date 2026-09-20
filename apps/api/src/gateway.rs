@@ -21,7 +21,6 @@ use crate::{
     auth::authenticated_user_id,
     connections::{ANTIGRAVITY_CLIENT_VERSION, load_gemini_code_assist, provider_credential},
     error::ApiError,
-    usage,
 };
 
 const OPENAI_RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
@@ -620,10 +619,6 @@ impl GeminiOperation {
         }
     }
 
-    fn records_usage(self) -> bool {
-        !matches!(self, Self::CountTokens)
-    }
-
     fn streams(self) -> bool {
         matches!(self, Self::StreamGenerate)
     }
@@ -806,14 +801,7 @@ async fn gemini_proxy_request(
                         if claimed_probe {
                             release_probe(state, candidate.id).await?;
                         }
-                        return gemini_upstream_response(
-                            state.clone(),
-                            candidate.id,
-                            authorized.user_id,
-                            upstream,
-                            operation,
-                        )
-                        .await;
+                        return gemini_upstream_response(upstream, operation).await;
                     }
                     let retry_same = should_retry_same_candidate(
                         attempts_used,
@@ -835,14 +823,7 @@ async fn gemini_proxy_request(
                 UpstreamDisposition::Return => {}
             }
             mark_active(state, candidate.id).await?;
-            return gemini_upstream_response(
-                state.clone(),
-                candidate.id,
-                authorized.user_id,
-                upstream,
-                operation,
-            )
-            .await;
+            return gemini_upstream_response(upstream, operation).await;
         }
     }
 
@@ -957,9 +938,6 @@ fn unwrap_gemini_response(mut wrapper: Value) -> Value {
 }
 
 async fn gemini_upstream_response(
-    state: AppState,
-    connection_id: Uuid,
-    user_id: Uuid,
     upstream: reqwest::Response,
     operation: GeminiOperation,
 ) -> Result<Response, ApiError> {
@@ -981,11 +959,6 @@ async fn gemini_upstream_response(
             ApiError::Provider("Google returned an invalid Gemini response.".to_owned())
         })?;
         let payload = unwrap_gemini_response(wrapper);
-        if operation.records_usage()
-            && let Some(counts) = usage::tokens_from_value(&payload)
-        {
-            usage::record_event(&state, connection_id, user_id, counts).await;
-        }
         return response
             .header(header::CONTENT_TYPE, "application/json")
             .body(Body::from(
@@ -1000,13 +973,11 @@ async fn gemini_upstream_response(
 
         let mut stream = upstream.bytes_stream();
         let mut transformer = GeminiSseTransformer::default();
-        let mut extractor = usage::UsageExtractor::default();
         let mut client_gone = false;
         while let Some(item) = stream.next().await {
             match item {
                 Ok(bytes) => {
                     let transformed = transformer.push(&bytes);
-                    extractor.push(&transformed);
                     if !transformed.is_empty()
                         && !client_gone
                         && tx.send(Ok(transformed)).await.is_err()
@@ -1023,13 +994,8 @@ async fn gemini_upstream_response(
             }
         }
         let tail = transformer.finish();
-        extractor.push(&tail);
         if !tail.is_empty() && !client_gone {
             let _ = tx.send(Ok(tail)).await;
-        }
-        drop(tx);
-        if let Some(counts) = extractor.finish() {
-            usage::record_event(&state, connection_id, user_id, counts).await;
         }
     });
     response
@@ -1146,7 +1112,6 @@ async fn proxy_request(
                 continue;
             }
         };
-        let record_usage = method != Method::GET && !upstream_url.contains("count_tokens");
         let mut candidate_attempts = 0;
         loop {
             attempts_used += 1;
@@ -1252,14 +1217,7 @@ async fn proxy_request(
                         if claimed_probe {
                             release_probe(state, candidate.id).await?;
                         }
-                        return upstream_response(
-                            state.clone(),
-                            candidate.id,
-                            authorized.user_id,
-                            upstream,
-                            record_usage,
-                        )
-                        .await;
+                        return upstream_response(upstream).await;
                     }
                     let retry_same = should_retry_same_candidate(
                         attempts_used,
@@ -1284,14 +1242,7 @@ async fn proxy_request(
                 UpstreamDisposition::Return => {}
             }
             mark_active(state, candidate.id).await?;
-            return upstream_response(
-                state.clone(),
-                candidate.id,
-                authorized.user_id,
-                upstream,
-                record_usage,
-            )
-            .await;
+            return upstream_response(upstream).await;
         }
     }
 
@@ -1306,13 +1257,7 @@ async fn proxy_request(
     }
 }
 
-async fn upstream_response(
-    state: AppState,
-    connection_id: Uuid,
-    user_id: Uuid,
-    upstream: reqwest::Response,
-    record_usage: bool,
-) -> Result<Response, ApiError> {
+async fn upstream_response(upstream: reqwest::Response) -> Result<Response, ApiError> {
     let status = upstream.status();
     let headers = upstream.headers().clone();
     let mut response = Response::builder().status(status);
@@ -1321,48 +1266,8 @@ async fn upstream_response(
             response = response.header(name, value);
         }
     }
-    if !record_usage {
-        return response
-            .body(Body::from_stream(upstream.bytes_stream()))
-            .map_err(|error| {
-                eprintln!("gateway response construction failed: {error}");
-                ApiError::Internal
-            });
-    }
-
-    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes, std::io::Error>>(32);
-    tokio::spawn(async move {
-        use futures_util::StreamExt;
-
-        let mut stream = upstream.bytes_stream();
-        let mut extractor = usage::UsageExtractor::default();
-        let mut client_gone = false;
-        while let Some(item) = stream.next().await {
-            match item {
-                Ok(bytes) => {
-                    extractor.push(&bytes);
-                    if !client_gone && tx.send(Ok(bytes)).await.is_err() {
-                        client_gone = true;
-                    }
-                }
-                Err(error) => {
-                    if !client_gone {
-                        let _ = tx.send(Err(std::io::Error::other(error))).await;
-                    }
-                    break;
-                }
-            }
-        }
-        drop(tx);
-        if let Some(counts) = extractor.finish() {
-            usage::record_event(&state, connection_id, user_id, counts).await;
-        }
-    });
-
     response
-        .body(Body::from_stream(
-            tokio_stream::wrappers::ReceiverStream::new(rx),
-        ))
+        .body(Body::from_stream(upstream.bytes_stream()))
         .map_err(|error| {
             eprintln!("gateway response construction failed: {error}");
             ApiError::Internal

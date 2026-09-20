@@ -360,7 +360,7 @@ describe("AgentsRoute", () => {
     expect(screen.getByText("68% used", { exact: true })).toBeVisible();
   });
 
-  it("shows joined members with token usage and join date", async () => {
+  it("shows joined members and join date", async () => {
     const user = userEvent.setup();
     renderRoute(undefined, [
       {
@@ -368,38 +368,10 @@ describe("AgentsRoute", () => {
         members: [
           apiPerson("synasapmob", {
             avatar_label: "Syn",
-            share: sharePayload(40, {
-              budget: 200,
-              cap: 100,
-              failOpen: null,
-              memberCount: 2,
-              poolInput: 80,
-              poolOutput: 20,
-              providerUsed: 50,
-              remaining: 40,
-              userInput: 48,
-              userOutput: 12,
-              window: "5-hour limit",
-            }),
-            usage_available_percent: 40,
           }),
           apiPerson("huycodes", {
             avatar_label: "Huy",
             joined_at: "2026-09-10T12:00:00.000Z",
-            share: sharePayload(85, {
-              budget: 200,
-              cap: 100,
-              failOpen: null,
-              memberCount: 2,
-              poolInput: 80,
-              poolOutput: 20,
-              providerUsed: 50,
-              remaining: 85,
-              userInput: 12,
-              userOutput: 3,
-              window: "5-hour limit",
-            }),
-            usage_available_percent: 85,
           }),
         ],
       },
@@ -412,11 +384,7 @@ describe("AgentsRoute", () => {
 
     expect(screen.getByRole("dialog", { name: /pool members/i })).toBeVisible();
     expect(screen.getAllByText("huycodes").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Token Input")).toHaveLength(2);
-    expect(screen.getByText("48")).toBeVisible();
-    expect(screen.getAllByText("12")).toHaveLength(2);
-    expect(screen.getAllByText("Token Output")).toHaveLength(2);
-    expect(screen.queryByText("100% available")).not.toBeInTheDocument();
+    expect(screen.getAllByText("synasapmob").length).toBeGreaterThan(0);
     expect(
       document.querySelector('time[datetime="2026-09-10T12:00:00.000Z"]'),
     ).toBeVisible();

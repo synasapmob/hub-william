@@ -13,11 +13,10 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
-    AppState,
+    AgentProvider, AppState,
     auth::{authenticated_user_id, normalize_username, optional_authenticated_user_id},
-    connections::AgentProvider,
     error::ApiError,
-    pool_share, usage,
+    usage,
 };
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
@@ -38,6 +37,29 @@ pub struct AgentPoolShareEvidence {
     pub user_output_tokens: i64,
     pub user_units: i64,
     pub window_label: Option<String>,
+}
+
+impl Default for AgentPoolShareEvidence {
+    fn default() -> Self {
+        Self {
+            available_percent: 100,
+            budget_units: None,
+            cap_units: None,
+            fail_open_reason: None,
+            member_count: 1,
+            pool_cached_tokens: 0,
+            pool_input_tokens: 0,
+            pool_output_tokens: 0,
+            pool_units: 0,
+            provider_used_percent: None,
+            remaining_units: None,
+            user_cached_tokens: 0,
+            user_input_tokens: 0,
+            user_output_tokens: 0,
+            user_units: 0,
+            window_label: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
@@ -146,13 +168,7 @@ struct RequestRow {
 #[derive(Clone, FromRow)]
 struct MemberRow {
     joined_at: DateTime<Utc>,
-    user_id: Uuid,
     username: String,
-}
-
-struct PoolShareInput {
-    events: Vec<pool_share::UsageEvent>,
-    members: Vec<MemberRow>,
 }
 
 #[utoipa::path(
@@ -182,15 +198,13 @@ pub async fn list(
 
     let mut pools = Vec::with_capacity(rows.len());
     let mut providers = Vec::with_capacity(rows.len());
-    let mut share_inputs = Vec::with_capacity(rows.len());
     for row in rows {
         let mut members = vec![MemberRow {
             joined_at: row.created_at,
-            user_id: row.owner_id,
             username: row.owner_username.clone(),
         }];
         let accepted = sqlx::query_as::<_, MemberRow>(
-            "SELECT users.id AS user_id, users.username, requests.updated_at AS joined_at
+            "SELECT users.username, requests.updated_at AS joined_at
              FROM agent_pool_join_requests AS requests
              JOIN users ON users.id = requests.requester_user_id
              WHERE requests.connection_id = $1 AND requests.status = 'accepted'
@@ -201,13 +215,6 @@ pub async fn list(
         .await
         .map_err(database_error)?;
         members.extend(accepted);
-        let events = pool_share::load_events(&state.pool, row.id)
-            .await
-            .map_err(database_error)?;
-        share_inputs.push(PoolShareInput {
-            events,
-            members: members.clone(),
-        });
         let people = members
             .iter()
             .map(|member| person(&member.username, member.joined_at, pending_share()))
@@ -261,27 +268,6 @@ pub async fn list(
     while let Some(joined) = usage_tasks.join_next().await {
         if let Ok((index, usage)) = joined {
             pools[index].usage = usage.metrics;
-            let member_count = share_inputs[index].members.len();
-            let now = Utc::now();
-            for (person, member) in pools[index]
-                .members
-                .iter_mut()
-                .zip(share_inputs[index].members.iter())
-            {
-                let share = share_from_evidence(pool_share::member_share_evidence(
-                    &usage.windows,
-                    &share_inputs[index].events,
-                    member.user_id,
-                    member_count,
-                    now,
-                ));
-                person.usage_available_percent = share.available_percent;
-                person.share = share;
-            }
-            if let Some(owner_member) = pools[index].members.first().cloned() {
-                pools[index].owner.usage_available_percent = owner_member.usage_available_percent;
-                pools[index].owner.share = owner_member.share;
-            }
         }
     }
 
@@ -630,31 +616,7 @@ fn person(
 }
 
 fn pending_share() -> AgentPoolShareEvidence {
-    share_from_evidence(pool_share::ShareEvidence::fail_open(
-        1,
-        "Share is calculated from live provider usage.",
-    ))
-}
-
-fn share_from_evidence(evidence: pool_share::ShareEvidence) -> AgentPoolShareEvidence {
-    AgentPoolShareEvidence {
-        available_percent: evidence.available_percent,
-        budget_units: evidence.budget_units,
-        cap_units: evidence.cap_units,
-        fail_open_reason: evidence.fail_open_reason.map(str::to_owned),
-        member_count: evidence.member_count,
-        pool_cached_tokens: evidence.pool_cached_tokens,
-        pool_input_tokens: evidence.pool_input_tokens,
-        pool_output_tokens: evidence.pool_output_tokens,
-        pool_units: evidence.pool_units,
-        provider_used_percent: evidence.provider_used_percent,
-        remaining_units: evidence.remaining_units,
-        user_cached_tokens: evidence.user_cached_tokens,
-        user_input_tokens: evidence.user_input_tokens,
-        user_output_tokens: evidence.user_output_tokens,
-        user_units: evidence.user_units,
-        window_label: evidence.window_label,
-    }
+    AgentPoolShareEvidence::default()
 }
 
 fn avatar_label(username: &str) -> String {

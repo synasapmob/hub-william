@@ -8,86 +8,21 @@ use crate::{
 };
 
 const USAGE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
-const FIVE_HOUR_SECONDS: i64 = 18_000;
-const WEEKLY_SECONDS: i64 = 604_800;
-
-#[derive(Clone, Debug, Default)]
-pub struct ShareWindow {
-    pub label: String,
-    pub reset_at: Option<DateTime<Utc>>,
-    pub used_percent: f64,
-    pub window_seconds: Option<i64>,
-}
 
 #[derive(Debug, Default)]
 pub struct ConnectionUsage {
     pub metrics: Vec<AgentPoolUsageMetric>,
-    pub windows: Vec<ShareWindow>,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct TokenCounts {
-    pub cached_tokens: i64,
-    pub input_tokens: i64,
-    pub output_tokens: i64,
-}
-
-impl TokenCounts {
-    pub fn units(self) -> i64 {
-        self.cached_tokens
-            .saturating_add(self.input_tokens)
-            .saturating_add(self.output_tokens)
-    }
-}
-
-#[derive(Default)]
-pub struct UsageExtractor {
-    bytes: Vec<u8>,
-}
-
-impl UsageExtractor {
-    pub fn push(&mut self, chunk: &[u8]) {
-        self.bytes.extend_from_slice(chunk);
-    }
-
-    pub fn finish(self) -> Option<TokenCounts> {
-        if let Ok(value) = serde_json::from_slice::<Value>(&self.bytes)
-            && let Some(counts) = tokens_from_value(&value)
-        {
-            return Some(counts);
-        }
-        let text = String::from_utf8_lossy(&self.bytes);
-        let mut last = None;
-        for line in text.lines() {
-            let payload = line
-                .trim()
-                .strip_prefix("data:")
-                .map(str::trim)
-                .unwrap_or(line.trim());
-            if payload.is_empty() || payload == "[DONE]" {
-                continue;
-            }
-            if let Ok(value) = serde_json::from_str::<Value>(payload)
-                && let Some(counts) = tokens_from_value(&value)
-            {
-                last = Some(counts);
-            }
-        }
-        last
-    }
 }
 
 #[derive(Default)]
 struct ParsedUsage {
     metrics: Vec<AgentPoolUsageMetric>,
-    windows: Vec<ShareWindow>,
 }
 
 impl ParsedUsage {
     fn into_connection_usage(self) -> ConnectionUsage {
         ConnectionUsage {
             metrics: self.metrics,
-            windows: self.windows,
         }
     }
 }
@@ -107,35 +42,7 @@ pub async fn for_connection(
         Ok(_) => ConnectionUsage::default(),
         Err(_) => ConnectionUsage {
             metrics: vec![unavailable("The provider usage request timed out.")],
-            windows: Vec::new(),
         },
-    }
-}
-
-pub async fn record_event(
-    state: &AppState,
-    connection_id: Uuid,
-    user_id: Uuid,
-    counts: TokenCounts,
-) {
-    if counts.units() <= 0 {
-        return;
-    }
-    if let Err(error) = sqlx::query(
-        "INSERT INTO agent_pool_usage_events
-            (id, connection_id, user_id, input_tokens, output_tokens, cached_tokens)
-         VALUES ($1, $2, $3, $4, $5, $6)",
-    )
-    .bind(Uuid::new_v4())
-    .bind(connection_id)
-    .bind(user_id)
-    .bind(counts.input_tokens)
-    .bind(counts.output_tokens)
-    .bind(counts.cached_tokens)
-    .execute(&state.pool)
-    .await
-    {
-        eprintln!("pool usage event insert failed: {error}");
     }
 }
 
@@ -150,14 +57,12 @@ async fn fetch_provider_usage(
             eprintln!("{provider} usage credential refresh failed: {error:?}");
             return ConnectionUsage {
                 metrics: vec![unavailable("Could not refresh the provider session.")],
-                windows: Vec::new(),
             };
         }
     };
     let Some(access_token) = bearer_token(&token) else {
         return ConnectionUsage {
             metrics: vec![unavailable("The connected account has no access token.")],
-            windows: Vec::new(),
         };
     };
 
@@ -168,13 +73,11 @@ async fn fetch_provider_usage(
             metrics: vec![unavailable(
                 "Google exposes subscription usage through gateway responses, not a stable quota endpoint.",
             )],
-            windows: Vec::new(),
         },
         AgentProvider::Deepseek => ConnectionUsage {
             metrics: vec![unavailable(
                 "DeepSeek does not expose account quota through this connection.",
             )],
-            windows: Vec::new(),
         },
         AgentProvider::Grok => grok_usage(state, access_token).await,
     }
@@ -198,7 +101,6 @@ async fn chatgpt_usage(state: &AppState, token: &Value, access_token: &str) -> C
         Err(detail) => {
             return ConnectionUsage {
                 metrics: vec![unavailable(&detail)],
-                windows: Vec::new(),
             };
         }
     };
@@ -236,7 +138,6 @@ async fn claude_usage(state: &AppState, access_token: &str) -> ConnectionUsage {
         Ok(body) => parse_claude(&body).into_connection_usage(),
         Err(detail) => ConnectionUsage {
             metrics: vec![unavailable(&detail)],
-            windows: Vec::new(),
         },
     }
 }
@@ -257,7 +158,6 @@ async fn grok_usage(state: &AppState, access_token: &str) -> ConnectionUsage {
         Ok(body) => parse_grok(&body).into_connection_usage(),
         Err(detail) => ConnectionUsage {
             metrics: vec![unavailable(&detail)],
-            windows: Vec::new(),
         },
     }
 }
@@ -326,7 +226,6 @@ fn parse_claude(body: &Value) -> ParsedUsage {
     if body.pointer("/error/type").and_then(Value::as_str) == Some("rate_limit_error") {
         return ParsedUsage {
             metrics: vec![unavailable("Claude rate-limited the usage request.")],
-            windows: Vec::new(),
         };
     }
     let mut parsed = ParsedUsage::default();
@@ -406,17 +305,16 @@ fn parse_grok(body: &Value) -> ParsedUsage {
         .or_else(|| config.get("billing_period_end"))
         .and_then(|value| parse_reset_at(Some(value)));
     if let Some(used) = used {
-        let (label, window_seconds) = match period_type.as_deref() {
-            Some("WEEKLY") => ("Weekly limit", Some(WEEKLY_SECONDS)),
-            Some("MONTHLY") => ("Monthly limit", None),
-            _ => ("Usage limit", None),
+        let label = match period_type.as_deref() {
+            Some("WEEKLY") => "Weekly limit",
+            Some("MONTHLY") => "Monthly limit",
+            _ => "Usage limit",
         };
         parsed.metrics.push(metric(
             label,
             &remaining_percent(used),
             reset_at.map(resets_in),
         ));
-        push_share_window(&mut parsed, label, used, reset_at, window_seconds);
     }
     if let Some(products) = config
         .get("productUsage")
@@ -472,13 +370,6 @@ fn push_chatgpt_window(parsed: &mut ParsedUsage, window: Option<&Value>, named: 
     parsed
         .metrics
         .push(metric(&label, &remaining_percent(used), detail));
-    push_share_window(
-        parsed,
-        &label,
-        used,
-        reset_at,
-        seconds.map(|value| value.round() as i64),
-    );
 }
 
 fn push_percent_window(
@@ -505,30 +396,6 @@ fn push_percent_window(
         &remaining_percent(used),
         reset_at.map(resets_in),
     ));
-    let window_seconds = match label {
-        "5-hour limit" => Some(FIVE_HOUR_SECONDS),
-        "Weekly limit" | "Sonnet weekly" => Some(WEEKLY_SECONDS),
-        _ => None,
-    };
-    push_share_window(parsed, label, used, reset_at, window_seconds);
-}
-
-fn push_share_window(
-    parsed: &mut ParsedUsage,
-    label: &str,
-    used_percent: f64,
-    reset_at: Option<DateTime<Utc>>,
-    window_seconds: Option<i64>,
-) {
-    if !matches!(label, "5-hour limit" | "Weekly limit") {
-        return;
-    }
-    parsed.windows.push(ShareWindow {
-        label: label.to_owned(),
-        reset_at,
-        used_percent,
-        window_seconds,
-    });
 }
 
 fn window_label(seconds: Option<f64>) -> String {
@@ -628,110 +495,9 @@ fn unavailable(detail: &str) -> AgentPoolUsageMetric {
     metric("Usage", "Unavailable", Some(detail.to_owned()))
 }
 
-pub(crate) fn tokens_from_value(value: &Value) -> Option<TokenCounts> {
-    let mut found = None;
-    visit_usage(value, &mut found);
-    found.filter(|counts| counts.units() > 0)
-}
-
-fn visit_usage(value: &Value, found: &mut Option<TokenCounts>) {
-    match value {
-        Value::Object(map) => {
-            if let Some(usage) = map.get("usage")
-                && let Some(counts) = counts_from_usage(usage)
-            {
-                *found = Some(counts);
-            }
-            if let Some(usage) = map.get("usageMetadata")
-                && let Some(counts) = counts_from_gemini_usage(usage)
-            {
-                *found = Some(counts);
-            }
-            for nested in map.values() {
-                visit_usage(nested, found);
-            }
-        }
-        Value::Array(items) => {
-            for nested in items {
-                visit_usage(nested, found);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn counts_from_gemini_usage(usage: &Value) -> Option<TokenCounts> {
-    let input = usage
-        .get("promptTokenCount")
-        .and_then(Value::as_i64)
-        .unwrap_or(0);
-    let output = usage
-        .get("candidatesTokenCount")
-        .and_then(Value::as_i64)
-        .unwrap_or(0);
-    let cached = usage
-        .get("cachedContentTokenCount")
-        .and_then(Value::as_i64)
-        .unwrap_or(0);
-    Some(TokenCounts {
-        cached_tokens: cached,
-        input_tokens: input,
-        output_tokens: output,
-    })
-    .filter(|counts| counts.units() > 0)
-}
-
-fn counts_from_usage(usage: &Value) -> Option<TokenCounts> {
-    let input = json_i64(usage, "input_tokens", "prompt_tokens").unwrap_or(0);
-    let output = json_i64(usage, "output_tokens", "completion_tokens").unwrap_or(0);
-    let cached = json_i64(usage, "cached_tokens", "cache_read_input_tokens")
-        .or_else(|| {
-            usage
-                .pointer("/input_tokens_details/cached_tokens")
-                .and_then(value_i64)
-        })
-        .or_else(|| {
-            usage
-                .pointer("/prompt_tokens_details/cached_tokens")
-                .and_then(value_i64)
-        })
-        .unwrap_or(0);
-    let split_output = split_output_tokens(usage);
-    let counts = TokenCounts {
-        cached_tokens: cached,
-        input_tokens: input,
-        output_tokens: output.saturating_add(split_output),
-    };
-    (counts.units() > 0).then_some(counts)
-}
-
-fn split_output_tokens(usage: &Value) -> i64 {
-    json_i64(usage, "reasoning_tokens", "reasoningTokens")
-        .unwrap_or(0)
-        .saturating_add(json_i64(usage, "tool_tokens", "toolTokens").unwrap_or(0))
-        .saturating_add(json_i64(usage, "tool_use_tokens", "toolUseTokens").unwrap_or(0))
-}
-
-fn json_i64(value: &Value, camel: &str, snake: &str) -> Option<i64> {
-    value
-        .get(camel)
-        .or_else(|| value.get(snake))
-        .and_then(value_i64)
-}
-
-fn value_i64(value: &Value) -> Option<i64> {
-    value
-        .as_i64()
-        .or_else(|| value.as_u64().and_then(|n| i64::try_from(n).ok()))
-        .or_else(|| value.as_f64().map(|n| n as i64))
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{
-        TokenCounts, UsageExtractor, parse_chatgpt, parse_chatgpt_reset_credits, parse_claude,
-        parse_grok,
-    };
+    use super::{parse_chatgpt, parse_chatgpt_reset_credits, parse_claude, parse_grok};
     use serde_json::json;
 
     #[test]
@@ -843,89 +609,5 @@ mod tests {
 
         assert_eq!(metrics[0].label, "Weekly limit");
         assert_eq!(metrics[0].value, "74% remaining");
-    }
-
-    #[test]
-    fn chatgpt_share_windows_keep_used_percent_and_duration() {
-        let parsed = parse_chatgpt(&json!({
-            "rate_limit": {
-                "primary_window": {
-                    "used_percent": 68.0,
-                    "limit_window_seconds": 18000,
-                    "reset_at": 2_000_000_000
-                },
-                "secondary_window": {
-                    "used_percent": 10.0,
-                    "limit_window_seconds": 604800,
-                    "reset_at": 2_000_000_000
-                }
-            }
-        }));
-        assert_eq!(parsed.windows.len(), 2);
-        assert_eq!(parsed.windows[0].label, "5-hour limit");
-        assert_eq!(parsed.windows[0].used_percent, 68.0);
-        assert_eq!(parsed.windows[0].window_seconds, Some(18_000));
-        assert_eq!(parsed.windows[1].label, "Weekly limit");
-    }
-
-    #[test]
-    fn extractor_reads_openai_responses_sse_and_claude_json() {
-        let mut extractor = UsageExtractor::default();
-        extractor.push(
-            br#"data: {"type":"response.output_text.delta","delta":"hi"}
-data: {"type":"response.completed","response":{"usage":{"input_tokens":12,"output_tokens":4,"input_tokens_details":{"cached_tokens":3}}}}
-data: [DONE]
-"#,
-        );
-        assert_eq!(
-            extractor.finish(),
-            Some(TokenCounts {
-                cached_tokens: 3,
-                input_tokens: 12,
-                output_tokens: 4,
-            })
-        );
-
-        let mut extractor = UsageExtractor::default();
-        extractor.push(
-            br#"{"usageMetadata":{"promptTokenCount":11,"candidatesTokenCount":6,"cachedContentTokenCount":2}}"#,
-        );
-        assert_eq!(
-            extractor.finish(),
-            Some(TokenCounts {
-                cached_tokens: 2,
-                input_tokens: 11,
-                output_tokens: 6,
-            })
-        );
-
-        let mut extractor = UsageExtractor::default();
-        extractor.push(
-            br#"{"usage":{"input_tokens":8,"output_tokens":2,"cache_read_input_tokens":1,"cache_creation_input_tokens":5,"reasoning_tokens":7,"tool_tokens":3}}"#,
-        );
-        assert_eq!(
-            extractor.finish(),
-            Some(TokenCounts {
-                cached_tokens: 1,
-                input_tokens: 8,
-                output_tokens: 12,
-            })
-        );
-    }
-
-    #[test]
-    fn nested_reasoning_breakdown_is_not_added_when_output_already_includes_it() {
-        let mut extractor = UsageExtractor::default();
-        extractor.push(
-            br#"{"usage":{"input_tokens":10,"output_tokens":20,"output_tokens_details":{"reasoning_tokens":15}}}"#,
-        );
-        assert_eq!(
-            extractor.finish(),
-            Some(TokenCounts {
-                cached_tokens: 0,
-                input_tokens: 10,
-                output_tokens: 20,
-            })
-        );
     }
 }
