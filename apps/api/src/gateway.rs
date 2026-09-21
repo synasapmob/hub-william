@@ -1,3 +1,6 @@
+use std::sync::{OnceLock, RwLock};
+use std::time::{Duration as StdDuration, Instant};
+
 use axum::{
     Json,
     body::{Body, Bytes},
@@ -33,6 +36,10 @@ const MAX_UPSTREAM_ATTEMPTS: usize = 4;
 const MAX_SAME_CANDIDATE_ATTEMPTS: usize = 2;
 const RETRY_BASE_DELAY_MS: u64 = 500;
 const RETRY_MAX_DELAY_MS: u64 = 2_000;
+const DOCS_CACHE_TTL: StdDuration = StdDuration::from_secs(3600);
+
+static CLAUDE_DOCS_CACHE: OnceLock<RwLock<(Instant, Value)>> = OnceLock::new();
+static OPENAI_DOCS_CACHE: OnceLock<RwLock<(Instant, Value)>> = OnceLock::new();
 const ANTIGRAVITY_MODELS: [&str; 14] = [
     "gemini-3.8-flash-high",
     "gemini-3.8-flash-medium",
@@ -252,15 +259,123 @@ pub async fn openai_models(
     let authorized = authorize_gateway_key(&state, &headers).await?;
     connected_provider_ids(&state, authorized.user_id, AgentProvider::Chatgpt).await?;
 
-    Ok(Json(json!({
+    Ok(Json(fetch_or_cached_openai_catalogue(&state.http).await))
+}
+
+fn default_openai_model_catalogue() -> Value {
+    json!({
         "object": "list",
         "data": [
-            { "id": "gpt-6-astra", "object": "model", "owned_by": "openai" },
-            { "id": "gpt-5.6-sol", "object": "model", "owned_by": "openai" },
-            { "id": "gpt-5.6-terra", "object": "model", "owned_by": "openai" },
-            { "id": "gpt-5.6-luna", "object": "model", "owned_by": "openai" }
+            { "id": "gpt-6-astra", "name": "GPT-6 Astra", "object": "model", "owned_by": "openai" },
+            { "id": "gpt-5.6-sol", "name": "GPT-5.6 Sol", "object": "model", "owned_by": "openai" },
+            { "id": "gpt-5.6-terra", "name": "GPT-5.6 Terra", "object": "model", "owned_by": "openai" },
+            { "id": "gpt-5.6-luna", "name": "GPT-5.6 Luna", "object": "model", "owned_by": "openai" }
         ]
-    })))
+    })
+}
+
+pub(crate) fn parse_openai_models_markdown(content: &str) -> Option<Value> {
+    let mut models = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with('-') || !trimmed.contains("/api/docs/models/") {
+            continue;
+        }
+        let Some(name_start) = trimmed.find('[') else {
+            continue;
+        };
+        let Some(name_end) = trimmed.find(']') else {
+            continue;
+        };
+        let Some(url_start) = trimmed[name_end..].find("(/api/docs/models/") else {
+            continue;
+        };
+        let url_part = &trimmed[name_end + url_start + "(/api/docs/models/".len()..];
+        let Some(url_end) = url_part.find(".md)") else {
+            continue;
+        };
+
+        let display_name = trimmed[name_start + 1..name_end].trim();
+        let model_id = url_part[..url_end].trim();
+
+        let is_target_model = model_id.starts_with("gpt-")
+            || model_id.starts_with("o1")
+            || model_id.starts_with("o3")
+            || model_id.starts_with("o4")
+            || model_id.starts_with("codex");
+
+        if !model_id.is_empty() && !seen.contains(model_id) && is_target_model {
+            seen.insert(model_id.to_string());
+            models.push(json!({
+                "id": model_id,
+                "name": display_name,
+                "object": "model",
+                "owned_by": "openai"
+            }));
+        }
+    }
+
+    if models.is_empty() {
+        None
+    } else {
+        Some(json!({ "object": "list", "data": models }))
+    }
+}
+
+async fn fetch_or_cached_openai_catalogue(http: &reqwest::Client) -> Value {
+    let cache = OPENAI_DOCS_CACHE.get_or_init(|| {
+        RwLock::new((
+            Instant::now()
+                .checked_sub(DOCS_CACHE_TTL)
+                .unwrap_or_else(Instant::now),
+            Value::Null,
+        ))
+    });
+    if let Some(cached) = cache.read().ok().and_then(|g| {
+        if g.0.elapsed() < DOCS_CACHE_TTL && !g.1.is_null() {
+            Some(g.1.clone())
+        } else {
+            None
+        }
+    }) {
+        return cached;
+    }
+
+    let fetched = async {
+        let response = http
+            .get("https://developers.openai.com/api/docs/models.md")
+            .timeout(StdDuration::from_secs(6))
+            .header("User-Agent", "hub-william")
+            .send()
+            .await
+            .ok()?;
+        if !response.status().is_success() {
+            return None;
+        }
+        let text = response.text().await.ok()?;
+        parse_openai_models_markdown(&text)
+    }
+    .await;
+
+    if let Some(catalogue) = fetched {
+        if let Ok(mut guard) = cache.write() {
+            *guard = (Instant::now(), catalogue.clone());
+        }
+        return catalogue;
+    }
+
+    if let Some(stale) = cache.read().ok().and_then(|g| {
+        if !g.1.is_null() {
+            Some(g.1.clone())
+        } else {
+            None
+        }
+    }) {
+        return stale;
+    }
+    default_openai_model_catalogue()
 }
 
 pub async fn claude_messages(
@@ -342,10 +457,10 @@ pub async fn claude_models(
     let authorized = authorize_gateway_key(&state, &headers).await?;
     connected_provider_ids(&state, authorized.user_id, AgentProvider::Claude).await?;
 
-    Ok(Json(claude_model_catalogue()))
+    Ok(Json(fetch_or_cached_claude_catalogue(&state.http).await))
 }
 
-fn claude_model_catalogue() -> Value {
+fn default_claude_model_catalogue() -> Value {
     let standard_effort = json!({
         "supported": true,
         "low": { "supported": true },
@@ -438,6 +553,189 @@ fn claude_model_catalogue() -> Value {
             }
         ]
     })
+}
+
+pub(crate) fn parse_claude_models_markdown(content: &str) -> Option<Value> {
+    let mut header_cols: Vec<String> = Vec::new();
+    let mut id_cols: Vec<String> = Vec::new();
+    let mut effort_cols: Vec<String> = Vec::new();
+    let mut alias_cols: Vec<String> = Vec::new();
+
+    for line in content.lines() {
+        let parts: Vec<&str> = line.split('|').map(str::trim).collect();
+        if parts.len() > 2 {
+            let label = parts[1].trim_start_matches('[');
+            let label = label.split(']').next().unwrap_or(label).trim();
+            if label == "Feature" {
+                header_cols = parts[2..parts.len() - 1]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect();
+            } else if label == "Claude API ID" {
+                id_cols = parts[2..parts.len() - 1]
+                    .iter()
+                    .map(|s| s.trim_matches(|c| c == '`' || c == ' ').to_string())
+                    .collect();
+            } else if label == "Default effort" {
+                effort_cols = parts[2..parts.len() - 1]
+                    .iter()
+                    .map(|s| s.trim_matches(|c| c == '`' || c == ' ').to_string())
+                    .collect();
+            } else if label == "Claude API alias" {
+                alias_cols = parts[2..parts.len() - 1]
+                    .iter()
+                    .map(|s| s.trim_matches(|c| c == '`' || c == ' ').to_string())
+                    .collect();
+            }
+        }
+    }
+
+    if id_cols.is_empty() {
+        return None;
+    }
+
+    let standard_effort = json!({
+        "supported": true,
+        "low": { "supported": true },
+        "medium": { "supported": true },
+        "high": { "supported": true },
+        "xhigh": { "supported": true },
+        "max": { "supported": true }
+    });
+
+    let mut models = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for (i, mid) in id_cols.into_iter().enumerate() {
+        if mid.is_empty() || seen.contains(&mid) {
+            continue;
+        }
+        seen.insert(mid.clone());
+        let name = header_cols.get(i).cloned().unwrap_or_else(|| mid.clone());
+        let effort_supported = effort_cols
+            .get(i)
+            .map(|e| !e.eq_ignore_ascii_case("not supported") && !e.is_empty())
+            .unwrap_or(false);
+
+        let mut entry = json!({
+            "id": mid,
+            "display_name": name,
+        });
+        if effort_supported {
+            entry["capabilities"] = json!({ "effort": standard_effort });
+        }
+        models.push(entry);
+    }
+
+    for (i, alias) in alias_cols.into_iter().enumerate() {
+        if !alias.is_empty() && !seen.contains(&alias) {
+            seen.insert(alias.clone());
+            let name = header_cols
+                .get(i)
+                .map(|h| format!("{h} (Latest)"))
+                .unwrap_or_else(|| alias.clone());
+            models.push(json!({
+                "id": alias,
+                "display_name": name,
+            }));
+        }
+    }
+
+    for line in content.lines() {
+        if line.contains("Legacy models") {
+            for part in line.split("https://platform.claude.com/docs/en/models/") {
+                if let Some(slug) = part.split("/overview").next() {
+                    let slug = slug.trim();
+                    if !slug.is_empty() && slug.chars().all(|c| c.is_alphanumeric() || c == '-') {
+                        let model_id = if slug.starts_with("claude-") {
+                            slug.to_string()
+                        } else {
+                            format!("claude-{slug}")
+                        };
+                        if !seen.contains(&model_id) {
+                            seen.insert(model_id.clone());
+                            let display_name = model_id
+                                .split('-')
+                                .map(|p| {
+                                    let mut chars = p.chars();
+                                    match chars.next() {
+                                        None => String::new(),
+                                        Some(first) => first.to_uppercase().chain(chars).collect(),
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                                .join(" ");
+                            models.push(json!({
+                                "id": model_id,
+                                "display_name": display_name,
+                                "capabilities": { "effort": standard_effort }
+                            }));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if models.is_empty() {
+        None
+    } else {
+        Some(json!({ "object": "list", "data": models }))
+    }
+}
+
+async fn fetch_or_cached_claude_catalogue(http: &reqwest::Client) -> Value {
+    let cache = CLAUDE_DOCS_CACHE.get_or_init(|| {
+        RwLock::new((
+            Instant::now()
+                .checked_sub(DOCS_CACHE_TTL)
+                .unwrap_or_else(Instant::now),
+            Value::Null,
+        ))
+    });
+    if let Some(cached) = cache.read().ok().and_then(|g| {
+        if g.0.elapsed() < DOCS_CACHE_TTL && !g.1.is_null() {
+            Some(g.1.clone())
+        } else {
+            None
+        }
+    }) {
+        return cached;
+    }
+
+    let fetched = async {
+        let response = http
+            .get("https://platform.claude.com/docs/en/models/overview.md")
+            .timeout(StdDuration::from_secs(6))
+            .header("User-Agent", "hub-william")
+            .send()
+            .await
+            .ok()?;
+        if !response.status().is_success() {
+            return None;
+        }
+        let text = response.text().await.ok()?;
+        parse_claude_models_markdown(&text)
+    }
+    .await;
+
+    if let Some(catalogue) = fetched {
+        if let Ok(mut guard) = cache.write() {
+            *guard = (Instant::now(), catalogue.clone());
+        }
+        return catalogue;
+    }
+
+    if let Some(stale) = cache.read().ok().and_then(|g| {
+        if !g.1.is_null() {
+            Some(g.1.clone())
+        } else {
+            None
+        }
+    }) {
+        return stale;
+    }
+    default_claude_model_catalogue()
 }
 
 pub async fn deepseek_chat(
@@ -1778,10 +2076,12 @@ mod tests {
 
     use super::{
         GeminiOperation, GeminiSseTransformer, UpstreamDisposition, antigravity_model_id,
-        chatgpt_account_id, claude_model_catalogue, gemini_code_assist_request,
-        gemini_model_catalogue, grok_proxy_headers, hash_gateway_key, merged_anthropic_beta,
-        parse_gemini_operation, rate_limit_cooldown, retry_delay, should_retry_same_candidate,
-        strip_unsupported_codex_fields, unwrap_gemini_response, upstream_disposition,
+        chatgpt_account_id, default_claude_model_catalogue, default_openai_model_catalogue,
+        gemini_code_assist_request, gemini_model_catalogue, grok_proxy_headers, hash_gateway_key,
+        merged_anthropic_beta, parse_claude_models_markdown, parse_gemini_operation,
+        parse_openai_models_markdown, rate_limit_cooldown, retry_delay,
+        should_retry_same_candidate, strip_unsupported_codex_fields, unwrap_gemini_response,
+        upstream_disposition,
     };
 
     #[test]
@@ -2035,8 +2335,17 @@ mod tests {
     }
 
     #[test]
-    fn claude_model_catalogue_includes_current_models_and_sonnet_effort() {
-        let catalogue = claude_model_catalogue();
+    fn default_openai_model_catalogue_includes_gpt6_and_gpt5_models() {
+        let catalogue = default_openai_model_catalogue();
+        assert_eq!(catalogue["object"], "list");
+        let models = catalogue["data"].as_array().unwrap();
+        assert_eq!(models.len(), 4);
+        assert_eq!(models[0]["id"], "gpt-6-astra");
+    }
+
+    #[test]
+    fn default_claude_model_catalogue_includes_current_models_and_sonnet_effort() {
+        let catalogue = default_claude_model_catalogue();
         assert_eq!(catalogue["object"], "list");
         let models = catalogue["data"].as_array().unwrap();
         assert!(models.len() >= 4);
@@ -2050,5 +2359,56 @@ mod tests {
         assert_eq!(models[2]["display_name"], "Claude Sonnet 5");
         assert_eq!(models[2]["capabilities"]["effort"]["supported"], true);
         assert_eq!(models[3]["id"], "claude-haiku-4-5-20251001");
+    }
+
+    #[test]
+    fn parse_claude_models_markdown_extracts_models_and_effort() {
+        let markdown = r#"
+| Feature | Claude Fable 5.1 | Claude Opus 5 | Claude Sonnet 5 | Claude Haiku 4.5 |
+| :--- | :--- | :--- | :--- | :--- |
+| Claude API ID | `claude-fable-5-1` | `claude-opus-5` | `claude-sonnet-5` | `claude-haiku-4-5-20251001` |
+| [Default effort](https://platform.claude.com/effort) | `high` | `high` | `high` | Not supported |
+| Claude API alias | `claude-fable-5-1` | `claude-opus-5` | `claude-sonnet-5` | `claude-haiku-4-5` |
+
+Legacy models (still available): [Claude Fable 5](https://platform.claude.com/docs/en/models/fable-5/overview), [Claude Opus 4.8](https://platform.claude.com/docs/en/models/opus-4-8/overview).
+"#;
+        let parsed = parse_claude_models_markdown(markdown).unwrap();
+        assert_eq!(parsed["object"], "list");
+        let models = parsed["data"].as_array().unwrap();
+        assert_eq!(models[0]["id"], "claude-fable-5-1");
+        assert_eq!(models[0]["display_name"], "Claude Fable 5.1");
+        assert_eq!(models[0]["capabilities"]["effort"]["supported"], true);
+        assert_eq!(models[3]["id"], "claude-haiku-4-5-20251001");
+        assert!(models[3].get("capabilities").is_none());
+        assert_eq!(models[4]["id"], "claude-haiku-4-5");
+        assert_eq!(models[5]["id"], "claude-fable-5");
+        assert_eq!(models[6]["id"], "claude-opus-4-8");
+    }
+
+    #[test]
+    fn parse_openai_models_markdown_extracts_gpt_models() {
+        let markdown = r#"
+## Featured models
+
+- [GPT-6 Astra](/api/docs/models/gpt-6-astra.md): Our most capable model
+- [GPT-5.6 Sol](/api/docs/models/gpt-5.6-sol.md): Flagship model
+- [GPT-5.6 Terra](/api/docs/models/gpt-5.6-terra.md): Balances cost
+- [GPT-5.6 Luna](/api/docs/models/gpt-5.6-luna.md): High volume
+
+## Browse our full catalog of models
+
+- [GPT-5.5](/api/docs/models/gpt-5.5.md): A new class of intelligence
+- [GPT-5.3-Codex](/api/docs/models/gpt-5.3-codex.md): Most capable coding model
+- [text-embedding-3-small](/api/docs/models/text-embedding-3-small.md): Small embedding
+"#;
+        let parsed = parse_openai_models_markdown(markdown).unwrap();
+        assert_eq!(parsed["object"], "list");
+        let models = parsed["data"].as_array().unwrap();
+        assert_eq!(models.len(), 6);
+        assert_eq!(models[0]["id"], "gpt-6-astra");
+        assert_eq!(models[0]["name"], "GPT-6 Astra");
+        assert_eq!(models[1]["id"], "gpt-5.6-sol");
+        assert_eq!(models[4]["id"], "gpt-5.5");
+        assert_eq!(models[5]["id"], "gpt-5.3-codex");
     }
 }
