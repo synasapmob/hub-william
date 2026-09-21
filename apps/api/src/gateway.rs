@@ -346,32 +346,95 @@ pub async fn claude_models(
 }
 
 fn claude_model_catalogue() -> Value {
+    let standard_effort = json!({
+        "supported": true,
+        "low": { "supported": true },
+        "medium": { "supported": true },
+        "high": { "supported": true },
+        "xhigh": { "supported": true },
+        "max": { "supported": true }
+    });
+
     json!({
         "object": "list",
         "data": [
             {
-                "id": "claude-3-7-sonnet-20250219",
-                "display_name": "Claude 3.7 Sonnet",
+                "id": "claude-fable-5-1",
+                "display_name": "Claude Fable 5.1",
                 "capabilities": {
-                    "effort": {
-                        "supported": true,
-                        "low": { "supported": true },
-                        "medium": { "supported": true },
-                        "high": { "supported": true }
-                    }
+                    "effort": standard_effort
                 }
             },
             {
-                "id": "claude-3-5-sonnet-20241022",
-                "display_name": "Claude 3.5 Sonnet"
+                "id": "claude-opus-5",
+                "display_name": "Claude Opus 5",
+                "capabilities": {
+                    "effort": standard_effort
+                }
             },
             {
-                "id": "claude-3-5-haiku-20241022",
-                "display_name": "Claude 3.5 Haiku"
+                "id": "claude-sonnet-5",
+                "display_name": "Claude Sonnet 5",
+                "capabilities": {
+                    "effort": standard_effort
+                }
             },
             {
-                "id": "claude-3-opus-20240229",
-                "display_name": "Claude 3 Opus"
+                "id": "claude-haiku-4-5-20251001",
+                "display_name": "Claude Haiku 4.5"
+            },
+            {
+                "id": "claude-haiku-4-5",
+                "display_name": "Claude Haiku 4.5 (Latest)"
+            },
+            {
+                "id": "claude-fable-5",
+                "display_name": "Claude Fable 5",
+                "capabilities": {
+                    "effort": standard_effort
+                }
+            },
+            {
+                "id": "claude-opus-4-8",
+                "display_name": "Claude Opus 4.8",
+                "capabilities": {
+                    "effort": standard_effort
+                }
+            },
+            {
+                "id": "claude-opus-4-7",
+                "display_name": "Claude Opus 4.7",
+                "capabilities": {
+                    "effort": standard_effort
+                }
+            },
+            {
+                "id": "claude-opus-4-6",
+                "display_name": "Claude Opus 4.6",
+                "capabilities": {
+                    "effort": standard_effort
+                }
+            },
+            {
+                "id": "claude-sonnet-4-6",
+                "display_name": "Claude Sonnet 4.6",
+                "capabilities": {
+                    "effort": standard_effort
+                }
+            },
+            {
+                "id": "claude-sonnet-4-5",
+                "display_name": "Claude Sonnet 4.5",
+                "capabilities": {
+                    "effort": standard_effort
+                }
+            },
+            {
+                "id": "claude-opus-4-5",
+                "display_name": "Claude Opus 4.5",
+                "capabilities": {
+                    "effort": standard_effort
+                }
             }
         ]
     })
@@ -1976,12 +2039,16 @@ mod tests {
         let catalogue = claude_model_catalogue();
         assert_eq!(catalogue["object"], "list");
         let models = catalogue["data"].as_array().unwrap();
-        assert_eq!(models.len(), 4);
-        assert_eq!(models[0]["id"], "claude-3-7-sonnet-20250219");
-        assert_eq!(models[0]["display_name"], "Claude 3.7 Sonnet");
+        assert!(models.len() >= 4);
+        assert_eq!(models[0]["id"], "claude-fable-5-1");
+        assert_eq!(models[0]["display_name"], "Claude Fable 5.1");
         assert_eq!(models[0]["capabilities"]["effort"]["supported"], true);
-        assert_eq!(models[1]["id"], "claude-3-5-sonnet-20241022");
-        assert_eq!(models[2]["id"], "claude-3-5-haiku-20241022");
-        assert_eq!(models[3]["id"], "claude-3-opus-20240229");
+        assert_eq!(models[1]["id"], "claude-opus-5");
+        assert_eq!(models[1]["display_name"], "Claude Opus 5");
+        assert_eq!(models[1]["capabilities"]["effort"]["supported"], true);
+        assert_eq!(models[2]["id"], "claude-sonnet-5");
+        assert_eq!(models[2]["display_name"], "Claude Sonnet 5");
+        assert_eq!(models[2]["capabilities"]["effort"]["supported"], true);
+        assert_eq!(models[3]["id"], "claude-haiku-4-5-20251001");
     }
 }

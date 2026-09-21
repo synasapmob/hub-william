@@ -366,7 +366,9 @@ def build_config(existing, gateway_url, key, catalogues):
                 preferred = next(iter(providers["hub-codex"]["models"]))
             document["model"] = "hub-codex/" + preferred
         elif "hub-claude" in providers:
-            preferred = "claude-3-7-sonnet-20250219"
+            preferred = "claude-opus-5"
+            if preferred not in providers["hub-claude"]["models"]:
+                preferred = "claude-sonnet-5"
             if preferred not in providers["hub-claude"]["models"]:
                 preferred = next(iter(providers["hub-claude"]["models"]))
             document["model"] = "hub-claude/" + preferred

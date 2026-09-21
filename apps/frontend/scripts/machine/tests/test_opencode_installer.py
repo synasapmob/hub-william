@@ -138,7 +138,7 @@ class OpenCodeInstallerTest(unittest.TestCase):
             "hw_gateway_secret",
             {
                 "codex": None,
-                "claude": [{"id": "claude-3-7-sonnet-20250219"}],
+                "claude": [{"id": "claude-opus-5"}],
                 "deepseek": [],
                 "gemini": [],
                 "grok": [],
@@ -146,7 +146,7 @@ class OpenCodeInstallerTest(unittest.TestCase):
         )
         self.assertIn("hub-claude", document["provider"])
         self.assertEqual(
-            document["model"], "hub-claude/claude-3-7-sonnet-20250219"
+            document["model"], "hub-claude/claude-opus-5"
         )
 
     def test_reads_jsonc_and_preserves_unrelated_values(self):
