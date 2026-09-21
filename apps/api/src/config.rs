@@ -86,7 +86,7 @@ impl AppConfig {
             claude_authorize_url: env::var("CLAUDE_AUTHORIZE_URL")
                 .unwrap_or_else(|_| "https://claude.com/cai/oauth/authorize".to_owned()),
             claude_client_version: env::var("CLAUDE_CLIENT_VERSION")
-                .unwrap_or_else(|_| "2.1.121".to_owned()),
+                .unwrap_or_else(|_| "2.1.223".to_owned()),
             claude_profile_url: env::var("CLAUDE_PROFILE_URL")
                 .unwrap_or_else(|_| "https://api.anthropic.com/api/oauth/profile".to_owned()),
             claude_redirect_url: env::var("CLAUDE_REDIRECT_URL")
@@ -138,7 +138,7 @@ impl Default for AppConfig {
             codex_client_version: "0.153.4".to_owned(),
             codex_issuer: "https://auth.openai.com".to_owned(),
             claude_authorize_url: "https://claude.com/cai/oauth/authorize".to_owned(),
-            claude_client_version: "2.1.121".to_owned(),
+            claude_client_version: "2.1.223".to_owned(),
             claude_profile_url: "https://api.anthropic.com/api/oauth/profile".to_owned(),
             claude_redirect_url: "https://platform.claude.com/oauth/code/callback".to_owned(),
             claude_token_url: "https://platform.claude.com/v1/oauth/token".to_owned(),

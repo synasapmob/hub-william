@@ -384,6 +384,7 @@ pub async fn claude_messages(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, ApiError> {
+    let body = ensure_claude_billing_header(body, &state.config.claude_client_version);
     proxy_request(
         &state,
         AgentProvider::Claude,
@@ -402,6 +403,7 @@ pub async fn claude_count_tokens(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, ApiError> {
+    let body = ensure_claude_billing_header(body, &state.config.claude_client_version);
     proxy_request(
         &state,
         AgentProvider::Claude,
@@ -412,6 +414,44 @@ pub async fn claude_count_tokens(
         body,
     )
     .await
+}
+
+pub(crate) fn ensure_claude_billing_header(body: Bytes, version: &str) -> Bytes {
+    let Ok(mut value) = serde_json::from_slice::<Value>(&body) else {
+        return body;
+    };
+    let billing_text =
+        format!("x-anthropic-billing-header: cc_version={version}.bd6; cc_entrypoint=sdk-cli;");
+
+    let Some(map) = value.as_object_mut() else {
+        return body;
+    };
+
+    match map.get_mut("system") {
+        Some(Value::String(s)) => {
+            if !s.contains("x-anthropic-billing-header") {
+                *s = format!("{billing_text}\n\n{s}");
+            }
+        }
+        Some(Value::Array(arr)) => {
+            let already_has = arr.iter().any(|item| {
+                item.get("text")
+                    .and_then(Value::as_str)
+                    .is_some_and(|t| t.contains("x-anthropic-billing-header"))
+            });
+            if !already_has {
+                arr.insert(0, json!({ "type": "text", "text": billing_text }));
+            }
+        }
+        _ => {
+            map.insert(
+                "system".to_string(),
+                json!([{ "type": "text", "text": billing_text }]),
+            );
+        }
+    }
+
+    serde_json::to_vec(&value).map(Bytes::from).unwrap_or(body)
 }
 
 pub async fn grok_chat(
@@ -1531,6 +1571,15 @@ async fn proxy_request(
                     request
                         .header("anthropic-version", version)
                         .header("anthropic-beta", merged_anthropic_beta(request_headers))
+                        .header(
+                            "user-agent",
+                            format!(
+                                "claude-cli/{} (external, sdk-cli)",
+                                state.config.claude_client_version
+                            ),
+                        )
+                        .header("x-app", "cli")
+                        .header("anthropic-dangerous-direct-browser-access", "true")
                 }
                 AgentProvider::Gemini => request,
                 AgentProvider::Deepseek => request,
@@ -2017,18 +2066,20 @@ fn merged_anthropic_beta(headers: &HeaderMap) -> HeaderValue {
         .get("anthropic-beta")
         .and_then(|value| value.to_str().ok())
         .unwrap_or_default();
-    let value = if existing
+    let mut parts: Vec<&str> = existing
         .split(',')
         .map(str::trim)
-        .any(|part| part == "oauth-2025-04-20")
-    {
-        existing.to_owned()
-    } else if existing.is_empty() {
-        "oauth-2025-04-20".to_owned()
-    } else {
-        format!("{existing},oauth-2025-04-20")
-    };
-    HeaderValue::from_str(&value).unwrap_or_else(|_| HeaderValue::from_static("oauth-2025-04-20"))
+        .filter(|part| !part.is_empty())
+        .collect();
+    if !parts.contains(&"claude-code-20250219") {
+        parts.push("claude-code-20250219");
+    }
+    if !parts.contains(&"oauth-2025-04-20") {
+        parts.push("oauth-2025-04-20");
+    }
+    let value = parts.join(",");
+    HeaderValue::from_str(&value)
+        .unwrap_or_else(|_| HeaderValue::from_static("claude-code-20250219,oauth-2025-04-20"))
 }
 
 pub(crate) fn chatgpt_account_id(token: &Value) -> Option<String> {
@@ -2071,15 +2122,15 @@ mod tests {
         http::{HeaderMap, HeaderValue},
     };
     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-    use serde_json::json;
+    use serde_json::{Value, json};
     use uuid::Uuid;
 
     use super::{
         GeminiOperation, GeminiSseTransformer, UpstreamDisposition, antigravity_model_id,
         chatgpt_account_id, default_claude_model_catalogue, default_openai_model_catalogue,
-        gemini_code_assist_request, gemini_model_catalogue, grok_proxy_headers, hash_gateway_key,
-        merged_anthropic_beta, parse_claude_models_markdown, parse_gemini_operation,
-        parse_openai_models_markdown, rate_limit_cooldown, retry_delay,
+        ensure_claude_billing_header, gemini_code_assist_request, gemini_model_catalogue,
+        grok_proxy_headers, hash_gateway_key, merged_anthropic_beta, parse_claude_models_markdown,
+        parse_gemini_operation, parse_openai_models_markdown, rate_limit_cooldown, retry_delay,
         should_retry_same_candidate, strip_unsupported_codex_fields, unwrap_gemini_response,
         upstream_disposition,
     };
@@ -2127,15 +2178,42 @@ mod tests {
             "anthropic-beta",
             HeaderValue::from_static("prompt-caching-2024-07-31"),
         );
-        assert_eq!(
-            merged_anthropic_beta(&headers),
-            "prompt-caching-2024-07-31,oauth-2025-04-20"
-        );
+        let merged = merged_anthropic_beta(&headers);
+        let text = merged.to_str().unwrap();
+        assert!(text.contains("prompt-caching-2024-07-31"));
+        assert!(text.contains("claude-code-20250219"));
+        assert!(text.contains("oauth-2025-04-20"));
+
         headers.insert(
             "anthropic-beta",
             HeaderValue::from_static("oauth-2025-04-20"),
         );
-        assert_eq!(merged_anthropic_beta(&headers), "oauth-2025-04-20");
+        let merged = merged_anthropic_beta(&headers);
+        let text = merged.to_str().unwrap();
+        assert!(text.contains("claude-code-20250219"));
+        assert!(text.contains("oauth-2025-04-20"));
+        assert_eq!(text.matches("oauth-2025-04-20").count(), 1);
+    }
+
+    #[test]
+    fn claude_billing_header_is_injected_into_system_prompt() {
+        let empty_body = Bytes::from_static(br#"{"model":"claude-opus-5","messages":[]}"#);
+        let with_billing = ensure_claude_billing_header(empty_body, "2.1.223");
+        let parsed: Value = serde_json::from_slice(&with_billing).unwrap();
+        let system_arr = parsed["system"].as_array().unwrap();
+        assert!(system_arr[0]["text"].as_str().unwrap().contains(
+            "x-anthropic-billing-header: cc_version=2.1.223.bd6; cc_entrypoint=sdk-cli;"
+        ));
+
+        let string_body = Bytes::from_static(
+            br#"{"model":"claude-opus-5","system":"You are helpful.","messages":[]}"#,
+        );
+        let with_billing = ensure_claude_billing_header(string_body, "2.1.223");
+        let parsed: Value = serde_json::from_slice(&with_billing).unwrap();
+        let system_str = parsed["system"].as_str().unwrap();
+        assert!(system_str.starts_with(
+            "x-anthropic-billing-header: cc_version=2.1.223.bd6; cc_entrypoint=sdk-cli;\n\nYou are helpful."
+        ));
     }
 
     #[test]
