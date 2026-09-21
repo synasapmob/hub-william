@@ -190,16 +190,63 @@ class OpenCodeInstallerTest(unittest.TestCase):
         path = os.path.join(
             self.home.name, ".config", "opencode", "opencode.json"
         )
+        plugin_path = os.path.join(
+            self.home.name, ".config", "opencode", "plugins", "remember-model.mjs"
+        )
+        self.assertTrue(os.path.isfile(plugin_path))
         with open(path, encoding="utf-8") as handle:
             document = json.load(handle)
         self.assertIn("hub-codex", document["provider"])
         self.assertNotIn("hub-deepseek", document["provider"])
+        self.assertIn("file://" + plugin_path, document.get("plugin", []))
         self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
         self.assertIn("/variants", terminal.getvalue())
+        self.assertIn(
+            "remember-model", terminal.getvalue()
+        )
         self.assertIn(
             mock.call("https://api.hub.example", "hw_gateway_secret", "gemini"),
             gateway_models.call_args_list,
         )
+
+    def test_install_preserves_existing_model_and_mcp(self):
+        config_dir = os.path.join(
+            self.home.name, ".config", "opencode"
+        )
+        os.makedirs(config_dir, exist_ok=True)
+        path = os.path.join(config_dir, "opencode.json")
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(
+                {
+                    "model": "hub-codex/gpt-live",
+                    "agent": {"build": {"variant": "ultra"}},
+                    "mcp": {"linear": {"type": "remote", "url": "https://mcp.linear.app"}},
+                },
+                handle,
+            )
+
+        terminal = io.StringIO()
+        args = opencode.parse_args(
+            ["--url=https://api.hub.example", "--key=hw_gateway_secret"]
+        )
+
+        with mock.patch.object(
+            opencode,
+            "_gateway_models",
+            return_value=[{"id": "gpt-live"}],
+        ), mock.patch.object(
+            opencode,
+            "_codex_models",
+            return_value=[{"model": "gpt-live"}],
+        ):
+            self.assertEqual(opencode.install(terminal, args, self.home.name), 0)
+
+        with open(path, encoding="utf-8") as handle:
+            document = json.load(handle)
+
+        self.assertEqual(document["model"], "hub-codex/gpt-live")
+        self.assertEqual(document["agent"], {"build": {"variant": "ultra"}})
+        self.assertIn("linear", document.get("mcp", {}))
 
     def test_gateway_url_rejects_cleartext_remote_origins(self):
         self.assertEqual(

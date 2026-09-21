@@ -47,6 +47,139 @@ DEFAULT_CODEX_MODELS = (
 
 DEFAULT_GROK_MODELS = [{"id": "grok-build", "name": "Grok Build"}]
 
+REMEMBER_MODEL_PLUGIN_SOURCE = """import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
+
+const CONFIG_PATH = path.join(os.homedir(), ".config", "opencode", "opencode.json");
+
+function updateGlobalConfig({ providerID, modelID, variant, agent, explicitVariant = true }) {
+  if (!providerID || !modelID) return;
+
+  const targetAgent = (!agent || agent === "all") ? "build" : agent;
+  if (["compaction", "title", "summary", "explore"].includes(targetAgent)) return;
+
+  const modelKey = `${providerID}/${modelID}`;
+
+  try {
+    if (!fs.existsSync(CONFIG_PATH)) return;
+    const raw = fs.readFileSync(CONFIG_PATH, "utf8");
+    const config = JSON.parse(raw);
+
+    const prevModel = config.model;
+    const prevVariant = config.agent?.[targetAgent]?.variant;
+
+    const normalizedVariant = (variant && variant !== "default") ? variant : undefined;
+
+    if (!explicitVariant && prevModel === modelKey) {
+      return;
+    }
+
+    if (explicitVariant && prevModel === modelKey && prevVariant === normalizedVariant) {
+      return;
+    }
+
+    config.model = modelKey;
+
+    if (explicitVariant) {
+      if (normalizedVariant) {
+        config.agent = config.agent || {};
+        config.agent[targetAgent] = config.agent[targetAgent] || {};
+        config.agent[targetAgent].model = modelKey;
+        config.agent[targetAgent].variant = normalizedVariant;
+      } else {
+        if (config.agent?.[targetAgent]) {
+          delete config.agent[targetAgent].variant;
+          if (config.agent[targetAgent].model === modelKey) {
+            delete config.agent[targetAgent].model;
+          }
+          if (Object.keys(config.agent[targetAgent]).length === 0) {
+            delete config.agent[targetAgent];
+          }
+        }
+        if (config.agent && Object.keys(config.agent).length === 0) {
+          delete config.agent;
+        }
+      }
+    } else {
+      if (config.agent?.[targetAgent]?.model && config.agent[targetAgent].model !== modelKey) {
+        delete config.agent[targetAgent].variant;
+        delete config.agent[targetAgent].model;
+        if (Object.keys(config.agent[targetAgent]).length === 0) {
+          delete config.agent[targetAgent];
+        }
+        if (config.agent && Object.keys(config.agent).length === 0) {
+          delete config.agent;
+        }
+      }
+    }
+
+    const tempPath = `${CONFIG_PATH}.${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`;
+    fs.writeFileSync(tempPath, JSON.stringify(config, null, 2) + "\\n", "utf8");
+    fs.renameSync(tempPath, CONFIG_PATH);
+  } catch (_) {}
+}
+
+export default async function rememberModelPlugin({ client } = {}) {
+  if (client?.event?.event) {
+    try {
+      client.event.event({
+        onSseEvent: (streamEvent) => {
+          try {
+            const data = streamEvent?.data;
+            if (!data) return;
+            const parsed = typeof data === "string" ? JSON.parse(data) : data;
+            if (
+              parsed?.type === "session.next.model.switched" &&
+              parsed.properties?.model
+            ) {
+              const { id, providerID, variant } = parsed.properties.model;
+              updateGlobalConfig({
+                providerID,
+                modelID: id,
+                variant,
+                explicitVariant: true,
+              });
+            }
+          } catch (_) {}
+        },
+      }).catch(() => {});
+    } catch (_) {}
+  }
+
+  return {
+    "chat.message": async (input, output) => {
+      try {
+        const providerID = input.model?.providerID || output?.message?.model?.providerID;
+        const modelID = input.model?.modelID || input.model?.id || output?.message?.model?.modelID;
+        const variant = input.variant || output?.message?.model?.variant;
+        updateGlobalConfig({
+          providerID,
+          modelID,
+          variant,
+          agent: input.agent,
+          explicitVariant: true,
+        });
+      } catch (_) {}
+    },
+    "chat.params": async (input) => {
+      try {
+        const providerID = input.provider?.id || input.model?.providerID;
+        const modelID = input.model?.id;
+        if (providerID && modelID) {
+          updateGlobalConfig({
+            providerID,
+            modelID,
+            agent: input.agent,
+            explicitVariant: false,
+          });
+        }
+      } catch (_) {}
+    },
+  };
+}
+"""
+
 
 def _validated_gateway_url(value):
     value = (value or "").strip().rstrip("/")
@@ -294,14 +427,26 @@ def _provider_model_config(models, effort_option=None):
     return configured
 
 
-def build_config(existing, gateway_url, key, catalogues):
-    del existing
+def build_config(existing, gateway_url, key, catalogues, plugin_path=None):
     providers = {}
     document = {
         "$schema": "https://opencode.ai/config.json",
         "disabled_providers": ["opencode"],
         "provider": providers,
     }
+
+    plugins = []
+    if plugin_path:
+        plugins.append("file://" + plugin_path)
+    if isinstance(existing, dict) and isinstance(existing.get("plugin"), list):
+        for item in existing["plugin"]:
+            if item not in plugins:
+                plugins.append(item)
+    if plugins:
+        document["plugin"] = plugins
+
+    if isinstance(existing, dict) and isinstance(existing.get("mcp"), dict):
+        document["mcp"] = existing["mcp"]
 
     provider_specs = {
         "hub-codex": {
@@ -360,18 +505,29 @@ def build_config(existing, gateway_url, key, catalogues):
             providers.pop(provider_id, None)
 
     if "model" not in document:
-        if "hub-codex" in providers:
-            preferred = "gpt-5.6-sol"
-            if preferred not in providers["hub-codex"]["models"]:
-                preferred = next(iter(providers["hub-codex"]["models"]))
-            document["model"] = "hub-codex/" + preferred
-        elif "hub-claude" in providers:
-            preferred = "claude-opus-5"
-            if preferred not in providers["hub-claude"]["models"]:
-                preferred = "claude-sonnet-5"
-            if preferred not in providers["hub-claude"]["models"]:
-                preferred = next(iter(providers["hub-claude"]["models"]))
-            document["model"] = "hub-claude/" + preferred
+        if (
+            isinstance(existing, dict)
+            and isinstance(existing.get("model"), str)
+            and "/" in existing["model"]
+        ):
+            prov, mod = existing["model"].split("/", 1)
+            if prov in providers and mod in providers[prov]["models"]:
+                document["model"] = existing["model"]
+                if isinstance(existing.get("agent"), dict):
+                    document["agent"] = existing["agent"]
+        if "model" not in document:
+            if "hub-codex" in providers:
+                preferred = "gpt-5.6-sol"
+                if preferred not in providers["hub-codex"]["models"]:
+                    preferred = next(iter(providers["hub-codex"]["models"]))
+                document["model"] = "hub-codex/" + preferred
+            elif "hub-claude" in providers:
+                preferred = "claude-opus-5"
+                if preferred not in providers["hub-claude"]["models"]:
+                    preferred = "claude-sonnet-5"
+                if preferred not in providers["hub-claude"]["models"]:
+                    preferred = next(iter(providers["hub-claude"]["models"]))
+                document["model"] = "hub-claude/" + preferred
     return document
 
 
@@ -403,15 +559,24 @@ def install(terminal, args, home=None):
         "grok": _gateway_models(gateway_url, key, "grok"),
         "deepseek": _gateway_models(gateway_url, key, "deepseek"),
     }
-    path = os.path.join(
-        home or os.path.expanduser("~"), ".config", "opencode", "opencode.json"
+    config_dir = os.path.join(
+        home or os.path.expanduser("~"), ".config", "opencode"
     )
-    document = build_config({}, gateway_url, key, catalogues)
+    path = os.path.join(config_dir, "opencode.json")
+    plugin_path = os.path.join(config_dir, "plugins", "remember-model.mjs")
+    existing = _read_document(path)
+    document = build_config(
+        existing, gateway_url, key, catalogues, plugin_path=plugin_path
+    )
     if not document.get("provider"):
         raise ValueError("the key has no reachable provider pools")
+    _atomic_write(plugin_path, REMEMBER_MODEL_PLUGIN_SOURCE)
     _atomic_write(path, json.dumps(document, indent=2, sort_keys=True) + "\n")
     installed = ", ".join(sorted(document["provider"]))
     terminal.write("Installed OpenCode providers: %s.\n" % installed)
+    terminal.write(
+        "Installed OpenCode plugin: remember-model (auto-saves selected model).\n"
+    )
     terminal.write("Run opencode, use /models to switch models and /variants for effort.\n")
     terminal.flush()
     return 0
