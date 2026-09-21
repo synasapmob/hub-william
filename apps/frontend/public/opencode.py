@@ -359,11 +359,17 @@ def build_config(existing, gateway_url, key, catalogues):
         else:
             providers.pop(provider_id, None)
 
-    if "model" not in document and "hub-codex" in providers:
-        preferred = "gpt-5.6-sol"
-        if preferred not in providers["hub-codex"]["models"]:
-            preferred = next(iter(providers["hub-codex"]["models"]))
-        document["model"] = "hub-codex/" + preferred
+    if "model" not in document:
+        if "hub-codex" in providers:
+            preferred = "gpt-5.6-sol"
+            if preferred not in providers["hub-codex"]["models"]:
+                preferred = next(iter(providers["hub-codex"]["models"]))
+            document["model"] = "hub-codex/" + preferred
+        elif "hub-claude" in providers:
+            preferred = "claude-3-7-sonnet-20250219"
+            if preferred not in providers["hub-claude"]["models"]:
+                preferred = next(iter(providers["hub-claude"]["models"]))
+            document["model"] = "hub-claude/" + preferred
     return document
 
 

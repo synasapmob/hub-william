@@ -26,7 +26,6 @@ use crate::{
 const OPENAI_RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
 const CLAUDE_MESSAGES_URL: &str = "https://api.anthropic.com/v1/messages";
 const CLAUDE_COUNT_TOKENS_URL: &str = "https://api.anthropic.com/v1/messages/count_tokens";
-const CLAUDE_MODELS_URL: &str = "https://api.anthropic.com/v1/models";
 const GROK_CHAT_URL: &str = "https://cli-chat-proxy.grok.com/v1/chat/completions";
 const GROK_RESPONSES_URL: &str = "https://cli-chat-proxy.grok.com/v1/responses";
 const GROK_MODELS_URL: &str = "https://cli-chat-proxy.grok.com/v1/models-v2";
@@ -338,19 +337,44 @@ pub async fn grok_responses(
 
 pub async fn claude_models(
     State(state): State<AppState>,
-    OriginalUri(uri): OriginalUri,
     headers: HeaderMap,
-) -> Result<Response, ApiError> {
-    proxy_request(
-        &state,
-        AgentProvider::Claude,
-        CLAUDE_MODELS_URL,
-        Method::GET,
-        &uri,
-        &headers,
-        Bytes::new(),
-    )
-    .await
+) -> Result<Json<Value>, ApiError> {
+    let authorized = authorize_gateway_key(&state, &headers).await?;
+    connected_provider_ids(&state, authorized.user_id, AgentProvider::Claude).await?;
+
+    Ok(Json(claude_model_catalogue()))
+}
+
+fn claude_model_catalogue() -> Value {
+    json!({
+        "object": "list",
+        "data": [
+            {
+                "id": "claude-3-7-sonnet-20250219",
+                "display_name": "Claude 3.7 Sonnet",
+                "capabilities": {
+                    "effort": {
+                        "supported": true,
+                        "low": { "supported": true },
+                        "medium": { "supported": true },
+                        "high": { "supported": true }
+                    }
+                }
+            },
+            {
+                "id": "claude-3-5-sonnet-20241022",
+                "display_name": "Claude 3.5 Sonnet"
+            },
+            {
+                "id": "claude-3-5-haiku-20241022",
+                "display_name": "Claude 3.5 Haiku"
+            },
+            {
+                "id": "claude-3-opus-20240229",
+                "display_name": "Claude 3 Opus"
+            }
+        ]
+    })
 }
 
 pub async fn deepseek_chat(
@@ -1322,11 +1346,16 @@ async fn connected_provider_ids(
     user_id: Uuid,
     provider: AgentProvider,
 ) -> Result<Vec<Uuid>, ApiError> {
-    Ok(connected_provider_candidates(state, user_id, provider)
-        .await?
+    let candidates = connected_provider_candidates(state, user_id, provider).await?;
+    let ids: Vec<Uuid> = candidates
         .into_iter()
+        .filter(|candidate| candidate.availability_status != "reauth_required")
         .map(|candidate| candidate.id)
-        .collect())
+        .collect();
+    if ids.is_empty() {
+        return Err(ApiError::Forbidden);
+    }
+    Ok(ids)
 }
 
 async fn connected_provider_candidates(
@@ -1686,10 +1715,10 @@ mod tests {
 
     use super::{
         GeminiOperation, GeminiSseTransformer, UpstreamDisposition, antigravity_model_id,
-        chatgpt_account_id, gemini_code_assist_request, gemini_model_catalogue, grok_proxy_headers,
-        hash_gateway_key, merged_anthropic_beta, parse_gemini_operation, rate_limit_cooldown,
-        retry_delay, should_retry_same_candidate, strip_unsupported_codex_fields,
-        unwrap_gemini_response, upstream_disposition,
+        chatgpt_account_id, claude_model_catalogue, gemini_code_assist_request,
+        gemini_model_catalogue, grok_proxy_headers, hash_gateway_key, merged_anthropic_beta,
+        parse_gemini_operation, rate_limit_cooldown, retry_delay, should_retry_same_candidate,
+        strip_unsupported_codex_fields, unwrap_gemini_response, upstream_disposition,
     };
 
     #[test]
@@ -1940,5 +1969,19 @@ mod tests {
         let text = String::from_utf8(output.to_vec()).unwrap();
         assert!(!text.contains('\r'));
         assert!(text.ends_with("\n\n"));
+    }
+
+    #[test]
+    fn claude_model_catalogue_includes_current_models_and_sonnet_effort() {
+        let catalogue = claude_model_catalogue();
+        assert_eq!(catalogue["object"], "list");
+        let models = catalogue["data"].as_array().unwrap();
+        assert_eq!(models.len(), 4);
+        assert_eq!(models[0]["id"], "claude-3-7-sonnet-20250219");
+        assert_eq!(models[0]["display_name"], "Claude 3.7 Sonnet");
+        assert_eq!(models[0]["capabilities"]["effort"]["supported"], true);
+        assert_eq!(models[1]["id"], "claude-3-5-sonnet-20241022");
+        assert_eq!(models[2]["id"], "claude-3-5-haiku-20241022");
+        assert_eq!(models[3]["id"], "claude-3-opus-20240229");
     }
 }

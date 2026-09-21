@@ -131,6 +131,24 @@ class OpenCodeInstallerTest(unittest.TestCase):
         )
         self.assertNotIn("model", document)
 
+    def test_build_config_prefers_claude_when_codex_is_absent(self):
+        document = opencode.build_config(
+            {},
+            "https://api.hub.example",
+            "hw_gateway_secret",
+            {
+                "codex": None,
+                "claude": [{"id": "claude-3-7-sonnet-20250219"}],
+                "deepseek": [],
+                "gemini": [],
+                "grok": [],
+            },
+        )
+        self.assertIn("hub-claude", document["provider"])
+        self.assertEqual(
+            document["model"], "hub-claude/claude-3-7-sonnet-20250219"
+        )
+
     def test_reads_jsonc_and_preserves_unrelated_values(self):
         path = os.path.join(
             self.home.name, ".config", "opencode", "opencode.json"
