@@ -9,6 +9,11 @@ persistence, join requests, and private Telegram contacts, orders and payments
 are live; pool cards read live provider usage. Post-payment fulfilment remains a
 later change.
 
+Account pools have no member-count limit: owners can invite or approve members
+regardless of the current total. The legacy `capacity` response field and database
+column remain for compatibility and no longer limit sharing. Membership totals
+include the owner and accepted members; approval and duplicate protections remain.
+
 ```bash
 cargo run --manifest-path apps/api/Cargo.toml
 ```

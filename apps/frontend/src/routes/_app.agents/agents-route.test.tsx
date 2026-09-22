@@ -113,6 +113,17 @@ function poolFixture(requests: Array<Record<string, unknown>> = []) {
   };
 }
 
+function populatedPoolFixture(requests: Array<Record<string, unknown>> = []) {
+  const pool = poolFixture(requests);
+  return {
+    ...pool,
+    members: [
+      ...pool.members,
+      ...Array.from({ length: 7 }, (_, index) => apiPerson(`member${index}`)),
+    ],
+  };
+}
+
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
     headers: { "Content-Type": "application/json" },
@@ -449,7 +460,7 @@ describe("AgentsRoute", () => {
     ]);
     await openAccount(user);
     const detail = screen.getByRole("article");
-    await user.click(within(detail).getByText("Members · 2/6"));
+    await user.click(within(detail).getByText("Members · 2"));
     expect(within(detail).getAllByText("huycodes").length).toBeGreaterThan(0);
     expect(within(detail).getAllByText("synasapmob").length).toBeGreaterThan(0);
     expect(
@@ -742,11 +753,14 @@ describe("AgentsRoute", () => {
     ).toBeVisible();
   });
 
-  it("persists a Telegram join request through the API", async () => {
+  it("persists a join request beyond the legacy member capacity", async () => {
     const user = userEvent.setup();
-    renderRoute({ id: "user-1", username: "newmember" });
+    renderRoute({ id: "user-1", username: "newmember" }, [
+      populatedPoolFixture(),
+    ]);
 
     await openAccount(user);
+    expect(screen.getByText("Members · 8")).toBeVisible();
     await user.click(screen.getByRole("button", { name: /request join/i }));
     await user.type(screen.getByLabelText("Telegram username"), "@newmember");
     await user.type(
@@ -760,10 +774,10 @@ describe("AgentsRoute", () => {
     ).toBeDisabled();
   });
 
-  it("lets the owner search and persist an accepted request", async () => {
+  it("lets the owner accept a request beyond the legacy member capacity", async () => {
     const user = userEvent.setup();
     renderRoute({ id: "owner-1", username: "synasapmob" }, [
-      poolFixture([pendingRequest]),
+      populatedPoolFixture([pendingRequest]),
     ]);
 
     await openAccount(user);

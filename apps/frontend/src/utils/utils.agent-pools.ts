@@ -21,14 +21,13 @@ const quotaLabels = [
 ];
 
 export type AgentPoolAccess =
-  "owner" | "joined" | "pending" | "rejected" | "full" | "request";
+  "owner" | "joined" | "pending" | "rejected" | "request";
 
 export const agentPoolAccessLabels: Record<AgentPoolAccess, string> = {
   owner: "Owner",
   joined: "Joined",
   pending: "Request pending",
   rejected: "Rejected",
-  full: "Pool full",
   request: "Open to join",
 };
 
@@ -49,7 +48,6 @@ export function agentPoolAccess(pool: AgentPool, username: string | null) {
   const request = pool.requests.find((item) => item.username === username);
   if (request?.status === "accepted") return "joined";
   if (request) return request.status;
-  if (pool.members.length >= pool.capacity) return "full";
   return "request";
 }
 

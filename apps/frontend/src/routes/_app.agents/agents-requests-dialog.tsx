@@ -452,10 +452,7 @@ export default function AgentsRequestsDialog({
                         </Button>
                         <Button
                           className={decisionButton({ decision: "accept" })}
-                          disabled={
-                            busy ||
-                            (pool ? pool.members.length >= pool.capacity : true)
-                          }
+                          disabled={busy || !pool}
                           onClick={() => onDecision(request.id, "accepted")}
                           size="sm"
                           type="button"

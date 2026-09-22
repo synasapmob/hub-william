@@ -12,6 +12,9 @@ use sqlx::FromRow;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+#[cfg(all(test, feature = "database-tests"))]
+mod database_tests;
+
 use crate::{
     AgentProvider, AppState,
     auth::{authenticated_user_id, normalize_username, optional_authenticated_user_id},
@@ -295,8 +298,8 @@ pub async fn invite_member(
     let owner_id = authenticated_user_id(&state, &jar).await?;
     let username = normalize_username(&payload.username)?;
     let mut transaction = state.pool.begin().await.map_err(database_error)?;
-    let pool = sqlx::query_as::<_, (Uuid, i32)>(
-        "SELECT user_id, capacity FROM agent_connections
+    let pool_owner_id = sqlx::query_scalar::<_, Uuid>(
+        "SELECT user_id FROM agent_connections
          WHERE id = $1 AND status = 'connected' FOR UPDATE",
     )
     .bind(connection_id)
@@ -304,7 +307,7 @@ pub async fn invite_member(
     .await
     .map_err(database_error)?
     .ok_or(ApiError::NotFound)?;
-    if pool.0 != owner_id {
+    if pool_owner_id != owner_id {
         return Err(ApiError::Forbidden);
     }
     let member_id = sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE username = $1")
@@ -328,7 +331,6 @@ pub async fn invite_member(
     if existing_status.as_deref() == Some("accepted") {
         return Err(ApiError::Validation("That user is already a member."));
     }
-    ensure_pool_capacity(&mut transaction, connection_id, pool.1).await?;
     sqlx::query(
         "INSERT INTO agent_pool_join_requests
             (id, connection_id, requester_user_id, telegram, reason, status)
@@ -423,26 +425,16 @@ pub async fn create_request(
     let requester_id = authenticated_user_id(&state, &jar).await?;
     let telegram = normalize_telegram(&payload.telegram)?;
     let reason = normalize_reason(&payload.reason)?;
-    let pool = sqlx::query_as::<_, (Uuid, i32)>(
-        "SELECT user_id, capacity FROM agent_connections WHERE id = $1 AND status = 'connected'",
+    let pool_owner_id = sqlx::query_scalar::<_, Uuid>(
+        "SELECT user_id FROM agent_connections WHERE id = $1 AND status = 'connected'",
     )
     .bind(connection_id)
     .fetch_optional(&state.pool)
     .await
     .map_err(database_error)?
     .ok_or(ApiError::NotFound)?;
-    if pool.0 == requester_id {
+    if pool_owner_id == requester_id {
         return Err(ApiError::Validation("You already own this account pool."));
-    }
-    let accepted = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM agent_pool_join_requests WHERE connection_id = $1 AND status = 'accepted'",
-    )
-    .bind(connection_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(database_error)?;
-    if accepted + 1 >= i64::from(pool.1) {
-        return Err(ApiError::Validation("This account pool is full."));
     }
 
     let id = Uuid::new_v4();
@@ -498,8 +490,8 @@ pub async fn decide_request(
     }
     let owner_id = authenticated_user_id(&state, &jar).await?;
     let mut transaction = state.pool.begin().await.map_err(database_error)?;
-    let pool = sqlx::query_as::<_, (Uuid, Uuid, i32)>(
-        "SELECT connections.id, connections.user_id, connections.capacity
+    let pool_owner_id = sqlx::query_scalar::<_, Uuid>(
+        "SELECT connections.user_id
          FROM agent_pool_join_requests AS requests
          JOIN agent_connections AS connections ON connections.id = requests.connection_id
          WHERE requests.id = $1 AND connections.status = 'connected'
@@ -510,11 +502,8 @@ pub async fn decide_request(
     .await
     .map_err(database_error)?
     .ok_or(ApiError::NotFound)?;
-    if pool.1 != owner_id {
+    if pool_owner_id != owner_id {
         return Err(ApiError::Forbidden);
-    }
-    if matches!(payload.status, AgentPoolRequestStatus::Accepted) {
-        ensure_pool_capacity(&mut transaction, pool.0, pool.2).await?;
     }
     let status = status_value(payload.status);
     let row = sqlx::query_as::<_, RequestRow>(
@@ -531,25 +520,6 @@ pub async fn decide_request(
     .map_err(database_error)?;
     transaction.commit().await.map_err(database_error)?;
     Ok(Json(request_from_row(row)?))
-}
-
-async fn ensure_pool_capacity(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    connection_id: Uuid,
-    capacity: i32,
-) -> Result<(), ApiError> {
-    let accepted = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM agent_pool_join_requests
-         WHERE connection_id = $1 AND status = 'accepted'",
-    )
-    .bind(connection_id)
-    .fetch_one(&mut **transaction)
-    .await
-    .map_err(database_error)?;
-    if accepted + 1 >= i64::from(capacity) {
-        return Err(ApiError::Validation("This account pool is full."));
-    }
-    Ok(())
 }
 
 fn availability_from_values(

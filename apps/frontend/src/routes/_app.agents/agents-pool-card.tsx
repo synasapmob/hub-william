@@ -156,7 +156,7 @@ export default function AgentsPoolCard({
           <summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-sm text-xs focus-visible:outline-2 focus-visible:outline-indigo-500 [&::-webkit-details-marker]:hidden">
             <span className="inline-flex items-center gap-2">
               <Users aria-hidden="true" className="size-3.5 text-zinc-400" />
-              Members · {pool.members.length}/{pool.capacity}
+              Members · {pool.members.length}
             </span>
             <ChevronDown
               aria-hidden="true"
