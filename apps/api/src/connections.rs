@@ -37,6 +37,9 @@ const DEFAULT_DEVICE_EXPIRY_SECONDS: i64 = 900;
 const DEFAULT_POLL_SECONDS: u64 = 5;
 const PROVIDER_CREDENTIAL_REFRESH_AFTER_MINUTES: i64 = 60;
 
+#[cfg(all(test, feature = "database-tests"))]
+mod database_tests;
+
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentProvider {
@@ -255,6 +258,21 @@ pub struct ProviderCredentialRefreshSummary {
     pub failed: u64,
     pub reauthorization_required: u64,
     pub refreshed: u64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderCredentialRefreshStatus {
+    Refreshed,
+    ReauthorizationRequired,
+    Failed,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProviderCredentialRefreshResult {
+    pub connection_id: Uuid,
+    pub provider: String,
+    pub status: ProviderCredentialRefreshStatus,
 }
 
 enum ProviderRefreshError {
@@ -1696,6 +1714,52 @@ pub async fn refresh_due_provider_credentials(
     Ok(summary)
 }
 
+/// Explicit operator maintenance: refresh every connected pool using its stored
+/// credentials, including validating static DeepSeek keys. Does not start an
+/// interactive authorization flow or stop after one provider fails.
+pub async fn refresh_all_provider_credentials(
+    state: &AppState,
+) -> Result<Vec<ProviderCredentialRefreshResult>, sqlx::Error> {
+    let rows = sqlx::query_as::<_, ConnectionRow>(
+        "SELECT id, provider, status, account_label, plan, failure_message, created_at, updated_at
+         FROM agent_connections WHERE status = 'connected' ORDER BY provider, created_at",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+
+    let mut results = Vec::with_capacity(rows.len());
+    for row in rows {
+        let connection_id = row.id;
+        let provider = row.provider.clone();
+        let status =
+            match refresh_connected_connection(state, row, CredentialRefreshMode::Force).await {
+                Ok(RefreshConnectionOutcome::Connected { .. }) => {
+                    ProviderCredentialRefreshStatus::Refreshed
+                }
+                Ok(RefreshConnectionOutcome::ReauthorizationRequired(row)) => {
+                    match fail_connection(
+                        state,
+                        row,
+                        "Provider authorization expired. Refresh this pool to reconnect.",
+                    )
+                    .await
+                    {
+                        Ok(_) => ProviderCredentialRefreshStatus::ReauthorizationRequired,
+                        Err(_) => ProviderCredentialRefreshStatus::Failed,
+                    }
+                }
+                Err(_) => ProviderCredentialRefreshStatus::Failed,
+            };
+        record_scheduled_refresh_attempt(state, connection_id).await;
+        results.push(ProviderCredentialRefreshResult {
+            connection_id,
+            provider,
+            status,
+        });
+    }
+    Ok(results)
+}
+
 async fn record_scheduled_refresh_attempt(state: &AppState, connection_id: Uuid) {
     if let Err(error) = sqlx::query(
         "UPDATE agent_connection_credentials SET refresh_attempted_at = NOW()
@@ -1802,7 +1866,14 @@ async fn refresh_connected_connection(
             transaction.rollback().await.map_err(database_error)?;
             return Ok(RefreshConnectionOutcome::ReauthorizationRequired(row));
         };
-        validate_deepseek_key(state, api_key).await?;
+        match validate_deepseek_key(state, api_key).await {
+            Ok(()) => {}
+            Err(ApiError::Validation(_)) => {
+                transaction.rollback().await.map_err(database_error)?;
+                return Ok(RefreshConnectionOutcome::ReauthorizationRequired(row));
+            }
+            Err(error) => return Err(error),
+        }
         if mode.restores_availability() {
             sqlx::query(
                 "UPDATE agent_connections SET availability_status = 'active',

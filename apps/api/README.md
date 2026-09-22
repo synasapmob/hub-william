@@ -75,3 +75,26 @@ cannot stop the remaining sweep. Static DeepSeek keys are validated when
 connected and on manual refresh instead. Provider credential payloads are
 AES-256-GCM encrypted. Do not log request authorization headers, API keys,
 OAuth codes, device codes, callback URLs, or provider response bodies.
+
+## Operator credential refresh
+
+With the target runtime's database URL, encryption key and provider configuration
+in the process environment, refresh every connected account explicitly:
+
+```bash
+cargo run --locked --manifest-path apps/api/Cargo.toml --example refresh_provider_credentials -- --all
+```
+
+This reuses the normal credential row locks and provider refresh implementation,
+validates DeepSeek keys, and prints only connection IDs, providers and outcomes.
+One failure does not stop the remaining accounts. Rejected credentials are marked
+for reauthorization without creating login prompts; reconnect those pools through
+the UI. A nonzero exit means at least one account could not refresh or the batch
+could not complete. This command neither applies migrations nor merges accounts.
+
+The reconnect and batch-refresh database regressions use SQLx-created test
+databases. Point `DATABASE_URL` at an isolated local PostgreSQL instance with
+database-creation privileges, then run
+`cargo test --manifest-path apps/api/Cargo.toml --features database-tests`.
+Provider HTTP responses in these tests are local fixtures; never use production
+credentials or a production database for this command.
