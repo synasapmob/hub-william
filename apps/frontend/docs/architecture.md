@@ -78,6 +78,15 @@ relies on:
 `/activities` remains fixture telemetry. `/agents` has no runtime fixture
 fallback: an account appears only after its provider connection is stored as
 connected by the backend, and pool usage is fetched live from that provider.
+The agents view groups account pools by provider, with compact account rows
+and a shared search/filter toolbar. Selecting an account opens its usage,
+members and access actions in a modal. Dashed provider-to-account links follow
+DOM positions through resizing and scrolling. Loading placeholders use the
+same provider, toolbar and account-row layout. The layout stacks on narrow
+screens. The agents route uses a viewport-height shell:
+only the explorer scrolls, with the desktop provider column sticky inside it.
+Connect Agent and Gateway Key remain in the fixed page header; join and owner
+management actions live in each account detail.
 The former sidebar recent-updates fixture was removed when that space became
 the session control.
 

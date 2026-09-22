@@ -1,50 +1,28 @@
-import { tv } from "tailwind-variants";
-
 import Flex from "@/components/ui/flex";
-import { Card, CardFooter, CardHeader } from "@/components/ui/card";
-
-const skeletonBar = tv({
-  base: "animate-pulse rounded-md bg-zinc-200",
-});
-
-interface AgentsPoolCardSkeletonBarProps {
-  className: string;
-}
-
-function AgentsPoolCardSkeletonBar({
-  className,
-}: AgentsPoolCardSkeletonBarProps) {
-  return <div className={skeletonBar({ className })} />;
-}
 
 export default function AgentsPoolCardSkeleton() {
   return (
-    <li className="h-full">
-      <Card className="h-full border-0 bg-white/95 py-0 gap-0 shadow-sm ring-slate-200/90">
-        <CardHeader className="gap-4 border-b border-slate-100 py-4 flex-1 flex flex-col">
-          <Flex className="justify-between flex-wrap gap-3 flex-1 w-full">
-            <Flex className="gap-3">
-              <AgentsPoolCardSkeletonBar className="size-9 shrink-0 rounded-lg" />
+    <li
+      aria-hidden="true"
+      className="relative z-10 grid items-center gap-3 rounded-xl border border-zinc-200 bg-white p-4 shadow-xs sm:grid-cols-[minmax(0,1fr)_minmax(10rem,0.8fr)_1.5rem]"
+    >
+      <div className="space-y-2">
+        <div className="h-3.5 w-36 max-w-full animate-pulse rounded bg-zinc-200" />
 
-              <div className="space-y-2">
-                <AgentsPoolCardSkeletonBar className="h-4 w-32" />
+        <div className="h-3 w-24 animate-pulse rounded bg-zinc-100" />
+      </div>
 
-                <AgentsPoolCardSkeletonBar className="h-3 w-24" />
-              </div>
-            </Flex>
+      <div>
+        <Flex className="items-center justify-between gap-3">
+          <div className="h-3 w-16 animate-pulse rounded bg-zinc-100" />
 
-            <AgentsPoolCardSkeletonBar className="h-5 w-12 rounded-full" />
-          </Flex>
+          <div className="h-3 w-20 animate-pulse rounded bg-zinc-200" />
+        </Flex>
 
-          <AgentsPoolCardSkeletonBar className="h-10 w-full" />
+        <div className="mt-2 h-1 w-full animate-pulse rounded-full bg-zinc-100" />
+      </div>
 
-          <AgentsPoolCardSkeletonBar className="h-10 w-full" />
-        </CardHeader>
-
-        <CardFooter className="gap-2 p-3">
-          <AgentsPoolCardSkeletonBar className="h-10 w-full" />
-        </CardFooter>
-      </Card>
+      <div className="absolute top-4 right-4 size-6 animate-pulse rounded-full bg-zinc-100 sm:static" />
     </li>
   );
 }

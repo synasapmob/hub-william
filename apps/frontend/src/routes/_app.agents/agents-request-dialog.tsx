@@ -3,11 +3,11 @@ import { Send } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
+import FocusReturnDialogContent from "@/components/focus-return-dialog-content";
 import Center from "@/components/ui/center";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -69,7 +69,7 @@ export default function AgentsRequestDialog({
 
   return (
     <Dialog open={open} onOpenChange={changeOpen}>
-      <DialogContent>
+      <FocusReturnDialogContent>
         <DialogHeader>
           <Center className="mb-1 size-10 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-600">
             <Send aria-hidden="true" className="size-5" />
@@ -134,7 +134,7 @@ export default function AgentsRequestDialog({
             </Button>
           </DialogFooter>
         </form>
-      </DialogContent>
+      </FocusReturnDialogContent>
     </Dialog>
   );
 }

@@ -16,6 +16,7 @@ import { useForm } from "react-hook-form";
 import { tv } from "tailwind-variants";
 import { z } from "zod";
 
+import FocusReturnDialogContent from "@/components/focus-return-dialog-content";
 import Center from "@/components/ui/center";
 import Flex from "@/components/ui/flex";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -24,7 +25,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
@@ -252,7 +252,7 @@ export default function AgentsRequestsDialog({
 
   return (
     <Dialog open={open} onOpenChange={changeOpen}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+      <FocusReturnDialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <Center className="mb-1 size-10 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-600">
             <UsersRound aria-hidden="true" className="size-5" />
@@ -555,7 +555,7 @@ export default function AgentsRequestsDialog({
             </ul>
           ) : null}
         </section>
-      </DialogContent>
+      </FocusReturnDialogContent>
     </Dialog>
   );
 }
