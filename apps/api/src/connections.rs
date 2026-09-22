@@ -1351,11 +1351,7 @@ async fn ensure_reauthorization_matches(
     };
     let stored_token: Value =
         decrypt_json(&state.config.credential_encryption_key, &ciphertext, &nonce)?;
-    let stored_identity = stored_token
-        .get("hub_account_identity")
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .or_else(|| provider_account_identity(provider, &stored_token, None));
+    let stored_identity = provider_account_identity(provider, &stored_token, None);
 
     if !reauthorization_identity_matches(stored_identity.as_deref(), new_identity) {
         return Err(ApiError::Validation(
@@ -1374,6 +1370,29 @@ fn provider_account_identity(
     token: &Value,
     provider_profile: Option<&Value>,
 ) -> Option<String> {
+    // ChatGPT account IDs identify a workspace/subscription context, which can
+    // be shared by distinct logins. Recompute personal identity before reading
+    // legacy cached `id:<workspace>` values so reconnect cannot merge users.
+    if provider == AgentProvider::Chatgpt {
+        let claims = token_claims(token);
+        if let Some(subject) = claims
+            .as_ref()
+            .and_then(|claims| claims.get("sub"))
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+        {
+            return Some(format!("chatgpt:sub:{subject}"));
+        }
+        return token
+            .pointer("/account/email_address")
+            .or_else(|| token.pointer("/account/email"))
+            .or_else(|| token.get("email"))
+            .and_then(Value::as_str)
+            .or_else(|| claims.as_ref()?.get("email")?.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|email| format!("chatgpt:email:{}", email.to_ascii_lowercase()));
+    }
     if let Some(identity) = token
         .get("hub_account_identity")
         .and_then(Value::as_str)
@@ -1382,37 +1401,25 @@ fn provider_account_identity(
         return Some(identity.to_owned());
     }
     let claims = token_claims(token);
-    let provider_id = match provider {
-        AgentProvider::Chatgpt => token.get("account_id").and_then(Value::as_str).or_else(|| {
-            claims
-                .as_ref()?
-                .get("https://api.openai.com/auth.chatgpt_account_id")
-                .or_else(|| {
-                    claims
-                        .as_ref()?
-                        .pointer("/https:~1~1api.openai.com~1auth/chatgpt_account_id")
-                })
+    let provider_id = token
+        .pointer("/account/id")
+        .and_then(Value::as_str)
+        .or_else(|| token.pointer("/account/uuid").and_then(Value::as_str))
+        .or_else(|| {
+            let profile = provider_profile?;
+            profile
+                .pointer("/account/id")
+                .or_else(|| profile.pointer("/account/uuid"))
+                .or_else(|| profile.pointer("/user/id"))
                 .and_then(Value::as_str)
-        }),
-        _ => None,
-    }
-    .or_else(|| token.pointer("/account/id").and_then(Value::as_str))
-    .or_else(|| token.pointer("/account/uuid").and_then(Value::as_str))
-    .or_else(|| {
-        let profile = provider_profile?;
-        profile
-            .pointer("/account/id")
-            .or_else(|| profile.pointer("/account/uuid"))
-            .or_else(|| profile.pointer("/user/id"))
-            .and_then(Value::as_str)
-    })
-    .or_else(|| {
-        claims
-            .as_ref()
-            .and_then(|value| value.get("sub"))
-            .and_then(Value::as_str)
-    })
-    .filter(|value| !value.is_empty());
+        })
+        .or_else(|| {
+            claims
+                .as_ref()
+                .and_then(|value| value.get("sub"))
+                .and_then(Value::as_str)
+        })
+        .filter(|value| !value.is_empty());
     if let Some(provider_id) = provider_id {
         return Some(format!("id:{provider_id}"));
     }
@@ -2951,6 +2958,7 @@ mod tests {
     fn provider_account_identity_prefers_stable_ids_and_normalizes_email() {
         let claims = json!({
             "email": "OTHER@example.com",
+            "sub": "personal-user-123",
             "https://api.openai.com/auth.chatgpt_account_id": "account-123"
         });
         let token = format!(
@@ -2959,7 +2967,7 @@ mod tests {
         );
         assert_eq!(
             provider_account_identity(AgentProvider::Chatgpt, &json!({ "id_token": token }), None),
-            Some("id:account-123".to_owned())
+            Some("chatgpt:sub:personal-user-123".to_owned())
         );
         assert_eq!(
             provider_account_identity(
@@ -2969,6 +2977,33 @@ mod tests {
             ),
             Some("email:owner@example.com".to_owned())
         );
+    }
+
+    #[test]
+    fn chatgpt_identity_never_uses_a_workspace_or_legacy_cache_alone() {
+        assert_eq!(
+            provider_account_identity(
+                AgentProvider::Chatgpt,
+                &json!({
+                    "account_id": "shared-workspace", "hub_account_identity": "id:shared-workspace"
+                }),
+                None
+            ),
+            None
+        );
+        for email in ["person+maple@example.test", "person+juliet@example.test"] {
+            assert_eq!(
+                provider_account_identity(
+                    AgentProvider::Chatgpt,
+                    &json!({
+                        "account_id": "shared-workspace", "email": format!(" {} ", email.to_uppercase()),
+                        "hub_account_identity": "id:shared-workspace"
+                    }),
+                    None
+                ),
+                Some(format!("chatgpt:email:{email}"))
+            );
+        }
     }
 
     #[test]

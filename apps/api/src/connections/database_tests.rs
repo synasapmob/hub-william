@@ -72,15 +72,19 @@ async fn store_credential(state: &AppState, id: Uuid, token: Value) {
 }
 
 fn token(provider: &str, subject: &str, access: &str) -> Value {
-    let mut claims = json!({ "sub": subject, "email": "owner@example.test" });
+    let mut claims = json!({ "sub": subject, "email": format!("person+{subject}@example.test") });
     if provider == "chatgpt" {
         claims["https://api.openai.com/auth"] = json!({"chatgpt_account_id": "same-account"});
     }
-    json!({
+    let mut token = json!({
         "access_token": access,
         "refresh_token": "test-refresh",
         "id_token": format!("header.{}.signature", URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap()))
-    })
+    });
+    if provider == "chatgpt" {
+        token["hub_account_identity"] = json!("id:same-account");
+    }
+    token
 }
 
 #[sqlx::test]
@@ -112,15 +116,10 @@ async fn reconnect_reuses_legacy_account_and_transfers_owner_without_losing_memb
         }
         let attempt = connection(&state, next_owner, provider).await;
         let attempt_id = attempt.id;
-        // ChatGPT subjects can differ across authorizations while the account ID stays stable.
-        let subject = if provider == "chatgpt" {
-            "new-sub"
-        } else {
-            "old-sub"
-        };
-        let completed = finish_connection(&state, attempt, token(provider, subject, "new-access"))
-            .await
-            .unwrap();
+        let completed =
+            finish_connection(&state, attempt, token(provider, "old-sub", "new-access"))
+                .await
+                .unwrap();
         assert_eq!(completed.id, existing.id);
         let (owner, created_at): (Uuid, chrono::DateTime<chrono::Utc>) =
             sqlx::query_as("SELECT user_id, created_at FROM agent_connections WHERE id=$1")
@@ -152,6 +151,77 @@ async fn reconnect_reuses_legacy_account_and_transfers_owner_without_losing_memb
             decrypt_json(&state.config.credential_encryption_key, &ciphertext, &nonce).unwrap();
         assert_eq!(stored["access_token"], "new-access");
         assert!(stored["hub_account_identity"].is_string());
+    }
+}
+
+#[sqlx::test]
+async fn chatgpt_logins_sharing_a_workspace_remain_separate_and_reauthorize_independently(
+    pool: PgPool,
+) {
+    let state = state(pool);
+    let first_owner = user(&state.pool).await;
+    let second_owner = user(&state.pool).await;
+    let first = connection(&state, first_owner, "chatgpt").await;
+    let first_id = first.id;
+    store_credential(
+        &state,
+        first_id,
+        token("chatgpt", "maple-user", "maple-access"),
+    )
+    .await;
+    let second = connection(&state, second_owner, "chatgpt").await;
+    let second_id = second.id;
+    let completed = finish_connection(
+        &state,
+        second,
+        token("chatgpt", "juliet-user", "juliet-access"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(completed.id, second_id);
+    let pools: Vec<(Uuid, Uuid)> =
+        sqlx::query_as("SELECT id, user_id FROM agent_connections WHERE status='connected'")
+            .fetch_all(&state.pool)
+            .await
+            .unwrap();
+    assert_eq!(pools.len(), 2);
+    assert!(pools.contains(&(first_id, first_owner)));
+    assert!(pools.contains(&(second_id, second_owner)));
+
+    // A legacy cached workspace ID must not reject the same user's reconnect.
+    let first = super::owned_connection_by_id(&state, first_id)
+        .await
+        .unwrap();
+    let reauthorized = finish_connection(
+        &state,
+        first,
+        token("chatgpt", "maple-user", "maple-rotated"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(reauthorized.id, first_id);
+    let first = super::owned_connection_by_id(&state, first_id)
+        .await
+        .unwrap();
+    assert!(
+        finish_connection(
+            &state,
+            first,
+            token("chatgpt", "juliet-user", "wrong-login")
+        )
+        .await
+        .is_err()
+    );
+    for (id, expected_access, expected_identity) in [
+        (first_id, "maple-rotated", "chatgpt:sub:maple-user"),
+        (second_id, "juliet-access", "chatgpt:sub:juliet-user"),
+    ] {
+        let (ciphertext, nonce): (Vec<u8>, Vec<u8>) = sqlx::query_as("SELECT credential_ciphertext, credential_nonce FROM agent_connection_credentials WHERE connection_id=$1")
+            .bind(id).fetch_one(&state.pool).await.unwrap();
+        let stored: Value =
+            decrypt_json(&state.config.credential_encryption_key, &ciphertext, &nonce).unwrap();
+        assert_eq!(stored["access_token"], expected_access);
+        assert_eq!(stored["hub_account_identity"], expected_identity);
     }
 }
 

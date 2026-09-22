@@ -98,3 +98,9 @@ database-creation privileges, then run
 `cargo test --manifest-path apps/api/Cargo.toml --features database-tests`.
 Provider HTTP responses in these tests are local fixtures; never use production
 credentials or a production database for this command.
+
+ChatGPT connections are identified by the personal token subject (or normalized
+email when a subject is absent), never by the shared ChatGPT workspace ID alone.
+Legacy cached workspace identities are recomputed when matching connections.
+Distinct logins in the same workspace keep separate pools; reconnecting the same
+login refreshes its existing pool and transfers ownership to the connecting user.
