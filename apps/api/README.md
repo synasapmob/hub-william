@@ -33,6 +33,14 @@ store; it is sent for both authorization-code exchange and token refresh.
 `COOKIE_SECURE=true` enables secure cookies for production. Keep all
 populated values in the runtime secret store.
 
+The optional `apps/api/scripts/smoke-local-railway.sh` writes synthetic rows
+to the linked Railway database and attempts to delete them on exit. It requires
+a local SSH key registered with Railway (`railway ssh keys add`) and opens a
+private local tunnel with `railway connect Postgres --tunnel-only`. A public
+Postgres TCP Proxy is not needed for this script. Check the linked project and
+environment before running it; do not use the production database for routine
+tests.
+
 ## Live routes
 
 - `/auth/*`: five-hour access session and rotating seven-day refresh session.

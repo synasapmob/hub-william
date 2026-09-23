@@ -7,21 +7,66 @@ task_username="integration$(date +%s)"
 task_requester_username="requester$(date +%s)"
 task_invited_username="invited$(date +%s)"
 task_password="Test-only-password-2026"
-task_railway_vars=$(railway variables --service Postgres --json)
-task_pg_user=$(jq -rn --arg value "$(jq -r '.PGUSER' <<< "$task_railway_vars")" '$value|@uri')
-task_pg_password=$(jq -rn --arg value "$(jq -r '.PGPASSWORD' <<< "$task_railway_vars")" '$value|@uri')
-task_pg_database=$(jq -rn --arg value "$(jq -r '.PGDATABASE' <<< "$task_railway_vars")" '$value|@uri')
-task_pg_host=$(jq -r '.RAILWAY_TCP_PROXY_DOMAIN' <<< "$task_railway_vars")
-task_pg_port=$(jq -r '.RAILWAY_TCP_PROXY_PORT' <<< "$task_railway_vars")
-task_db_url="postgresql://${task_pg_user}:${task_pg_password}@${task_pg_host}:${task_pg_port}/${task_pg_database}"
+task_tunnel_pid=
+task_db_url=
 
 cleanup() {
-  psql "$task_db_url" -v ON_ERROR_STOP=1 -q \
-    -c "DELETE FROM users WHERE username IN ('${task_username}', '${task_requester_username}', '${task_invited_username}')" >/dev/null 2>&1 || true
+  if [[ -n "$task_db_url" ]]; then
+    psql "$task_db_url" -v ON_ERROR_STOP=1 -q \
+      -c "DELETE FROM users WHERE username IN ('${task_username}', '${task_requester_username}', '${task_invited_username}')" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$task_tunnel_pid" ]]; then
+    kill "$task_tunnel_pid" >/dev/null 2>&1 || true
+    wait "$task_tunnel_pid" >/dev/null 2>&1 || true
+  fi
   rm -rf -- "$task_tmp"
 }
 trap cleanup EXIT
 trap 'echo "smoke failed at line ${LINENO}"' ERR
+
+task_railway_vars=$(railway variables --service Postgres --json)
+task_pg_user=$(jq -rn --arg value "$(jq -r '.PGUSER' <<< "$task_railway_vars")" '$value|@uri')
+task_pg_database=$(jq -rn --arg value "$(jq -r '.PGDATABASE' <<< "$task_railway_vars")" '$value|@uri')
+task_pg_host=127.0.0.1
+task_pg_port=$(python3 -c 'import socket; sock = socket.socket(); sock.bind(("127.0.0.1", 0)); print(sock.getsockname()[1]); sock.close()')
+task_db_url="postgresql://${task_pg_user}@${task_pg_host}:${task_pg_port}/${task_pg_database}"
+
+task_pgpass_escape() {
+  local value=${1//\\/\\\\}
+  printf '%s' "${value//:/\\:}"
+}
+task_pgpass_user=$(task_pgpass_escape "$(jq -r '.PGUSER' <<< "$task_railway_vars")")
+task_pgpass_database=$(task_pgpass_escape "$(jq -r '.PGDATABASE' <<< "$task_railway_vars")")
+task_pgpass_password=$(task_pgpass_escape "$(jq -r '.PGPASSWORD' <<< "$task_railway_vars")")
+touch "$task_tmp/pgpass"
+chmod 600 "$task_tmp/pgpass"
+printf '%s:%s:%s:%s:%s\n' "$task_pg_host" "$task_pg_port" "$task_pgpass_database" "$task_pgpass_user" "$task_pgpass_password" > "$task_tmp/pgpass"
+export PGPASSFILE="$task_tmp/pgpass"
+
+railway connect Postgres --tunnel-only --port "$task_pg_port" > /dev/null 2> "$task_tmp/railway-tunnel.err" &
+task_tunnel_pid=$!
+task_tunnel_ready=false
+for ((task_attempt = 0; task_attempt < 60; task_attempt++)); do
+  if pg_isready -h "$task_pg_host" -p "$task_pg_port" >/dev/null 2>&1; then
+    task_tunnel_ready=true
+    break
+  fi
+  if ! kill -0 "$task_tunnel_pid" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.5
+done
+if ! kill -0 "$task_tunnel_pid" >/dev/null 2>&1; then
+  task_tunnel_ready=false
+fi
+if [[ "$task_tunnel_ready" != true ]]; then
+  if grep -qF 'No SSH keys found' "$task_tmp/railway-tunnel.err"; then
+    echo 'Railway Postgres tunnel needs a local SSH key registered with Railway (railway ssh keys add).' >&2
+  else
+    echo 'Railway Postgres tunnel did not become ready.' >&2
+  fi
+  exit 1
+fi
 
 health_status=$(curl -sS -o "$task_tmp/health.json" -w '%{http_code}' http://127.0.0.1:8080/health)
 [[ "$health_status" == "200" ]]
@@ -96,10 +141,10 @@ fi
 
 task_connection_id=$(uuidgen | tr '[:upper:]' '[:lower:]')
 task_connection_id=$(psql "$task_db_url" -v ON_ERROR_STOP=1 -Atq -c \
-  "INSERT INTO agent_connections (id, user_id, provider, status, account_label, plan) VALUES ('${task_connection_id}', '${task_user_id}', 'grok', 'in**nal@exa**.com', 'K12') RETURNING id")
+  "INSERT INTO agent_connections (id, user_id, provider, status, account_label, plan) VALUES ('${task_connection_id}', '${task_user_id}', 'grok', 'connected', 'in**nal@exa**.com', 'K12') RETURNING id")
 task_connection_id_two=$(uuidgen | tr '[:upper:]' '[:lower:]')
 task_connection_id_two=$(psql "$task_db_url" -v ON_ERROR_STOP=1 -Atq -c \
-  "INSERT INTO agent_connections (id, user_id, provider, status, account_label, plan) VALUES ('${task_connection_id_two}', '${task_user_id}', 'grok', 'se**ond@exa**.com', 'Plus') RETURNING id")
+  "INSERT INTO agent_connections (id, user_id, provider, status, account_label, plan) VALUES ('${task_connection_id_two}', '${task_user_id}', 'grok', 'connected', 'se**ond@exa**.com', 'Plus') RETURNING id")
 same_provider_connection_count=$(psql "$task_db_url" -v ON_ERROR_STOP=1 -Atq -c \
   "SELECT COUNT(*) FROM agent_connections WHERE user_id = '${task_user_id}' AND provider = 'grok' AND status = 'connected'")
 [[ "$same_provider_connection_count" == "2" ]]
