@@ -2,17 +2,17 @@
 
 Install one OpenCode configuration for every provider pool available through
 your Hub William gateway key. The installer discovers provider models at run
-time, preserves unrelated OpenCode settings, makes one backup, and writes the
-result atomically with owner-only permissions.
+time, replaces the existing OpenCode config with a fresh provider catalogue,
+makes one backup, and writes the result atomically with owner-only permissions.
 
 ## Install
 
 ```sh
-curl -fsSL https://hub.example/opencode.py | python3 - --url=https://api.hub.example --key=YOUR_GATEWAY_KEY
+curl -fsSL https://hub.example/opencode.py | python3 - --url=https://api.hub.example
 ```
 
-Omit `--key` to enter the key in a hidden prompt and keep it out of shell
-history. OpenCode needs the Hub key in `~/.config/opencode/opencode.json` for
+Enter the key in the hidden prompt to keep it out of shell history. OpenCode
+needs the Hub key in `~/.config/opencode/opencode.json` for
 unattended requests; upstream Claude, Codex, Gemini/AGY, Grok, and DeepSeek
 credentials remain encrypted on Hub William and are never written to the
 machine.
@@ -48,8 +48,10 @@ upstream provider keep their native behavior; add a local override yourself
 only when you want a smaller budget.
 
 Grok connections created before the current Build scopes were introduced must
-be reconnected once in `/agents`, then this installer must be run again. The
-installer never falls back from subscription quota to a paid xAI API key.
+be reconnected once in `/agents`, then this installer must be run again. If the
+live Grok catalogue is temporarily unavailable, the installer still writes the
+`hub-grok/grok-build` entry so the provider remains selectable. It never falls
+back from subscription quota to a paid xAI API key.
 
 ## Security
 

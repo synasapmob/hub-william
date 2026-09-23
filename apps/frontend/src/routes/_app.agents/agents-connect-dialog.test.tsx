@@ -112,6 +112,7 @@ describe("AgentsConnectDialog", () => {
       ),
     );
     expect(popup.opener).toBeNull();
+    expect(screen.getByText("Paste the callback URL")).toBeVisible();
     expect(screen.getByLabelText("Callback URL or code")).toBeVisible();
   });
 
@@ -130,7 +131,7 @@ describe("AgentsConnectDialog", () => {
       ) {
         return jsonResponse(
           {
-            account_label: "API key ••••1234",
+            account_label: "••••1234",
             authorization: null,
             created_at: "2026-09-15T01:00:00Z",
             failure_message: null,

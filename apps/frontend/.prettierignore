@@ -5,8 +5,7 @@ build
 .react-router
 supabase/.temp
 
-# The machine catalogue is contract text, not source. Agents read these files as
-# instructions and `services/catalog` publishes them verbatim, so `pnpm format`
-# realigning a table is a diff against a contract for no reason.
-scripts/machine
+# Tool documentation is served verbatim. Python installer tests are checked
+# by their own suite rather than the frontend formatter.
+scripts/installers
 contributors

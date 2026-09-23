@@ -1,6 +1,6 @@
 # ADR-0006: Provider-scoped multi-pool gateway failover
 
-- Status: Accepted; upstream authentication failure handling superseded by ADR-0010
+- Status: Accepted; upstream authentication failure handling superseded by ADR-0010, transient response handling superseded by ADR-0022, and per-pool member capacity superseded by ADR-0023
 - Date: 2026-09-10
 - Supersedes: ADR-0005 gateway-account selection only
 

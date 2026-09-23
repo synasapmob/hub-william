@@ -4,11 +4,11 @@ import { KeyRound } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
+import FocusReturnDialogContent from "@/components/focus-return-dialog-content";
 import Center from "@/components/ui/center";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -105,7 +105,7 @@ export default function WorkspaceShellAuthDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <FocusReturnDialogContent>
         <DialogHeader className="items-center text-center">
           <Center className="mb-1 size-10 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-600">
             <KeyRound aria-hidden="true" className="size-5" />
@@ -113,8 +113,8 @@ export default function WorkspaceShellAuthDialog({
 
           <DialogTitle>Join the sharing community</DialogTitle>
           <DialogDescription>
-            Browsing stays public. An account is only required when you request
-            access to a pool.
+            Browsing stays public. Sign in to request pool access or chat in
+            Playground.
           </DialogDescription>
         </DialogHeader>
 
@@ -197,7 +197,7 @@ export default function WorkspaceShellAuthDialog({
             </Button>
           </DialogFooter>
         </form>
-      </DialogContent>
+      </FocusReturnDialogContent>
     </Dialog>
   );
 }

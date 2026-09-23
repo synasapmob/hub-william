@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Install live Hub William provider catalogues into OMP.
 
-    curl -fsSL https://<hub>/omp.py | python3 - --url=https://<api> --key=YOUR_GATEWAY_KEY
+    curl -fsSL https://<hub>/omp.py | python3 - --url=https://<api>
 """
 
 import argparse
@@ -26,6 +26,8 @@ PROVIDER_IDS = (
     "hub-grok",
     "hub-deepseek",
 )
+
+DEFAULT_GROK_MODELS = [{"id": "grok-build", "name": "Grok Build"}]
 
 
 def _validated_gateway_url(value):
@@ -181,7 +183,7 @@ def _render_managed_providers(gateway_url, key, catalogues):
             "hub-grok",
             gateway_url + "/gateway/grok/v1",
             "openai-responses",
-            catalogues.get("grok", []),
+            catalogues.get("grok", []) or DEFAULT_GROK_MODELS,
         ),
         (
             "hub-deepseek",
@@ -254,12 +256,13 @@ def _inject_managed_providers(text, managed):
 
 
 def build_document(existing, gateway_url, key, catalogues):
+    del existing
     managed, installed = _render_managed_providers(
         gateway_url, key, catalogues
     )
     if not installed:
         raise ValueError("the key has no reachable provider pools")
-    return _inject_managed_providers(existing, managed), installed
+    return "providers:\n" + managed, installed
 
 
 def parse_args(argv):
@@ -290,9 +293,7 @@ def install(terminal, args, home=None):
         "deepseek": _gateway_models(gateway_url, key, "deepseek"),
     }
     path = _models_path(home)
-    document, installed = build_document(
-        _read_document(path), gateway_url, key, catalogues
-    )
+    document, installed = build_document("", gateway_url, key, catalogues)
     _atomic_write(path, document)
     terminal.write("Installed OMP providers: %s.\n" % ", ".join(installed))
     terminal.write("Run omp and use /model to switch provider or model.\n")

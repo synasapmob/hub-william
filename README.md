@@ -1,224 +1,124 @@
 # Hub William
 
-A monorepo for the Hub William agent workspace: the public catalogue frontend,
-the machine-installable contracts behind it, and the Rust control plane and
-streaming gateway for connected agent accounts.
+Hub William brings shared agent accounts, coding tools and a browser Playground
+into one workspace. Local tools use a revocable gateway key; Playground uses your
+signed-in Hub session and an account you own or a pool you have joined.
 
-**[synasapmob.github.io/hub-william](https://synasapmob.github.io/hub-william/)**
+**[hub-william.site](https://hub-william.site)**
 
-📖 [Architecture](apps/frontend/docs/architecture.md) ·
+[Architecture](apps/frontend/docs/architecture.md) ·
 [Frontend conventions](apps/frontend/docs/frontend-conventions.md) ·
 [Decisions](docs/decisions/README.md) ·
 [Contributing](.github/CONTRIBUTING.md) ·
-[Security](.github/SECURITY.md) ·
-[MIT License](LICENSE)
+[Security](.github/SECURITY.md) · [MIT License](LICENSE)
 
-## What problem this solves
+## App
 
-An agent given a whole codebase and a shell will invent dependencies, break
-tests, ignore the conventions of the repository it is in, and open a pull
-request nobody can review. Prompting harder does not fix it, because the
-failure is not a wording problem — the agent has no boundary it must not
-cross, and nothing that fires when it tries.
+- **[Home](https://hub-william.site):** white paper about sharing tools and agent
+  pools with teammates, plus the contribution workflow.
+- **[Tools](https://hub-william.site/tools):** Gateway, OpenCode and OMP setup,
+  documentation and standalone installers.
+- **[Agents](https://hub-william.site/agents):** connected provider accounts,
+  usage, pool membership, owner management and gateway keys.
+- **[Playground](https://hub-william.site/playground):** streaming text
+  conversations using your connected accounts and approved pools. You can attach
+  supported images, text files and PDFs as input. Conversations stay in the open
+  page rather than a saved history; voice and native image generation are not
+  available yet.
 
-So the boundary gets written down, in four kinds of document:
-
-|               | What it is                                                                                                                                                                                                          |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Harnesses** | Execution modes and modifiers. A tag you type — `[plan]`, `[delivery-local]`, `[report]` — and the contract the agent must load before it plans, mutates, writes outside the checkout, or shapes its final handoff. |
-| **Skills**    | One discipline's rules, loaded when the task matches, so they are in context when they apply and absent when they do not.                                                                                           |
-| **Hooks**     | Contracts that fire around an action — before a GitHub write, before a Linear issue, before evidence is claimed — whether or not a tag asked for them.                                                              |
-| **Templates** | The shapes the work is written into: pull requests, issues, approach histories, test evidence. Two agents produce the same artefact.                                                                                |
-
-None of that is a framework. Every one of them is a Markdown file in this
-repository, which is the point: a boundary you can read, review in a diff, and
-disagree with.
-
-## What is here by default
-
-Every document belongs to somebody, including the shared ones.
-`contributors/default/` is the catalogue this project ships; your own workspace
-sits beside it under your GitHub login, in exactly the same shape. Browse them
-at [`/library`](https://synasapmob.github.io/hub-william/library) and
-[`/tools`](https://synasapmob.github.io/hub-william/tools):
-
-```text
-contributors/
-├── default/                     what this project ships
-│   ├── libraries/
-│   │   ├── harness/             execution modes, and the contracts around them
-│   │   │   ├── tags/            the modes you type
-│   │   │   ├── github/          gh CLI use, clickable references, reporting
-│   │   │   └── evidence/        approach history, test evidence, reporting
-│   │   ├── skills/              one discipline's rules, loaded on demand
-│   │   └── templates/           the shapes work is written into
-│   └── tools/
-│       ├── installer/           getting the catalogue onto a machine
-│       ├── gateway/             connecting supported agent CLIs to Hub
-│       ├── opencode/            installing Hub providers into OpenCode
-│       ├── omp/                 installing Hub providers into OMP
-│       └── mcp/                 registering MCP servers across agents
-└── <your-login>/                the same two folders, yours
-    ├── libraries/
-    └── tools/
-
-apps/frontend/scripts/machine/        the installer, and its own test suite
-```
-
-`/library` groups documents by the job they do rather than duplicating the
-source tree. A GitHub workflow tag such as `mergeable` therefore appears in the
-same `GITHUB` collection as `gh-cli.md`, while both keep their original paths.
-`/tools` reduces installation to five collections: `DOCUMENTS`, `GATEWAY`,
-`OPENCODE`, `OMP`, and `MCP`.
-
-**Start from these, and change what does not fit.** They are written for one
-operator's machine and one set of tools; a repository with different CI, a
-different tracker, or no tracker at all should reuse the parts that transfer and
-replace the rest. Nothing here is load bearing for the site — the catalogue is
-whatever files are in the folder.
-
-## How to contribute
-
-Everything on the canvas is a Markdown file, so contributing is opening a pull
-request that adds one. There is no upload, no account, and nothing to run.
-
-**If you want to extend something rather than change it for everybody**, add it
-under your own name. A contract that maps _your_ repositories to _your_ servers
-is yours, not everyone's — and keeping it out of the shared catalogue is what
-keeps the shared one worth reading.
-
-1. Fork this repository.
-2. Create `contributors/<your-github-login>/` and file your document under the
-   section and the kind it is:
-
-   ```text
-   contributors/<your-github-login>/
-   ├── libraries/
-   │   ├── harness/<name>.md          an execution mode
-   │   ├── skills/<name>/SKILL.md     a skill, with YAML front matter
-   │   ├── hooks/<name>.md            a contract that fires around an action
-   │   └── templates/<name>.md        a shape to write into
-   └── tools/
-       └── <name>/<name>.md           how to install or run something
-   ```
-
-   The folder name must be your GitHub login. That is what publishes your page
-   at `/library/<your-login>` and what shows your avatar beside it.
-
-3. Write the document. A heading and a first paragraph are enough — the site
-   takes the entry's name and description from them, and never edits your file.
-   A skill also needs front matter, because that is what its format requires:
-
-   ```markdown
-   ---
-   name: your-skill
-   description: One line saying when this should be loaded.
-   ---
-   ```
-
-4. Open a pull request into `dev`. CI runs formatting, linting, type checking,
-   tests, a production build and the catalogue's own suite. Once it merges, the
-   preview site updates. Production is `main`, which moves only by merging
-   `dev`. Nobody has to register the page anywhere.
-
-Changing a shared document is the same flow without step 2. Say in the pull
-request why the rule should apply to everybody rather than to you; that is the
-whole difference between the two folders.
+Libraries, Activities, Documents installation and MCP installation are retired.
+The old machine bootstrap (`install.py` / `install.sh`) is removed.
 
 ## Repository layout
 
 ```text
-apps/api/                         Rust business API, OpenAPI and gateway module
-apps/frontend/                    React Router frontend and public web assets
-apps/telegram/                    Telegram webhook adapter for the private business API
-contributors/                    installable contracts published by the frontend
-apps/frontend/scripts/machine/        machine installer and its tests
-infra/                           deployment ownership and future provider config
+apps/api/                              Rust API, OpenAPI and streaming gateway
+apps/frontend/                         React Router frontend
+apps/frontend/public/{gateway,opencode,omp}.py
+                                       standalone tool installers
+apps/frontend/scripts/installers/tests/ installer and gateway proxy tests
+apps/telegram/                         Telegram adapter for the business API
+contributors/*/tools/                  shared and contributor tool documentation
+contributors/*/libraries/              repository development workflow sources
+infra/                                 deployment configuration
 ```
 
-The API exposes username/password auth, rotating PostgreSQL-backed browser
-sessions, encrypted ChatGPT/Claude/Grok connections, public connected-account
-pools, durable join decisions, revocable gateway keys, provider routing,
-`/health`, generated OpenAPI, and Swagger UI.
+Development harnesses, skills, hooks and templates remain repository workflow
+sources. They are not part of the app catalogue or its downloadable build.
 
-An accepted pool membership authorizes that user's own gateway key to route
-through the shared provider account. Provider credentials remain encrypted in
-the API and are never returned to the member's browser or local agent.
+The Rust API owns authentication, rotating browser sessions, encrypted provider
+connections, account pools, membership decisions and user-scoped gateway keys.
+An accepted member can use their own Hub key through a shared pool without
+receiving its upstream provider credentials.
 
-## Working in the monorepo
+## Development
 
 ```bash
 pnpm install
 pnpm dev             # frontend
 pnpm api:dev         # Rust API on :8080
-pnpm telegram:dev    # Telegram webhook adapter on :8090
+pnpm telegram:dev    # Telegram adapter on :8090
 ```
 
-The frontend needs no environment variables or services; the catalogue is read
-from disk at build time. The API accepts an optional `PORT` and otherwise
-listens on `8080`.
+The frontend reads `VITE_API_BASE_URL` from `apps/frontend/.env`. Set it to
+`https://hub-william.site/api` for the deployed API or `http://localhost:8080`
+for a local API. Direct browser requests to another origin require that API's
+CORS and session-cookie policy to allow the frontend origin. The Railway
+frontend uses its same-origin `/api` proxy.
 
 ```bash
-pnpm format         # prettier
-pnpm lint           # oxlint, then eslint
-pnpm check:tailwind # canonical Tailwind class lists (--write to fix)
-pnpm typecheck      # tsc -b
-pnpm test           # vitest
-pnpm build          # prerenders the frontend and compiles the API
-bash apps/frontend/scripts/machine/tests/run.sh # installer suite; pins the catalogue layout
+pnpm format:check
+pnpm lint
+pnpm check:tailwind
+pnpm typecheck
+pnpm test
+pnpm build
+bash apps/frontend/scripts/installers/tests/run.sh
 ```
 
-Read [frontend conventions](apps/frontend/docs/frontend-conventions.md) before changing
-anything user-visible. They are review criteria, not suggestions.
+Read the frontend conventions before changing UI. The installer suite uses
+temporary directories and mocked discovery responses to verify configuration
+writes without changing the operator's installed agent settings.
 
-## Installing it
+## Deployment
 
-The public bootstrap clones or updates the catalogue and opens the terminal
-picker. Its default scope is the whole machine:
+Pull requests run CI. After a verified `dev` change is promoted to `main`, the
+Railway workflow deploys the API, Telegram adapter and frontend to the existing
+production project. Add a production-scoped Railway project token as the GitHub
+Actions secret `RAILWAY_TOKEN`; until it is present, deployment is explicitly
+skipped. After adding it, run **Deploy to Railway** manually from `main` if no
+new `main` push is planned. Runtime credentials and database settings stay in
+Railway variables, not GitHub. GitHub Pages and Vercel publishing are retired.
+
+## Tool installation
+
+Open Tools for the current setup instructions, or run one installer. Each one
+prompts for your Hub key without echoing it:
 
 ```bash
-curl -fsSL https://synasapmob.github.io/hub-william/install.py | python3 -
+curl -fsSL https://hub-william.site/gateway.py | python3 - --url=https://hub-william.site/api
+curl -fsSL https://hub-william.site/opencode.py | python3 - --url=https://hub-william.site/api
+curl -fsSL https://hub-william.site/omp.py | python3 - --url=https://hub-william.site/api
 ```
 
-Install a managed copy into one project, preserving its existing instruction
-files:
+The installers store the Hub key locally; provider OAuth credentials stay on the
+API. OpenCode and OMP discover the models reachable through that key.
 
-```bash
-curl -fsSL https://synasapmob.github.io/hub-william/install.py | python3 - --path "$PWD"
-```
+Tool documentation is included at build time and remains downloadable as its
+original bytes. `/catalog/index.json` lists tool sources;
+`/catalog/collections/<contributor>/tools/<tool>.zip` contains a tool's documentation.
 
-MCP servers can be installed together or by product:
+## Contributing
 
-```bash
-curl -fsSL https://synasapmob.github.io/hub-william/install.py | python3 - --mcp all
-curl -fsSL https://synasapmob.github.io/hub-william/install.py | python3 - --mcp linear,playwright
-```
-
-## Reading it as an agent
-
-The site is prerendered, so fetching a page gives real text rather than an empty
-shell. For the files themselves there is no need to scrape anything:
-
-| URL                                                 | What it is                                             |
-| --------------------------------------------------- | ------------------------------------------------------ |
-| `/catalog/index.json`                               | Every document: id, repository path, URL, size         |
-| `/catalog/<id>.md`                                  | One document, byte for byte as it is in the repository |
-| `/catalog/collections/<owner>/<section>/<name>.zip` | One functional collection with source paths preserved  |
-
-They are static files under the site's base path, so an agent can read the
-index, pick a contract and fetch it without an API, a token, or HTML parsing.
+Branch from `dev` and open a pull request into `dev`. Change tool documentation
+under your own `contributors/<github-login>/tools/<tool-name>/` folder.
+`contributors/default/` is system-owned and read-only for contributors; do not
+edit, rename or delete its files. The Tools
+contributor selector and `/tools/<github-login>` continue to show contributed
+tools automatically. Repository workflow sources remain independent and do not
+create app pages. See the contribution guide for validation and security expectations.
 
 ## Stack
 
-React 19 · TypeScript · Vite 8 · React Router 8 (SPA, prerendered) ·
-Tailwind CSS 4 · Rust · Axum · Utoipa/OpenAPI · Vitest · Oxlint · Prettier
-
-## What remains fixture data
-
-`/activities` remains fixture telemetry behind
-`apps/frontend/src/utils/utils.activities.ts`. `/agents` reads connected accounts,
-memberships, and request decisions from the backend with no mock fallback.
-Pool cards load live 5-hour, weekly, and reset-credit figures from each
-connected provider. The browser never fabricates those numbers. `/activities`
-remains fixture telemetry. The sidebar's former Recent updates fixture has been
-removed.
+React · TypeScript · Vite · React Router · Tailwind CSS · TanStack Query ·
+Rust · Axum · PostgreSQL · Utoipa/OpenAPI · Vitest · Python

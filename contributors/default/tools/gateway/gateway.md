@@ -9,11 +9,11 @@ it loads the new upstream.
 
 ## Interactive install
 
-The public bootstrap is a Python file, same shape as `install.py`: curl pipes
+The public bootstrap is a Python file, a standalone Python installer: curl pipes
 it into `python3 -`, and flags after `-` belong to the installer, not to curl.
 
 ```bash
-curl -fsSL https://<hub-william-origin>/gateway.py | python3 - --url=https://<hub-william-origin>/api --key=YOUR_GATEWAY_KEY
+curl -fsSL https://<hub-william-origin>/gateway.py | python3 - --url=https://<hub-william-origin>/api
 ```
 
 Local development uses `--url=http://localhost:8080`. Copy the filled command
@@ -21,8 +21,9 @@ from `/tools?node=gateway` so the origin matches the site you are using.
 
 The picker starts with Codex, Claude Code, Antigravity, and Grok selected. Use the up and
 down arrows to move, Space to toggle `[x]`, Enter to inject the key into only
-those configs, or Escape to quit without writing. When `--key` is present,
-Enter does not ask again. Omit `--key` to type it hidden after the selection.
+those configs, or Escape to quit without writing. The installer asks for your
+key with a hidden prompt after the selection. When `--key` is supplied explicitly,
+Enter does not ask again.
 
 `--key` is visible in your shell history; the hidden prompt exists for that
 reason. Existing configuration files receive a one-time `.hub-william.bak`
@@ -37,8 +38,10 @@ backup. The live files are written atomically with owner-only permissions.
 | Antigravity (AGY) | `~/.gemini/antigravity-cli/settings.json` and shell profile | Gemini native API via Google OAuth |
 | Grok | `~/.grok/config.toml` | OpenAI-compatible chat |
 
-Replace `YOUR_GATEWAY_KEY` with the key shown once when you created it. Replace
-`https://<hub-william-origin>/api` with the origin printed on the Tools page.
+Enter the key shown once when you created it at the installer's hidden prompt.
+Replace `https://<hub-william-origin>/api` with the origin printed on the Tools
+page. In the manual configuration examples below, replace `YOUR_GATEWAY_KEY`
+with your key.
 
 ## Codex
 

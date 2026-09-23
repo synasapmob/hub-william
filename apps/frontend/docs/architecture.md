@@ -1,177 +1,112 @@
 # Architecture
 
-Hub William is a monorepo with a mostly static catalogue frontend and a Rust
-business API with an in-process streaming gateway module. `apps/api` owns
-username/password auth,
-rotating PostgreSQL-backed sessions, encrypted provider connections,
-PostgreSQL-backed agent pools and join decisions, and user-scoped gateway keys
-alongside health and OpenAPI documentation.
+Hub William has a React Router frontend and a Rust business API with an
+in-process streaming gateway. The app exposes Home, Tools, Agents and a model
+Playground. Libraries, Activities and the Documents/MCP machine installer are
+retired; see [ADR-0024](../../../docs/decisions/0024-tools-agents-playground.md).
 
-## The shape
+## Frontend routes
 
-```text
-contributors/**/*.md       the catalogue — contracts, skills, templates
-        │
-        │  import.meta.glob(..., { query: "?raw", eager: true })
-        ▼
-apps/frontend/src/services/catalog  parses front matter, derives collections
-        │
-        ▼
-apps/frontend/src/routes/…          renders functional collection nodes
-        │
-        │  react-router prerender
-        ▼
-apps/frontend/build/client/**/*.html  real HTML per route
+- `/` remains the Home white paper about tool contributions, sharing agent
+  pools with teammates, and keeping provider credentials on the server. The
+  retired Documents setup section is removed.
+- `/tools` shows shared tools, currently Gateway, OpenCode and OMP. The existing
+  contributor selector and `/tools/<contributor>` show contributed tools.
+  Search checks tool metadata and
+  documentation filenames. Selecting a tool sets `?node=` and opens a sheet
+  containing instructions, original source downloads and a generated ZIP.
+- `/agents` groups connected accounts by provider. The viewport-height shell
+  keeps Connect Agent and Gateway Key visible, and the provider column stays
+  sticky inside the scrollable explorer. Account rows show member avatars;
+  hovering shows usage and reset information for ChatGPT/Codex and Claude.
+  Grok, DeepSeek and Gemini/AGY omit the usage tooltip and the usage section in
+  account details, including unavailable placeholders. Missing/unsupported usage
+  for these providers does not create a warning, red border or owner error
+  tooltip. Actual connection availability still controls status and warnings.
+  Account details open in a modal, while diagnostic text and
+  refresh/delete controls live in the owner's Manage pool access dialog.
+- `/playground` supports real streaming conversations with text and attachments through the Rust gateway.
+  Existing browser sessions authorize account-scoped model discovery and
+  streaming requests. Only owned or approved pools are eligible; the browser
+  never receives provider credentials or creates a gateway key. Conversation
+  text stays in the mounted page; stopped and incomplete answers remain visible
+  but do not enter follow-up context. Provider selection is public; account selection
+  requires sign-in and requests are pinned to an owned/joined account. Images use
+  native provider blocks; text files and extracted PDF text join the prompt. See [ADR-0025](../../../docs/decisions/0025-session-backed-playground.md).
 
-apps/frontend/src/services           calls auth, pool, connection and key contracts
-        │
-        │  TanStack Query cache; production: same-origin /api proxy
-        ▼
-apps/api/src                     Axum business API, provider OAuth and gateway module
-        │
-        ▼
-Railway PostgreSQL              users, opaque key hashes and encrypted tokens
-```
+Removed pages have no route modules or dedicated redirect handlers. The existing
+generic catch-all returns unknown URLs to Home.
 
-The catalogue needs no fetch to render and is inlined into the bundle at build
-time, so what the site publishes is exactly what the repository contains at the
-commit it was built from. Pools are public API data derived only from connected
-provider accounts; join requests and owner decisions are session-gated and
-persisted in PostgreSQL. A shared session provider checks the Rust API;
-account-bound actions, provider OAuth and gateway keys use that live boundary.
-An accepted pool member can create a user-scoped key and route through the
-owner's shared provider without receiving the provider token.
-Pool owners manage pending requests, direct username invites, accepted members,
-and exact-pool retry controls in the pool access dialog. Provider availability
-is server state: a 30-minute `429` cooldown is displayed by the UI, while manual
-refresh only arms the pool for verification by the next real gateway request.
-The build also writes that catalogue
-out as files — `/catalog/<path>`,
-`/catalog/<folder>.zip`, `/catalog/collections/<owner>/<section>/<name>.zip`
-and `/catalog/index.json` — which is what a download button and a `curl` command
-both fetch. Runtime account traffic stays on the same origin under `/api`.
+The frontend is a prerendered SPA. Tools is static; account/session data uses
+TanStack Query and the Rust API. Route-only tool components live beside their
+route under `src/routes/_app.tools.($contributor)/`.
 
-## Why the catalogue remains static
+## Static tool documentation
 
-The thing this site publishes is already a set of files under version control,
-reviewed by pull request. A database in front of that would add a second source
-of truth, a way for the two to disagree, and an account system to protect
-writes that a pull request already gates.
+`src/services/catalog/` reads `contributors/*/tools/` using eager raw imports.
+Gateway, OpenCode and OMP keep their existing presentation and ordering; new tool
+folders remain discoverable with a derived label. File titles and descriptions come from their
+existing Markdown; the service does not rewrite sources or render Markdown as
+HTML.
 
-The consequences are worth naming, because each one is something the code now
-relies on:
+The build plugin publishes tool directories as original files under
+`/catalog/contributors/<owner>/tools/`, tool ZIPs under
+`/catalog/collections/<owner>/tools/`, and `/catalog/index.json`. Archives retain
+repository-relative paths and deterministic timestamps. Development workflow
+sources in `contributors/*/libraries/` are neither bundled into the frontend
+nor emitted as downloadable catalogue artifacts.
 
-- **Every route prerenders.** Catalogue content needs no runtime fetch, so each
-  route can be written to HTML at build time. Dynamic `/agents` data hydrates
-  from the same-origin API after the public shell renders.
-- **The CSP can be strict.** `connect-src 'self'` covers the same-origin `/api`
-  proxy without exposing a separate browser-visible backend origin. Downloading
-  an archive remains a navigation to the site's own origin.
-- **A contribution is a diff.** Adding an entry is adding a file; removing one
-  is removing a file. There is no migration, no seed, and no admin screen.
-- **Freshness is a deploy.** The catalogue changes when `main` changes. If that
-  ever becomes too slow, the answer is a build hook, not a database.
-- **No route is behind an account.** The specification, catalogue, telemetry,
-  and pool discovery stay public. Requesting or managing pool membership crosses
-  the backend auth boundary without redirecting the reader away from a route.
+Library taxonomies, the retired installer/MCP tool sources, MCP registry
+discovery and whole-repository catalogue archives are removed. Tool contribution
+and per-contributor catalogues retain their existing workflow.
 
-`/activities` remains fixture telemetry. `/agents` has no runtime fixture
-fallback: an account appears only after its provider connection is stored as
-connected by the backend, and pool usage is fetched live from that provider.
-The former sidebar recent-updates fixture was removed when that space became
-the session control.
+Tool contributors create or update their own GitHub-username folder. The
+`contributors/default/` namespace is system-owned and read-only for contributors;
+the Home contribution guide shows this boundary in its directory tree.
 
-## The catalogue
+## Runtime data and ownership
 
-`apps/frontend/src/services/catalog` is the only module that knows the folder exists. It
-reads every `.md` under `contributors/default/` and decides three things about each:
+`apps/api` owns authentication, rotating PostgreSQL sessions, encrypted provider
+connections, pool membership and join decisions, and user-scoped gateway keys.
+Public pool discovery contains no provider credentials. Membership and owner
+operations are authenticated by the API.
 
-| Fact        | Where it comes from                                             |
-| ----------- | --------------------------------------------------------------- |
-| Category    | The top folder — `harness/`, `skills/`, `templates/`            |
-| Group       | The folder below it — `harness/tags/` is the group named "Tags" |
-| Contributor | `contributors/<login>/…`, or none for the shared catalogue      |
+An accepted member uses their own Hub key through an owner's shared provider
+without receiving the provider token. Pool availability and provider quota are
+reported by the backend; the frontend does not fabricate usage. Known zero
+quota is displayed as Exhausted. Owner connection details are queried only
+when management is open, and refresh/reconnect success updates the query cache.
 
-Both levels remain folders because those paths are runtime contracts. The view
-adds a separate functional taxonomy: most documents inherit their collection
-from the folder, while an explicit semantic rule can group a cross-cutting file
-where a reader expects to use it. `draft.md`, `merge.md`, `mergeable.md` and
-`rebase.md` stay under `harness/tags/` but appear beside the supporting GitHub
-documents in the one `GITHUB` node. Every file belongs to exactly one collection.
+The gateway remains `apps/api/src/gateway.rs`. Extraction into a separate
+service requires an explicit internal contract and must avoid an additional
+API-to-gateway hop for each prompt. The Telegram application is a separate
+adapter that calls the business API.
 
-Name and description come from the document's first heading and first
-paragraph. Front matter is honoured only where the format already has it — a
-skill carries `name` and `description` because Claude Code requires them.
+## Standalone installers
 
-**The service never edits its sources.** Those files are instructions an agent
-reads at runtime; adding a field to make a listing page tidier would be editing
-an instruction to suit a page. Everything the collection view needs is derived
-instead.
+The frontend serves `gateway.py`, `opencode.py` and `omp.py` from `public/`.
+These scripts are independent of the retired Documents installer and use
+Python's standard library. They configure local agents with a revocable Hub key;
+upstream provider credentials remain encrypted on the server. OpenCode and OMP
+discover current models through the gateway.
 
-### Shared and contributed
+`apps/frontend/scripts/installers/tests/` verifies supported configuration
+writes, model discovery, key/URL handling and the Nginx gateway proxy contract.
+CI runs these checks. `install.py`, `install.sh`, the machine runtime and its
+product-specific tests are removed. Repository harness/skill/hook/template
+sources remain development infrastructure.
 
-A contract that maps one person's repositories to one person's servers is
-theirs, not everyone's. Those live under `contributors/<login>/`,
-mirroring the shared layout one level down, and are published at
-`/library/<login>` rather than in the shared catalogue. `/library` shows only
-entries without a contributor, which is what keeps it worth reading.
+## Deployment and local development
 
-The folder name is the contributor's GitHub login. That convention is load
-bearing: it is what makes `https://github.com/<login>.png` their avatar without
-an API call, a token or a stored file.
+Railway's public Nginx frontend serves static assets and proxies `/api` to the
+private Rust API. The production frontend image builds with
+`VITE_API_BASE_URL=/api`.
 
-## The collection view
+For local frontend development, `VITE_API_BASE_URL` in `.env` selects the API.
+A local backend normally uses `http://localhost:8080`; a direct production URL
+requires compatible CORS and session-cookie policy. Test configuration fixes
+its mocked API base independently of developer `.env` settings.
 
-`/library` and `/tools` are responsive flat grids, not graph engines. A card is
-one functional collection, with no category tabs, branches, file nodes, pan or
-zoom. Search checks both collection metadata and every file inside it.
-
-Selecting a card writes its collection id to `?node=` and opens one sheet with
-an introduction, the complete downloadable file list, a build-generated ZIP
-and usage instructions. `/tools` uses the same interaction for five focused
-nodes: `DOCUMENTS`, `GATEWAY`, `OPENCODE`, `OMP`, and `MCP`.
-
-## Downloading a document
-
-Contributed Markdown is authored by strangers, so the collection sheet keeps
-its body inert. The service derives a plain-text name and description, while a
-file row downloads the original bytes. The page never turns a contributed body
-into HTML, follows its links or loads its images.
-
-## The machine installer
-
-`apps/frontend/scripts/machine/` installs the catalogue onto a developer's machine
-as agent instructions. `apps/frontend/public/install.py` is its
-dependency-free bootstrap: it maintains a sparse checkout, hands global setup
-to the existing TUI, expands MCP product selections to registry servers, or
-installs a managed project copy under `.agents/rules/hub-william`.
-
-`gateway.py` merges Hub gateway endpoints into the supported agent CLIs, while
-`opencode.py` and `omp.py` discover the models reachable by one Hub gateway key
-and merge custom providers into their respective agent configurations. All
-three preserve unrelated configuration, create a one-time backup, and use
-owner-only atomic writes.
-
-Its own suite (`bash apps/frontend/scripts/machine/tests/run.sh`) pins the catalogue's layout on
-purpose, and runs in CI for that reason. A contract that moves without its
-references breaks the harness rather than the site, and nothing else would
-catch it.
-
-## Deployment
-
-Railway hosts the production application. Its public Nginx frontend serves the
-prerendered SPA and proxies `/api` to the private, IPv6-listening `apps/api`
-service;
-only the frontend has a public domain. Local development calls the Rust service
-directly on port 8080. GitHub Pages can continue publishing the static catalogue,
-but authenticated runtime flows require the Railway deployment.
-
-The provider streaming code remains `apps/api/src/gateway.rs` until it has a
-real independent service contract. That future `apps/gateway` service will be
-public for local agent clients. `apps/api` and a future `apps/worker` use
-Railway private networking for control-plane work; `apps/telegram` has a
-separate public HTTPS webhook solely for Telegram, then calls the API through
-that same private network.
-
-`main` is protected: no direct pushes, and a branch must be up to date with a
-green `checks` run before it merges.
+Railway is the deployment target for the frontend, API and Telegram adapter.
+GitHub Pages and Vercel publishing are retired. `main` remains protected by the
+repository's branch and CI policies; see [ADR-0026](../../../docs/decisions/0026-railway-only-deployment.md).

@@ -1,3 +1,0 @@
-description = "Drive a real browser to verify frontend changes."
-command = "npx"
-args = ["-y", "@playwright/mcp@latest"]

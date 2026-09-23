@@ -12,12 +12,14 @@ use sqlx::FromRow;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+#[cfg(all(test, feature = "database-tests"))]
+mod database_tests;
+
 use crate::{
-    AppState,
+    AgentProvider, AppState,
     auth::{authenticated_user_id, normalize_username, optional_authenticated_user_id},
-    connections::AgentProvider,
     error::ApiError,
-    pool_share, usage,
+    usage,
 };
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
@@ -38,6 +40,29 @@ pub struct AgentPoolShareEvidence {
     pub user_output_tokens: i64,
     pub user_units: i64,
     pub window_label: Option<String>,
+}
+
+impl Default for AgentPoolShareEvidence {
+    fn default() -> Self {
+        Self {
+            available_percent: 100,
+            budget_units: None,
+            cap_units: None,
+            fail_open_reason: None,
+            member_count: 1,
+            pool_cached_tokens: 0,
+            pool_input_tokens: 0,
+            pool_output_tokens: 0,
+            pool_units: 0,
+            provider_used_percent: None,
+            remaining_units: None,
+            user_cached_tokens: 0,
+            user_input_tokens: 0,
+            user_output_tokens: 0,
+            user_units: 0,
+            window_label: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
@@ -146,13 +171,7 @@ struct RequestRow {
 #[derive(Clone, FromRow)]
 struct MemberRow {
     joined_at: DateTime<Utc>,
-    user_id: Uuid,
     username: String,
-}
-
-struct PoolShareInput {
-    events: Vec<pool_share::UsageEvent>,
-    members: Vec<MemberRow>,
 }
 
 #[utoipa::path(
@@ -182,15 +201,13 @@ pub async fn list(
 
     let mut pools = Vec::with_capacity(rows.len());
     let mut providers = Vec::with_capacity(rows.len());
-    let mut share_inputs = Vec::with_capacity(rows.len());
     for row in rows {
         let mut members = vec![MemberRow {
             joined_at: row.created_at,
-            user_id: row.owner_id,
             username: row.owner_username.clone(),
         }];
         let accepted = sqlx::query_as::<_, MemberRow>(
-            "SELECT users.id AS user_id, users.username, requests.updated_at AS joined_at
+            "SELECT users.username, requests.updated_at AS joined_at
              FROM agent_pool_join_requests AS requests
              JOIN users ON users.id = requests.requester_user_id
              WHERE requests.connection_id = $1 AND requests.status = 'accepted'
@@ -201,13 +218,6 @@ pub async fn list(
         .await
         .map_err(database_error)?;
         members.extend(accepted);
-        let events = pool_share::load_events(&state.pool, row.id)
-            .await
-            .map_err(database_error)?;
-        share_inputs.push(PoolShareInput {
-            events,
-            members: members.clone(),
-        });
         let people = members
             .iter()
             .map(|member| person(&member.username, member.joined_at, pending_share()))
@@ -261,27 +271,6 @@ pub async fn list(
     while let Some(joined) = usage_tasks.join_next().await {
         if let Ok((index, usage)) = joined {
             pools[index].usage = usage.metrics;
-            let member_count = share_inputs[index].members.len();
-            let now = Utc::now();
-            for (person, member) in pools[index]
-                .members
-                .iter_mut()
-                .zip(share_inputs[index].members.iter())
-            {
-                let share = share_from_evidence(pool_share::member_share_evidence(
-                    &usage.windows,
-                    &share_inputs[index].events,
-                    member.user_id,
-                    member_count,
-                    now,
-                ));
-                person.usage_available_percent = share.available_percent;
-                person.share = share;
-            }
-            if let Some(owner_member) = pools[index].members.first().cloned() {
-                pools[index].owner.usage_available_percent = owner_member.usage_available_percent;
-                pools[index].owner.share = owner_member.share;
-            }
         }
     }
 
@@ -309,8 +298,8 @@ pub async fn invite_member(
     let owner_id = authenticated_user_id(&state, &jar).await?;
     let username = normalize_username(&payload.username)?;
     let mut transaction = state.pool.begin().await.map_err(database_error)?;
-    let pool = sqlx::query_as::<_, (Uuid, i32)>(
-        "SELECT user_id, capacity FROM agent_connections
+    let pool_owner_id = sqlx::query_scalar::<_, Uuid>(
+        "SELECT user_id FROM agent_connections
          WHERE id = $1 AND status = 'connected' FOR UPDATE",
     )
     .bind(connection_id)
@@ -318,7 +307,7 @@ pub async fn invite_member(
     .await
     .map_err(database_error)?
     .ok_or(ApiError::NotFound)?;
-    if pool.0 != owner_id {
+    if pool_owner_id != owner_id {
         return Err(ApiError::Forbidden);
     }
     let member_id = sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE username = $1")
@@ -342,7 +331,6 @@ pub async fn invite_member(
     if existing_status.as_deref() == Some("accepted") {
         return Err(ApiError::Validation("That user is already a member."));
     }
-    ensure_pool_capacity(&mut transaction, connection_id, pool.1).await?;
     sqlx::query(
         "INSERT INTO agent_pool_join_requests
             (id, connection_id, requester_user_id, telegram, reason, status)
@@ -437,26 +425,16 @@ pub async fn create_request(
     let requester_id = authenticated_user_id(&state, &jar).await?;
     let telegram = normalize_telegram(&payload.telegram)?;
     let reason = normalize_reason(&payload.reason)?;
-    let pool = sqlx::query_as::<_, (Uuid, i32)>(
-        "SELECT user_id, capacity FROM agent_connections WHERE id = $1 AND status = 'connected'",
+    let pool_owner_id = sqlx::query_scalar::<_, Uuid>(
+        "SELECT user_id FROM agent_connections WHERE id = $1 AND status = 'connected'",
     )
     .bind(connection_id)
     .fetch_optional(&state.pool)
     .await
     .map_err(database_error)?
     .ok_or(ApiError::NotFound)?;
-    if pool.0 == requester_id {
+    if pool_owner_id == requester_id {
         return Err(ApiError::Validation("You already own this account pool."));
-    }
-    let accepted = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM agent_pool_join_requests WHERE connection_id = $1 AND status = 'accepted'",
-    )
-    .bind(connection_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(database_error)?;
-    if accepted + 1 >= i64::from(pool.1) {
-        return Err(ApiError::Validation("This account pool is full."));
     }
 
     let id = Uuid::new_v4();
@@ -512,8 +490,8 @@ pub async fn decide_request(
     }
     let owner_id = authenticated_user_id(&state, &jar).await?;
     let mut transaction = state.pool.begin().await.map_err(database_error)?;
-    let pool = sqlx::query_as::<_, (Uuid, Uuid, i32)>(
-        "SELECT connections.id, connections.user_id, connections.capacity
+    let pool_owner_id = sqlx::query_scalar::<_, Uuid>(
+        "SELECT connections.user_id
          FROM agent_pool_join_requests AS requests
          JOIN agent_connections AS connections ON connections.id = requests.connection_id
          WHERE requests.id = $1 AND connections.status = 'connected'
@@ -524,11 +502,8 @@ pub async fn decide_request(
     .await
     .map_err(database_error)?
     .ok_or(ApiError::NotFound)?;
-    if pool.1 != owner_id {
+    if pool_owner_id != owner_id {
         return Err(ApiError::Forbidden);
-    }
-    if matches!(payload.status, AgentPoolRequestStatus::Accepted) {
-        ensure_pool_capacity(&mut transaction, pool.0, pool.2).await?;
     }
     let status = status_value(payload.status);
     let row = sqlx::query_as::<_, RequestRow>(
@@ -545,25 +520,6 @@ pub async fn decide_request(
     .map_err(database_error)?;
     transaction.commit().await.map_err(database_error)?;
     Ok(Json(request_from_row(row)?))
-}
-
-async fn ensure_pool_capacity(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    connection_id: Uuid,
-    capacity: i32,
-) -> Result<(), ApiError> {
-    let accepted = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM agent_pool_join_requests
-         WHERE connection_id = $1 AND status = 'accepted'",
-    )
-    .bind(connection_id)
-    .fetch_one(&mut **transaction)
-    .await
-    .map_err(database_error)?;
-    if accepted + 1 >= i64::from(capacity) {
-        return Err(ApiError::Validation("This account pool is full."));
-    }
-    Ok(())
 }
 
 fn availability_from_values(
@@ -630,31 +586,7 @@ fn person(
 }
 
 fn pending_share() -> AgentPoolShareEvidence {
-    share_from_evidence(pool_share::ShareEvidence::fail_open(
-        1,
-        "Share is calculated from live provider usage.",
-    ))
-}
-
-fn share_from_evidence(evidence: pool_share::ShareEvidence) -> AgentPoolShareEvidence {
-    AgentPoolShareEvidence {
-        available_percent: evidence.available_percent,
-        budget_units: evidence.budget_units,
-        cap_units: evidence.cap_units,
-        fail_open_reason: evidence.fail_open_reason.map(str::to_owned),
-        member_count: evidence.member_count,
-        pool_cached_tokens: evidence.pool_cached_tokens,
-        pool_input_tokens: evidence.pool_input_tokens,
-        pool_output_tokens: evidence.pool_output_tokens,
-        pool_units: evidence.pool_units,
-        provider_used_percent: evidence.provider_used_percent,
-        remaining_units: evidence.remaining_units,
-        user_cached_tokens: evidence.user_cached_tokens,
-        user_input_tokens: evidence.user_input_tokens,
-        user_output_tokens: evidence.user_output_tokens,
-        user_units: evidence.user_units,
-        window_label: evidence.window_label,
-    }
+    AgentPoolShareEvidence::default()
 }
 
 fn avatar_label(username: &str) -> String {

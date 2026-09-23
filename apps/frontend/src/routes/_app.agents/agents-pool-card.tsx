@@ -1,468 +1,226 @@
-import { useState, type ReactNode } from "react";
-import {
-  Bot,
-  CircleGauge,
-  CircleHelp,
-  Clock3,
-  UserRound,
-  Users,
-} from "lucide-react";
+import { ChevronDown, Clock3, Users, X } from "lucide-react";
 import { tv } from "tailwind-variants";
 
 import Flex from "@/components/ui/flex";
-import Center from "@/components/ui/center";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardFooter, CardHeader } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import agentPoolsService, { type AgentPool } from "@/services/agent-pools";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-  Popover,
-  PopoverContent,
-  PopoverDescription,
-  PopoverHeader,
-  PopoverTitle,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import agentPoolsService, {
-  type AgentPool,
-  type AgentPoolPerson,
-  type AgentPoolShareEvidence,
-  type AgentProvider,
-} from "@/services/agent-pools";
-import assetPath from "@/utils/utils.asset-path";
+  agentPoolAccess,
+  agentPoolAccessLabels,
+  agentPoolAvailabilityLabel,
+  agentPoolRemaining,
+  agentPoolUsageValue,
+  agentProviderShowsUsage,
+} from "@/utils/utils.agent-pools";
 
 import AgentsAvatarStack from "./agents-avatar-stack";
+import AgentsProviderIcon from "./agents-provider-icon";
 
-const actionButton = tv({
-  base: "w-full h-10",
-  variants: {
-    state: {
-      accepted: "border-emerald-200 bg-emerald-50 text-emerald-700",
-      full: "text-muted-foreground",
-      joined: "border-emerald-200 bg-emerald-50 text-emerald-700",
-      owner: "border-indigo-200 bg-indigo-50 text-indigo-700",
-      pending: "border-amber-200 bg-amber-50 text-amber-800",
-      rejected: "border-red-200 bg-red-50 text-red-700",
-      request: "",
-    },
-  },
+const memberSection = tv({
+  base: "group",
+  variants: { afterUsage: { true: "border-t border-zinc-100 pt-4" } },
 });
-
-const shareHelpButton = tv({
-  base: "inline-flex size-4 shrink-0 items-center justify-center rounded-full",
-  variants: {
-    open: {
-      false: "text-muted-foreground",
-      true: "bg-zinc-200 text-slate-800",
-    },
-  },
-});
-
-const agentIcons: Partial<Record<AgentProvider, string>> = {
-  ChatGPT: assetPath("assets/chatgpt-icon.png"),
-  Claude: assetPath("assets/claude-icon.png"),
-  Gemini: assetPath("assets/gemini-icon.svg"),
-  Grok: assetPath("assets/grok-icon.png"),
-};
-
-type PoolActionState =
-  "accepted" | "full" | "joined" | "owner" | "pending" | "rejected" | "request";
 
 interface AgentsPoolCardProps {
   currentUsername: string | null;
   onCheckRequests: (pool: AgentPool) => void;
+  onClose: () => void;
   onRequestJoin: (pool: AgentPool) => void;
   pool: AgentPool;
-}
-
-interface AgentsPoolCardSheetProps {
-  children: ReactNode;
-  description: string;
-  title: string;
-  triggerIcon: ReactNode;
-  triggerLabel: string;
-  triggerValue: string;
-}
-
-interface AgentsPoolCardMemberRowProps {
-  member: AgentPoolPerson;
-}
-
-interface AgentsPoolCardShareEvidenceProps {
-  share: AgentPoolShareEvidence;
-}
-
-interface AgentsPoolCardMembersDialogProps {
-  pool: AgentPool;
-}
-
-function actionState(
-  pool: AgentPool,
-  username: string | null,
-): PoolActionState {
-  if (username === pool.owner.username) return "owner";
-
-  const request = pool.requests.find((item) => item.username === username);
-
-  if (request) return request.status;
-  if (pool.members.some((member) => member.username === username))
-    return "joined";
-  if (pool.members.length >= pool.capacity) return "full";
-  return "request";
-}
-
-function usageTriggerValue(pool: AgentPool) {
-  const fiveHour = pool.usage.find((metric) => metric.label === "5-hour limit");
-  const weekly = pool.usage.find((metric) => metric.label === "Weekly limit");
-
-  if (fiveHour) return fiveHour.value;
-  if (weekly) return weekly.value;
-  if (pool.usage.some((metric) => metric.value === "Unavailable")) {
-    return "Unavailable";
-  }
-  if (pool.usage.length === 0) return "No live usage";
-  return `${pool.usage.length} metrics`;
-}
-
-function membersTriggerValue(pool: AgentPool) {
-  return `${pool.members.length} joined`;
-}
-
-function formatTokenCount(value: number) {
-  return new Intl.NumberFormat("en", { maximumFractionDigits: 0 }).format(
-    value,
-  );
-}
-
-function formatUsedPercent(value: number) {
-  return Number.isInteger(value) ? String(value) : value.toFixed(1);
-}
-
-function formatUsedFraction(value: number) {
-  return (value / 100).toFixed(2);
-}
-
-function AgentsPoolCardShareEvidence({
-  share,
-}: AgentsPoolCardShareEvidenceProps) {
-  const providerUsed = share.providerUsedPercent;
-  const windowLabel = share.windowLabel ?? "live window";
-
-  return (
-    <div className="mt-2 space-y-1 rounded-lg bg-zinc-50 p-2">
-      <p className="font-mono text-[10px] text-slate-700">
-        U = input + output + cached
-      </p>
-      <p className="font-mono text-[10px] text-slate-700">
-        You used {formatTokenCount(share.userInputTokens)} +{" "}
-        {formatTokenCount(share.userOutputTokens)} +{" "}
-        {formatTokenCount(share.userCachedTokens)} ={" "}
-        {formatTokenCount(share.userUnits)}
-      </p>
-      <p className="font-mono text-[10px] text-slate-700">
-        Pool used {formatTokenCount(share.poolInputTokens)} +{" "}
-        {formatTokenCount(share.poolOutputTokens)} +{" "}
-        {formatTokenCount(share.poolCachedTokens)} ={" "}
-        {formatTokenCount(share.poolUnits)}
-      </p>
-      {providerUsed != null ? (
-        <p className="font-mono text-[10px] text-slate-700">
-          Provider used p = {formatUsedPercent(providerUsed)}% of the{" "}
-          {windowLabel}
-        </p>
-      ) : (
-        <p className="font-mono text-[10px] text-slate-700">
-          No live 5-hour or weekly window was reported.
-        </p>
-      )}
-      {share.budgetUnits != null &&
-      share.capUnits != null &&
-      share.remainingUnits != null &&
-      providerUsed != null ? (
-        <>
-          <p className="font-mono text-[10px] text-slate-700">
-            B = U_pool / p = {formatTokenCount(share.poolUnits)} /{" "}
-            {formatUsedFraction(providerUsed)} ={" "}
-            {formatTokenCount(share.budgetUnits)}
-          </p>
-          <p className="font-mono text-[10px] text-slate-700">
-            N = {share.memberCount} members
-          </p>
-          <p className="font-mono text-[10px] text-slate-700">
-            Cap = B / N = {formatTokenCount(share.capUnits)}
-          </p>
-          <p className="font-mono text-[10px] text-slate-700">
-            Remaining = cap − you = {formatTokenCount(share.remainingUnits)}
-          </p>
-          <p className="font-mono text-[10px] font-semibold text-slate-800">
-            Available = remaining / cap = {share.availablePercent}%
-          </p>
-        </>
-      ) : null}
-      {share.failOpenReason ? (
-        <p className="text-[10px] text-muted-foreground">
-          {share.failOpenReason} Available stays {share.availablePercent}% until
-          Hub can estimate the cap.
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-function AgentsPoolCardMemberRow({ member }: AgentsPoolCardMemberRowProps) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <div>
-      <Flex className="justify-between gap-3">
-        <p className="min-w-0 truncate text-sm font-semibold">
-          {member.username}
-        </p>
-        <Flex className="shrink-0 justify-end gap-1">
-          <p className="font-mono text-xs font-semibold">
-            {member.usageAvailablePercent}% available
-          </p>
-          <button
-            type="button"
-            className={shareHelpButton({ open })}
-            onClick={() => setOpen((current) => !current)}
-          >
-            <CircleHelp aria-hidden="true" className="size-3" />
-            <span className="sr-only">Why this available percent</span>
-          </button>
-        </Flex>
-      </Flex>
-      <Flex className="mt-1 gap-1 text-[10px] text-muted-foreground">
-        <Clock3 aria-hidden="true" className="size-3" />
-        Joined{" "}
-        <time dateTime={member.joinedAt}>
-          {agentPoolsService.createdLabel(member.joinedAt)}
-        </time>
-      </Flex>
-      {open ? <AgentsPoolCardShareEvidence share={member.share} /> : null}
-    </div>
-  );
-}
-
-function AgentsPoolCardMembersDialog({
-  pool,
-}: AgentsPoolCardMembersDialogProps) {
-  return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          className="w-full justify-between"
-        >
-          <span className="inline-flex items-center gap-1.5">
-            <Users aria-hidden="true" className="size-4" />
-            Members
-          </span>
-          <span className="font-mono text-[10px] text-muted-foreground">
-            {membersTriggerValue(pool)}
-          </span>
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Pool members</DialogTitle>
-          <DialogDescription>
-            Joined members and remaining share of the live window.
-          </DialogDescription>
-        </DialogHeader>
-
-        {pool.members.length > 0 ? (
-          <ul className="space-y-2">
-            {pool.members.map((member) => (
-              <li
-                key={member.username}
-                className="rounded-xl border border-zinc-200 p-3"
-              >
-                <AgentsPoolCardMemberRow member={member} />
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="rounded-lg border border-dashed border-zinc-300 p-4 text-center text-xs text-muted-foreground">
-            No members have joined this pool yet.
-          </p>
-        )}
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function AgentsPoolCardSheet({
-  children,
-  description,
-  title,
-  triggerIcon,
-  triggerLabel,
-  triggerValue,
-}: AgentsPoolCardSheetProps) {
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          className="w-full justify-between"
-        >
-          <span className="inline-flex items-center gap-1.5">
-            {triggerIcon}
-            {triggerLabel}
-          </span>
-          <span className="font-mono text-[10px] text-muted-foreground">
-            {triggerValue}
-          </span>
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className="w-(--radix-popover-trigger-width)"
-      >
-        <PopoverHeader>
-          <PopoverTitle>{title}</PopoverTitle>
-          <PopoverDescription>{description}</PopoverDescription>
-        </PopoverHeader>
-
-        {children}
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-function actionLabel(state: PoolActionState) {
-  const labels: Record<PoolActionState, string> = {
-    accepted: "Accepted",
-    full: "Pool full",
-    joined: "Joined",
-    owner: "Check Request",
-    pending: "Request pending",
-    rejected: "Rejected",
-    request: "Request Join",
-  };
-
-  return labels[state];
 }
 
 export default function AgentsPoolCard({
   currentUsername,
   onCheckRequests,
+  onClose,
   onRequestJoin,
   pool,
 }: AgentsPoolCardProps) {
-  const state = actionState(pool, currentUsername);
-
-  const actionDisabled = [
-    "accepted",
-    "full",
-    "joined",
-    "pending",
-    "rejected",
-  ].includes(state);
-
-  function handleAction() {
-    if (state === "owner") {
-      onCheckRequests(pool);
-      return;
-    }
-
-    onRequestJoin(pool);
-  }
+  const showUsage = agentProviderShowsUsage(pool.agent);
+  const access = agentPoolAccess(pool, currentUsername);
+  const actionDisabled = access !== "owner" && access !== "request";
 
   return (
-    <li className="h-full">
-      <Card className="h-full border-0 bg-white/95 py-0 gap-0 shadow-sm ring-slate-200/90">
-        <CardHeader className="gap-4 border-b border-slate-100 py-4 flex-1 flex flex-col">
-          <Flex className="justify-between flex-wrap gap-3 flex-1 w-full">
-            <Flex className="gap-3">
-              {agentIcons[pool.agent] ? (
-                <img src={agentIcons[pool.agent]} alt="" className="size-9" />
-              ) : (
-                <Center className="size-9 rounded-lg bg-sky-50 text-sky-700">
-                  <Bot aria-hidden="true" className="size-5" />
-                </Center>
-              )}
+    <article
+      aria-label={`${pool.agent} account ${pool.accountLabel} details`}
+      className="min-w-0 overflow-hidden bg-white"
+    >
+      <header className="border-b border-zinc-100 p-5">
+        <Flex className="items-start justify-between gap-3">
+          <Flex className="min-w-0 items-center gap-2.5">
+            <AgentsProviderIcon provider={pool.agent} />
 
-              <div>
-                <p className="truncate font-mono text-sm font-semibold">
-                  {pool.accountLabel}
+            <div className="min-w-0">
+              <Flex className="flex-wrap items-center gap-2">
+                <p className="text-[10px] font-medium tracking-wider text-zinc-500 uppercase">
+                  {pool.agent}
                 </p>
 
-                <Flex className="mt-1 gap-1 text-[10px] text-muted-foreground">
-                  <UserRound aria-hidden="true" className="size-3" />
-                  {pool.owner.username}{" "}
-                  <span className="font-bold text-slate-700">
-                    · At {agentPoolsService.createdLabel(pool.createdAt)}
-                  </span>
-                </Flex>
-              </div>
-            </Flex>
+                <Badge
+                  variant="secondary"
+                  className="text-[9px] font-normal uppercase"
+                >
+                  {pool.plan}
+                </Badge>
+              </Flex>
 
-            <Badge variant="secondary">{pool.plan}</Badge>
+              <h3 className="mt-0.5 truncate font-mono text-xs font-semibold">
+                {pool.accountLabel}
+              </h3>
+            </div>
           </Flex>
 
-          <AgentsPoolCardSheet
-            description="Fields vary by agent and subscription plan."
-            title={`${pool.agent} usage`}
-            triggerIcon={<CircleGauge aria-hidden="true" className="size-4" />}
-            triggerLabel="View Usages"
-            triggerValue={usageTriggerValue(pool)}
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="ghost"
+            className="-mt-1 -mr-1 shrink-0 text-zinc-400"
+            onClick={onClose}
           >
-            {pool.usage.length > 0 ? (
-              <dl className="divide-y divide-zinc-100">
-                {pool.usage.map((metric) => (
-                  <div key={metric.label} className="py-2 first:pt-0 last:pb-0">
-                    <Flex className="justify-between gap-3">
-                      <dt className="text-xs text-muted-foreground">
-                        {metric.label}
-                      </dt>
-                      <dd className="text-right font-mono text-xs font-semibold">
-                        {metric.value}
-                      </dd>
-                    </Flex>
-                    {metric.detail ? (
-                      <Flex className="mt-1 justify-end gap-1 text-[10px] text-muted-foreground">
-                        <Clock3 aria-hidden="true" className="size-3" />
-                        {metric.detail}
+            <X aria-hidden="true" className="size-4" />
+            <span className="sr-only">
+              Close {pool.agent} account {pool.accountLabel} details
+            </span>
+          </Button>
+        </Flex>
+      </header>
+
+      <div className="space-y-5 p-5">
+        {showUsage ? (
+          <section aria-label="Account usage" className="space-y-3">
+            <h4 className="text-[10px] font-semibold tracking-widest text-zinc-400 uppercase">
+              Usage & limits
+            </h4>
+
+            {pool.usage.length ? (
+              <dl className="space-y-4">
+                {pool.usage.map((metric) => {
+                  const remaining = agentPoolRemaining(metric);
+                  return (
+                    <div key={metric.label}>
+                      <Flex className="items-center justify-between gap-3 text-xs">
+                        <dt className="text-zinc-600">{metric.label}</dt>
+
+                        <dd className="text-right font-mono font-medium">
+                          {agentPoolUsageValue(metric)}
+                        </dd>
                       </Flex>
-                    ) : null}
-                  </div>
-                ))}
+
+                      {remaining !== null ? (
+                        <Progress
+                          className="mt-2"
+                          aria-label={`${metric.label} remaining`}
+                          value={remaining}
+                        />
+                      ) : null}
+
+                      {metric.detail && metric.value !== "Unavailable" ? (
+                        <Flex className="mt-2 items-start gap-1.5 text-[10px]/relaxed text-zinc-500">
+                          <Clock3
+                            aria-hidden="true"
+                            className="mt-0.5 size-3 shrink-0"
+                          />
+
+                          <p>{metric.detail}</p>
+                        </Flex>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </dl>
             ) : (
-              <p className="rounded-lg border border-dashed border-zinc-300 p-4 text-center text-xs text-muted-foreground">
+              <p className="text-xs text-zinc-500">
                 {pool.agent} has not reported usage for this account yet.
               </p>
             )}
-          </AgentsPoolCardSheet>
+          </section>
+        ) : null}
 
-          <AgentsPoolCardMembersDialog pool={pool} />
-        </CardHeader>
+        <details className={memberSection({ afterUsage: showUsage })}>
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-sm text-xs focus-visible:outline-2 focus-visible:outline-indigo-500 [&::-webkit-details-marker]:hidden">
+            <span className="inline-flex items-center gap-2">
+              <Users aria-hidden="true" className="size-3.5 text-zinc-400" />
+              Members · {pool.members.length}
+            </span>
+            <ChevronDown
+              aria-hidden="true"
+              className="size-3.5 text-zinc-400 group-open:rotate-180"
+            />
+          </summary>
 
-        <CardFooter className="gap-2 p-3">
-          <Button
-            type="button"
-            variant="outline"
-            disabled={actionDisabled}
-            onClick={handleAction}
-            className={actionButton({ state })}
-          >
-            <AgentsAvatarStack people={pool.members} />
+          <ul className="mt-4 space-y-3">
+            {pool.members.map((member) => (
+              <li
+                key={member.username}
+                className="flex items-center justify-between gap-3 text-xs"
+              >
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{member.username}</p>
 
-            <span>{actionLabel(state)}</span>
-          </Button>
-        </CardFooter>
-      </Card>
-    </li>
+                  <p className="mt-1 text-[10px] text-zinc-400">
+                    Joined{" "}
+                    <time dateTime={member.joinedAt}>
+                      {agentPoolsService.createdLabel(member.joinedAt)}
+                    </time>
+                  </p>
+                </div>
+
+                {member.username === pool.owner.username ? (
+                  <Badge variant="outline" className="text-[9px] font-normal">
+                    Owner
+                  </Badge>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </details>
+
+        <dl className="space-y-2 border-t border-zinc-100 pt-4 text-[11px]">
+          <Flex className="items-center justify-between gap-3">
+            <dt className="text-zinc-400">Owner</dt>
+
+            <dd className="truncate">{pool.owner.username}</dd>
+          </Flex>
+
+          <Flex className="items-center justify-between gap-3">
+            <dt className="text-zinc-400">Connected</dt>
+
+            <dd>
+              <time dateTime={pool.createdAt}>
+                {agentPoolsService.createdLabel(pool.createdAt)}
+              </time>
+            </dd>
+          </Flex>
+
+          <Flex className="items-center justify-between gap-3">
+            <dt className="text-zinc-400">Status</dt>
+
+            <dd>{agentPoolAvailabilityLabel(pool)}</dd>
+          </Flex>
+        </dl>
+      </div>
+
+      <footer className="flex items-center justify-between gap-3 border-t border-zinc-100 bg-zinc-50/60 px-5 py-3">
+        <AgentsAvatarStack people={pool.members} />
+
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={actionDisabled}
+          onClick={() =>
+            access === "owner" ? onCheckRequests(pool) : onRequestJoin(pool)
+          }
+        >
+          {access === "owner"
+            ? "Manage"
+            : access === "request"
+              ? "Request Join"
+              : agentPoolAccessLabels[access]}
+        </Button>
+      </footer>
+    </article>
   );
 }

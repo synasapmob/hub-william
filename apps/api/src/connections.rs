@@ -17,13 +17,16 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use sqlx::FromRow;
+use sqlx::{FromRow, Postgres, Transaction};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{AppState, auth::authenticated_user_id, error::ApiError};
 
 const CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
+const CODEX_REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
+const CODEX_SCOPES: &str =
+    "openid profile email offline_access api.connectors.read api.connectors.invoke";
 const CLAUDE_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const CLAUDE_SCOPES: &str = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
 pub(crate) const ANTIGRAVITY_CLIENT_VERSION: &str = "antigravity/cli/1.2.3 (aidev_client; os_type=linux; arch=amd64; cl=981443618; auth_method=consumer)";
@@ -33,6 +36,9 @@ const GROK_CLIENT_SURFACE: &str = "grok-build";
 const DEFAULT_DEVICE_EXPIRY_SECONDS: i64 = 900;
 const DEFAULT_POLL_SECONDS: u64 = 5;
 const PROVIDER_CREDENTIAL_REFRESH_AFTER_MINUTES: i64 = 60;
+
+#[cfg(all(test, feature = "database-tests"))]
+mod database_tests;
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -189,8 +195,10 @@ struct ConnectionMetadataCredentialRow {
 #[serde(tag = "provider", rename_all = "snake_case")]
 enum AuthorizationSecret {
     Chatgpt {
-        device_auth_id: String,
-        user_code: String,
+        authorization_url: String,
+        code_verifier: String,
+        redirect_uri: String,
+        state: String,
     },
     Claude {
         authorization_url: String,
@@ -252,27 +260,24 @@ pub struct ProviderCredentialRefreshSummary {
     pub refreshed: u64,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderCredentialRefreshStatus {
+    Refreshed,
+    ReauthorizationRequired,
+    Failed,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProviderCredentialRefreshResult {
+    pub connection_id: Uuid,
+    pub provider: String,
+    pub status: ProviderCredentialRefreshStatus,
+}
+
 enum ProviderRefreshError {
     ReauthorizationRequired,
     Api(ApiError),
-}
-
-#[derive(Debug, Deserialize)]
-struct CodexDeviceResponse {
-    device_auth_id: String,
-    user_code: String,
-    #[serde(default)]
-    expires_in: Option<i64>,
-    #[serde(default)]
-    expires_at: Option<DateTime<Utc>>,
-    #[serde(default)]
-    interval: Option<Value>,
-}
-
-#[derive(Debug, Deserialize)]
-struct CodexPollResponse {
-    authorization_code: String,
-    code_verifier: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -604,6 +609,12 @@ pub async fn complete_authorization(
         &authorization.secret_nonce,
     )?;
     let (code_verifier, redirect_uri, expected_state, provider) = match secret {
+        AuthorizationSecret::Chatgpt {
+            code_verifier,
+            redirect_uri,
+            state,
+            ..
+        } => (code_verifier, redirect_uri, state, AgentProvider::Chatgpt),
         AuthorizationSecret::Claude {
             code_verifier,
             redirect_uri,
@@ -633,6 +644,9 @@ pub async fn complete_authorization(
     }
 
     let token = match provider {
+        AgentProvider::Chatgpt => {
+            exchange_codex_code(&state, &code, &code_verifier, &redirect_uri).await?
+        }
         AgentProvider::Claude => {
             exchange_claude_code(
                 &state,
@@ -656,7 +670,7 @@ pub async fn complete_authorization(
     path = "/agent-connections/{connection_id}",
     params(("connection_id" = Uuid, Path, description = "Agent connection ID")),
     responses(
-        (status = 204, description = "Connection credential removed"),
+        (status = 204, description = "Connected account pool deleted"),
         (status = 404, description = "Connection not found", body = crate::ErrorResponse)
     ),
     tag = "agent connections"
@@ -668,26 +682,12 @@ pub async fn disconnect(
 ) -> Result<StatusCode, ApiError> {
     let user_id = authenticated_user_id(&state, &jar).await?;
     owned_connection(&state, user_id, connection_id).await?;
-    let mut transaction = state.pool.begin().await.map_err(database_error)?;
-    sqlx::query("DELETE FROM agent_connection_authorizations WHERE connection_id = $1")
+    sqlx::query("DELETE FROM agent_connections WHERE id = $1 AND user_id = $2")
         .bind(connection_id)
-        .execute(&mut *transaction)
+        .bind(user_id)
+        .execute(&state.pool)
         .await
         .map_err(database_error)?;
-    sqlx::query("DELETE FROM agent_connection_credentials WHERE connection_id = $1")
-        .bind(connection_id)
-        .execute(&mut *transaction)
-        .await
-        .map_err(database_error)?;
-    sqlx::query(
-        "UPDATE agent_connections SET status = 'disconnected', account_label = NULL,
-         plan = NULL, failure_message = NULL, updated_at = NOW() WHERE id = $1",
-    )
-    .bind(connection_id)
-    .execute(&mut *transaction)
-    .await
-    .map_err(database_error)?;
-    transaction.commit().await.map_err(database_error)?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -697,7 +697,7 @@ async fn start_provider_authorization(
     provider: AgentProvider,
 ) -> Result<StartedAuthorization, ApiError> {
     match provider {
-        AgentProvider::Chatgpt => start_codex_authorization(state).await,
+        AgentProvider::Chatgpt => start_codex_authorization(state),
         AgentProvider::Claude => start_claude_authorization(state),
         AgentProvider::Gemini => start_gemini_authorization(state),
         AgentProvider::Deepseek => Err(ApiError::Validation(
@@ -742,47 +742,36 @@ async fn validate_deepseek_key(state: &AppState, api_key: &str) -> Result<(), Ap
     Ok(())
 }
 
-async fn start_codex_authorization(state: &AppState) -> Result<StartedAuthorization, ApiError> {
-    let url = format!(
-        "{}/api/accounts/deviceauth/usercode",
-        state.config.codex_issuer
-    );
-    let response = state
-        .http
-        .post(url)
-        .header("originator", "codex_cli_rs")
-        .header("user-agent", "codex_cli_rs/0.153.4")
-        .json(&serde_json::json!({ "client_id": CODEX_CLIENT_ID }))
-        .send()
-        .await
-        .map_err(|error| upstream_network_error(AgentProvider::Chatgpt, error))?;
-    let status = response.status();
-    if !status.is_success() {
-        eprintln!("ChatGPT device authorization returned HTTP {status}");
-        return Err(upstream_status_error(AgentProvider::Chatgpt, status));
-    }
-    let payload = response
-        .json::<CodexDeviceResponse>()
-        .await
-        .map_err(|_| upstream_payload_error(AgentProvider::Chatgpt))?;
-    let expires_at = payload.expires_at.unwrap_or_else(|| {
-        Utc::now() + Duration::seconds(payload.expires_in.unwrap_or(DEFAULT_DEVICE_EXPIRY_SECONDS))
-    });
-    let prompt_url = format!(
-        "{}/codex/device?user_code={}",
-        state.config.codex_issuer,
-        url_encode(&payload.user_code)
-    );
+fn start_codex_authorization(state: &AppState) -> Result<StartedAuthorization, ApiError> {
+    let code_verifier = random_url_token(32);
+    let state_token = random_url_token(32);
+    let code_challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(code_verifier.as_bytes()));
+    let mut url = Url::parse(&format!("{}/oauth/authorize", state.config.codex_issuer))
+        .map_err(|_| ApiError::Internal)?;
+    url.query_pairs_mut()
+        .append_pair("response_type", "code")
+        .append_pair("client_id", CODEX_CLIENT_ID)
+        .append_pair("redirect_uri", CODEX_REDIRECT_URI)
+        .append_pair("scope", CODEX_SCOPES)
+        .append_pair("code_challenge", &code_challenge)
+        .append_pair("code_challenge_method", "S256")
+        .append_pair("state", &state_token)
+        .append_pair("id_token_add_organizations", "true")
+        .append_pair("codex_cli_simplified_flow", "true")
+        .append_pair("originator", "codex_cli_rs");
+    let authorization_url = url.to_string();
 
     Ok(StartedAuthorization {
-        expires_at,
-        poll_after_seconds: poll_seconds(payload.interval.as_ref()),
-        prompt_url,
-        requires_callback_url: false,
-        user_code: Some(payload.user_code.clone()),
+        expires_at: Utc::now() + Duration::minutes(15),
+        poll_after_seconds: DEFAULT_POLL_SECONDS,
+        prompt_url: authorization_url.clone(),
+        requires_callback_url: true,
+        user_code: None,
         secret: AuthorizationSecret::Chatgpt {
-            device_auth_id: payload.device_auth_id,
-            user_code: payload.user_code,
+            authorization_url,
+            code_verifier,
+            redirect_uri: CODEX_REDIRECT_URI.to_owned(),
+            state: state_token,
         },
     })
 }
@@ -915,53 +904,20 @@ async fn poll_pending_connection(
 
     match secret {
         AuthorizationSecret::Chatgpt {
-            device_auth_id,
-            user_code,
-        } => {
-            let response = state
-                .http
-                .post(format!(
-                    "{}/api/accounts/deviceauth/token",
-                    state.config.codex_issuer
-                ))
-                .header("originator", "codex_cli_rs")
-                .header("user-agent", "codex_cli_rs/0.153.4")
-                .json(&serde_json::json!({
-                    "device_auth_id": device_auth_id,
-                    "user_code": user_code,
-                }))
-                .send()
-                .await
-                .map_err(|error| upstream_network_error(AgentProvider::Chatgpt, error))?;
-            if response.status().is_success() {
-                let approval = response
-                    .json::<CodexPollResponse>()
-                    .await
-                    .map_err(|_| upstream_payload_error(AgentProvider::Chatgpt))?;
-                let token = exchange_codex_code(state, approval).await?;
-                return finish_connection(state, row, token).await;
-            }
-            if response.status().is_client_error() {
-                return connection_from_row(
-                    row,
-                    Some(AgentAuthorizationPrompt {
-                        authorization_url: format!(
-                            "{}/codex/device?user_code={}",
-                            state.config.codex_issuer,
-                            url_encode(&user_code)
-                        ),
-                        expires_at: authorization.expires_at,
-                        poll_after_seconds: DEFAULT_POLL_SECONDS,
-                        requires_callback_url: false,
-                        user_code: Some(user_code),
-                    }),
-                );
-            }
-            Err(upstream_status_error(
-                AgentProvider::Chatgpt,
-                response.status(),
-            ))
-        }
+            authorization_url,
+            code_verifier: _,
+            redirect_uri: _,
+            state: _,
+        } => connection_from_row(
+            row,
+            Some(AgentAuthorizationPrompt {
+                authorization_url,
+                expires_at: authorization.expires_at,
+                poll_after_seconds: DEFAULT_POLL_SECONDS,
+                requires_callback_url: true,
+                user_code: None,
+            }),
+        ),
         AuthorizationSecret::Grok {
             device_code,
             user_code,
@@ -1037,21 +993,23 @@ async fn poll_pending_connection(
 
 async fn exchange_codex_code(
     state: &AppState,
-    approval: CodexPollResponse,
+    code: &str,
+    code_verifier: &str,
+    redirect_uri: &str,
 ) -> Result<Value, ApiError> {
     let response = state
         .http
         .post(format!("{}/oauth/token", state.config.codex_issuer))
-        .header("user-agent", "codex_cli_rs/0.153.4")
+        .header(
+            "user-agent",
+            format!("codex_cli_rs/{}", state.config.codex_client_version),
+        )
         .form(&[
             ("grant_type", "authorization_code"),
             ("client_id", CODEX_CLIENT_ID),
-            ("code", approval.authorization_code.as_str()),
-            ("code_verifier", approval.code_verifier.as_str()),
-            (
-                "redirect_uri",
-                "https://auth.openai.com/deviceauth/callback",
-            ),
+            ("code", code),
+            ("code_verifier", code_verifier),
+            ("redirect_uri", redirect_uri),
         ])
         .send()
         .await
@@ -1219,10 +1177,29 @@ async fn parse_token_response(
 async fn finish_connection(
     state: &AppState,
     row: ConnectionRow,
-    token: Value,
+    mut token: Value,
 ) -> Result<AgentConnection, ApiError> {
     let provider = AgentProvider::from_str(&row.provider)?;
-    let (account_label, plan) = resolved_connection_metadata(state, provider, &token).await;
+    let profile = if provider == AgentProvider::Claude {
+        fetch_claude_profile(state, &token).await
+    } else {
+        None
+    };
+    let (account_label, plan) = connection_metadata(provider, &token, profile.as_ref());
+    let account_identity = provider_account_identity(provider, &token, profile.as_ref());
+    let Some(account_identity) = account_identity else {
+        return Err(ApiError::Validation(
+            "The provider did not return a stable account identity.",
+        ));
+    };
+    ensure_reauthorization_matches(state, &row, provider, Some(account_identity.as_str())).await?;
+    if let Some(token) = token.as_object_mut() {
+        token.insert(
+            "hub_account_identity".to_owned(),
+            Value::String(account_identity.clone()),
+        );
+    }
+    let pending_owner_id = connection_owner_id(state, row.id).await?;
     let (credential_ciphertext, credential_nonce) =
         encrypt_json(&state.config.credential_encryption_key, &token)?;
     let access_token_expires_at = token
@@ -1234,6 +1211,25 @@ async fn finish_connection(
         .and_then(Value::as_i64)
         .map(|seconds| Utc::now() + Duration::seconds(seconds));
     let mut transaction = state.pool.begin().await.map_err(database_error)?;
+    let identity_lock = i64::from_be_bytes(
+        Sha256::digest(account_identity.as_bytes())[..8]
+            .try_into()
+            .map_err(|_| ApiError::Internal)?,
+    );
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(identity_lock)
+        .execute(&mut *transaction)
+        .await
+        .map_err(database_error)?;
+    let duplicate_id = find_duplicate_connection(
+        state,
+        &mut transaction,
+        provider,
+        row.id,
+        account_identity.as_str(),
+    )
+    .await?;
+    let target_id = duplicate_id.unwrap_or(row.id);
 
     sqlx::query(
         "INSERT INTO agent_connection_credentials
@@ -1247,7 +1243,7 @@ async fn finish_connection(
             refresh_token_expires_at = EXCLUDED.refresh_token_expires_at,
             updated_at = NOW()",
     )
-    .bind(row.id)
+    .bind(target_id)
     .bind(credential_ciphertext)
     .bind(credential_nonce)
     .bind(access_token_expires_at)
@@ -1260,21 +1256,200 @@ async fn finish_connection(
         .execute(&mut *transaction)
         .await
         .map_err(database_error)?;
+    if target_id != row.id {
+        sqlx::query(
+            "DELETE FROM agent_pool_join_requests
+             WHERE connection_id = $1 AND requester_user_id = $2",
+        )
+        .bind(target_id)
+        .bind(pending_owner_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(database_error)?;
+    }
     let updated = sqlx::query_as::<_, ConnectionRow>(
         "UPDATE agent_connections SET status = 'connected', account_label = $2, plan = $3,
-         failure_message = NULL, availability_status = 'active', rate_limited_until = NULL,
-         retry_claimed_at = NULL, updated_at = NOW() WHERE id = $1
-         RETURNING id, provider, status, account_label, plan, failure_message, created_at, updated_at",
+          failure_message = NULL, availability_status = 'active', rate_limited_until = NULL,
+          retry_claimed_at = NULL, user_id = $4, updated_at = NOW() WHERE id = $1
+          RETURNING id, provider, status, account_label, plan, failure_message, created_at, updated_at",
     )
-    .bind(row.id)
+    .bind(target_id)
     .bind(account_label)
     .bind(plan)
+    .bind(pending_owner_id)
     .fetch_one(&mut *transaction)
     .await
     .map_err(database_error)?;
+    if target_id != row.id {
+        sqlx::query("DELETE FROM agent_connections WHERE id = $1")
+            .bind(row.id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(database_error)?;
+    }
     transaction.commit().await.map_err(database_error)?;
 
     connection_from_row(updated, None)
+}
+
+async fn connection_owner_id(state: &AppState, connection_id: Uuid) -> Result<Uuid, ApiError> {
+    sqlx::query_scalar::<_, Uuid>("SELECT user_id FROM agent_connections WHERE id = $1")
+        .bind(connection_id)
+        .fetch_one(&state.pool)
+        .await
+        .map_err(database_error)
+}
+
+async fn find_duplicate_connection(
+    state: &AppState,
+    transaction: &mut Transaction<'_, Postgres>,
+    provider: AgentProvider,
+    excluded_id: Uuid,
+    identity: &str,
+) -> Result<Option<Uuid>, ApiError> {
+    let rows = sqlx::query_as::<_, (Uuid, Vec<u8>, Vec<u8>)>(
+        "SELECT connections.id, credentials.credential_ciphertext,
+                credentials.credential_nonce
+         FROM agent_connections AS connections
+         JOIN agent_connection_credentials AS credentials
+           ON credentials.connection_id = connections.id
+         WHERE connections.provider = $1
+           AND connections.status = 'connected'
+           AND connections.id <> $2",
+    )
+    .bind(provider.to_string())
+    .bind(excluded_id)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(database_error)?;
+    for (connection_id, ciphertext, nonce) in rows {
+        let token: Value =
+            decrypt_json(&state.config.credential_encryption_key, &ciphertext, &nonce)?;
+        if provider_account_identity(provider, &token, None).as_deref() == Some(identity) {
+            return Ok(Some(connection_id));
+        }
+    }
+    Ok(None)
+}
+
+async fn ensure_reauthorization_matches(
+    state: &AppState,
+    row: &ConnectionRow,
+    provider: AgentProvider,
+    new_identity: Option<&str>,
+) -> Result<(), ApiError> {
+    let credential = sqlx::query_as::<_, (Vec<u8>, Vec<u8>)>(
+        "SELECT credential_ciphertext, credential_nonce
+         FROM agent_connection_credentials WHERE connection_id = $1",
+    )
+    .bind(row.id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(database_error)?;
+    let Some((ciphertext, nonce)) = credential else {
+        return Ok(());
+    };
+    let stored_token: Value =
+        decrypt_json(&state.config.credential_encryption_key, &ciphertext, &nonce)?;
+    let stored_identity = provider_account_identity(provider, &stored_token, None);
+
+    if !reauthorization_identity_matches(stored_identity.as_deref(), new_identity) {
+        return Err(ApiError::Validation(
+            "Reconnect with the same provider account that owns this pool.",
+        ));
+    }
+    Ok(())
+}
+
+fn reauthorization_identity_matches(stored: Option<&str>, new: Option<&str>) -> bool {
+    matches!((stored, new), (Some(stored), Some(new)) if stored == new)
+}
+
+fn provider_account_identity(
+    provider: AgentProvider,
+    token: &Value,
+    provider_profile: Option<&Value>,
+) -> Option<String> {
+    // ChatGPT account IDs identify a workspace/subscription context, which can
+    // be shared by distinct logins. Recompute personal identity before reading
+    // legacy cached `id:<workspace>` values so reconnect cannot merge users.
+    if provider == AgentProvider::Chatgpt {
+        let claims = token_claims(token);
+        if let Some(subject) = claims
+            .as_ref()
+            .and_then(|claims| claims.get("sub"))
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+        {
+            return Some(format!("chatgpt:sub:{subject}"));
+        }
+        return token
+            .pointer("/account/email_address")
+            .or_else(|| token.pointer("/account/email"))
+            .or_else(|| token.get("email"))
+            .and_then(Value::as_str)
+            .or_else(|| claims.as_ref()?.get("email")?.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|email| format!("chatgpt:email:{}", email.to_ascii_lowercase()));
+    }
+    if let Some(identity) = token
+        .get("hub_account_identity")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(identity.to_owned());
+    }
+    let claims = token_claims(token);
+    let provider_id = token
+        .pointer("/account/id")
+        .and_then(Value::as_str)
+        .or_else(|| token.pointer("/account/uuid").and_then(Value::as_str))
+        .or_else(|| {
+            let profile = provider_profile?;
+            profile
+                .pointer("/account/id")
+                .or_else(|| profile.pointer("/account/uuid"))
+                .or_else(|| profile.pointer("/user/id"))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            claims
+                .as_ref()
+                .and_then(|value| value.get("sub"))
+                .and_then(Value::as_str)
+        })
+        .filter(|value| !value.is_empty());
+    if let Some(provider_id) = provider_id {
+        return Some(format!("id:{provider_id}"));
+    }
+
+    if provider == AgentProvider::Deepseek {
+        let access_token = token.get("access_token").and_then(Value::as_str)?;
+        let digest = Sha256::digest(access_token.as_bytes());
+        return Some(format!("key:{digest:x}"));
+    }
+
+    token
+        .pointer("/account/email_address")
+        .or_else(|| token.pointer("/account/email"))
+        .or_else(|| token.get("email"))
+        .and_then(Value::as_str)
+        .or_else(|| {
+            let profile = provider_profile?;
+            profile
+                .pointer("/account/email_address")
+                .or_else(|| profile.pointer("/account/email"))
+                .or_else(|| profile.pointer("/user/email"))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            claims
+                .as_ref()
+                .and_then(|value| value.get("email"))
+                .and_then(Value::as_str)
+        })
+        .map(|email| format!("email:{}", email.trim().to_ascii_lowercase()))
 }
 
 fn connection_metadata(
@@ -1287,7 +1462,7 @@ fn connection_metadata(
         .get("api_key_last_four")
         .and_then(Value::as_str)
         .filter(|value| value.len() == 4 && value.is_ascii())
-        .map(|value| format!("API key ••••{value}"))
+        .map(|value| format!("••••{value}"))
         .or_else(|| {
             token
                 .pointer("/account/email_address")
@@ -1546,6 +1721,52 @@ pub async fn refresh_due_provider_credentials(
     Ok(summary)
 }
 
+/// Explicit operator maintenance: refresh every connected pool using its stored
+/// credentials, including validating static DeepSeek keys. Does not start an
+/// interactive authorization flow or stop after one provider fails.
+pub async fn refresh_all_provider_credentials(
+    state: &AppState,
+) -> Result<Vec<ProviderCredentialRefreshResult>, sqlx::Error> {
+    let rows = sqlx::query_as::<_, ConnectionRow>(
+        "SELECT id, provider, status, account_label, plan, failure_message, created_at, updated_at
+         FROM agent_connections WHERE status = 'connected' ORDER BY provider, created_at",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+
+    let mut results = Vec::with_capacity(rows.len());
+    for row in rows {
+        let connection_id = row.id;
+        let provider = row.provider.clone();
+        let status =
+            match refresh_connected_connection(state, row, CredentialRefreshMode::Force).await {
+                Ok(RefreshConnectionOutcome::Connected { .. }) => {
+                    ProviderCredentialRefreshStatus::Refreshed
+                }
+                Ok(RefreshConnectionOutcome::ReauthorizationRequired(row)) => {
+                    match fail_connection(
+                        state,
+                        row,
+                        "Provider authorization expired. Refresh this pool to reconnect.",
+                    )
+                    .await
+                    {
+                        Ok(_) => ProviderCredentialRefreshStatus::ReauthorizationRequired,
+                        Err(_) => ProviderCredentialRefreshStatus::Failed,
+                    }
+                }
+                Err(_) => ProviderCredentialRefreshStatus::Failed,
+            };
+        record_scheduled_refresh_attempt(state, connection_id).await;
+        results.push(ProviderCredentialRefreshResult {
+            connection_id,
+            provider,
+            status,
+        });
+    }
+    Ok(results)
+}
+
 async fn record_scheduled_refresh_attempt(state: &AppState, connection_id: Uuid) {
     if let Err(error) = sqlx::query(
         "UPDATE agent_connection_credentials SET refresh_attempted_at = NOW()
@@ -1652,7 +1873,14 @@ async fn refresh_connected_connection(
             transaction.rollback().await.map_err(database_error)?;
             return Ok(RefreshConnectionOutcome::ReauthorizationRequired(row));
         };
-        validate_deepseek_key(state, api_key).await?;
+        match validate_deepseek_key(state, api_key).await {
+            Ok(()) => {}
+            Err(ApiError::Validation(_)) => {
+                transaction.rollback().await.map_err(database_error)?;
+                return Ok(RefreshConnectionOutcome::ReauthorizationRequired(row));
+            }
+            Err(error) => return Err(error),
+        }
         if mode.restores_availability() {
             sqlx::query(
                 "UPDATE agent_connections SET availability_status = 'active',
@@ -1828,7 +2056,10 @@ async fn refresh_provider_token(
             state
                 .http
                 .post(format!("{}/oauth/token", state.config.codex_issuer))
-                .header("user-agent", "codex_cli_rs/0.153.4")
+                .header(
+                    "user-agent",
+                    format!("codex_cli_rs/{}", state.config.codex_client_version),
+                )
                 .form(&[
                     ("grant_type", "refresh_token"),
                     ("client_id", CODEX_CLIENT_ID),
@@ -2061,16 +2292,6 @@ fn random_url_token(bytes: usize) -> String {
     URL_SAFE_NO_PAD.encode(random)
 }
 
-fn poll_seconds(value: Option<&Value>) -> u64 {
-    value
-        .and_then(|value| {
-            value
-                .as_u64()
-                .or_else(|| value.as_str().and_then(|value| value.parse().ok()))
-        })
-        .unwrap_or(DEFAULT_POLL_SECONDS)
-}
-
 fn parse_callback_value(value: &str) -> Result<(String, Option<String>), ApiError> {
     let value = value.trim();
     if value.is_empty() {
@@ -2184,15 +2405,6 @@ fn validate_prompt_url(issuer: &str, prompt_url: &str) -> Result<(), ApiError> {
         .ok_or_else(|| upstream_payload_error(AgentProvider::Grok))
 }
 
-fn url_encode(value: &str) -> String {
-    Url::parse_with_params("https://hub.invalid", &[("user_code", value)])
-        .expect("static URL should parse")
-        .query()
-        .and_then(|query| query.strip_prefix("user_code="))
-        .unwrap_or_default()
-        .to_owned()
-}
-
 fn upstream_network_error(provider: AgentProvider, error: reqwest::Error) -> ApiError {
     eprintln!("{} authorization request failed: {error}", provider.label());
     ApiError::Provider(format!(
@@ -2238,16 +2450,18 @@ mod tests {
         routing::{get, post},
     };
     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+    use reqwest::Url;
     use serde_json::{Value, json};
     use tokio::net::TcpListener;
 
     use super::{
-        ANTIGRAVITY_CLIENT_VERSION, AgentProvider, AuthorizationSecret, CodexDeviceResponse,
-        CredentialRefreshMode, GEMINI_SCOPES, GROK_SCOPES, connection_metadata, decrypt_json,
-        encrypt_json, exchange_gemini_code, fetch_claude_profile, gemini_code_assist_body,
-        mask_account_label, merge_token_response, parse_callback_value, poll_seconds,
-        refresh_provider_token, refresh_requires_reauthorization, should_refresh_credential,
-        start_claude_authorization, start_gemini_authorization, start_grok_authorization,
+        ANTIGRAVITY_CLIENT_VERSION, AgentProvider, AuthorizationSecret, CODEX_REDIRECT_URI,
+        CODEX_SCOPES, CredentialRefreshMode, GEMINI_SCOPES, GROK_SCOPES, connection_metadata,
+        decrypt_json, encrypt_json, exchange_gemini_code, fetch_claude_profile,
+        gemini_code_assist_body, mask_account_label, merge_token_response, parse_callback_value,
+        provider_account_identity, reauthorization_identity_matches, refresh_provider_token,
+        refresh_requires_reauthorization, should_refresh_credential, start_claude_authorization,
+        start_codex_authorization, start_gemini_authorization, start_grok_authorization,
         token_claims, validate_api_key_input, validate_deepseek_key, validate_prompt_url,
     };
     use crate::AppConfig;
@@ -2637,21 +2851,26 @@ mod tests {
         );
     }
 
-    #[test]
-    fn codex_device_payload_accepts_the_live_string_interval_and_expiry() {
-        let payload: CodexDeviceResponse = serde_json::from_value(json!({
-            "device_auth_id": "device-secret",
-            "user_code": "ABCD-EFGH",
-            "interval": "5",
-            "expires_at": "2026-09-10T01:00:00Z"
-        }))
-        .unwrap();
+    #[tokio::test]
+    async fn codex_browser_authorization_uses_the_official_local_callback_contract() {
+        let state = crate::AppState {
+            config: AppConfig::default(),
+            http: reqwest::Client::new(),
+            gateway_http: reqwest::Client::new(),
+            pool: sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://localhost/hub_william_test")
+                .unwrap(),
+        };
+        let started = start_codex_authorization(&state).unwrap();
+        let url = Url::parse(&started.prompt_url).unwrap();
+        let query = url.query_pairs().collect::<HashMap<_, _>>();
 
-        assert_eq!(poll_seconds(payload.interval.as_ref()), 5);
-        assert_eq!(
-            payload.expires_at.unwrap().to_rfc3339(),
-            "2026-09-10T01:00:00+00:00"
-        );
+        assert_eq!(url.path(), "/oauth/authorize");
+        assert_eq!(query.get("redirect_uri").unwrap(), CODEX_REDIRECT_URI);
+        assert_eq!(query.get("scope").unwrap(), CODEX_SCOPES);
+        assert_eq!(query.get("code_challenge_method").unwrap(), "S256");
+        assert!(started.requires_callback_url);
+        assert_eq!(started.user_code, None);
     }
 
     #[test]
@@ -2684,7 +2903,7 @@ mod tests {
             }),
             None,
         );
-        assert_eq!(label.as_deref(), Some("API key ••••3456"));
+        assert_eq!(label.as_deref(), Some("••••3456"));
         assert_eq!(plan.as_deref(), Some("API"));
     }
 
@@ -2733,6 +2952,74 @@ mod tests {
         );
 
         assert_eq!(token_claims(&json!({ "id_token": token })), Some(claims));
+    }
+
+    #[test]
+    fn provider_account_identity_prefers_stable_ids_and_normalizes_email() {
+        let claims = json!({
+            "email": "OTHER@example.com",
+            "sub": "personal-user-123",
+            "https://api.openai.com/auth.chatgpt_account_id": "account-123"
+        });
+        let token = format!(
+            "header.{}.signature",
+            URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap())
+        );
+        assert_eq!(
+            provider_account_identity(AgentProvider::Chatgpt, &json!({ "id_token": token }), None),
+            Some("chatgpt:sub:personal-user-123".to_owned())
+        );
+        assert_eq!(
+            provider_account_identity(
+                AgentProvider::Gemini,
+                &json!({ "email": " Owner@Example.COM " }),
+                None
+            ),
+            Some("email:owner@example.com".to_owned())
+        );
+    }
+
+    #[test]
+    fn chatgpt_identity_never_uses_a_workspace_or_legacy_cache_alone() {
+        assert_eq!(
+            provider_account_identity(
+                AgentProvider::Chatgpt,
+                &json!({
+                    "account_id": "shared-workspace", "hub_account_identity": "id:shared-workspace"
+                }),
+                None
+            ),
+            None
+        );
+        for email in ["person+maple@example.test", "person+juliet@example.test"] {
+            assert_eq!(
+                provider_account_identity(
+                    AgentProvider::Chatgpt,
+                    &json!({
+                        "account_id": "shared-workspace", "email": format!(" {} ", email.to_uppercase()),
+                        "hub_account_identity": "id:shared-workspace"
+                    }),
+                    None
+                ),
+                Some(format!("chatgpt:email:{email}"))
+            );
+        }
+    }
+
+    #[test]
+    fn reauthorization_requires_the_exact_same_provider_identity() {
+        assert!(reauthorization_identity_matches(
+            Some("id:account-1"),
+            Some("id:account-1")
+        ));
+        assert!(!reauthorization_identity_matches(
+            Some("id:account-1"),
+            Some("id:account-2")
+        ));
+        assert!(!reauthorization_identity_matches(
+            Some("id:account-1"),
+            None
+        ));
     }
 
     #[test]

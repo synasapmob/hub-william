@@ -308,6 +308,38 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/playground/chat": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["chat"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/playground/{provider}/accounts/{connection_id}/models": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["models"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -466,6 +498,38 @@ export interface components {
       password: string;
       username: string;
     };
+    PlaygroundAttachment:
+      | {
+          data: string;
+          /** @enum {string} */
+          kind: "image";
+          media_type: string;
+          name: string;
+        }
+      | {
+          /** @enum {string} */
+          kind: "text";
+          name: string;
+          text: string;
+        };
+    PlaygroundChatRequest: {
+      /** Format: uuid */
+      connection_id: string;
+      messages: components["schemas"]["PlaygroundMessage"][];
+      model: string;
+      provider: components["schemas"]["AgentProvider"];
+    };
+    PlaygroundMessage: {
+      attachments?: components["schemas"]["PlaygroundAttachment"][];
+      content: string;
+      role: components["schemas"]["PlaygroundRole"];
+    };
+    PlaygroundModel: {
+      id: string;
+      name: string;
+    };
+    /** @enum {string} */
+    PlaygroundRole: "user" | "assistant";
     RegisterRequest: {
       password: string;
       recovery_email?: string | null;
@@ -652,7 +716,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Connection credential removed */
+      /** @description Connected account pool deleted */
       204: {
         headers: {
           [name: string]: unknown;
@@ -1232,6 +1296,116 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["HealthResponse"];
+        };
+      };
+    };
+  };
+  chat: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["PlaygroundChatRequest"];
+      };
+    };
+    responses: {
+      /** @description Provider-native text event stream */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "text/event-stream": string;
+        };
+      };
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      502: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  models: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        provider: components["schemas"]["AgentProvider"];
+        connection_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PlaygroundModel"][];
+        };
+      };
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      502: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
         };
       };
     };

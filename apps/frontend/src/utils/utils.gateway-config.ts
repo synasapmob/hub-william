@@ -35,13 +35,10 @@ export function resolveGatewayOrigin(
 export interface GatewayInstallCommandOptions {
   gatewayOrigin: string;
   installerUrl: string;
-  key?: string;
 }
 
 export function gatewayInstallCommand(options: GatewayInstallCommandOptions) {
-  const key = options.key ?? GATEWAY_KEY_PLACEHOLDER;
-
-  return `curl -fsSL ${options.installerUrl} | python3 - --url=${options.gatewayOrigin} --key=${key}`;
+  return `curl -fsSL ${options.installerUrl} | python3 - --url=${options.gatewayOrigin}`;
 }
 
 export interface GatewayAgentConfigsOptions {
