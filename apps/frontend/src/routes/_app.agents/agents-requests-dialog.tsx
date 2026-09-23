@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import {
   Check,
   CheckCircle2,
+  CircleHelp,
   LoaderCircle,
   RefreshCw,
   Search,
@@ -32,11 +33,21 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import agentConnectionsService, {
   AgentConnectionServiceError,
   type AgentConnection,
 } from "@/services/agent-connections";
 import type { AgentPool, AgentPoolRequestStatus } from "@/services/agent-pools";
+import {
+  agentPoolAvailabilityLabel,
+  agentPoolUsageIssues,
+  agentPoolWarning,
+} from "@/utils/utils.agent-pools";
 
 const decisionButton = tv({
   variants: {
@@ -70,7 +81,7 @@ interface AgentsRequestsDialogProps {
   onInvite: (username: string) => Promise<void>;
   onOpenChange: (open: boolean) => void;
   onRefresh: () => Promise<AgentConnection>;
-  onRefreshComplete: () => void;
+  onRefreshComplete: (connection: AgentConnection) => void;
   onRemoveMember: (username: string) => Promise<void>;
   open: boolean;
   pool: AgentPool | null;
@@ -117,6 +128,15 @@ export default function AgentsRequestsDialog({
     defaultValues: { callbackUrl: "" },
     resolver: zodResolver(callbackSchema),
   });
+  const poolConnectionQuery = useQuery({
+    queryFn:
+      open && pool ? () => agentConnectionsService.get(pool.id) : skipToken,
+    queryKey: [
+      ...agentConnectionsService.queryKey,
+      "pool-availability",
+      pool?.id,
+    ],
+  });
   const pollConnectionId =
     refreshConnection?.authorization &&
     !refreshConnection.authorization.requiresCallbackUrl
@@ -152,14 +172,11 @@ export default function AgentsRequestsDialog({
   const members = (pool?.members ?? []).filter(
     (member) => member.username !== pool?.owner.username,
   );
-  const availabilityLabel =
-    pool?.availability.status === "active"
-      ? "Active"
-      : pool?.availability.status === "half_open"
-        ? "Ready to retry"
-        : pool?.availability.status === "reauth_required"
-          ? "Reconnect required"
-          : "Cooling down";
+  const warning = pool ? agentPoolWarning(pool) : null;
+  const failureMessage = (currentRefreshConnection ?? poolConnectionQuery.data)
+    ?.failureMessage;
+  const issueMetrics = pool ? agentPoolUsageIssues(pool) : [];
+  const hasIssue = Boolean(warning || failureMessage || issueMetrics.length);
 
   useEffect(() => {
     const connection = connectionStatusQuery.data;
@@ -168,7 +185,7 @@ export default function AgentsRequestsDialog({
       !connection.authorization &&
       !connection.failureMessage
     ) {
-      onRefreshComplete();
+      onRefreshComplete(connection);
     }
   }, [connectionStatusQuery.data, onRefreshComplete]);
 
@@ -203,7 +220,7 @@ export default function AgentsRequestsDialog({
         popup.location.replace(connection.authorization.authorizationUrl);
       } else {
         popup.close();
-        onRefreshComplete();
+        onRefreshComplete(connection);
       }
     } catch (error) {
       popup.close();
@@ -225,7 +242,7 @@ export default function AgentsRequestsDialog({
       });
       setRefreshConnection(connection);
       callbackForm.reset();
-      onRefreshComplete();
+      onRefreshComplete(connection);
     } catch (error) {
       callbackForm.setError("root", {
         message:
@@ -270,42 +287,73 @@ export default function AgentsRequestsDialog({
           className="space-y-3"
         >
           <Flex className="items-center justify-between gap-3">
-            <div>
-              <h3
-                id="pool-availability-title"
-                className="text-sm font-semibold"
-              >
-                Pool availability
-              </h3>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Refresh stores the latest provider credential. If the provider
-                session ended, its official login opens so you can reconnect
-                this same pool.
-              </p>
-            </div>
-            <Flex className="flex-wrap items-center justify-end gap-2">
-              <Badge variant="outline">{availabilityLabel}</Badge>
-              <Button
-                disabled={busy}
-                onClick={() => void refreshCredential()}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                <RefreshCw aria-hidden="true" data-icon="inline-start" />
-                Refresh
-              </Button>
-              <Button
-                disabled={busy}
-                onClick={() => void onDelete()}
-                size="sm"
-                type="button"
-                variant="destructive"
-              >
-                <Trash2 aria-hidden="true" data-icon="inline-start" />
-                Delete
-              </Button>
-            </Flex>
+            <h3 id="pool-availability-title" className="text-sm font-semibold">
+              Pool availability
+            </h3>
+
+            {hasIssue ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button size="sm" type="button" variant="outline">
+                    {pool ? agentPoolAvailabilityLabel(pool) : "Unavailable"}
+                    <CircleHelp aria-hidden="true" className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+
+                <TooltipContent className="block max-w-72 space-y-2">
+                  {failureMessage || warning ? (
+                    <p>{failureMessage || warning}</p>
+                  ) : null}
+
+                  {issueMetrics.map((metric) => (
+                    <div key={metric.label}>
+                      <p>
+                        {metric.label}: {metric.value}
+                      </p>
+
+                      {metric.detail ? <p>{metric.detail}</p> : null}
+                    </div>
+                  ))}
+
+                  {pool?.availability.retryAt ? (
+                    <p>
+                      Retry after{" "}
+                      <time dateTime={pool.availability.retryAt}>
+                        {new Date(pool.availability.retryAt).toLocaleString()}
+                      </time>
+                    </p>
+                  ) : null}
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <Badge variant="outline">
+                {pool ? agentPoolAvailabilityLabel(pool) : "Unavailable"}
+              </Badge>
+            )}
+          </Flex>
+
+          <Flex className="flex-wrap items-center gap-2">
+            <Button
+              disabled={busy}
+              onClick={() => void refreshCredential()}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <RefreshCw aria-hidden="true" data-icon="inline-start" />
+              Refresh
+            </Button>
+
+            <Button
+              disabled={busy}
+              onClick={() => void onDelete()}
+              size="sm"
+              type="button"
+              variant="destructive"
+            >
+              <Trash2 aria-hidden="true" data-icon="inline-start" />
+              Delete
+            </Button>
           </Flex>
 
           {currentRefreshConnection?.authorization ? (

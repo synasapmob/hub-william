@@ -60,8 +60,7 @@ jobs:
       - name: Build
         run: pnpm build
 
-      # The catalogue is Markdown that the machine installer also reads, so its
-      # own suite guards the contracts this site publishes.
-      - name: Machine harness suite
+      # Preserve config writes, model discovery and gateway proxy contracts.
+      - name: Tool installer suite
         run: python3 -m unittest discover -s tests -p 'test_*.py'
-        working-directory: apps/frontend/scripts/machine
+        working-directory: apps/frontend/scripts/installers

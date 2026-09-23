@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Install live Hub William provider catalogues into OMP.
 
-    curl -fsSL https://<hub>/omp.py | python3 - --url=https://<api> --key=YOUR_GATEWAY_KEY
+    curl -fsSL https://<hub>/omp.py | python3 - --url=https://<api>
 """
 
 import argparse

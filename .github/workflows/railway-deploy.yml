@@ -1,0 +1,103 @@
+name: Deploy to Railway
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: railway-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy production
+    if: github.repository == 'synasapmob/hub-william' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 60
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_PROJECT_ID: f7d4909b-9c94-4dc5-b416-be61b9943909
+
+    steps:
+      - name: Check Railway token
+        id: credentials
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::RAILWAY_TOKEN is not configured; production deployment skipped."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout repository
+        if: steps.credentials.outputs.configured == 'true'
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        if: steps.credentials.outputs.configured == 'true'
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Install Railway CLI
+        if: steps.credentials.outputs.configured == 'true'
+        run: npm install --global @railway/cli@5.49.6
+
+      - name: Deploy and verify services
+        if: steps.credentials.outputs.configured == 'true'
+        run: |
+          set -euo pipefail
+
+          deploy_service() {
+            local service="$1"
+            local result deployment_id status previous_status=""
+
+            result="$(railway up \
+              --project "$RAILWAY_PROJECT_ID" \
+              --environment production \
+              --service "$service" \
+              --message "main ${GITHUB_SHA}" \
+              --detach --json)"
+            deployment_id="$(jq -er '.deploymentId' <<< "$result")"
+            echo "$service queued as $deployment_id"
+
+            for attempt in $(seq 1 90); do
+              status="$(railway deployment list \
+                --project "$RAILWAY_PROJECT_ID" \
+                --environment production \
+                --service "$service" \
+                --limit 100 --json |
+                jq -r --arg id "$deployment_id" '[.[] | select(.id == $id) | .status][0] // ""')"
+
+              if [[ "$status" != "$previous_status" ]]; then
+                echo "$service $deployment_id ($attempt/90): ${status:-waiting for deployment record}"
+                previous_status="$status"
+              fi
+
+              case "$status" in
+                SUCCESS) return 0 ;;
+                FAILED|CRASHED|REMOVED|REMOVING|SKIPPED|NEEDS_APPROVAL|SLEEPING)
+                  echo "::error::$service deployment $deployment_id ended with $status"
+                  return 1
+                  ;;
+                ""|QUEUED|WAITING|INITIALIZING|BUILDING|DEPLOYING) sleep 10 ;;
+                *)
+                  echo "::error::$service deployment $deployment_id has unexpected status $status"
+                  return 1
+                  ;;
+              esac
+            done
+
+            echo "::error::$service deployment $deployment_id did not finish within 15 minutes"
+            return 1
+          }
+
+          deploy_service api
+          deploy_service telegram
+          deploy_service frontend

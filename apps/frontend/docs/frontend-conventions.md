@@ -11,17 +11,15 @@ Two differences from the upstream rules are load-bearing and worth stating up fr
   not. The attribute rules below depend on that, so do not copy the upstream
   wording about `type="button"` verbatim.
 
-Hub William is the agent-workspace product: a specification page, a collection
-catalogue of harnesses, skills, hooks and templates, and agent activity
-telemetry. The provider dashboard it replaced is gone, along with its backend,
-its accounts and the rules that only described them. See
-[architecture.md](./architecture.md).
+Hub William is the agent workspace with Home, Tools, shared Agents and a model
+Playground. See [architecture.md](./architecture.md) for product and runtime
+boundaries.
 
 Treat everything below as review criteria, not style suggestions. Review every
 changed file against it before handing work off.
 
 **Everything here is a rule for the whole app.** A rule that names one page is
-not a convention: "the library route must move its viewport into a hook" tells
+not a convention: "a catalogue route must move its viewport into a hook" tells
 a reader nothing about the next route they write, and it is wrong the day that
 page changes. Write the general form — _a concern that is not about the data a
 route renders belongs in its own module_ — and let the page be the example
@@ -136,30 +134,17 @@ Export it only when something outside the file needs it.
 
 ### Catalogue source stays inert
 
-The catalogue publishes Markdown that arrives by pull request from whoever
-wants an entry. The collection sheet never renders that body as HTML: it prints
+The Tools catalogue publishes shared and contributed Markdown documentation from
+the repository. The collection sheet never renders that body as HTML: it prints
 derived names and descriptions as React text and offers the original bytes as a
 download. Do not add raw HTML rendering, `dangerouslySetInnerHTML`, remote image
 previews or another transformation that makes downloaded source active in the
 page.
 
-`vercel.json` carries a CSP as the backstop, and it still matters. `script-src`
-has to include `'unsafe-inline'` because React Router's SPA build inlines its
-hydration bootstrap into `index.html`; `connect-src 'self'` remains absolute
-because components fetch nothing. A download control is a reader-initiated
-navigation to `/catalog/`, not a component connection. `font-src 'self' data:`
-is why the two typefaces are self-hosted through `@fontsource-variable/*`.
-
-**`img-src` names GitHub's two image hosts and nothing else**, because a
-contributor's avatar is `https://github.com/<login>.png` and that redirects to
-`avatars.githubusercontent.com`. Widening it further reopens the exfiltration
-pixel this directive exists to close; an injected image pointed at GitHub leaks
-to GitHub, which is why these two are acceptable and a wildcard is not.
-
-**None of this is enforced on GitHub Pages**, which cannot set response headers.
-The policy applies only where a host sends it. Keep it accurate — a fork may
-deploy somewhere that does — but do not cite it as a live control on
-`synasapmob.github.io`.
+Railway serves catalogue downloads from the same origin under `/catalog/` and
+proxies API requests under `/api`. A download control is a reader-initiated
+navigation to `/catalog/`, not a component connection. Do not cite a retired
+host's response-header configuration as a live protection on Railway.
 
 ### `cn` is for shadcn primitives only
 
@@ -206,14 +191,12 @@ Prefer native semantic elements and the existing primitives. Do not add `type`,
 behaviour, relationship, test, tooltip, or accessibility consumer that the
 element does not already provide.
 
-- **Every non-submit `<button>` declares `type="button"`.** This app currently
-  has no `<form>` at all, so the attribute changes nothing today — and that is
-  exactly why it is written down rather than decided per site. A native
-  `<button>` defaults to `submit` inside a form, buttons here live in sheets,
-  popovers, canvases and toolbars composed into parents they cannot see, and the
+- **Every non-submit `<button>` declares `type="button"`.** A native
+  `<button>` defaults to `submit` inside a form. Buttons here live in dialogs,
+  sheets, popovers and toolbars composed into parents they cannot see, and the
   failure mode is an accidental submit with no error anywhere. Declaring it is
   cheap and stable; auditing ancestry on every refactor is not. The collection
-  grid makes this sharper, not softer: every card on `/library` is a `<button>`.
+  grid makes this sharper, not softer: every card on `/tools` is a `<button>`.
   The submit control itself takes `type="submit"`, and every meaningful
   `<input type>` stays — it selects a real browser control, keyboard, and
   validation behaviour.
@@ -236,41 +219,35 @@ element does not already provide.
 
 ```text
 apps/frontend/src/
-  assets/                      # static images imported by the app
   components/
-    ui/                        # generated shadcn primitives — see "cn" above
-    workspace-shell/           # the app frame; index.tsx, then one file per container
-    flex.tsx                   # reusable application primitives, flat
+    ui/                        # generated shadcn primitives
+    workspace-shell/           # shared navigation and session UI
     copy-command.tsx
-    page-header.tsx
   routes/
-    _app/                      # pathless workspace layout
-      route.tsx
-    _app._index/               # / the specification, and its private modules
-      route.tsx
-    _app.library.($contributor)/  # /library and /library/<login>
-      route.tsx
-    _app.activities/           # /activities telemetry, and its private modules
-      route.tsx
+    _app/                      # shared workspace layout
+    _app._index/               # root entry
+    _app.tools.($contributor)/ # shared and contributor tools
+    _app.agents/               # connected accounts and owner management
+    _app.playground/           # session-backed model chat
     $.tsx                      # catch-all route
   root.tsx                     # document shell and global providers
   routes.ts                    # file-route configuration
-  services/                    # where content comes from
-    catalog/                   # source entries and functional collection taxonomy
+  services/                    # typed API and tool catalogue boundaries
   test/                        # shared test setup
-  utils/                       # one concern per file: helpers, shared class
-    utils.activities.ts
+  utils/                       # focused helpers and shared class contracts
 
 apps/frontend/public/
-  css/index.css                # the theme; apps/frontend/src/root.tsx imports it by path
-  install.py                   # dependency-free bootstrap for global/project setup
+  css/index.css                # application theme
+  gateway.py                   # standalone agent configuration installer
+  opencode.py                  # OpenCode provider installer
+  omp.py                       # OMP provider installer
 
-contributors/                  # the catalogue this site publishes
-  default/libraries/
-  <login>/libraries/           # one workspace per contributor
+contributors/
+  */tools/                     # shared and contributed tool sources
+  */libraries/                 # development workflow sources, not app pages
 
-apps/frontend/scripts/machine/
-  lib/, tests/                 # the installer that puts the catalogue on a machine
+apps/frontend/scripts/installers/
+  tests/                       # standalone installer and gateway proxy checks
 ```
 
 - **A service never reshapes its source to suit a view.** Where the data is a
@@ -283,8 +260,8 @@ apps/frontend/scripts/machine/
 - **Fixture data hides behind the same service shape as real data**, so the day
   it becomes rows only the service changes and no component notices.
 
-What this product _is_ — where the catalogue lives, why there is no backend, why
-no route is behind an account — is not a convention and is not here. See
+The product's routes, runtime boundaries and deployment ownership are described
+separately from these code conventions. See
 [architecture.md](./architecture.md).
 
 - Route modules and route-only UI belong in `apps/frontend/src/routes`. A route folder exposes `route.tsx`; its charts, dialogs, tables, and tests stay beside it.
@@ -294,12 +271,12 @@ no route is behind an account — is not a convention and is not here. See
 - **Every file inside a folder carries that folder's name as a prefix.** The
   bullet above is an instance of this rule rather than a separate one: a
   family's children keep the family prefix. It holds for route folders too —
-  `_app.activities/` holds `activities-heatmap.tsx`,
-  `components/catalog-canvas/` holds `catalog-canvas-collection-detail.tsx`,
-  `components/workspace-shell/` holds `workspace-shell-mobile.tsx`,
-  `components/catalog-canvas/` holds `catalog-canvas-collection-files.tsx`. The prefix is what a grep
+  `_app.agents/` holds `agents-pool-card.tsx`,
+  `_app.tools.($contributor)/` holds `tools-catalog-collection-detail.tsx`,
+  `components/workspace-shell/` holds `workspace-shell-mobile.tsx`.
+  The prefix is what a grep
   result and a row of open tabs have instead of the folder name:
-  `entry-detail.tsx` and `activity-summary.tsx` could belong to anything, and
+  `entry-detail.tsx` and `pool-card.tsx` could belong to anything, and
   two folders are one file away from both owning a `report-summary.tsx`.
 
   Five things are exempt, each because the name is already load bearing
@@ -316,18 +293,18 @@ no route is behind an account — is not a convention and is not here. See
   - **`apps/frontend/src/utils/utils.*.ts`.** Already prefixed, in the dot form
     `apps/frontend/components.json`'s `aliases.utils` points at. Changing the separator
     rewrites the `cn` import in every generated primitive for cosmetics.
-  - **Flat shared buckets** — `components/flex.tsx`, `copy-command.tsx`,
-    `install-commands.tsx`, `page-header.tsx`. The rule is about a folder that
+  - **Flat shared buckets** — `components/copy-block.tsx`, `copy-command.tsx`,
+    `focus-return-dialog-content.tsx`. The rule is about a folder that
     groups the parts of one thing, not about every folder that holds files.
     `components/` holds unrelated primitives, so a `components-` prefix would
     say nothing about any of them.
 
 - **A file's default export carries the file's name, prefix included.**
-  `catalog-canvas-toolbar.tsx` exports `CatalogCanvasToolbar`,
-  `activities-heatmap.tsx` exports `ActivitiesHeatmap`,
-  `catalog-canvas-collection-card.tsx` exports
-  `CatalogCanvasCollectionCard`. Its props
-  interface follows — `CatalogCanvasCollectionCardProps`. Prefixing the file but not
+  `tools-catalog-toolbar.tsx` exports `ToolsCatalogToolbar`,
+  `agents-pool-card.tsx` exports `AgentsPoolCard`,
+  `tools-catalog-collection-card.tsx` exports
+  `ToolsCatalogCollectionCard`. Its props
+  interface follows — `ToolsCatalogCollectionCardProps`. Prefixing the file but not
   the symbol buys nothing: the import site, the JSX tag, the React DevTools
   tree and a stack trace all read the symbol, not the path, and a bare
   `<EntryCard />` in a stack trace could have come from any folder.
@@ -335,18 +312,18 @@ no route is behind an account — is not a convention and is not here. See
   This governs the exported subject of a file, not everything it exports:
 
   - **Named data exports keep their own domain names.**
-    `GITHUB_REPOSITORY_URL`, `collectionIdForEntry`, `CatalogEntry`. They are named
-    for what they are, and `LIBRARY_CANVAS_WORLD` is noise. The test is whether
+    `GITHUB_REPOSITORY_URL`, `collectionIdForPath`, `CatalogCollection`. They are named
+    for what they are. The test is whether
     the file exists to provide that one thing.
-  - **Data types are not components.** `apps/frontend/src/utils/utils.activities.ts` exports
-    `ActivitySummaryStats` — one activity's statistics — while the component
-    reading it is `ActivitiesSummary` in `_app.activities/`. The near-collision
-    is the point: singular is the record, plural is the route's folder.
+  - **Data types are not components.** `apps/frontend/src/services/agent-pools.ts`
+    exports `AgentPool`, while the component reading it is `AgentsPoolCard` in
+    `_app.agents/`. The record keeps its domain name; the component keeps its
+    route ownership prefix.
   - **Module-private helpers are not renamed.** `WorkspaceBrand` inside
     `workspace-shell-sidebar.tsx` is invisible outside the file, so a prefix
     only lengthens it.
   - **`route.tsx` cannot carry a name**, so its default export is named for the
-    page — `LibraryRoute`, `WhitepaperRoute`, `ActivitiesRoute`.
+    page — `ToolsRoute`, `AgentsRoute`, `PlaygroundRoute`.
 
 - Import across ownership boundaries with `@/`. Use `./` only inside the same owner folder. Any `../` import is migration debt — replace it when you next touch the file.
 - **`apps/frontend/src/utils/` holds focused pure helpers, one concern per `utils.*.ts` file** — `utils.class-names.ts`, `utils.format.ts`. There is no `apps/frontend/src/utils/index.ts`, and there is no `apps/frontend/src/lib`.
@@ -365,8 +342,10 @@ no route is behind an account — is not a convention and is not here. See
   Query's `useQuery`, and remote writes use `useMutation` with an explicit cache
   update or query invalidation. Do not rebuild query loading, retry, cancellation
   or cache state with `useEffect` and parallel local state. Static catalogue data
-  remains inlined at build time, telemetry remains fixture data, and download
-  controls remain reader-initiated `<a download>` navigations.
+  remains inlined at build time, and download controls remain reader-initiated
+  `<a download>` navigations. Playground uses the same query/mutation boundary; incremental stream
+  decoding belongs to its service, while the form owns compose validation and
+  submission errors.
 - Do not create a catch-all `types/` directory. Keep types with the service or feature that owns them.
 
 ## Exports
@@ -387,10 +366,8 @@ no route is behind an account — is not a convention and is not here. See
   already in the repository.
 - Contributed Markdown is authored by strangers and remains inert downloadable
   source in the browser; see "Catalogue source stays inert" above.
-- Contributor avatars come from `https://github.com/<login>.png`, which is why
-  `img-src` names GitHub's image hosts. **The policy in `vercel.json` is not
-  enforced on GitHub Pages**, which cannot set response headers; keep it
-  accurate anyway, and do not cite it as a live control on that host.
+- Railway's public Nginx frontend is the production response-header boundary;
+  any new header policy must be implemented and verified there.
 
 ## Tests and verification
 
@@ -405,7 +382,7 @@ pnpm lint
 pnpm typecheck
 pnpm test
 pnpm build
-bash apps/frontend/scripts/machine/tests/run.sh # the catalogue's own contracts
+bash apps/frontend/scripts/installers/tests/run.sh # installer and proxy contracts
 ```
 
 - **`apps/frontend/src` compiles under `strict`.** `apps/frontend/tsconfig.app.json` sets `strict` and
@@ -419,6 +396,5 @@ bash apps/frontend/scripts/machine/tests/run.sh # the catalogue's own contracts
   green typecheck is to break something on purpose and confirm it goes red.
 
 - **CI runs all of it** (`.github/workflows/ci.yml`) on every pull request, and
-  `main` will not accept a merge without it. The catalogue's own suite runs
-  there too, because a contract that moves without its references breaks the
-  harness rather than the site, and nothing else would catch it.
+  `main` will not accept a merge without it. The standalone installer suite runs
+  there too, protecting agent configuration and gateway proxy behavior.

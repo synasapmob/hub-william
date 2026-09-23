@@ -14,7 +14,7 @@ import {
 
 function poolWithUsage(usage: AgentPoolUsageMetric[]) {
   const availability: AgentPoolAvailability = { status: "active" };
-  return { usage, availability };
+  return { agent: "ChatGPT" as const, usage, availability };
 }
 
 describe("agent pool usage summaries", () => {

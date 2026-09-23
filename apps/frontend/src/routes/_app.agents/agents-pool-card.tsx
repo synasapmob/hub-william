@@ -1,4 +1,5 @@
-import { ChevronDown, CircleAlert, Clock3, Users, X } from "lucide-react";
+import { ChevronDown, Clock3, Users, X } from "lucide-react";
+import { tv } from "tailwind-variants";
 
 import Flex from "@/components/ui/flex";
 import { Badge } from "@/components/ui/badge";
@@ -8,14 +9,19 @@ import agentPoolsService, { type AgentPool } from "@/services/agent-pools";
 import {
   agentPoolAccess,
   agentPoolAccessLabels,
-  agentPoolAvailabilityLabels,
+  agentPoolAvailabilityLabel,
   agentPoolRemaining,
   agentPoolUsageValue,
-  agentPoolWarning,
+  agentProviderShowsUsage,
 } from "@/utils/utils.agent-pools";
 
 import AgentsAvatarStack from "./agents-avatar-stack";
 import AgentsProviderIcon from "./agents-provider-icon";
+
+const memberSection = tv({
+  base: "group",
+  variants: { afterUsage: { true: "border-t border-zinc-100 pt-4" } },
+});
 
 interface AgentsPoolCardProps {
   currentUsername: string | null;
@@ -32,8 +38,8 @@ export default function AgentsPoolCard({
   onRequestJoin,
   pool,
 }: AgentsPoolCardProps) {
+  const showUsage = agentProviderShowsUsage(pool.agent);
   const access = agentPoolAccess(pool, currentUsername);
-  const warning = agentPoolWarning(pool);
   const actionDisabled = access !== "owner" && access !== "request";
 
   return (
@@ -82,77 +88,57 @@ export default function AgentsPoolCard({
       </header>
 
       <div className="space-y-5 p-5">
-        {warning ? (
-          <Flex className="items-start gap-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-800">
-            <CircleAlert
-              aria-hidden="true"
-              className="mt-0.5 size-3.5 shrink-0"
-            />
+        {showUsage ? (
+          <section aria-label="Account usage" className="space-y-3">
+            <h4 className="text-[10px] font-semibold tracking-widest text-zinc-400 uppercase">
+              Usage & limits
+            </h4>
 
-            <div>
-              <p className="font-medium">{warning}</p>
+            {pool.usage.length ? (
+              <dl className="space-y-4">
+                {pool.usage.map((metric) => {
+                  const remaining = agentPoolRemaining(metric);
+                  return (
+                    <div key={metric.label}>
+                      <Flex className="items-center justify-between gap-3 text-xs">
+                        <dt className="text-zinc-600">{metric.label}</dt>
 
-              {pool.availability.retryAt ? (
-                <p className="mt-1">
-                  Retry after{" "}
-                  <time dateTime={pool.availability.retryAt}>
-                    {new Date(pool.availability.retryAt).toLocaleString()}
-                  </time>
-                </p>
-              ) : null}
-            </div>
-          </Flex>
+                        <dd className="text-right font-mono font-medium">
+                          {agentPoolUsageValue(metric)}
+                        </dd>
+                      </Flex>
+
+                      {remaining !== null ? (
+                        <Progress
+                          className="mt-2"
+                          aria-label={`${metric.label} remaining`}
+                          value={remaining}
+                        />
+                      ) : null}
+
+                      {metric.detail && metric.value !== "Unavailable" ? (
+                        <Flex className="mt-2 items-start gap-1.5 text-[10px]/relaxed text-zinc-500">
+                          <Clock3
+                            aria-hidden="true"
+                            className="mt-0.5 size-3 shrink-0"
+                          />
+
+                          <p>{metric.detail}</p>
+                        </Flex>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </dl>
+            ) : (
+              <p className="text-xs text-zinc-500">
+                {pool.agent} has not reported usage for this account yet.
+              </p>
+            )}
+          </section>
         ) : null}
 
-        <section aria-label="Account usage" className="space-y-3">
-          <h4 className="text-[10px] font-semibold tracking-widest text-zinc-400 uppercase">
-            Usage & limits
-          </h4>
-
-          {pool.usage.length ? (
-            <dl className="space-y-4">
-              {pool.usage.map((metric) => {
-                const remaining = agentPoolRemaining(metric);
-                return (
-                  <div key={metric.label}>
-                    <Flex className="items-center justify-between gap-3 text-xs">
-                      <dt className="text-zinc-600">{metric.label}</dt>
-
-                      <dd className="text-right font-mono font-medium">
-                        {agentPoolUsageValue(metric)}
-                      </dd>
-                    </Flex>
-
-                    {remaining !== null ? (
-                      <Progress
-                        className="mt-2"
-                        aria-label={`${metric.label} remaining`}
-                        value={remaining}
-                      />
-                    ) : null}
-
-                    {metric.detail ? (
-                      <Flex className="mt-2 items-start gap-1.5 text-[10px]/relaxed text-zinc-500">
-                        <Clock3
-                          aria-hidden="true"
-                          className="mt-0.5 size-3 shrink-0"
-                        />
-
-                        <p>{metric.detail}</p>
-                      </Flex>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </dl>
-          ) : (
-            <p className="text-xs text-zinc-500">
-              {pool.agent} has not reported usage for this account yet.
-            </p>
-          )}
-        </section>
-
-        <details className="group border-t border-zinc-100 pt-4">
+        <details className={memberSection({ afterUsage: showUsage })}>
           <summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-sm text-xs focus-visible:outline-2 focus-visible:outline-indigo-500 [&::-webkit-details-marker]:hidden">
             <span className="inline-flex items-center gap-2">
               <Users aria-hidden="true" className="size-3.5 text-zinc-400" />
@@ -211,7 +197,7 @@ export default function AgentsPoolCard({
           <Flex className="items-center justify-between gap-3">
             <dt className="text-zinc-400">Status</dt>
 
-            <dd>{agentPoolAvailabilityLabels[pool.availability.status]}</dd>
+            <dd>{agentPoolAvailabilityLabel(pool)}</dd>
           </Flex>
         </dl>
       </div>

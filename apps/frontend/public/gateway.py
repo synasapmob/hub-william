@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Install Hub William as the upstream gateway for supported agent CLIs.
 
-    curl -fsSL https://<hub-william-origin>/gateway.py | python3 - --url=https://<hub-william-origin>/api --key=YOUR_GATEWAY_KEY
+    curl -fsSL https://<hub-william-origin>/gateway.py | python3 - --url=https://<hub-william-origin>/api
 """
 
 import argparse

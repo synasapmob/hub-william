@@ -39,6 +39,10 @@ populated values in the runtime secret store.
 - `/agent-connections/*`: official provider authorization start, poll, callback,
   DeepSeek API-key connection, disconnect, and refresh-on-read lifecycle.
 - `/gateway-keys`: create-once, list metadata, and revoke operations.
+- `GET /playground/{provider}/accounts/{connection_id}/models`: live models for
+  an account the signed-in user owns or a pool they have joined.
+- `POST /playground/chat`: session-authorized, account-pinned text streaming;
+  accepts supported image and file inputs but does not generate native images.
 - `/gateway/openai/v1/responses`: Codex/OpenAI Responses streaming gateway.
 - `/gateway/claude/v1/messages`: Claude Messages streaming gateway.
 - `/gateway/gemini/v1beta/models`: the current public AGY model set intersected

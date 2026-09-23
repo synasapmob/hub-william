@@ -80,7 +80,7 @@ impl AppConfig {
                 .filter(|token| !token.trim().is_empty())
                 .map(String::into_bytes),
             codex_client_version: env::var("CODEX_CLIENT_VERSION")
-                .unwrap_or_else(|_| "0.153.4".to_owned()),
+                .unwrap_or_else(|_| "0.156.0".to_owned()),
             codex_issuer: env::var("CODEX_AUTH_ISSUER")
                 .unwrap_or_else(|_| "https://auth.openai.com".to_owned()),
             claude_authorize_url: env::var("CLAUDE_AUTHORIZE_URL")
@@ -135,7 +135,7 @@ impl Default for AppConfig {
             credential_encryption_key: [7; 32],
             frontend_origin: HeaderValue::from_static("http://localhost:5173"),
             telegram_service_token: None,
-            codex_client_version: "0.153.4".to_owned(),
+            codex_client_version: "0.156.0".to_owned(),
             codex_issuer: "https://auth.openai.com".to_owned(),
             claude_authorize_url: "https://claude.com/cai/oauth/authorize".to_owned(),
             claude_client_version: "2.1.223".to_owned(),

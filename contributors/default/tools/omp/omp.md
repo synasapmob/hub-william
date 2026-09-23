@@ -7,11 +7,11 @@ installer replaces the existing OMP provider config with a fresh Hub catalogue.
 ## Install
 
 ```sh
-curl -fsSL https://hub.example/omp.py | python3 - --url=https://api.hub.example --key=YOUR_GATEWAY_KEY
+curl -fsSL https://hub.example/omp.py | python3 - --url=https://api.hub.example
 ```
 
-Omit `--key` to enter the key in a hidden prompt and keep it out of shell
-history. The installer writes a fresh `providers:` document to
+Enter the key in the hidden prompt to keep it out of shell history. The
+installer writes a fresh `providers:` document to
 `~/.omp/agent/models.yml` (or an existing `models.yaml`), creates one backup,
 and writes with owner-only permissions. If OMP still has a legacy `models.json`,
 run `omp models` once to let OMP migrate it before rerunning the installer.

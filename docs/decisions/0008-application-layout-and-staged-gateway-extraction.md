@@ -1,6 +1,7 @@
 # ADR-0008: Application layout and staged gateway extraction
 
-- Status: Accepted
+- Status: Accepted; machine-installer scope partially superseded by ADR-0024;
+  GitHub Pages and Vercel publishing superseded by ADR-0026
 - Date: 2026-09-10
 - Supersedes: ADR-0001
 
