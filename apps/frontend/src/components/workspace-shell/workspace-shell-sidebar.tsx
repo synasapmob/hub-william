@@ -2,6 +2,7 @@ import { Link, NavLink, type NavLinkRenderProps } from "react-router";
 import { tv } from "tailwind-variants";
 
 import Center from "@/components/ui/center";
+import ImageFallBack from "@/components/ui/image-fallback";
 import assetPath from "@/utils/utils.asset-path";
 
 import WorkspaceShellAccount from "./workspace-shell-account";
@@ -13,12 +14,6 @@ const navigationLinkVariants = tv({
     active: {
       true: "bg-zinc-900 text-white shadow-xs",
       false: "text-muted-foreground hover:bg-zinc-100/80 hover:text-foreground",
-    },
-    // `pointer-events-none` is safe here in a way it would not be on a link:
-    // this renders as a span, so there is nothing to focus and nothing Enter
-    // can follow — the attribute only has to stop the pointer.
-    disabled: {
-      true: "pointer-events-none cursor-default text-muted-foreground/50",
     },
   },
 });
@@ -44,9 +39,10 @@ function WorkspaceBrand({ onNavigate }: WorkspaceBrandProps) {
       <Center className="justify-between">
         <Center>
           <Center className="size-10">
-            <img
+            <ImageFallBack
               src={assetPath("logo.png")}
               alt=""
+              fallback="HW"
               className="pointer-events-none size-16 object-cover"
             />
           </Center>
@@ -76,21 +72,6 @@ function WorkspaceNavigation({ onNavigate }: WorkspaceNavigationProps) {
 
         {navigationItems.map((item) => {
           const Icon = item.icon;
-
-          // A span, not a dimmed NavLink: a link that only looks disabled is
-          // still focusable and still followed by Enter.
-          if (item.isDisabled) {
-            return (
-              <span
-                key={item.href}
-                aria-disabled="true"
-                className={navigationLinkVariants({ disabled: true })}
-              >
-                <Icon aria-hidden={true} className="size-4 text-zinc-300" />
-                <span>{item.label}</span>
-              </span>
-            );
-          }
 
           return (
             <NavLink

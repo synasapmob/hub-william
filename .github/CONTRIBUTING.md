@@ -1,53 +1,45 @@
 # Contributing to Hub William
 
-Thanks for helping make agent workflows easier to read, review, and reuse.
-Contributions can add or improve catalogue documents, the web app, or the
-machine installer.
+Contributions can improve Home, Tools, Agents, the model Playground, the Rust API,
+standalone tool installers or repository development workflows.
 
 ## Branching
 
-Contributions land on `dev`. Production is `main`, and it moves only by merging
-`dev` into `main`.
+Branch from `dev` and open pull requests into `dev`. A maintainer promotes a
+verified `dev` to `main`; do not open feature pull requests against `main`.
+`main` deploys to Railway production once the deployment token is configured.
 
-- Branch from `dev` and open the pull request into `dev`.
-- A maintainer promotes a verified `dev` to production with a pull request
-  into `main`. Do not open a feature pull request against `main`.
+## Tool documentation and workflow sources
 
-`dev` deploys to the preview site; `main` deploys to production. See
-[architecture.md](../apps/frontend/docs/architecture.md).
+Create your own `contributors/<github-login>/tools/<tool-name>/` folder and add
+Markdown documentation, or update tools inside your own contributor folder.
+`contributors/default/` belongs to the system and is read-only for contributors:
+do not edit, rename or delete its files. System updates are maintained separately.
+A new Markdown tool is discovered automatically
+in the Tools contributor selector and at `/tools/<github-login>`; its original
+files and a per-tool ZIP are published at build time. Keep documentation in sync
+with any installer behavior change. Gateway, OpenCode and OMP retain their
+existing setup UI; other tools use their contributed documentation.
 
-## Add a catalogue document
+`contributors/*/libraries/` holds repository development harnesses, skills,
+hooks and templates. These remain available to the development workflow, but
+are not published as app pages or bundled into tool downloads.
 
-Start with the [catalogue contribution guide](../README.md#how-to-contribute).
-In short:
-
-1. Fork the repository and create a branch from `dev`.
-2. Add the Markdown file under `contributors/<your-github-login>/` when it is
-   specific to your own workspace, accounts, or infrastructure. Change a file
-   under `contributors/default/` only when the rule should be shared by every
-   user.
-3. Keep the existing folder shape. The path determines where the document
-   appears on the library or tools canvas.
-4. Open a pull request into `dev` and explain why the document belongs in its
-   chosen shared or contributor-owned location.
-
-Do not include credentials, tokens, private endpoints, customer data, or other
-secrets in a catalogue document. Everything in `contributors/` is published.
+Do not commit credentials, tokens, private endpoints or customer data. Source
+files in this repository remain visible to anyone with repository access.
 
 ## Change the app or installer
-
-Install dependencies and start the app:
 
 ```sh
 pnpm install
 pnpm dev
 ```
 
-Read [the frontend conventions](../apps/frontend/docs/frontend-conventions.md) before a
-user-visible change. The [architecture guide](../apps/frontend/docs/architecture.md) explains
-the static catalogue and the boundaries between the site and installer.
+Read [frontend conventions](../apps/frontend/docs/frontend-conventions.md)
+before a user-visible change and [architecture](../apps/frontend/docs/architecture.md)
+for application and deployment boundaries.
 
-Before opening a pull request, run the same checks as CI:
+Run the checks relevant to the change before opening a pull request. CI runs:
 
 ```sh
 pnpm format:check
@@ -56,14 +48,13 @@ pnpm check:tailwind
 pnpm typecheck
 pnpm test
 pnpm build
-bash apps/frontend/scripts/machine/tests/run.sh
+bash apps/frontend/scripts/installers/tests/run.sh
 ```
 
-Keep a pull request focused on one outcome, add regression coverage for changed
-behavior, and call out verification gaps honestly. A maintainer may ask for a
-change before merging even when CI is green.
+Preserve regression coverage for supported behavior and state verification gaps.
+The standalone installer tests use temporary directories and do not change real
+agent configuration.
 
 ## Report a security issue
 
-Do not open a public issue for a suspected vulnerability. Follow the private
-reporting instructions in the [security policy](SECURITY.md).
+Follow the private reporting instructions in [SECURITY.md](SECURITY.md).

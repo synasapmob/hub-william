@@ -38,9 +38,16 @@ use crate::{
         crate::connections::disconnect,
         crate::gateway::create_key,
         crate::gateway::list_keys,
-        crate::gateway::revoke_key
+        crate::gateway::revoke_key,
+        crate::playground::models,
+        crate::playground::chat
     ),
     components(schemas(
+        crate::playground::PlaygroundModel,
+        crate::playground::PlaygroundAttachment,
+        crate::playground::PlaygroundRole,
+        crate::playground::PlaygroundMessage,
+        crate::playground::PlaygroundChatRequest,
         AuthenticatedUser,
         AgentConnection,
         AgentConnectionStatus,

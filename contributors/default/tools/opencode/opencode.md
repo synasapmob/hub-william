@@ -8,11 +8,11 @@ makes one backup, and writes the result atomically with owner-only permissions.
 ## Install
 
 ```sh
-curl -fsSL https://hub.example/opencode.py | python3 - --url=https://api.hub.example --key=YOUR_GATEWAY_KEY
+curl -fsSL https://hub.example/opencode.py | python3 - --url=https://api.hub.example
 ```
 
-Omit `--key` to enter the key in a hidden prompt and keep it out of shell
-history. OpenCode needs the Hub key in `~/.config/opencode/opencode.json` for
+Enter the key in the hidden prompt to keep it out of shell history. OpenCode
+needs the Hub key in `~/.config/opencode/opencode.json` for
 unattended requests; upstream Claude, Codex, Gemini/AGY, Grok, and DeepSeek
 credentials remain encrypted on Hub William and are never written to the
 machine.

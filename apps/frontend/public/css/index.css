@@ -4,9 +4,7 @@
 @import "@fontsource-variable/plus-jakarta-sans";
 @import "@fontsource-variable/jetbrains-mono";
 
-/* Styles the catalogue documents. Without it every element a markdown renderer
-   can emit would need a hand-written override, and the list would drift the
-   first time a contributor used one nobody had thought of. */
+/* Styles Playground Markdown without hand-writing each generated element. */
 @plugin "@tailwindcss/typography";
 
 /* The workspace is light only. This pins `dark:` to a class the app never sets,
@@ -16,6 +14,7 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  --animate-navigation-progress: navigation-progress 12s ease-out forwards;
   --font-heading: var(--font-sans);
   --font-sans: "Plus Jakarta Sans Variable", sans-serif;
   --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
@@ -133,8 +132,7 @@
     @apply bg-indigo-500/15 text-indigo-900;
   }
 
-  /* The library canvas is one long scroll inside a page that also scrolls, so a
-     platform-width bar would read as a second frame around the artboard. */
+  /* Keep scrollbars compact inside workspace panels. */
   ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
@@ -166,6 +164,20 @@
     var(--color-slate-300) 1px,
     transparent 1px
   );
+}
+
+@keyframes navigation-progress {
+  from {
+    transform: scaleX(0.08);
+  }
+
+  20% {
+    transform: scaleX(0.5);
+  }
+
+  to {
+    transform: scaleX(0.9);
+  }
 }
 
 /* One rule per animation does not scale — spinners, Radix enter/exit states and

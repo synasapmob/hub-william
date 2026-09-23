@@ -6,14 +6,14 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   // Build output and generated router types. `contributors/` is Markdown the
-  // agents read as instructions, and `scripts/machine/` is a Python program —
+  // agents read as instructions, and `scripts/installers/` contains Python tests —
   // neither is JavaScript this config has anything to say about.
   {
     ignores: [
       "build",
       ".react-router",
       "contributors",
-      "scripts/machine",
+      "scripts/installers",
       "src/components/ui",
     ],
   },

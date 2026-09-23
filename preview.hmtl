@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Playground · Hub William Preview</title>
+    <link rel="icon" href="data:," />
+    <style>
+      :root { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #27272a; background: #fafbfc; font-synthesis: none; }
+      * { box-sizing: border-box; }
+      body { margin: 0; }
+      button, select, textarea { font: inherit; }
+      button, select { min-height: 42px; }
+      button { cursor: pointer; border: 1px solid #e4e4e7; border-radius: 9px; background: white; padding: 10px 14px; color: inherit; font-weight: 550; }
+      button:hover:not(:disabled) { background: #f4f4f5; }
+      button:disabled { opacity: .45; cursor: not-allowed; }
+      :focus-visible { outline: 3px solid #a5b4fc; outline-offset: 3px; }
+      .primary { color: white; background: #27272a; border-color: #27272a; }
+      .primary:hover:not(:disabled) { background: #3f3f46; }
+      h1, h2, p { margin: 0; }
+      h1 { font-size: clamp(26px, 4vw, 34px); letter-spacing: -1.2px; }
+      h2 { font-size: 14px; }
+      .muted { color: #71717a; font-size: 13px; line-height: 1.65; }
+      .topbar { min-height: 76px; padding: 16px max(24px, calc((100vw - 1160px) / 2)); border-bottom: 1px solid #e4e4e7; display: flex; gap: 20px; align-items: center; justify-content: space-between; background: white; }
+      .brand { font-size: 16px; font-weight: 700; letter-spacing: -.5px; }
+      .brand small { font-weight: 400; color: #a1a1aa; padding-left: 14px; }
+      main { max-width: 1208px; margin: auto; padding: 38px 24px; }
+      .heading { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
+      .badge { border: 1px solid #c7d2fe; background: #eef2ff; color: #4f46e5; border-radius: 6px; padding: 4px 7px; font-size: 11px; font-weight: 600; }
+      .steps { display: flex; flex-wrap: wrap; list-style: none; gap: 10px 24px; padding: 0; margin: 26px 0; color: #a1a1aa; font-size: 12px; }
+      .steps li { display: flex; gap: 8px; align-items: center; }
+      .step-number { width: 23px; height: 23px; display: grid; place-items: center; border: 1px solid #e4e4e7; border-radius: 50%; font-size: 11px; }
+      .steps .active { color: #4f46e5; }
+      .active .step-number { border-color: #c7d2fe; background: #eef2ff; }
+      .workspace { display: grid; grid-template-columns: 258px minmax(0, 1fr); gap: 20px; align-items: start; }
+      .panel { border: 1px solid #e4e4e7; border-radius: 14px; background: white; }
+      .settings { padding: 22px; display: grid; gap: 22px; }
+      .field { display: grid; gap: 8px; font-size: 12px; font-weight: 550; }
+      select { width: 100%; padding: 9px 11px; background: white; border: 1px solid #e4e4e7; border-radius: 8px; color: #3f3f46; font-size: 13px; }
+      .access { border-top: 1px solid #f0f0f2; padding-top: 18px; }
+      .access strong { display: block; font-size: 12px; margin-bottom: 5px; }
+      details { border-top: 1px solid #f0f0f2; padding-top: 16px; }
+      summary { font-size: 12px; cursor: pointer; color: #71717a; padding: 12px 0; min-height: 42px; }
+      details .field { margin-top: 14px; }
+      .chat { overflow: hidden; }
+      .chat-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 16px 22px; border-bottom: 1px solid #f0f0f2; }
+      .chat-header button { font-size: 12px; padding: 8px 10px; }
+      .messages { height: 360px; overflow-y: auto; padding: 24px; scroll-behavior: smooth; }
+      .empty { min-height: 100%; display: grid; place-content: center; text-align: center; gap: 12px; }
+      .empty .symbol { font-size: 26px; color: #a1a1aa; }
+      .empty h2 { font-size: 19px; letter-spacing: -.4px; }
+      .suggestions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 10px; }
+      .suggestions button { font-weight: 400; font-size: 12px; }
+      .message { margin-bottom: 23px; max-width: 100%; }
+      .message h3 { margin: 0 0 7px; font-size: 11px; color: #71717a; font-weight: 550; }
+      .message p { font-size: 14px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+      .message.user { background: #f4f4f5; padding: 12px 16px; border-radius: 10px; }
+      .message small { display: block; color: #71717a; font-size: 11px; margin-top: 8px; }
+      .composer { padding: 18px 22px; border-top: 1px solid #f0f0f2; }
+      .composer label { display: block; font-size: 12px; font-weight: 550; margin-bottom: 9px; }
+      textarea { width: 100%; min-height: 86px; resize: vertical; display: block; padding: 12px; border: 1px solid #e4e4e7; border-radius: 9px; color: #27272a; font-size: 14px; line-height: 1.6; }
+      .composer-footer { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-top: 12px; }
+      .composer-footer .muted { font-size: 11px; }
+      .actions { display: flex; gap: 8px; flex-shrink: 0; }
+      .error { color: #b91c1c; background: #fef2f2; padding: 10px 12px; border-radius: 8px; font-size: 12px; line-height: 1.6; margin-top: 12px; }
+      .footnote { margin-top: 17px; text-align: center; font-size: 11px; color: #a1a1aa; }
+      dialog { width: min(400px, calc(100% - 32px)); padding: 28px; border: 1px solid #e4e4e7; border-radius: 16px; color: #27272a; }
+      dialog::backdrop { background: #18181b55; }
+      dialog h2 { font-size: 21px; margin-bottom: 10px; }
+      dialog .actions { margin-top: 24px; justify-content: flex-end; flex-wrap: wrap; }
+      [hidden] { display: none !important; }
+      @media (max-width: 700px) {
+        .topbar { padding: 14px 18px; }
+        .brand small { display: none; }
+        main { padding: 26px 16px; }
+        .workspace { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+        .settings { padding: 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+        .settings > h2, .access, details { grid-column: 1 / -1; }
+        .messages { height: 330px; padding: 18px; }
+        .chat-header, .composer { padding: 16px; }
+        .composer-footer { flex-wrap: wrap; }
+        .steps { gap: 10px 16px; }
+      }
+      @media (prefers-reduced-motion: reduce) { .messages { scroll-behavior: auto; } }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <p class="brand">Hub William <small>/ Playground</small></p>
+
+      <button type="button" id="account">Đăng nhập demo</button>
+    </header>
+
+    <main>
+      <header>
+        <div class="heading">
+          <h1>Playground</h1>
+          <p class="badge">PREVIEW</p>
+        </div>
+
+        <p class="muted">Chọn một model, gửi ý tưởng và xem câu trả lời ngay tại đây.</p>
+      </header>
+
+      <ol class="steps">
+        <li id="step-login" class="active" aria-current="step"><span class="step-number">1</span> Đăng nhập</li>
+        <li id="step-model"><span class="step-number">2</span> Chọn model</li>
+        <li id="step-chat"><span class="step-number">3</span> Bắt đầu chat</li>
+      </ol>
+
+      <div class="workspace">
+        <aside class="panel settings">
+          <h2>Thiết lập</h2>
+
+          <div class="field">
+            <label for="provider">Provider</label>
+            <select id="provider">
+              <option>ChatGPT</option><option>Claude</option><option>Gemini</option><option>Grok</option><option>DeepSeek</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="model">Model</label>
+            <select id="model"><option>Demo · Fast</option><option>Demo · Reasoning</option></select>
+          </div>
+
+          <div class="access">
+            <strong id="access-title">Bạn đang xem với tư cách khách</strong>
+            <p class="muted" id="access-detail">Đăng nhập demo để thử gửi tin nhắn.</p>
+          </div>
+
+          <details>
+            <summary>Thử tình huống khác</summary>
+            <div class="field">
+              <label for="scenario">Quyền truy cập giả lập</label>
+              <select id="scenario">
+                <option value="ready">Có quyền sử dụng</option>
+                <option value="no-access">Chưa tham gia pool</option>
+                <option value="quota">Đã hết quota</option>
+              </select>
+            </div>
+          </details>
+        </aside>
+
+        <section class="panel chat">
+          <header class="chat-header">
+            <h2 id="chat-title">ChatGPT / Demo · Fast</h2>
+
+            <button type="button" id="new-chat">Cuộc trò chuyện mới</button>
+          </header>
+
+          <div class="messages" id="messages">
+            <div class="empty" id="empty">
+              <p class="symbol" aria-hidden="true">✳</p>
+              <h2>Bạn muốn thử điều gì?</h2>
+              <p class="muted">Bắt đầu với một câu hỏi ngắn.</p>
+
+              <div class="suggestions">
+                <button type="button" class="suggestion">Giải thích Hub gateway</button>
+                <button type="button" class="suggestion">Gợi ý một ý tưởng app</button>
+              </div>
+            </div>
+          </div>
+
+          <form class="composer" id="composer">
+            <label for="prompt">Tin nhắn</label>
+            <textarea id="prompt" placeholder="Nhập câu hỏi của bạn…" maxlength="4000" required></textarea>
+
+            <p class="error" id="error" role="alert" hidden></p>
+
+            <div class="composer-footer">
+              <p class="muted" id="status" role="status">Phản hồi giả lập · Không gọi model thật</p>
+
+              <div class="actions">
+                <button type="button" id="stop" hidden>Dừng</button>
+                <button type="submit" class="primary" id="send">Gửi tin nhắn ↑</button>
+              </div>
+            </div>
+          </form>
+        </section>
+      </div>
+
+      <p class="footnote">Bản xem thử tương tác. Tài khoản, model và phản hồi đều là demo. Tải lại trang sẽ xoá hội thoại.</p>
+    </main>
+
+    <dialog id="login-dialog" aria-labelledby="login-title">
+      <h2 id="login-title">Thử với tài khoản demo</h2>
+      <p class="muted">Tiếp tục với Demo User để xem flow Playground. Không cần nhập email, mật khẩu hay API key.</p>
+
+      <div class="actions">
+        <button type="button" id="cancel-login">Để sau</button>
+        <button type="button" class="primary" id="confirm-login">Tiếp tục với Demo User</button>
+      </div>
+    </dialog>
+
+    <script>
+      const element = (id) => document.getElementById(id);
+      const provider = element("provider");
+      const model = element("model");
+      const scenario = element("scenario");
+      const messages = element("messages");
+      const prompt = element("prompt");
+      const error = element("error");
+      const status = element("status");
+      const login = element("login-dialog");
+      let signedIn = false;
+      let streamTimer = null;
+      let responseNote = null;
+      let turnCount = 0;
+
+      function updateSettings() {
+        element("chat-title").textContent = provider.value + " / " + model.value;
+        const states = {
+          ready: ["Pool demo sẵn sàng", "Tự động dùng pool có quyền truy cập của bạn."],
+          "no-access": ["Chưa có quyền sử dụng", "Bạn cần kết nối account hoặc được duyệt tham gia pool trong Agents."],
+          quota: ["Pool demo đã hết quota", "Bạn có thể thử lại sau khi quota được đặt lại."],
+        };
+        const access = signedIn ? states[scenario.value] : ["Bạn đang xem với tư cách khách", "Đăng nhập demo để thử gửi tin nhắn."];
+        element("access-title").textContent = access[0];
+        element("access-detail").textContent = access[1];
+        element("account").textContent = signedIn ? "Demo User · Đăng xuất" : "Đăng nhập demo";
+        const currentStep = !signedIn ? "step-login" : turnCount === 0 ? "step-model" : "step-chat";
+        for (const id of ["step-login", "step-model", "step-chat"]) {
+          element(id).classList.toggle("active", id === currentStep);
+          if (id === currentStep) element(id).setAttribute("aria-current", "step");
+          else element(id).removeAttribute("aria-current");
+        }
+        status.textContent = !signedIn
+          ? "Phản hồi giả lập · Không gọi model thật"
+          : scenario.value === "no-access"
+            ? "Chưa có quyền truy cập · Chưa thể gửi"
+            : scenario.value === "quota"
+              ? "Đã hết quota · Chưa thể gửi"
+              : "Sẵn sàng gửi tin nhắn · Phản hồi demo";
+        error.hidden = true;
+      }
+
+      function setStreaming(active) {
+        for (const control of [provider, model, scenario, element("new-chat"), element("send"), element("account"), prompt]) control.disabled = active;
+        element("stop").hidden = !active;
+      }
+
+      function finishResponse(stopped) {
+        clearInterval(streamTimer);
+        streamTimer = null;
+        setStreaming(false);
+        responseNote.textContent = stopped ? "Đã dừng · Phản hồi chưa hoàn tất" : "Hoàn tất · Nội dung demo";
+        status.textContent = stopped ? "Đã dừng phản hồi demo" : "Sẵn sàng cho tin nhắn tiếp theo · Demo";
+        prompt.focus();
+      }
+
+      function addMessage(name, content, isUser) {
+        const article = document.createElement("article");
+        article.className = isUser ? "message user" : "message";
+        const heading = document.createElement("h3");
+        heading.textContent = name;
+        const body = document.createElement("p");
+        body.textContent = content;
+        article.append(heading, body);
+        messages.append(article);
+        return { article, body };
+      }
+
+      element("account").addEventListener("click", () => {
+        if (signedIn) {
+          signedIn = false;
+          resetChat();
+        } else login.showModal();
+      });
+      element("cancel-login").addEventListener("click", () => login.close());
+      element("confirm-login").addEventListener("click", () => {
+        signedIn = true;
+        login.close();
+        updateSettings();
+        prompt.focus();
+      });
+      for (const control of [provider, model, scenario]) control.addEventListener("change", updateSettings);
+      for (const button of document.querySelectorAll(".suggestion")) button.addEventListener("click", () => {
+        prompt.value = button.textContent;
+        prompt.focus();
+      });
+
+      element("composer").addEventListener("submit", (event) => {
+        event.preventDefault();
+        if (streamTimer !== null) return;
+        const text = prompt.value.trim();
+        if (!text) { prompt.value = ""; prompt.reportValidity(); return; }
+        if (!signedIn) { login.showModal(); return; }
+        if (scenario.value !== "ready") {
+          error.textContent = scenario.value === "no-access"
+            ? "Chưa thể gửi: bạn chưa có pool được duyệt cho provider này. Hãy kết nối account hoặc xin tham gia pool trong Agents."
+            : "Chưa thể gửi: các pool demo đã hết quota. Vui lòng thử lại sau.";
+          error.hidden = false;
+          return;
+        }
+        error.hidden = true;
+        element("empty").hidden = true;
+        addMessage("Bạn", text, true);
+        const reply = addMessage(provider.value + " / " + model.value + " · Demo", "", false);
+        responseNote = document.createElement("small");
+        reply.article.append(responseNote);
+        turnCount += 1;
+        prompt.value = "";
+        updateSettings();
+        setStreaming(true);
+        status.textContent = "Đang tạo phản hồi demo…";
+        const response = "Mình đã nhận tin nhắn của bạn.\n\nĐây là phản hồi mẫu từ " + provider.value + ", để bạn hình dung trải nghiệm chat trong Playground. Trong flow thật, Hub sẽ kiểm tra quyền truy cập, chọn pool phù hợp rồi chuyển câu hỏi tới model.\n\nBạn có thể gửi tiếp một tin nhắn hoặc bắt đầu cuộc trò chuyện mới. Bản preview này không xử lý nội dung bằng AI.";
+        let cursor = 0;
+        streamTimer = setInterval(() => {
+          cursor += 7;
+          reply.body.textContent = response.slice(0, cursor);
+          messages.scrollTop = messages.scrollHeight;
+          if (cursor >= response.length) finishResponse(false);
+        }, 35);
+      });
+
+      function resetChat() {
+        for (const message of messages.querySelectorAll(".message")) message.remove();
+        element("empty").hidden = false;
+        turnCount = 0;
+        prompt.value = "";
+        status.textContent = "Phản hồi giả lập · Không gọi model thật";
+        updateSettings();
+      }
+      element("new-chat").addEventListener("click", resetChat);
+      element("stop").addEventListener("click", () => finishResponse(true));
+    </script>
+  </body>
+</html>

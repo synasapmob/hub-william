@@ -113,8 +113,8 @@ export default function WorkspaceShellAuthDialog({
 
           <DialogTitle>Join the sharing community</DialogTitle>
           <DialogDescription>
-            Browsing stays public. An account is only required when you request
-            access to a pool.
+            Browsing stays public. Sign in to request pool access or chat in
+            Playground.
           </DialogDescription>
         </DialogHeader>
 

@@ -24,14 +24,14 @@ describe("resolveGatewayOrigin", () => {
 });
 
 describe("gatewayInstallCommand", () => {
-  it("pipes gateway.py into python3 with --url and --key like install.py", () => {
+  it("pipes gateway.py into Python without placing the key in shell history", () => {
     expect(
       gatewayInstallCommand({
         gatewayOrigin: "https://hub.example/api",
         installerUrl: "https://hub.example/gateway.py",
       }),
     ).toBe(
-      "curl -fsSL https://hub.example/gateway.py | python3 - --url=https://hub.example/api --key=YOUR_GATEWAY_KEY",
+      "curl -fsSL https://hub.example/gateway.py | python3 - --url=https://hub.example/api",
     );
   });
 });

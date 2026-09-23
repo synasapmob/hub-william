@@ -12,6 +12,11 @@ export const AGENT_PROVIDERS: AgentProvider[] = [
   "Grok",
   "DeepSeek",
 ];
+
+export function agentProviderShowsUsage(provider: AgentProvider) {
+  return provider === "ChatGPT" || provider === "Claude";
+}
+
 const quotaLabels = [
   "5-hour limit",
   "Weekly limit",
@@ -68,14 +73,22 @@ export function agentPoolRemaining(metric: AgentPoolUsageMetric) {
 }
 
 export function agentPoolWarning(
-  pool: Pick<AgentPool, "usage" | "availability">,
+  pool: Pick<AgentPool, "agent" | "usage" | "availability">,
 ) {
   if (pool.availability.status !== "active")
     return agentPoolAvailabilityLabels[pool.availability.status];
-  const exhausted = pool.usage.find(
+  const exhausted = agentPoolUsageIssues(pool).find(
     (metric) => agentPoolRemaining(metric) === 0,
   );
   return exhausted ? `${exhausted.label} exhausted` : null;
+}
+
+export function agentPoolUsageIssues(pool: Pick<AgentPool, "agent" | "usage">) {
+  if (!agentProviderShowsUsage(pool.agent)) return [];
+  return pool.usage.filter(
+    (metric) =>
+      agentPoolRemaining(metric) === 0 || metric.value === "Unavailable",
+  );
 }
 
 export function agentPoolUsageValue(metric: AgentPoolUsageMetric) {
@@ -83,6 +96,14 @@ export function agentPoolUsageValue(metric: AgentPoolUsageMetric) {
   return remaining === null
     ? metric.value
     : `${Number(remaining.toFixed(1))}% remaining`;
+}
+
+export function agentPoolAvailabilityLabel(
+  pool: Pick<AgentPool, "agent" | "usage" | "availability">,
+) {
+  return pool.availability.status === "active" && agentPoolWarning(pool)
+    ? "Exhausted"
+    : agentPoolAvailabilityLabels[pool.availability.status];
 }
 
 export function agentPoolTokenDetail(pool: Pick<AgentPool, "usage">) {

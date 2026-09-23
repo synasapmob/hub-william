@@ -1,5 +1,6 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -270,6 +271,27 @@ function renderRoute(
         );
         return new Response(null, { status: 204 });
       }
+      if (url.includes("/agent-connections/") && method === "GET") {
+        const pool = pools.find((pool) =>
+          url.endsWith(`/agent-connections/${pool.id}`),
+        );
+        if (pool) {
+          return jsonResponse({
+            account_label: pool.account_label,
+            authorization: null,
+            created_at: pool.created_at,
+            failure_message:
+              pool.availability.status === "reauth_required"
+                ? "Provider login is required. Reconnect this pool."
+                : null,
+            id: pool.id,
+            plan: pool.plan,
+            provider: pool.agent.toLowerCase(),
+            status: "connected",
+            updated_at: pool.created_at,
+          });
+        }
+      }
       if (url.endsWith("/agent-connections") || url.endsWith("/gateway-keys")) {
         return jsonResponse([]);
       }
@@ -282,9 +304,11 @@ function renderRoute(
   render(
     <QueryClientProvider client={createQueryClient()}>
       <MemoryRouter>
-        <WorkspaceShellSession>
-          <AgentsRoute />
-        </WorkspaceShellSession>
+        <TooltipProvider>
+          <WorkspaceShellSession>
+            <AgentsRoute />
+          </WorkspaceShellSession>
+        </TooltipProvider>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -417,32 +441,59 @@ describe("AgentsRoute", () => {
     expect(screen.queryByText("du**y@exa**.com")).not.toBeInTheDocument();
   });
 
-  it("shows provider metadata and dynamic usage from the API", async () => {
-    const user = userEvent.setup();
-    renderRoute();
+  it.each(["ChatGPT", "Claude"])(
+    "shows %s members on accounts and usage in the tooltip and popup",
+    async (agent) => {
+      const user = userEvent.setup();
+      renderRoute(undefined, [
+        {
+          ...poolFixture(),
+          agent,
+          members: [
+            apiPerson("synasapmob", { avatar_label: "Syn" }),
+            apiPerson("bob", { avatar_label: "Bob" }),
+            apiPerson("anna", { avatar_label: "Ann" }),
+            apiPerson("dee", { avatar_label: "Dee" }),
+          ],
+        },
+      ]);
 
-    const account = await screen.findByRole("button", {
-      name: "Open ChatGPT account du**y@exa**.com",
-    });
-    expect(account).toHaveTextContent("32% remaining");
-    expect(account).toHaveTextContent("5-hour limit");
-    await user.click(account);
+      const account = await screen.findByRole("button", {
+        name: `Open ${agent} account du**y@exa**.com`,
+      });
+      expect(account).toHaveTextContent("Members");
+      expect(within(account).getByText("Syn")).toBeVisible();
+      expect(within(account).getByText("Bob")).toBeVisible();
+      expect(within(account).getByText("Ann")).toBeVisible();
+      expect(within(account).getByText("+1")).toBeVisible();
+      expect(within(account).queryByText("Dee")).not.toBeInTheDocument();
+      expect(account).not.toHaveTextContent("32% remaining");
+      expect(account).not.toHaveTextContent("5-hour limit");
+      await user.hover(account);
+      const tooltip = await screen.findByRole("tooltip");
+      expect(tooltip).toHaveTextContent("5-hour limit: 68% used");
+      expect(tooltip).toHaveTextContent("Resets in 2h");
+      expect(tooltip).not.toHaveTextContent("du**y@exa**.com");
+      await user.click(account);
 
-    const detail = screen.getByRole("article", {
-      name: "ChatGPT account du**y@exa**.com details",
-    });
-    expect(within(detail).getAllByText("synasapmob").length).toBeGreaterThan(0);
-    expect(within(detail).getByText("Syn")).toBeInTheDocument();
-    expect(within(detail).getByText("5-hour limit")).toBeVisible();
-    expect(
-      within(detail).getByText("32% remaining", { exact: true }),
-    ).toBeVisible();
-    expect(within(detail).getByText("Resets in 2h")).toBeVisible();
-    expect(within(detail).getByRole("progressbar")).toHaveAttribute(
-      "aria-valuenow",
-      "32",
-    );
-  });
+      const detail = screen.getByRole("article", {
+        name: `${agent} account du**y@exa**.com details`,
+      });
+      expect(within(detail).getAllByText("synasapmob").length).toBeGreaterThan(
+        0,
+      );
+      expect(within(detail).getByText("Syn")).toBeInTheDocument();
+      expect(within(detail).getByText("5-hour limit")).toBeVisible();
+      expect(
+        within(detail).getByText("32% remaining", { exact: true }),
+      ).toBeVisible();
+      expect(within(detail).getByText("Resets in 2h")).toBeVisible();
+      expect(within(detail).getByRole("progressbar")).toHaveAttribute(
+        "aria-valuenow",
+        "32",
+      );
+    },
+  );
 
   it("shows joined members and join date", async () => {
     const user = userEvent.setup();
@@ -471,15 +522,66 @@ describe("AgentsRoute", () => {
   it("says so when a provider reports no usage instead of opening blank", async () => {
     const user = userEvent.setup();
     renderRoute(undefined, [{ ...poolFixture(), usage: [] }]);
-    expect(
-      await screen.findByRole("button", { name: /^Open ChatGPT account / }),
-    ).toHaveTextContent("Unavailable");
+    const account = await screen.findByRole("button", {
+      name: /^Open ChatGPT account /,
+    });
+    expect(account).toHaveTextContent("Members");
+    await user.hover(account);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "Usage unavailable",
+    );
     await openAccount(user);
     expect(
       screen.getByText("ChatGPT has not reported usage for this account yet."),
     ).toBeVisible();
     expect(screen.queryByText("5-hour limit")).not.toBeInTheDocument();
   });
+
+  it.each(["Grok", "DeepSeek", "Gemini"])(
+    "omits %s usage on hover/focus and in details even when metrics arrive",
+    async (agent) => {
+      const user = userEvent.setup();
+      renderRoute(undefined, [{ ...poolFixture(), agent }]);
+      const account = await screen.findByRole("button", {
+        name: `Open ${agent} account du**y@exa**.com`,
+      });
+
+      await user.hover(account);
+      act(() => account.focus());
+      expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+      expect(account).not.toHaveAttribute("aria-describedby");
+
+      await user.click(account);
+      const detail = screen.getByRole("article");
+      expect(
+        within(detail).queryByText("Usage & limits"),
+      ).not.toBeInTheDocument();
+      expect(
+        within(detail).queryByText("5-hour limit"),
+      ).not.toBeInTheDocument();
+      expect(
+        within(detail).queryByText(/has not reported usage/),
+      ).not.toBeInTheDocument();
+      expect(within(detail).getByText("Members · 1")).toBeVisible();
+    },
+  );
+
+  it.each(["Grok", "DeepSeek", "Gemini"])(
+    "omits the empty usage placeholder for %s",
+    async (agent) => {
+      const user = userEvent.setup();
+      renderRoute(undefined, [{ ...poolFixture(), agent, usage: [] }]);
+      await openAccount(user);
+      const detail = screen.getByRole("article");
+      expect(
+        within(detail).queryByText("Usage & limits"),
+      ).not.toBeInTheDocument();
+      expect(
+        within(detail).queryByText(/has not reported usage/),
+      ).not.toBeInTheDocument();
+      expect(within(detail).getByText("Members · 1")).toBeVisible();
+    },
+  );
 
   it("opens one account popup, restores focus and filters the provider list", async () => {
     const user = userEvent.setup();
@@ -542,7 +644,8 @@ describe("AgentsRoute", () => {
     const grokButton = screen.getByRole("button", {
       name: "Open Grok account gr**@exa**.com",
     });
-    expect(grokButton).toHaveTextContent("Monthly limit");
+    expect(grokButton).toHaveTextContent("Members");
+    expect(grokButton).not.toHaveTextContent("Monthly limit");
     expect(grokButton).not.toHaveTextContent("5-hour limit");
     await user.click(grokButton);
     expect(
@@ -614,8 +717,9 @@ describe("AgentsRoute", () => {
     expect(screen.getByRole("button", { name: "Gateway Key" })).toBeVisible();
   });
 
-  it("surfaces exhausted secondary quotas without hiding the primary window", async () => {
-    renderRoute(undefined, [
+  it("marks exhausted accounts without exposing warning reasons outside management", async () => {
+    const user = userEvent.setup();
+    const fetchMock = renderRoute(undefined, [
       {
         ...poolFixture(),
         usage: [
@@ -635,9 +739,185 @@ describe("AgentsRoute", () => {
     const account = await screen.findByRole("button", {
       name: /^Open ChatGPT account /,
     });
-    expect(account).toHaveTextContent("72% remaining");
-    expect(account).toHaveTextContent("Weekly limit exhausted");
+    expect(account).not.toHaveTextContent("72% remaining");
+    expect(account).toHaveClass("border-red-300");
+    expect(account).not.toHaveTextContent("Weekly limit exhausted");
+    await user.hover(account);
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip).toHaveTextContent("5-hour limit: 72% remaining");
+    expect(tooltip).toHaveTextContent("Resets in 3h");
+    expect(tooltip).toHaveTextContent("Weekly limit: 0% remaining");
+    expect(tooltip).toHaveTextContent("Resets in 4d");
+    await user.click(account);
+    expect(account).toHaveClass("border-red-300");
+    expect(screen.getByRole("dialog")).toHaveTextContent("Exhausted");
+    expect(
+      screen.queryByText("Weekly limit exhausted"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Manage" }),
+    ).not.toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some(([input]) => {
+        const url = input instanceof Request ? input.url : String(input);
+        return url.includes("/agent-connections/");
+      }),
+    ).toBe(false);
   });
+
+  it("shows exhausted quota reasons only on the owner's management status tooltip", async () => {
+    const user = userEvent.setup();
+    renderRoute({ id: "owner-1", username: "synasapmob" }, [
+      {
+        ...poolFixture(),
+        usage: [
+          {
+            label: "Weekly limit",
+            value: "0% remaining",
+            detail: "Resets in 4d",
+          },
+        ],
+      },
+    ]);
+    await openAccount(user);
+    expect(
+      screen.queryByText("Weekly limit exhausted"),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Manage" }));
+    const dialog = within(
+      screen.getByRole("dialog", { name: "Manage pool access" }),
+    );
+    const status = dialog.getByRole("button", { name: "Exhausted" });
+    expect(dialog.getByRole("button", { name: "Refresh" })).toBeVisible();
+    expect(dialog.getByRole("button", { name: "Delete" })).toBeVisible();
+    expect(
+      dialog.queryByText(/Refresh stores the latest/),
+    ).not.toBeInTheDocument();
+    await user.hover(status);
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip).toHaveTextContent("Weekly limit exhausted");
+    expect(tooltip).toHaveTextContent("Resets in 4d");
+  });
+
+  it.each([undefined, { id: "owner-1", username: "synasapmob" }])(
+    "keeps usage error diagnostics inside owner management for viewer %j",
+    async (viewer) => {
+      const user = userEvent.setup();
+      renderRoute(viewer, [
+        {
+          ...poolFixture(),
+          usage: [
+            {
+              label: "Usage",
+              value: "Unavailable",
+              detail: "Could not refresh the provider session.",
+            },
+          ],
+        },
+      ]);
+      const account = await screen.findByRole("button", {
+        name: /^Open ChatGPT account /,
+      });
+      expect(account).toHaveClass("border-red-300");
+      await user.hover(account);
+      expect(await screen.findByRole("tooltip")).toHaveTextContent(
+        "Usage: Unavailable",
+      );
+      expect(
+        screen.queryByText("Could not refresh the provider session."),
+      ).not.toBeInTheDocument();
+      await user.click(account);
+      expect(
+        screen.queryByText("Could not refresh the provider session."),
+      ).not.toBeInTheDocument();
+      if (viewer) {
+        await user.click(screen.getByRole("button", { name: "Manage" }));
+        await user.hover(screen.getByRole("button", { name: "Active" }));
+        expect(await screen.findByRole("tooltip")).toHaveTextContent(
+          "Could not refresh the provider session.",
+        );
+      } else {
+        expect(
+          screen.queryByRole("button", { name: "Manage" }),
+        ).not.toBeInTheDocument();
+      }
+    },
+  );
+
+  it.each(["Grok", "DeepSeek", "Gemini"])(
+    "does not mark unsupported %s usage as a pool problem",
+    async (agent) => {
+      const user = userEvent.setup();
+      const unsupported = `${agent} does not expose account quota through this connection.`;
+      renderRoute({ id: "owner-1", username: "synasapmob" }, [
+        {
+          ...poolFixture(),
+          agent,
+          usage: [
+            { label: "Usage", value: "Unavailable", detail: unsupported },
+            {
+              label: "Weekly limit",
+              value: "0% remaining",
+              detail: "Old quota",
+            },
+          ],
+        },
+      ]);
+      const account = await screen.findByRole("button", {
+        name: `Open ${agent} account du**y@exa**.com`,
+      });
+      expect(account).not.toHaveClass("border-red-300");
+      await user.click(account);
+      expect(screen.getByRole("article")).toHaveTextContent("Active");
+      expect(screen.queryByText("Exhausted")).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Manage" }));
+      const dialog = within(
+        screen.getByRole("dialog", { name: "Manage pool access" }),
+      );
+      expect(dialog.getByText("Active", { exact: true })).toBeVisible();
+      expect(
+        dialog.queryByRole("button", { name: "Active" }),
+      ).not.toBeInTheDocument();
+      expect(dialog.queryByText(unsupported)).not.toBeInTheDocument();
+      expect(dialog.queryByText("Usage: Unavailable")).not.toBeInTheDocument();
+      expect(dialog.getByRole("button", { name: "Refresh" })).toBeVisible();
+      expect(dialog.getByRole("button", { name: "Delete" })).toBeVisible();
+    },
+  );
+
+  it.each(["Grok", "DeepSeek", "Gemini"])(
+    "still shows actual %s connection failures to the owner",
+    async (agent) => {
+      const user = userEvent.setup();
+      const unsupported = `${agent} does not expose account quota through this connection.`;
+      renderRoute({ id: "owner-1", username: "synasapmob" }, [
+        {
+          ...poolFixture(),
+          agent,
+          availability: { status: "reauth_required", retry_at: null },
+          usage: [
+            { label: "Usage", value: "Unavailable", detail: unsupported },
+          ],
+        },
+      ]);
+      const account = await screen.findByRole("button", {
+        name: `Open ${agent} account du**y@exa**.com`,
+      });
+      expect(account).toHaveClass("border-red-300");
+      await user.click(account);
+      await user.click(screen.getByRole("button", { name: "Manage" }));
+      await user.hover(
+        screen.getByRole("button", { name: "Reconnect required" }),
+      );
+      const tooltip = await screen.findByRole("tooltip");
+      expect(tooltip).toHaveTextContent(
+        "Provider login is required. Reconnect this pool.",
+      );
+      expect(tooltip).not.toHaveTextContent(unsupported);
+      expect(tooltip).not.toHaveTextContent("Usage: Unavailable");
+    },
+  );
 
   it("gates a join request with the login and register dialog", async () => {
     const user = userEvent.setup();
@@ -898,7 +1178,7 @@ describe("AgentsRoute", () => {
     };
     vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
     const user = userEvent.setup();
-    renderRoute(
+    const fetchMock = renderRoute(
       { id: "owner-1", username: "synasapmob" },
       [
         {
@@ -915,6 +1195,22 @@ describe("AgentsRoute", () => {
     expect(
       within(screen.getByRole("dialog")).getByText("Reconnect required"),
     ).toBeVisible();
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(([input]) => {
+          const url = input instanceof Request ? input.url : String(input);
+          return url.endsWith(`/agent-connections/${poolFixture().id}`);
+        }),
+      ).toHaveLength(1),
+    );
+    await user.hover(
+      screen.getByRole("button", { name: "Reconnect required" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("tooltip")).toHaveTextContent(
+        "Provider login is required. Reconnect this pool.",
+      ),
+    );
     await user.click(screen.getByRole("button", { name: "Refresh" }));
 
     await waitFor(() =>
@@ -941,5 +1237,26 @@ describe("AgentsRoute", () => {
     expect(
       within(screen.getByRole("dialog")).getByText("Active"),
     ).toBeVisible();
+
+    const originalFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith(`/agent-connections/${poolFixture().id}`)) {
+        return jsonResponse({ message: "Temporarily unavailable" }, 503);
+      }
+      return originalFetch(input, init);
+    });
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Manage" }));
+    const reopened = within(
+      screen.getByRole("dialog", { name: "Manage pool access" }),
+    );
+    expect(reopened.getByText("Active")).toBeVisible();
+    expect(
+      reopened.queryByRole("button", { name: "Active" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Provider login is required. Reconnect this pool."),
+    ).not.toBeInTheDocument();
   });
 });

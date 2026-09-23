@@ -1,85 +1,91 @@
 import { describe, expect, it } from "vitest";
 
-import catalogService, { type CatalogEntry } from "@/services/catalog";
+import catalogService from "@/services/catalog";
+import {
+  collectionIdForPath,
+  collectionPresentation,
+  compareCollectionIds,
+} from "./catalog-collections";
 
-const harnessEntries = catalogService.listEntriesByCategory("harness");
-
-/** The tag whose file the harness dispatcher names, so a real path is asserted. */
-const planTag = harnessEntries.find((entry) => entry.id.endsWith("/tags/plan"));
-
-/** A contract that fires without a tag, which is the other half of `harness`. */
-const supporting = harnessEntries.find((entry) => entry.group !== "tags");
-
-describe("collections", () => {
-  it("draws one shared-library node per functional domain", () => {
-    expect(
-      catalogService
-        .collectionsInSection("library")
-        .map((collection) => collection.id),
-    ).toEqual(["evidences", "github", "tags", "skills", "templates"]);
-  });
-
-  it("groups GitHub workflow tags with GitHub supporting contracts", () => {
-    const github = catalogService.findCollection("github", "library");
-    const ids = github?.entries.map((entry) => entry.id) ?? [];
-
-    expect(ids.some((id) => id.endsWith("/github/gh-cli"))).toBe(true);
-    for (const name of ["draft", "merge", "mergeable", "rebase"]) {
-      expect(
-        ids.some((id) => id.endsWith(`/tags/${name}`)),
-        name,
-      ).toBe(true);
+describe("supported tool catalogue", () => {
+  it("publishes the current shared Gateway, OpenCode and OMP tools", () => {
+    expect(catalogService.collections().map((tool) => tool.id)).toEqual([
+      "gateway",
+      "opencode",
+      "omp",
+    ]);
+    for (const retired of ["documents", "mcp", "skills", "tags", "github"]) {
+      expect(catalogService.findCollection(retired)).toBeNull();
     }
-    expect(ids.some((id) => id.endsWith("/tags/plan"))).toBe(false);
   });
 
-  it("keeps every rendered document in exactly one collection", () => {
-    const collections = catalogService.collectionsInSection("library");
-    const ids = collections.flatMap((collection) =>
-      collection.entries.map((entry) => entry.id),
+  it("keeps new tool contributions discoverable and archives scoped to their owner", () => {
+    const id = collectionIdForPath(
+      "contributors/alice/tools/review-helper/README.md",
     );
-
-    expect(new Set(ids).size).toBe(ids.length);
-    expect(ids.length).toBe(catalogService.documentCount("library"));
-  });
-
-  it("keeps the harness dispatcher with the tags it activates", () => {
-    const tags = catalogService.findCollection("tags", "library")!;
-    const files = catalogService.collectionFiles(tags);
-    const dispatcher = files.find((file) => file.name === "AGENTS.md");
-
-    expect(dispatcher).toMatchObject({
-      path: "contributors/default/libraries/harness/AGENTS.md",
-      url: `${window.location.origin}/catalog/contributors/default/libraries/harness/AGENTS.md`,
+    expect(id).toBe("review-helper");
+    expect(collectionPresentation(id!)).toMatchObject({
+      label: "Review helper",
     });
-  });
-
-  it("publishes virtual collection archives with supporting files", () => {
-    const skills = catalogService.findCollection("skills", "library")!;
-    const archive = catalogService.collectionArchive(skills);
-
-    expect(archive).toMatchObject({
-      name: "skills.zip",
-      url: expect.stringContaining(
-        "/catalog/collections/default/library/skills.zip",
-      ),
-    });
-    expect(archive.fileCount).toBeGreaterThan(skills.entries.length);
-    expect(catalogService.collectionFiles(skills)).toHaveLength(
-      archive.fileCount,
-    );
-  });
-
-  it("reduces Tools to Documents, Gateway, OpenCode, OMP, and MCP", () => {
     expect(
-      catalogService
-        .collectionsInSection("tools")
-        .map((collection) => collection.id),
-    ).toEqual(["documents", "gateway", "opencode", "omp", "mcp"]);
+      ["review-helper", "omp", "gateway", "opencode", "another-tool"].sort(
+        compareCollectionIds,
+      ),
+    ).toEqual(["gateway", "opencode", "omp", "another-tool", "review-helper"]);
+    const contributedTool = {
+      ...catalogService.findCollection("gateway")!,
+      contributor: "alice",
+    };
+    expect(catalogService.collectionArchive(contributedTool).url).toBe(
+      `${window.location.origin}/catalog/collections/alice/tools/gateway.zip`,
+    );
+    expect(catalogService.collections("missing-contributor")).toEqual([]);
+    expect(
+      catalogService.findCollection("gateway", "missing-contributor"),
+    ).toBeNull();
+  });
+
+  it("excludes workflow and retired tool sources from the product catalogue", () => {
+    expect(
+      collectionIdForPath("contributors/default/libraries/harness/AGENTS.md"),
+    ).toBeNull();
+    expect(
+      collectionIdForPath(
+        "contributors/default/tools/installer/machine-installer.md",
+      ),
+    ).toBeNull();
+    expect(
+      collectionIdForPath("contributors/default/tools/mcp/mcp-servers.md"),
+    ).toBeNull();
+    expect(
+      collectionIdForPath(
+        "contributors/synasapmob/tools/installer/codex-workflow.md",
+      ),
+    ).toBeNull();
+    expect(
+      collectionIdForPath("contributors/default/tools/gateway/gateway.md"),
+    ).toBe("gateway");
+  });
+
+  it("keeps every tool file in its corresponding download archive", () => {
+    for (const collection of catalogService.collections()) {
+      const files = catalogService.collectionFiles(collection);
+      expect(files.length).toBeGreaterThan(0);
+      expect(catalogService.collectionArchive(collection)).toEqual({
+        name: `${collection.id}.zip`,
+        url: `${window.location.origin}/catalog/collections/default/tools/${collection.id}.zip`,
+        fileCount: files.length,
+      });
+      for (const file of files) {
+        expect(collectionIdForPath(file.path)).toBe(collection.id);
+        expect(file.url).toBe(`${window.location.origin}/catalog/${file.path}`);
+        expect(file.source).toContain("# ");
+      }
+    }
   });
 
   it("documents the agent config the gateway installer writes", () => {
-    const gateway = catalogService.findCollection("gateway", "tools");
+    const gateway = catalogService.findCollection("gateway");
     const file = catalogService
       .collectionFiles(gateway!)
       .find((entry) => entry.name === "gateway.md");
@@ -97,146 +103,21 @@ describe("collections", () => {
     expect(file?.source).toContain("GEMINI_API_KEY");
     expect(file?.source).toContain("~/.codex/config.toml");
     expect(file?.source).toContain("python3 - --url=");
-    expect(file?.source).toContain("--key=YOUR_GATEWAY_KEY");
-  });
-
-  it("derives the five MCP products and keeps Supabase project-scoped", () => {
-    const products = catalogService.mcpProducts();
-
-    expect(products.map((product) => product.id)).toEqual([
-      "notion",
-      "linear",
-      "playwright",
-      "chrome-browser",
-      "supabase",
-    ]);
-    expect(
-      products.find((product) => product.id === "supabase")?.servers.length,
-    ).toBeGreaterThan(1);
+    expect(file?.source).toContain(
+      "python3 - --url=https://<hub-william-origin>/api\n```",
+    );
+    expect(file?.source).toContain("hidden prompt");
   });
 });
 
-describe("category", () => {
-  it("carries the folder's own name, which is what a sheet branches on", () => {
-    // The sheet renders a template as a copyable snippet rather than as
-    // Markdown, and compared against `"TEMPLATES"` to decide — a value this
-    // service has never produced, so the branch was dead and every template
-    // rendered as the page of bare headings the snippet exists to avoid.
-    // `rootLabel` is what upper-cases a category, and only for display.
-    const template = catalogService.listEntriesByCategory("templates").at(0);
-
-    expect(template).toBeDefined();
-    expect(template!.category).toBe("templates");
-  });
-});
-
-describe("usage", () => {
-  it("addresses a document by the path the harness reads it from", () => {
-    expect(catalogService.usage(planTag!).destination).toBe(
-      "~/.hub-william/contributors/default/libraries/harness/tags/plan.md",
-    );
-  });
-
-  it("lists the modes a tag contract declares, in the document's own order", () => {
-    const delivery = harnessEntries.find((entry) =>
-      entry.id.endsWith("/tags/delivery"),
-    );
-
-    expect(delivery).toBeDefined();
-    expect(catalogService.usage(delivery!).invocations).toEqual([
-      "[delivery-local]",
-      "[delivery-ete]",
-      "[delivery-linear-<ISSUE-ID>]",
-    ]);
-  });
-
-  it("reads headings only, so a tag quoted in prose is not offered", () => {
-    // `delivery.md` discusses `[worktree]` and `[playwright]` at length without
-    // defining either. Listing every tag a contract mentions would tell a
-    // reader to type things this document does not own.
-    const delivery = harnessEntries.find((entry) =>
-      entry.id.endsWith("/tags/delivery"),
-    );
-
-    expect(delivery!.source).toContain("`[worktree]`");
-    expect(catalogService.usage(delivery!).invocations).not.toContain(
-      "[worktree]",
-    );
-  });
-
-  it("reaches a skill by the name its own front matter declares", () => {
-    const skill = catalogService
-      .listEntriesByCategory("skills")
-      .find((entry) => entry.id.includes("/frontend-convention/"));
-
-    expect(skill).toBeDefined();
-    expect(catalogService.usage(skill!).invocations).toEqual([
-      "/frontend-convention",
-    ]);
-  });
-
-  it("falls back to what a contract covers when nothing types it", () => {
-    expect(supporting).toBeDefined();
-    expect(catalogService.usage(supporting!).invocations).toEqual([]);
-
-    const installer = catalogService
-      .listEntriesByCategory("installer")
-      .find((entry) => entry.id.endsWith("machine-installer"));
-
-    expect(installer).toBeDefined();
-    expect(catalogService.usage(installer!)).toMatchObject({
-      invocations: [],
-      sections: expect.arrayContaining(["Install", "Where things land"]),
-    });
-  });
-
-  it("still places a document from a folder nobody has described", () => {
-    const invented: CatalogEntry = {
-      ...planTag!,
-      id: "contributors/someone/libraries/rituals/dawn",
-      category: "rituals",
-      group: "rituals",
-      source: "# Dawn\n\nNothing here is typed.\n",
-    };
-
-    expect(catalogService.usage(invented)).toEqual({
-      destination:
-        "~/.hub-william/contributors/someone/libraries/rituals/dawn.md",
-      invocations: [],
-      sections: [],
-    });
-  });
-});
-
-describe("documentUrl", () => {
-  it("is absolute, so a copied command runs on whichever host served it", () => {
-    expect(catalogService.documentUrl(planTag!)).toBe(
-      `${window.location.origin}/catalog/contributors/default/libraries/harness/tags/plan.md`,
-    );
-  });
-});
-
-describe("gatewayInstallerUrl", () => {
-  it("keeps gateway.py on the same origin and base as install.py", () => {
+describe("installer URLs", () => {
+  it("serves each retained installer from the current published origin", () => {
     expect(catalogService.gatewayInstallerUrl("https://hub.example")).toBe(
       "https://hub.example/gateway.py",
     );
-    expect(catalogService.installerUrl("https://hub.example")).toBe(
-      "https://hub.example/install.py",
-    );
-  });
-});
-
-describe("openCodeInstallerUrl", () => {
-  it("keeps opencode.py on the same published origin", () => {
     expect(catalogService.openCodeInstallerUrl("https://hub.example")).toBe(
       "https://hub.example/opencode.py",
     );
-  });
-});
-
-describe("ompInstallerUrl", () => {
-  it("keeps omp.py on the same published origin", () => {
     expect(catalogService.ompInstallerUrl("https://hub.example")).toBe(
       "https://hub.example/omp.py",
     );

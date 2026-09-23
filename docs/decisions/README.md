@@ -30,3 +30,6 @@ record and mark the old one superseded rather than rewriting its history.
 - [ADR-0021: Transparent request sizing for agent gateway routes](0021-transparent-request-sizing-agent-gateway.md)
 - [ADR-0022: Bounded transient gateway retries](0022-bounded-transient-gateway-retries.md)
 - [ADR-0023: Unlimited account pool membership](0023-unlimited-account-pool-membership.md)
+- [ADR-0024: Tools, Agents and demo Playground](0024-tools-agents-playground.md)
+- [ADR-0025: Session-backed model Playground](0025-session-backed-playground.md)
+- [ADR-0026: Railway-only deployment](0026-railway-only-deployment.md)

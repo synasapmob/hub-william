@@ -7,11 +7,15 @@ import {
 import type { AgentPoolPerson } from "@/services/agent-pools";
 
 interface AgentsAvatarStackProps {
+  maxVisible?: number;
   people: AgentPoolPerson[];
 }
 
-export default function AgentsAvatarStack({ people }: AgentsAvatarStackProps) {
-  const visiblePeople = people.slice(0, 2);
+export default function AgentsAvatarStack({
+  maxVisible = 2,
+  people,
+}: AgentsAvatarStackProps) {
+  const visiblePeople = people.slice(0, maxVisible);
   const remaining = Math.max(people.length - visiblePeople.length, 0);
 
   if (people.length === 0) return null;

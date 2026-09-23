@@ -106,7 +106,7 @@ export default function AgentsExplorer({
             aria-label="Agent providers"
             className="min-w-0 lg:sticky lg:top-0 lg:z-20 lg:bg-background"
           >
-            <h2 className="relative z-10 mb-4 bg-background text-[10px] font-semibold tracking-widest text-zinc-400 uppercase">
+            <h2 className="relative z-10 mb-4 text-[10px] font-semibold tracking-widest text-zinc-400 uppercase">
               Providers
             </h2>
 

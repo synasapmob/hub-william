@@ -6,7 +6,7 @@ use axum::{
     body::{Body, Bytes},
     extract::{OriginalUri, Path, State},
     http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, header},
-    response::Response,
+    response::{IntoResponse, Response},
 };
 use axum_extra::extract::CookieJar;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -27,11 +27,200 @@ use crate::{
 };
 
 const OPENAI_RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
+const OPENAI_CODEX_MODELS_URL: &str = "https://chatgpt.com/backend-api/codex/models";
+const OPENAI_MODELS_URL: &str = "https://chatgpt.com/backend-api/models";
 const CLAUDE_MESSAGES_URL: &str = "https://api.anthropic.com/v1/messages";
+// Match the installed OpenCode/OMP gateway installers: Claude defaults to only 20 models.
+const CLAUDE_MODELS_URL: &str = "https://api.anthropic.com/v1/models?limit=1000";
 const CLAUDE_COUNT_TOKENS_URL: &str = "https://api.anthropic.com/v1/messages/count_tokens";
 const GROK_CHAT_URL: &str = "https://cli-chat-proxy.grok.com/v1/chat/completions";
 const GROK_RESPONSES_URL: &str = "https://cli-chat-proxy.grok.com/v1/responses";
 const GROK_MODELS_URL: &str = "https://cli-chat-proxy.grok.com/v1/models-v2";
+
+/// A browser request is pinned to one authorized account; existing key clients
+/// retain the provider-scoped candidate set and failover behavior.
+#[derive(Clone, Copy)]
+struct GatewaySelection {
+    user_id: Uuid,
+    connection_id: Option<Uuid>,
+}
+
+impl From<Uuid> for GatewaySelection {
+    fn from(user_id: Uuid) -> Self {
+        Self {
+            user_id,
+            connection_id: None,
+        }
+    }
+}
+
+async fn selected_provider_candidates(
+    state: &AppState,
+    selection: GatewaySelection,
+    provider: AgentProvider,
+) -> Result<Vec<ProviderCandidate>, ApiError> {
+    let mut candidates = connected_provider_candidates(state, selection.user_id, provider).await?;
+    if let Some(connection_id) = selection.connection_id {
+        candidates.retain(|candidate| candidate.id == connection_id);
+    }
+    if candidates.is_empty() {
+        return Err(ApiError::Forbidden);
+    }
+    Ok(candidates)
+}
+
+pub(crate) async fn models_for_user(
+    state: &AppState,
+    user_id: Uuid,
+    connection_id: Uuid,
+    provider: AgentProvider,
+) -> Result<Response, ApiError> {
+    let selection = GatewaySelection {
+        user_id,
+        connection_id: Some(connection_id),
+    };
+    match provider {
+        AgentProvider::Chatgpt => {
+            let mut headers = HeaderMap::new();
+            headers.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
+            headers.insert(
+                "openai-beta",
+                HeaderValue::from_static("responses=experimental"),
+            );
+            headers.insert(
+                "version",
+                HeaderValue::from_str(&state.config.codex_client_version)
+                    .map_err(|_| ApiError::Internal)?,
+            );
+            for base_url in [OPENAI_CODEX_MODELS_URL, OPENAI_MODELS_URL] {
+                let mut url = reqwest::Url::parse(base_url).map_err(|_| ApiError::Internal)?;
+                url.query_pairs_mut()
+                    .append_pair("client_version", &state.config.codex_client_version);
+                let response = proxy_request_for_user(
+                    state,
+                    selection,
+                    GatewayUpstream {
+                        provider,
+                        url: url.as_str(),
+                    },
+                    Method::GET,
+                    &axum::http::Uri::from_static("/"),
+                    &headers,
+                    Bytes::new(),
+                )
+                .await?;
+                if response.status().is_success()
+                    || response.status().as_u16() == 401
+                    || response.status().as_u16() == 403
+                {
+                    return Ok(response);
+                }
+            }
+            Err(ApiError::Provider(
+                "ChatGPT model discovery is temporarily unavailable.".to_owned(),
+            ))
+        }
+        AgentProvider::Claude => {
+            let mut headers = HeaderMap::new();
+            headers.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
+            proxy_request_for_user(
+                state,
+                selection,
+                GatewayUpstream {
+                    provider,
+                    url: CLAUDE_MODELS_URL,
+                },
+                Method::GET,
+                &axum::http::Uri::from_static("/"),
+                &headers,
+                Bytes::new(),
+            )
+            .await
+        }
+        AgentProvider::Gemini => Ok(gemini_models_for_user(state, selection)
+            .await?
+            .into_response()),
+        AgentProvider::Grok | AgentProvider::Deepseek => {
+            let url = if provider == AgentProvider::Grok {
+                GROK_MODELS_URL.to_owned()
+            } else {
+                format!("{}/models", state.config.deepseek_api_url)
+            };
+            proxy_request_for_user(
+                state,
+                selection,
+                GatewayUpstream {
+                    provider,
+                    url: &url,
+                },
+                Method::GET,
+                &axum::http::Uri::from_static("/"),
+                &HeaderMap::new(),
+                Bytes::new(),
+            )
+            .await
+        }
+    }
+}
+
+pub(crate) async fn response_for_user(
+    state: &AppState,
+    user_id: Uuid,
+    connection_id: Uuid,
+    provider: AgentProvider,
+    model: &str,
+    body: Bytes,
+) -> Result<Response, ApiError> {
+    let selection = GatewaySelection {
+        user_id,
+        connection_id: Some(connection_id),
+    };
+    if provider == AgentProvider::Gemini {
+        return gemini_proxy_request_for_user(
+            state,
+            selection,
+            model,
+            GeminiOperation::StreamGenerate,
+            body,
+        )
+        .await;
+    }
+    let (url, body) = match provider {
+        AgentProvider::Chatgpt => (
+            OPENAI_RESPONSES_URL.to_owned(),
+            strip_unsupported_codex_fields(body),
+        ),
+        AgentProvider::Claude => (
+            CLAUDE_MESSAGES_URL.to_owned(),
+            ensure_claude_billing_header(body, &state.config.claude_client_version),
+        ),
+        AgentProvider::Grok => (GROK_RESPONSES_URL.to_owned(), body),
+        AgentProvider::Deepseek => (format!("{}/responses", state.config.deepseek_api_url), body),
+        AgentProvider::Gemini => unreachable!("Gemini uses its native gateway path"),
+    };
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    headers.insert(
+        header::ACCEPT,
+        HeaderValue::from_static("text/event-stream"),
+    );
+    proxy_request_for_user(
+        state,
+        selection,
+        GatewayUpstream {
+            provider,
+            url: &url,
+        },
+        Method::POST,
+        &axum::http::Uri::from_static("/"),
+        &headers,
+        body,
+    )
+    .await
+}
 const MAX_UPSTREAM_ATTEMPTS: usize = 4;
 const MAX_SAME_CANDIDATE_ATTEMPTS: usize = 2;
 const RETRY_BASE_DELAY_MS: u64 = 500;
@@ -267,6 +456,8 @@ fn default_openai_model_catalogue() -> Value {
         "object": "list",
         "data": [
             { "id": "gpt-6-astra", "name": "GPT-6 Astra", "object": "model", "owned_by": "openai" },
+            { "id": "gpt-6-sol", "name": "GPT-6 Sol", "object": "model", "owned_by": "openai" },
+            { "id": "gpt-6-luna", "name": "GPT-6 Luna", "object": "model", "owned_by": "openai" },
             { "id": "gpt-5.6-sol", "name": "GPT-5.6 Sol", "object": "model", "owned_by": "openai" },
             { "id": "gpt-5.6-terra", "name": "GPT-5.6 Terra", "object": "model", "owned_by": "openai" },
             { "id": "gpt-5.6-luna", "name": "GPT-5.6 Luna", "object": "model", "owned_by": "openai" }
@@ -516,6 +707,13 @@ fn default_claude_model_catalogue() -> Value {
             {
                 "id": "claude-fable-5-1",
                 "display_name": "Claude Fable 5.1",
+                "capabilities": {
+                    "effort": standard_effort
+                }
+            },
+            {
+                "id": "claude-opus-5-5",
+                "display_name": "Claude Opus 5.5",
                 "capabilities": {
                     "effort": standard_effort
                 }
@@ -863,8 +1061,14 @@ pub async fn gemini_models(
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     let authorized = authorize_gateway_key(&state, &headers).await?;
-    let candidates =
-        connected_provider_candidates(&state, authorized.user_id, AgentProvider::Gemini).await?;
+    gemini_models_for_user(&state, authorized.user_id.into()).await
+}
+
+async fn gemini_models_for_user(
+    state: &AppState,
+    selection: GatewaySelection,
+) -> Result<Json<Value>, ApiError> {
+    let candidates = selected_provider_candidates(state, selection, AgentProvider::Gemini).await?;
     let mut saw_rate_limit = false;
     let mut saw_reauthorization = false;
     let mut last_error = None;
@@ -875,7 +1079,7 @@ pub async fn gemini_models(
         if attempts_used >= MAX_UPSTREAM_ATTEMPTS {
             break;
         }
-        let claimed_probe = match claim_candidate(&state, &candidate).await {
+        let claimed_probe = match claim_candidate(state, &candidate).await {
             Ok(Some(claimed_probe)) => claimed_probe,
             Ok(None) => {
                 if candidate.availability_status == "reauth_required" {
@@ -887,11 +1091,11 @@ pub async fn gemini_models(
             }
             Err(error) => return Err(error),
         };
-        let (credential_provider, token) = match provider_credential(&state, candidate.id).await {
+        let (credential_provider, token) = match provider_credential(state, candidate.id).await {
             Ok(credential) => credential,
             Err(error) => {
                 if claimed_probe {
-                    release_probe(&state, candidate.id).await?;
+                    release_probe(state, candidate.id).await?;
                 }
                 last_error = Some(error);
                 continue;
@@ -903,19 +1107,19 @@ pub async fn gemini_models(
             .and_then(Value::as_str);
         let (Some(access_token), Some(project)) = (access_token, project) else {
             if claimed_probe {
-                release_probe(&state, candidate.id).await?;
+                release_probe(state, candidate.id).await?;
             }
             last_error = Some(ApiError::Forbidden);
             continue;
         };
         if credential_provider != AgentProvider::Gemini {
             if claimed_probe {
-                release_probe(&state, candidate.id).await?;
+                release_probe(state, candidate.id).await?;
             }
             last_error = Some(ApiError::Forbidden);
             continue;
         }
-        let project = current_gemini_project(&state, access_token, project).await;
+        let project = current_gemini_project(state, access_token, project).await;
         let upstream_url = format!(
             "{}/v1internal:fetchAvailableModels",
             state.config.gemini_code_assist_url.trim_end_matches('/')
@@ -938,7 +1142,7 @@ pub async fn gemini_models(
                     last_error = Some(upstream_network_error(AgentProvider::Gemini, error));
                     if attempts_used >= MAX_UPSTREAM_ATTEMPTS {
                         if claimed_probe {
-                            release_probe(&state, candidate.id).await?;
+                            release_probe(state, candidate.id).await?;
                         }
                         break 'candidates;
                     }
@@ -949,7 +1153,7 @@ pub async fn gemini_models(
                         candidate_count,
                     );
                     if !retry_same && claimed_probe {
-                        release_probe(&state, candidate.id).await?;
+                        release_probe(state, candidate.id).await?;
                     }
                     let delay = retry_delay(attempts_used, None);
                     tokio::time::sleep(delay).await;
@@ -961,12 +1165,12 @@ pub async fn gemini_models(
             };
             match upstream_disposition(upstream.status()) {
                 UpstreamDisposition::RateLimit => {
-                    mark_rate_limited(&state, candidate.id).await?;
+                    mark_rate_limited(state, candidate.id).await?;
                     saw_rate_limit = true;
                     continue 'candidates;
                 }
                 UpstreamDisposition::Reauthorize => {
-                    mark_reauth_required(&state, candidate.id).await?;
+                    mark_reauth_required(state, candidate.id).await?;
                     saw_reauthorization = true;
                     continue 'candidates;
                 }
@@ -977,7 +1181,7 @@ pub async fn gemini_models(
                     )));
                     if attempts_used >= MAX_UPSTREAM_ATTEMPTS {
                         if claimed_probe {
-                            release_probe(&state, candidate.id).await?;
+                            release_probe(state, candidate.id).await?;
                         }
                         break 'candidates;
                     }
@@ -988,7 +1192,7 @@ pub async fn gemini_models(
                         candidate_count,
                     );
                     if !retry_same && claimed_probe {
-                        release_probe(&state, candidate.id).await?;
+                        release_probe(state, candidate.id).await?;
                     }
                     let delay = retry_delay(attempts_used, Some(upstream.headers()));
                     tokio::time::sleep(delay).await;
@@ -999,7 +1203,7 @@ pub async fn gemini_models(
                 }
                 UpstreamDisposition::Return if !upstream.status().is_success() => {
                     if claimed_probe {
-                        release_probe(&state, candidate.id).await?;
+                        release_probe(state, candidate.id).await?;
                     }
                     last_error = Some(ApiError::Provider(format!(
                         "Google model discovery returned HTTP {}.",
@@ -1012,7 +1216,7 @@ pub async fn gemini_models(
             let payload = upstream.json::<Value>().await.map_err(|_| {
                 ApiError::Provider("Google returned an invalid Gemini model catalogue.".to_owned())
             })?;
-            mark_active(&state, candidate.id).await?;
+            mark_active(state, candidate.id).await?;
             return Ok(Json(gemini_model_catalogue(&payload)));
         }
     }
@@ -1092,8 +1296,17 @@ async fn gemini_proxy_request(
     body: Bytes,
 ) -> Result<Response, ApiError> {
     let authorized = authorize_gateway_key(state, request_headers).await?;
-    let candidates =
-        connected_provider_candidates(state, authorized.user_id, AgentProvider::Gemini).await?;
+    gemini_proxy_request_for_user(state, authorized.user_id.into(), model, operation, body).await
+}
+
+async fn gemini_proxy_request_for_user(
+    state: &AppState,
+    selection: GatewaySelection,
+    model: &str,
+    operation: GeminiOperation,
+    body: Bytes,
+) -> Result<Response, ApiError> {
+    let candidates = selected_provider_candidates(state, selection, AgentProvider::Gemini).await?;
     let request_body: Value = serde_json::from_slice(&body)
         .map_err(|_| ApiError::Validation("The Gemini request body must be valid JSON."))?;
     let mut saw_rate_limit = false;
@@ -1226,7 +1439,12 @@ async fn gemini_proxy_request(
                         if claimed_probe {
                             release_probe(state, candidate.id).await?;
                         }
-                        return gemini_upstream_response(upstream, operation).await;
+                        return gemini_upstream_response(
+                            upstream,
+                            operation,
+                            selection.connection_id.is_some(),
+                        )
+                        .await;
                     }
                     let retry_same = should_retry_same_candidate(
                         attempts_used,
@@ -1248,7 +1466,12 @@ async fn gemini_proxy_request(
                 UpstreamDisposition::Return => {}
             }
             mark_active(state, candidate.id).await?;
-            return gemini_upstream_response(upstream, operation).await;
+            return gemini_upstream_response(
+                upstream,
+                operation,
+                selection.connection_id.is_some(),
+            )
+            .await;
         }
     }
 
@@ -1365,6 +1588,7 @@ fn unwrap_gemini_response(mut wrapper: Value) -> Value {
 async fn gemini_upstream_response(
     upstream: reqwest::Response,
     operation: GeminiOperation,
+    cancel_on_disconnect: bool,
 ) -> Result<Response, ApiError> {
     let status = upstream.status();
     let headers = upstream.headers().clone();
@@ -1399,7 +1623,15 @@ async fn gemini_upstream_response(
         let mut stream = upstream.bytes_stream();
         let mut transformer = GeminiSseTransformer::default();
         let mut client_gone = false;
-        while let Some(item) = stream.next().await {
+        loop {
+            let item = tokio::select! {
+                biased;
+                _ = tx.closed(), if cancel_on_disconnect => break,
+                item = stream.next() => item,
+            };
+            let Some(item) = item else {
+                break;
+            };
             match item {
                 Ok(bytes) => {
                     let transformed = transformer.push(&bytes);
@@ -1485,9 +1717,38 @@ async fn proxy_request(
     body: Bytes,
 ) -> Result<Response, ApiError> {
     let authorized = authorize_gateway_key(state, request_headers).await?;
-    let candidates =
-        connected_provider_candidates(state, authorized.user_id, expected_provider).await?;
-    let upstream_url = append_query(upstream_url, original_uri.query());
+    proxy_request_for_user(
+        state,
+        authorized.user_id.into(),
+        GatewayUpstream {
+            provider: expected_provider,
+            url: upstream_url,
+        },
+        method,
+        original_uri,
+        request_headers,
+        body,
+    )
+    .await
+}
+
+struct GatewayUpstream<'a> {
+    provider: AgentProvider,
+    url: &'a str,
+}
+
+async fn proxy_request_for_user(
+    state: &AppState,
+    selection: GatewaySelection,
+    upstream: GatewayUpstream<'_>,
+    method: Method,
+    original_uri: &axum::http::Uri,
+    request_headers: &HeaderMap,
+    body: Bytes,
+) -> Result<Response, ApiError> {
+    let expected_provider = upstream.provider;
+    let candidates = selected_provider_candidates(state, selection, expected_provider).await?;
+    let upstream_url = append_query(upstream.url, original_uri.query());
     let mut saw_rate_limit = false;
     let mut saw_reauthorization = false;
     let mut last_error = None;
@@ -2117,6 +2378,49 @@ fn database_error(error: sqlx::Error) -> ApiError {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn playground_gemini_disconnect_closes_upstream_without_waiting_for_next_chunk() {
+        use axum::{Router, routing::get};
+        use std::{sync::Arc, time::Duration};
+        use tokio::{
+            net::TcpListener,
+            sync::{Mutex, mpsc},
+        };
+        use tokio_stream::wrappers::ReceiverStream;
+
+        let (tx, rx) = mpsc::channel::<Result<axum::body::Bytes, std::io::Error>>(1);
+        tx.send(Ok(axum::body::Bytes::from_static(
+            b"data: {\"response\":{\"candidates\":[]}}\n\n",
+        )))
+        .await
+        .unwrap();
+        let receiver = Arc::new(Mutex::new(Some(rx)));
+        let server = Router::new().route(
+            "/stream",
+            get(move || {
+                let receiver = receiver.clone();
+                async move {
+                    axum::body::Body::from_stream(ReceiverStream::new(
+                        receiver.lock().await.take().unwrap(),
+                    ))
+                }
+            }),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/stream", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move { axum::serve(listener, server).await.unwrap() });
+        let upstream = reqwest::get(url).await.unwrap();
+        let response =
+            super::gemini_upstream_response(upstream, super::GeminiOperation::StreamGenerate, true)
+                .await
+                .unwrap();
+        drop(response);
+        tokio::time::timeout(Duration::from_secs(2), tx.closed())
+            .await
+            .expect("cancel must drop the upstream stream");
+        task.abort();
+    }
+
     use axum::{
         body::Bytes,
         http::{HeaderMap, HeaderValue},
@@ -2417,8 +2721,10 @@ mod tests {
         let catalogue = default_openai_model_catalogue();
         assert_eq!(catalogue["object"], "list");
         let models = catalogue["data"].as_array().unwrap();
-        assert_eq!(models.len(), 4);
+        assert_eq!(models.len(), 6);
         assert_eq!(models[0]["id"], "gpt-6-astra");
+        assert_eq!(models[1]["id"], "gpt-6-sol");
+        assert_eq!(models[2]["id"], "gpt-6-luna");
     }
 
     #[test]
@@ -2430,25 +2736,25 @@ mod tests {
         assert_eq!(models[0]["id"], "claude-fable-5-1");
         assert_eq!(models[0]["display_name"], "Claude Fable 5.1");
         assert_eq!(models[0]["capabilities"]["effort"]["supported"], true);
-        assert_eq!(models[1]["id"], "claude-opus-5");
-        assert_eq!(models[1]["display_name"], "Claude Opus 5");
+        assert_eq!(models[1]["id"], "claude-opus-5-5");
+        assert_eq!(models[1]["display_name"], "Claude Opus 5.5");
         assert_eq!(models[1]["capabilities"]["effort"]["supported"], true);
-        assert_eq!(models[2]["id"], "claude-sonnet-5");
-        assert_eq!(models[2]["display_name"], "Claude Sonnet 5");
-        assert_eq!(models[2]["capabilities"]["effort"]["supported"], true);
-        assert_eq!(models[3]["id"], "claude-haiku-4-5-20251001");
+        assert_eq!(models[2]["id"], "claude-opus-5");
+        assert_eq!(models[3]["id"], "claude-sonnet-5");
+        assert_eq!(models[3]["capabilities"]["effort"]["supported"], true);
+        assert_eq!(models[4]["id"], "claude-haiku-4-5-20251001");
     }
 
     #[test]
     fn parse_claude_models_markdown_extracts_models_and_effort() {
         let markdown = r#"
-| Feature | Claude Fable 5.1 | Claude Opus 5 | Claude Sonnet 5 | Claude Haiku 4.5 |
+| Feature | Claude Fable 5.1 | Claude Opus 5.5 | Claude Sonnet 5 | Claude Haiku 4.5 |
 | :--- | :--- | :--- | :--- | :--- |
-| Claude API ID | `claude-fable-5-1` | `claude-opus-5` | `claude-sonnet-5` | `claude-haiku-4-5-20251001` |
-| [Default effort](https://platform.claude.com/effort) | `high` | `high` | `high` | Not supported |
-| Claude API alias | `claude-fable-5-1` | `claude-opus-5` | `claude-sonnet-5` | `claude-haiku-4-5` |
+| Claude API ID | `claude-fable-5-1` | `claude-opus-5-5` | `claude-sonnet-5` | `claude-haiku-4-5-20251001` |
+| [Default effort](https://platform.claude.com/effort) | `high` | `medium` | `high` | Not supported |
+| Claude API alias | `claude-fable-5-1` | `claude-opus-5-5` | `claude-sonnet-5` | `claude-haiku-4-5` |
 
-Legacy models (still available): [Claude Fable 5](https://platform.claude.com/docs/en/models/fable-5/overview), [Claude Opus 4.8](https://platform.claude.com/docs/en/models/opus-4-8/overview).
+Legacy models (still available): [Claude Fable 5](https://platform.claude.com/docs/en/models/fable-5/overview), [Claude Opus 5](https://platform.claude.com/docs/en/models/opus-5/overview), [Claude Opus 4.8](https://platform.claude.com/docs/en/models/opus-4-8/overview).
 "#;
         let parsed = parse_claude_models_markdown(markdown).unwrap();
         assert_eq!(parsed["object"], "list");
@@ -2456,11 +2762,15 @@ Legacy models (still available): [Claude Fable 5](https://platform.claude.com/do
         assert_eq!(models[0]["id"], "claude-fable-5-1");
         assert_eq!(models[0]["display_name"], "Claude Fable 5.1");
         assert_eq!(models[0]["capabilities"]["effort"]["supported"], true);
+        assert_eq!(models[1]["id"], "claude-opus-5-5");
+        assert_eq!(models[1]["display_name"], "Claude Opus 5.5");
+        assert_eq!(models[1]["capabilities"]["effort"]["supported"], true);
         assert_eq!(models[3]["id"], "claude-haiku-4-5-20251001");
         assert!(models[3].get("capabilities").is_none());
         assert_eq!(models[4]["id"], "claude-haiku-4-5");
         assert_eq!(models[5]["id"], "claude-fable-5");
-        assert_eq!(models[6]["id"], "claude-opus-4-8");
+        assert_eq!(models[6]["id"], "claude-opus-5");
+        assert_eq!(models[7]["id"], "claude-opus-4-8");
     }
 
     #[test]
@@ -2469,6 +2779,8 @@ Legacy models (still available): [Claude Fable 5](https://platform.claude.com/do
 ## Featured models
 
 - [GPT-6 Astra](/api/docs/models/gpt-6-astra.md): Our most capable model
+- [GPT-6 Sol](/api/docs/models/gpt-6-sol.md): Complex coding and agentic workflows
+- [GPT-6 Luna](/api/docs/models/gpt-6-luna.md): Focused, high-volume tasks
 - [GPT-5.6 Sol](/api/docs/models/gpt-5.6-sol.md): Flagship model
 - [GPT-5.6 Terra](/api/docs/models/gpt-5.6-terra.md): Balances cost
 - [GPT-5.6 Luna](/api/docs/models/gpt-5.6-luna.md): High volume
@@ -2482,11 +2794,13 @@ Legacy models (still available): [Claude Fable 5](https://platform.claude.com/do
         let parsed = parse_openai_models_markdown(markdown).unwrap();
         assert_eq!(parsed["object"], "list");
         let models = parsed["data"].as_array().unwrap();
-        assert_eq!(models.len(), 6);
+        assert_eq!(models.len(), 8);
         assert_eq!(models[0]["id"], "gpt-6-astra");
         assert_eq!(models[0]["name"], "GPT-6 Astra");
-        assert_eq!(models[1]["id"], "gpt-5.6-sol");
-        assert_eq!(models[4]["id"], "gpt-5.5");
-        assert_eq!(models[5]["id"], "gpt-5.3-codex");
+        assert_eq!(models[1]["id"], "gpt-6-sol");
+        assert_eq!(models[2]["id"], "gpt-6-luna");
+        assert_eq!(models[3]["id"], "gpt-5.6-sol");
+        assert_eq!(models[6]["id"], "gpt-5.5");
+        assert_eq!(models[7]["id"], "gpt-5.3-codex");
     }
 }

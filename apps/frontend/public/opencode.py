@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Install a live Hub William provider catalogue into OpenCode.
 
-    curl -fsSL https://<hub>/opencode.py | python3 - --url=https://<api> --key=YOUR_GATEWAY_KEY
+    curl -fsSL https://<hub>/opencode.py | python3 - --url=https://<api>
 """
 
 import argparse
@@ -26,6 +26,12 @@ DEFAULT_CODEX_MODELS = (
         "GPT-6 Astra",
         ("low", "medium", "high", "xhigh", "max", "ultra"),
     ),
+    (
+        "gpt-6-sol",
+        "GPT-6 Sol",
+        ("low", "medium", "high", "xhigh", "max", "ultra"),
+    ),
+    ("gpt-6-luna", "GPT-6 Luna", ("low", "medium", "high", "xhigh", "max")),
     (
         "gpt-5.6-sol",
         "GPT-5.6 Sol",

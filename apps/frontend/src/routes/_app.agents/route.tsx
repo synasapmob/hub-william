@@ -90,7 +90,12 @@ export default function AgentsRoute() {
   });
   const pools = poolsQuery.data ?? [];
   const requestPool = pools.find((pool) => pool.id === requestPoolId) ?? null;
-  const reviewPool = pools.find((pool) => pool.id === reviewPoolId) ?? null;
+  const reviewPool =
+    pools.find(
+      (pool) =>
+        pool.id === reviewPoolId &&
+        pool.owner.username === session.user?.username,
+    ) ?? null;
   const routeError =
     poolsQuery.error ??
     decisionMutation.error ??
@@ -154,10 +159,19 @@ export default function AgentsRoute() {
   }
 
   const refreshPoolData = useCallback(
-    () =>
+    (connection: AgentConnection) => {
+      queryClient.setQueryData(
+        [
+          ...agentConnectionsService.queryKey,
+          "pool-availability",
+          connection.id,
+        ],
+        connection,
+      );
       void queryClient.invalidateQueries({
         queryKey: agentPoolsService.queryKey,
-      }),
+      });
+    },
     [queryClient],
   );
 
