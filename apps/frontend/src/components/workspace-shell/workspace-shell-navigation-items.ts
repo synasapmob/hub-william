@@ -1,5 +1,13 @@
 import type { ComponentType } from "react";
-import { Bot, FlaskConical, House, Wrench } from "lucide-react";
+import {
+  Bot,
+  ChartNoAxesCombined,
+  FlaskConical,
+  House,
+  LayoutDashboard,
+  Users,
+  Wrench,
+} from "lucide-react";
 
 export interface NavigationItem {
   href: string;
@@ -38,4 +46,11 @@ export const navigationItems: NavigationItem[] = [
     icon: FlaskConical,
     label: "Playground",
   },
+];
+
+export const organizationNavigationItems: NavigationItem[] = [
+  { href: "/organization", icon: LayoutDashboard, label: "Overview" },
+  { href: "/organization/agents", icon: Bot, label: "Agents" },
+  { href: "/organization/members", icon: Users, label: "Members" },
+  { href: "/organization/usage", icon: ChartNoAxesCombined, label: "Usage" },
 ];

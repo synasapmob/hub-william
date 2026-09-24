@@ -635,7 +635,7 @@ describe("AgentsRoute", () => {
     );
     await waitFor(() => expect(secondButton).toHaveFocus());
 
-    await user.click(screen.getByRole("button", { name: "Grok, 1 accounts" }));
+    await user.click(screen.getByRole("button", { name: "Grok, 1 account" }));
     expect(
       screen.queryByRole("button", {
         name: "Open ChatGPT account du**y@exa**.com",
@@ -685,10 +685,8 @@ describe("AgentsRoute", () => {
     await screen.findByRole("button", {
       name: "Open ChatGPT account du**y@exa**.com",
     });
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: "Filter accounts" }),
-      "mine",
-    );
+    await user.click(screen.getByRole("combobox", { name: "Filter accounts" }));
+    await user.click(screen.getByRole("option", { name: "Mine" }));
     expect(
       screen.getByRole("button", {
         name: "Open ChatGPT account du**y@exa**.com",
@@ -699,10 +697,8 @@ describe("AgentsRoute", () => {
         name: "Open ChatGPT account jo**@exa**.com",
       }),
     ).not.toBeInTheDocument();
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: "Filter accounts" }),
-      "joined",
-    );
+    await user.click(screen.getByRole("combobox", { name: "Filter accounts" }));
+    await user.click(screen.getByRole("option", { name: "Joined" }));
     expect(
       screen.getByRole("button", {
         name: "Open ChatGPT account jo**@exa**.com",

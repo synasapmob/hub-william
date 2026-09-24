@@ -20,6 +20,7 @@ export interface PlaygroundMessage {
 }
 export interface PlaygroundChatOptions {
   connectionId: string;
+  organizationId?: string;
   provider: PlaygroundProviderId;
   model: string;
   messages: PlaygroundMessage[];
@@ -68,9 +69,13 @@ async function models(
   provider: PlaygroundProviderId,
   connectionId: string,
   signal: AbortSignal,
+  organizationId?: string,
 ): Promise<PlaygroundModel[]> {
   const options = {
-    params: { path: { provider, connection_id: connectionId } },
+    params: {
+      path: { provider, connection_id: connectionId },
+      query: { organization_id: organizationId },
+    },
     signal,
   };
   let result = await client.GET(
@@ -97,9 +102,14 @@ async function chat({
   signal,
   onDelta,
   connectionId,
+  organizationId,
   ...input
 }: PlaygroundChatOptions) {
-  const body = { ...input, connection_id: connectionId };
+  const body = {
+    ...input,
+    connection_id: connectionId,
+    organization_id: organizationId,
+  };
   if (new Blob([JSON.stringify(body)]).size > 32 * 1024 * 1024)
     throw new PlaygroundServiceError(
       "This conversation is too large to send. Start a new conversation or use smaller attachments.",

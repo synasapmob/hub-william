@@ -5,20 +5,27 @@ import { tv } from "tailwind-variants";
 import Flex from "@/components/ui/flex";
 import { Input } from "@/components/ui/input";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import AgentsExplorerLinks from "@/components/agents-explorer-links";
+import AgentsProviderIcon from "@/components/agents-provider-icon";
 import type { AgentPool, AgentProvider } from "@/services/agent-pools";
 import { AGENT_PROVIDERS, agentPoolAccess } from "@/utils/utils.agent-pools";
 
 import AgentsAccountRow from "./agents-account-row";
-import AgentsExplorerLinks from "./agents-explorer-links";
 import AgentsPoolCard from "./agents-pool-card";
 import AgentsPoolCardSkeleton from "./agents-pool-card-skeleton";
-import AgentsProviderIcon from "./agents-provider-icon";
 
 const providerButton = tv({
   base: "relative z-10 flex min-h-12 shrink-0 items-center gap-2.5 rounded-xl border px-3 text-left text-xs transition-colors focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-indigo-500 lg:w-full",
@@ -97,9 +104,9 @@ export default function AgentsExplorer({
           className="relative grid min-h-full items-start gap-x-12 gap-y-8 pt-1 pr-2 pb-8 pl-4 lg:grid-cols-[10rem_minmax(0,1fr)]"
         >
           <AgentsExplorerLinks
+            accounts={loading ? [] : filteredPools}
             boardRef={boardRef}
             highlightedId={hoveredId ?? focusedId}
-            pools={loading ? [] : filteredPools}
           />
 
           <nav
@@ -132,7 +139,7 @@ export default function AgentsExplorer({
                       selected: selectedProvider === agent,
                     })}
                     data-agent-node={`provider:${agent}`}
-                    aria-label={`${agent}, ${pools.filter((pool) => pool.agent === agent).length} accounts`}
+                    aria-label={`${agent}, ${pools.filter((pool) => pool.agent === agent).length} ${pools.filter((pool) => pool.agent === agent).length === 1 ? "account" : "accounts"}`}
                     aria-pressed={selectedProvider === agent}
                     onClick={() => {
                       setProvider(agent);
@@ -185,18 +192,22 @@ export default function AgentsExplorer({
                   className="h-10 w-28 shrink-0 animate-pulse rounded-lg bg-zinc-200/70"
                 />
               ) : (
-                <select
-                  aria-label="Filter accounts"
+                <Select
+                  onValueChange={(value) => setFilter(value as AccountFilter)}
                   value={filter}
-                  onChange={(event) =>
-                    setFilter(event.target.value as AccountFilter)
-                  }
-                  className="h-10 shrink-0 rounded-lg border border-zinc-200 bg-white px-2 text-xs focus-visible:outline-2 focus-visible:outline-indigo-500"
                 >
-                  <option value="all">All accounts</option>
-                  <option value="mine">Mine</option>
-                  <option value="joined">Joined</option>
-                </select>
+                  <SelectTrigger
+                    aria-label="Filter accounts"
+                    className="h-10! w-32 shrink-0 bg-white text-xs"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All accounts</SelectItem>
+                    <SelectItem value="mine">Mine</SelectItem>
+                    <SelectItem value="joined">Joined</SelectItem>
+                  </SelectContent>
+                </Select>
               )}
             </Flex>
 

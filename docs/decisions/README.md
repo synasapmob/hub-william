@@ -33,3 +33,4 @@ record and mark the old one superseded rather than rewriting its history.
 - [ADR-0024: Tools, Agents and demo Playground](0024-tools-agents-playground.md)
 - [ADR-0025: Session-backed model Playground](0025-session-backed-playground.md)
 - [ADR-0026: Railway-only deployment](0026-railway-only-deployment.md)
+- [ADR-0027: Organizations and session agent access](0027-organizations-and-session-agent-access.md)

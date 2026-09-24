@@ -1,7 +1,7 @@
 import { useEffect, useState, type RefObject } from "react";
 import { tv } from "tailwind-variants";
 
-import type { AgentPool } from "@/services/agent-pools";
+import type { AgentProvider } from "@/services/agent-pools";
 
 const link = tv({
   base: "fill-none transition-colors",
@@ -10,10 +10,15 @@ const link = tv({
   },
 });
 
+interface AgentsExplorerAccount {
+  agent: AgentProvider;
+  id: string;
+}
+
 interface AgentsExplorerLinksProps {
+  accounts: AgentsExplorerAccount[];
   boardRef: RefObject<HTMLDivElement | null>;
   highlightedId: string | null;
-  pools: AgentPool[];
 }
 
 interface AgentsExplorerLinksPath {
@@ -35,9 +40,9 @@ interface AgentsExplorerLinksGeometry {
 }
 
 export default function AgentsExplorerLinks({
+  accounts,
   boardRef,
   highlightedId,
-  pools,
 }: AgentsExplorerLinksProps) {
   const [geometry, setGeometry] = useState<AgentsExplorerLinksGeometry>({
     width: 0,
@@ -46,10 +51,10 @@ export default function AgentsExplorerLinks({
   });
   // Geometry only depends on the node identities; hover never restarts measurement.
   const connections = JSON.stringify(
-    pools.map((pool) => ({
-      poolId: pool.id,
-      from: `provider:${pool.agent}`,
-      to: `account:${pool.id}`,
+    accounts.map((account) => ({
+      poolId: account.id,
+      from: `provider:${account.agent}`,
+      to: `account:${account.id}`,
     })),
   );
 

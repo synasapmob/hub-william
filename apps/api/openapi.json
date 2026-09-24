@@ -864,6 +864,452 @@
         }
       }
     },
+    "/organization-invitations": {
+      "get": {
+        "tags": ["organizations"],
+        "operationId": "list_invitations",
+        "responses": {
+          "200": {
+            "description": "Viewer's pending organization invitations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OrganizationInvitation"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organization-invitations/{invitation_id}": {
+      "delete": {
+        "tags": ["organizations"],
+        "operationId": "decline_invitation",
+        "parameters": [
+          {
+            "name": "invitation_id",
+            "in": "path",
+            "description": "Pending membership ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Invitation declined"
+          }
+        }
+      }
+    },
+    "/organization-invitations/{invitation_id}/accept": {
+      "post": {
+        "tags": ["organizations"],
+        "operationId": "accept_invitation",
+        "parameters": [
+          {
+            "name": "invitation_id",
+            "in": "path",
+            "description": "Pending membership ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Invitation accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Organization"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations": {
+      "get": {
+        "tags": ["organizations"],
+        "operationId": "list_organizations",
+        "responses": {
+          "200": {
+            "description": "Organizations where the viewer is an accepted member",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Organization"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["organizations"],
+        "operationId": "create_organization",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrganization"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Organization created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Organization"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{id}/agents": {
+      "get": {
+        "tags": ["organizations"],
+        "operationId": "list_agents",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "include_usage",
+            "in": "query",
+            "description": "Fetch live provider quota metrics; defaults to false",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Shared connected agents and provider usage",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OrganizationAgentDetails"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["organizations"],
+        "operationId": "share_agent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShareOrganizationAgent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Owned agent shared with organization",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationAgent"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{id}/agents/{connection_id}": {
+      "delete": {
+        "tags": ["organizations"],
+        "operationId": "unshare_agent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "connection_id",
+            "in": "path",
+            "description": "Owned connection ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Agent unshared"
+          }
+        }
+      }
+    },
+    "/organizations/{id}/members": {
+      "get": {
+        "tags": ["organizations"],
+        "operationId": "list_members",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Accepted and pending organization members",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OrganizationMember"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["organizations"],
+        "operationId": "organization_invite_member",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteOrganizationMember"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Existing Hub user invited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationMember"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{id}/members/{username}": {
+      "delete": {
+        "tags": ["organizations"],
+        "operationId": "organization_remove_member",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "username",
+            "in": "path",
+            "description": "Hub username",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Member removed or invitation canceled"
+          }
+        }
+      }
+    },
+    "/organizations/{id}/overview": {
+      "get": {
+        "tags": ["organizations"],
+        "operationId": "overview",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "description": "UTC calendar days, 1 through 365; defaults to 30",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organization overview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationOverview"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{id}/usage": {
+      "get": {
+        "tags": ["organizations"],
+        "operationId": "usage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "description": "UTC calendar days, 1 through 365; defaults to 30",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "member_id",
+            "in": "query",
+            "description": "Hub user ID",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "connection_id",
+            "in": "query",
+            "description": "Shared connection ID",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "description": "Exact upstream model ID",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organization usage recorded by accepted upstream requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationUsage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/playground/chat": {
       "post": {
         "tags": ["playground"],
@@ -959,6 +1405,16 @@
             "name": "connection_id",
             "in": "path",
             "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "organization_id",
+            "in": "query",
+            "description": "Organization whose shared agent should be used",
+            "required": false,
             "schema": {
               "type": "string",
               "format": "uuid"
@@ -1380,6 +1836,18 @@
           }
         }
       },
+      "CreateOrganization": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "description": {
+            "type": ["string", "null"]
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "CreatedGatewayKey": {
         "allOf": [
           {
@@ -1459,6 +1927,15 @@
           }
         }
       },
+      "InviteOrganizationMember": {
+        "type": "object",
+        "required": ["username"],
+        "properties": {
+          "username": {
+            "type": "string"
+          }
+        }
+      },
       "LoginRequest": {
         "type": "object",
         "required": ["username", "password"],
@@ -1468,6 +1945,403 @@
           },
           "username": {
             "type": "string"
+          }
+        }
+      },
+      "Organization": {
+        "type": "object",
+        "required": ["id", "name", "role", "created_at"],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "type": ["string", "null"]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          }
+        }
+      },
+      "OrganizationAgent": {
+        "type": "object",
+        "required": [
+          "id",
+          "provider",
+          "owner_username",
+          "availability_status",
+          "created_at"
+        ],
+        "properties": {
+          "account_label": {
+            "type": ["string", "null"]
+          },
+          "availability_status": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "owner_username": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "rate_limited_until": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          }
+        }
+      },
+      "OrganizationAgentDetails": {
+        "type": "object",
+        "required": [
+          "id",
+          "provider",
+          "owner_username",
+          "availability_status",
+          "created_at",
+          "plan",
+          "usage"
+        ],
+        "properties": {
+          "account_label": {
+            "type": ["string", "null"]
+          },
+          "availability_status": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "owner_username": {
+            "type": "string"
+          },
+          "plan": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "rate_limited_until": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          },
+          "usage": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentPoolUsageMetric"
+            }
+          }
+        }
+      },
+      "OrganizationAgentListQuery": {
+        "type": "object",
+        "properties": {
+          "include_usage": {
+            "type": ["boolean", "null"]
+          }
+        }
+      },
+      "OrganizationInvitation": {
+        "type": "object",
+        "required": [
+          "id",
+          "organization_id",
+          "organization_name",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invited_by_username": {
+            "type": ["string", "null"]
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organization_name": {
+            "type": "string"
+          }
+        }
+      },
+      "OrganizationMember": {
+        "type": "object",
+        "required": ["id", "username", "role", "status", "invited_at"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The Hub user ID, also used by the Usage member_id filter."
+          },
+          "invited_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "invited_by_username": {
+            "type": ["string", "null"]
+          },
+          "joined_at": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          },
+          "role": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "OrganizationOverview": {
+        "type": "object",
+        "required": [
+          "organization",
+          "period_days",
+          "agent_count",
+          "member_count",
+          "requests",
+          "known_input_tokens",
+          "known_output_tokens",
+          "known_cached_tokens",
+          "token_known_requests",
+          "daily_usage",
+          "agents"
+        ],
+        "properties": {
+          "agent_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "agents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrganizationAgent"
+            }
+          },
+          "daily_usage": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrganizationUsageDay"
+            }
+          },
+          "known_cached_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "known_input_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "known_output_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "member_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "organization": {
+            "$ref": "#/components/schemas/Organization"
+          },
+          "period_days": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "requests": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "token_known_requests": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "OrganizationPeriodQuery": {
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": ["integer", "null"],
+            "format": "int64"
+          }
+        }
+      },
+      "OrganizationUsage": {
+        "type": "object",
+        "required": [
+          "period_days",
+          "requests",
+          "known_input_tokens",
+          "known_output_tokens",
+          "known_cached_tokens",
+          "token_known_requests",
+          "daily_usage",
+          "breakdown"
+        ],
+        "properties": {
+          "breakdown": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrganizationUsageBreakdown"
+            }
+          },
+          "daily_usage": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrganizationUsageDay"
+            }
+          },
+          "known_cached_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "known_input_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "known_output_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "period_days": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "requests": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "token_known_requests": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "OrganizationUsageBreakdown": {
+        "type": "object",
+        "required": [
+          "member_id",
+          "username",
+          "provider",
+          "requests",
+          "known_input_tokens",
+          "known_output_tokens",
+          "known_cached_tokens",
+          "token_known_requests"
+        ],
+        "properties": {
+          "connection_id": {
+            "type": ["string", "null"],
+            "format": "uuid"
+          },
+          "known_cached_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "known_input_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "known_output_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "member_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "model": {
+            "type": ["string", "null"]
+          },
+          "provider": {
+            "type": "string"
+          },
+          "requests": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "token_known_requests": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "OrganizationUsageDay": {
+        "type": "object",
+        "required": [
+          "date",
+          "requests",
+          "known_total_tokens",
+          "token_known_requests"
+        ],
+        "properties": {
+          "date": {
+            "type": "string"
+          },
+          "known_total_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "requests": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "token_known_requests": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "OrganizationUsageQuery": {
+        "type": "object",
+        "properties": {
+          "connection_id": {
+            "type": ["string", "null"],
+            "format": "uuid"
+          },
+          "days": {
+            "type": ["integer", "null"],
+            "format": "int64"
+          },
+          "member_id": {
+            "type": ["string", "null"],
+            "format": "uuid"
+          },
+          "model": {
+            "type": ["string", "null"]
           }
         }
       },
@@ -1526,6 +2400,10 @@
           },
           "model": {
             "type": "string"
+          },
+          "organization_id": {
+            "type": ["string", "null"],
+            "format": "uuid"
           },
           "provider": {
             "$ref": "#/components/schemas/AgentProvider"
@@ -1592,6 +2470,16 @@
           }
         }
       },
+      "ShareOrganizationAgent": {
+        "type": "object",
+        "required": ["connection_id"],
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "StartAgentConnectionRequest": {
         "type": "object",
         "required": ["provider"],
@@ -1615,6 +2503,10 @@
     {
       "name": "agent pools",
       "description": "Public connected account pools and authenticated membership requests"
+    },
+    {
+      "name": "organizations",
+      "description": "Organization membership, shared agents, and recorded usage"
     },
     {
       "name": "gateway keys",

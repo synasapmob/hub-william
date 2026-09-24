@@ -1,8 +1,9 @@
 # Hub William
 
-Hub William brings shared agent accounts, coding tools and a browser Playground
-into one workspace. Local tools use a revocable gateway key; Playground uses your
-signed-in Hub session and an account you own or a pool you have joined.
+Hub William brings shared agent accounts, coding tools, organizations and a
+browser Playground into one workspace. Local tools use a revocable gateway key;
+Playground uses your signed-in Hub session and an account you own, a pool you
+have joined or an agent shared with your organization.
 
 **[hub-william.site](https://hub-william.site)**
 
@@ -25,6 +26,9 @@ signed-in Hub session and an account you own or a pool you have joined.
   supported images, text files and PDFs as input. Conversations stay in the open
   page rather than a saved history; voice and native image generation are not
   available yet.
+- **Organization** (`/organization`): create or join multiple teams, invite
+  members, share connected agents, and view organization requests and reported
+  token usage in Overview, Agents, Members and Usage.
 
 Libraries, Activities, Documents installation and MCP installation are retired.
 The old machine bootstrap (`install.py` / `install.sh`) is removed.
@@ -47,9 +51,10 @@ Development harnesses, skills, hooks and templates remain repository workflow
 sources. They are not part of the app catalogue or its downloadable build.
 
 The Rust API owns authentication, rotating browser sessions, encrypted provider
-connections, account pools, membership decisions and user-scoped gateway keys.
-An accepted member can use their own Hub key through a shared pool without
-receiving its upstream provider credentials.
+connections, account pools, organization membership and shares, and user-scoped
+gateway keys. An accepted pool member can use their own Hub key through a shared
+pool; an accepted organization member can use a shared agent in Playground.
+Neither flow exposes upstream provider credentials.
 
 ## Development
 
