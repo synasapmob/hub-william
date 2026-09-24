@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   skipToken,
   useMutation,
@@ -44,7 +44,9 @@ interface ConnectionFormValues {
 }
 
 interface AgentsConnectDialogProps {
-  onConnected?: () => void;
+  onAddExisting?: (connection: AgentConnection) => Promise<void>;
+  onConnected?: (connection: AgentConnection) => Promise<void> | void;
+  sharedConnectionIds?: string[];
 }
 
 interface AgentProviderOptionProps {
@@ -60,12 +62,12 @@ interface CompleteConnectionVariables {
   connectionId: string;
 }
 
-const connectionSchema = z.object({
-  apiKey: z.string(),
-  callbackUrl: z.string(),
-});
+interface ProviderOption {
+  label: string;
+  provider: AgentProvider;
+}
 
-const providers: Array<{ label: string; provider: AgentProvider }> = [
+const providers: ProviderOption[] = [
   { label: "ChatGPT", provider: "chatgpt" },
   { label: "Claude", provider: "claude" },
   { label: "Gemini / AGY", provider: "gemini" },
@@ -114,7 +116,9 @@ function AgentProviderOption({
 }
 
 export default function AgentsConnectDialog({
+  onAddExisting,
   onConnected,
+  sharedConnectionIds = [],
 }: AgentsConnectDialogProps) {
   const session = useWorkspaceSession();
   const queryClient = useQueryClient();
@@ -123,6 +127,12 @@ export default function AgentsConnectDialog({
     useState<AgentConnection | null>(null);
   const [showDeepseekKey, setShowDeepseekKey] = useState(false);
   const [popupError, setPopupError] = useState<string | null>(null);
+  const [addingExistingId, setAddingExistingId] = useState<string | null>(null);
+  const notifiedConnectionIds = useRef(new Set<string>());
+  const connectionSchema = z.object({
+    apiKey: z.string(),
+    callbackUrl: z.string(),
+  });
   const form = useForm<ConnectionFormValues>({
     defaultValues: { apiKey: "", callbackUrl: "" },
     resolver: zodResolver(connectionSchema),
@@ -162,6 +172,11 @@ export default function AgentsConnectDialog({
         : false,
   });
   const connections = connectionsQuery.data ?? [];
+  const availableConnections = connections.filter(
+    (connection) =>
+      connection.status === "connected" &&
+      !sharedConnectionIds.includes(connection.id),
+  );
   const currentConnection = connectionStatusQuery.data ?? activeConnection;
   const requestError =
     connectionsQuery.error ??
@@ -177,6 +192,43 @@ export default function AgentsConnectDialog({
         : "Connections could not be loaded."
       : null);
 
+  const notifyConnected = useCallback(
+    async (connection: AgentConnection) => {
+      if (notifiedConnectionIds.current.has(connection.id)) return;
+      notifiedConnectionIds.current.add(connection.id);
+      try {
+        await onConnected?.(connection);
+      } catch (error) {
+        setPopupError(
+          error instanceof Error
+            ? `Agent connected, but it could not be added: ${error.message}`
+            : "Agent connected, but it could not be added. Share it from the connected agents list above.",
+        );
+      }
+    },
+    [onConnected],
+  );
+
+  useEffect(() => {
+    const connection = connectionStatusQuery.data;
+    if (
+      connection?.status !== "connected" ||
+      notifiedConnectionIds.current.has(connection.id)
+    )
+      return;
+    setActiveConnection(connection);
+    queryClient.setQueryData<AgentConnection[]>(connectionQueryKey, (items) => [
+      ...(items ?? []).filter((item) => item.id !== connection.id),
+      connection,
+    ]);
+    void notifyConnected(connection);
+  }, [
+    connectionQueryKey,
+    connectionStatusQuery.data,
+    notifyConnected,
+    queryClient,
+  ]);
+
   function changeOpen(nextOpen: boolean) {
     if (nextOpen && !session.user) {
       session.openAuth();
@@ -184,6 +236,7 @@ export default function AgentsConnectDialog({
     }
     setOpen(nextOpen);
     if (!nextOpen) {
+      notifiedConnectionIds.current.clear();
       setActiveConnection(null);
       setPopupError(null);
       setShowDeepseekKey(false);
@@ -191,6 +244,24 @@ export default function AgentsConnectDialog({
       completeMutation.reset();
       deepseekMutation.reset();
       form.reset();
+    }
+  }
+
+  async function addExisting(connection: AgentConnection) {
+    if (!onAddExisting) return;
+    setAddingExistingId(connection.id);
+    setPopupError(null);
+    try {
+      await onAddExisting(connection);
+      changeOpen(false);
+    } catch (error) {
+      setPopupError(
+        error instanceof Error
+          ? error.message
+          : "The agent could not be added to the organization.",
+      );
+    } finally {
+      setAddingExistingId(null);
     }
   }
 
@@ -263,7 +334,7 @@ export default function AgentsConnectDialog({
           connection,
         ],
       );
-      if (connection.status === "connected") onConnected?.();
+      if (connection.status === "connected") await notifyConnected(connection);
       form.reset();
     } catch (error) {
       form.setError("root", {
@@ -292,7 +363,7 @@ export default function AgentsConnectDialog({
           connection,
         ],
       );
-      onConnected?.();
+      await notifyConnected(connection);
       form.reset();
     } catch (error) {
       form.setError("root", {
@@ -307,7 +378,7 @@ export default function AgentsConnectDialog({
   return (
     <Dialog open={open} onOpenChange={changeOpen}>
       <DialogTrigger asChild>
-        <Button className="h-10 px-4" aria-label="Connect Agent">
+        <Button className="h-10 px-4" type="button">
           Connect Agent
         </Button>
       </DialogTrigger>
@@ -323,6 +394,39 @@ export default function AgentsConnectDialog({
             DeepSeek API keys are verified once and encrypted server-side.
           </DialogDescription>
         </DialogHeader>
+
+        {onAddExisting && availableConnections.length > 0 ? (
+          <section className="space-y-2 border-b border-zinc-200 pb-4">
+            <h3 className="text-sm font-semibold">Share a connected agent</h3>
+            <p className="text-xs text-muted-foreground">
+              Everyone in this organization can use an agent you share.
+            </p>
+            <ul className="max-h-40 space-y-1.5 overflow-y-auto">
+              {availableConnections.map((connection) => (
+                <li key={connection.id}>
+                  <Button
+                    aria-label={`Add ${providers.find((item) => item.provider === connection.provider)?.label ?? connection.provider} ${connection.accountLabel ?? "Connected account"} to organization`}
+                    className="h-auto w-full justify-between gap-2 px-3 py-2 text-left"
+                    disabled={addingExistingId !== null}
+                    onClick={() => void addExisting(connection)}
+                    type="button"
+                    variant="outline"
+                  >
+                    <span className="truncate">
+                      {providers.find(
+                        (item) => item.provider === connection.provider,
+                      )?.label ?? connection.provider}{" "}
+                      · {connection.accountLabel ?? "Connected account"}
+                    </span>
+                    <span className="shrink-0 text-xs">
+                      {addingExistingId === connection.id ? "Adding…" : "Add"}
+                    </span>
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
 
         <ul className="grid gap-2">
           {providers.map(({ label, provider }) => (
@@ -356,7 +460,7 @@ export default function AgentsConnectDialog({
         {showDeepseekKey ? (
           <form
             className="space-y-3"
-            onSubmit={form.handleSubmit(connectDeepseek)}
+            onSubmit={(event) => void form.handleSubmit(connectDeepseek)(event)}
           >
             <div className="space-y-1.5">
               <Label htmlFor="deepseek-api-key">DeepSeek API key</Label>
@@ -418,13 +522,17 @@ export default function AgentsConnectDialog({
             <CheckCircle2 aria-hidden="true" />
             <AlertTitle>Agent connected</AlertTitle>
             <AlertDescription>
-              The credential is encrypted server-side and ready for this pool.
+              The credential is encrypted server-side and ready for access you
+              grant.
             </AlertDescription>
           </Alert>
         ) : null}
 
         {currentConnection?.authorization?.requiresCallbackUrl ? (
-          <form className="space-y-3" onSubmit={form.handleSubmit(complete)}>
+          <form
+            className="space-y-3"
+            onSubmit={(event) => void form.handleSubmit(complete)(event)}
+          >
             <div className="space-y-1.5">
               <Label htmlFor="agent-callback-url">Callback URL or code</Label>
               <Input
@@ -460,7 +568,7 @@ export default function AgentsConnectDialog({
 
         {errorMessage ? (
           <Alert variant="destructive">
-            <AlertTitle>Connection failed</AlertTitle>
+            <AlertTitle>Connection issue</AlertTitle>
             <AlertDescription>{errorMessage}</AlertDescription>
           </Alert>
         ) : null}

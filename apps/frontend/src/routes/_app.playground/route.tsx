@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
+import { useSearchParams } from "react-router";
 
 import { useWorkspaceSession } from "@/components/workspace-shell/workspace-shell-session-context";
 
@@ -12,6 +13,7 @@ import PlaygroundWorkspace from "./playground-workspace";
 export interface PlaygroundFormValues {
   attachments: PlaygroundAttachment[];
   connectionId: string;
+  organizationId: string;
   provider: string;
   model: string;
   prompt: string;
@@ -19,8 +21,13 @@ export interface PlaygroundFormValues {
 
 export default function PlaygroundRoute() {
   const session = useWorkspaceSession();
+  const [searchParams] = useSearchParams();
+  const organizationFromUrl = searchParams.get("organization") ?? "";
+  const connectionFromUrl = searchParams.get("connection") ?? "";
+  const providerFromUrl = searchParams.get("provider") ?? "chatgpt";
   const schema = z.object({
     connectionId: z.string(),
+    organizationId: z.string(),
     provider: z.string(),
     model: z.string(),
     prompt: z.string().trim(),
@@ -46,15 +53,26 @@ export default function PlaygroundRoute() {
     resolver: zodResolver(schema),
     defaultValues: {
       attachments: [],
-      connectionId: "",
-      provider: "chatgpt",
+      connectionId: connectionFromUrl,
+      organizationId: organizationFromUrl,
+      provider: providerFromUrl,
       model: "",
       prompt: "",
     },
   });
+  const organizationId = useWatch({
+    control: form.control,
+    name: "organizationId",
+  });
 
   const previousUserId = useRef(session.user?.id);
   const { reset } = form;
+  useEffect(() => {
+    form.setValue("organizationId", organizationFromUrl);
+    form.setValue("connectionId", connectionFromUrl);
+    form.setValue("provider", providerFromUrl);
+    form.setValue("model", "");
+  }, [connectionFromUrl, form, organizationFromUrl, providerFromUrl]);
   useEffect(() => {
     if (previousUserId.current && previousUserId.current !== session.user?.id)
       reset();
@@ -73,7 +91,10 @@ export default function PlaygroundRoute() {
         </p>
       </header>
 
-      <PlaygroundWorkspace key={session.user?.id ?? "guest"} form={form} />
+      <PlaygroundWorkspace
+        key={`${session.user?.id ?? "guest"}:${organizationId}`}
+        form={form}
+      />
     </section>
   );
 }

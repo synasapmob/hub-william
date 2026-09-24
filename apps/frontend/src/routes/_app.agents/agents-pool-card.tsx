@@ -1,22 +1,20 @@
-import { ChevronDown, Clock3, Users, X } from "lucide-react";
+import { ChevronDown, Users, X } from "lucide-react";
 import { tv } from "tailwind-variants";
 
+import AgentsProviderIcon from "@/components/agents-provider-icon";
+import AgentsUsageMetrics from "@/components/agents-usage-metrics";
 import Flex from "@/components/ui/flex";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import agentPoolsService, { type AgentPool } from "@/services/agent-pools";
 import {
   agentPoolAccess,
   agentPoolAccessLabels,
   agentPoolAvailabilityLabel,
-  agentPoolRemaining,
-  agentPoolUsageValue,
   agentProviderShowsUsage,
 } from "@/utils/utils.agent-pools";
 
 import AgentsAvatarStack from "./agents-avatar-stack";
-import AgentsProviderIcon from "./agents-provider-icon";
 
 const memberSection = tv({
   base: "group",
@@ -89,53 +87,7 @@ export default function AgentsPoolCard({
 
       <div className="space-y-5 p-5">
         {showUsage ? (
-          <section aria-label="Account usage" className="space-y-3">
-            <h4 className="text-[10px] font-semibold tracking-widest text-zinc-400 uppercase">
-              Usage & limits
-            </h4>
-
-            {pool.usage.length ? (
-              <dl className="space-y-4">
-                {pool.usage.map((metric) => {
-                  const remaining = agentPoolRemaining(metric);
-                  return (
-                    <div key={metric.label}>
-                      <Flex className="items-center justify-between gap-3 text-xs">
-                        <dt className="text-zinc-600">{metric.label}</dt>
-
-                        <dd className="text-right font-mono font-medium">
-                          {agentPoolUsageValue(metric)}
-                        </dd>
-                      </Flex>
-
-                      {remaining !== null ? (
-                        <Progress
-                          className="mt-2"
-                          aria-label={`${metric.label} remaining`}
-                          value={remaining}
-                        />
-                      ) : null}
-
-                      {metric.detail && metric.value !== "Unavailable" ? (
-                        <Flex className="mt-2 items-start gap-1.5 text-[10px]/relaxed text-zinc-500">
-                          <Clock3
-                            aria-hidden="true"
-                            className="mt-0.5 size-3 shrink-0"
-                          />
-
-                          <p>{metric.detail}</p>
-                        </Flex>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </dl>
-            ) : (
-              <p className="text-xs text-zinc-500">
-                {pool.agent} has not reported usage for this account yet.
-              </p>
-            )}
-          </section>
+          <AgentsUsageMetrics provider={pool.agent} usage={pool.usage} />
         ) : null}
 
         <details className={memberSection({ afterUsage: showUsage })}>

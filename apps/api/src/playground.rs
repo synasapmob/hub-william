@@ -1,7 +1,7 @@
 use axum::{
     Json,
     body::{Bytes, to_bytes},
-    extract::{Extension, Path, Request, State},
+    extract::{Extension, Path, Query, Request, State},
     http::header,
     middleware::Next,
     response::Response,
@@ -77,12 +77,18 @@ pub async fn authorize_chat(
 #[serde(deny_unknown_fields)]
 pub struct PlaygroundChatRequest {
     pub connection_id: Uuid,
+    pub organization_id: Option<Uuid>,
     pub provider: AgentProvider,
     pub model: String,
     pub messages: Vec<PlaygroundMessage>,
 }
 
-#[utoipa::path(get, path = "/playground/{provider}/accounts/{connection_id}/models", params(("provider" = AgentProvider, Path), ("connection_id" = Uuid, Path)), responses(
+#[derive(Deserialize, ToSchema)]
+pub struct PlaygroundModelsQuery {
+    pub organization_id: Option<Uuid>,
+}
+
+#[utoipa::path(get, path = "/playground/{provider}/accounts/{connection_id}/models", params(("provider" = AgentProvider, Path), ("connection_id" = Uuid, Path), ("organization_id" = Option<Uuid>, Query, description = "Organization whose shared agent should be used")), responses(
     (status = 200, body = [PlaygroundModel]),
     (status = 401, body = crate::ErrorResponse),
     (status = 403, body = crate::ErrorResponse),
@@ -92,9 +98,21 @@ pub async fn models(
     State(state): State<AppState>,
     jar: CookieJar,
     Path((provider, connection_id)): Path<(AgentProvider, Uuid)>,
+    Query(query): Query<PlaygroundModelsQuery>,
 ) -> Result<Json<Vec<PlaygroundModel>>, ApiError> {
     let user_id = authenticated_user_id(&state, &jar).await?;
-    let response = gateway::models_for_user(&state, user_id, connection_id, provider).await?;
+    let response = if let Some(organization_id) = query.organization_id {
+        gateway::models_for_organization_user(
+            &state,
+            user_id,
+            organization_id,
+            connection_id,
+            provider,
+        )
+        .await?
+    } else {
+        gateway::models_for_user(&state, user_id, connection_id, provider).await?
+    };
     if !response.status().is_success() {
         return Err(ApiError::Provider(format!(
             "{} model discovery returned HTTP {}.",
@@ -197,15 +215,28 @@ pub async fn chat(
     let bytes = serde_json::to_vec(&body)
         .map(Bytes::from)
         .map_err(|_| ApiError::Internal)?;
-    gateway::response_for_user(
-        &state,
-        session.0,
-        request.connection_id,
-        request.provider,
-        &request.model,
-        bytes,
-    )
-    .await
+    if let Some(organization_id) = request.organization_id {
+        gateway::response_for_organization_user(
+            &state,
+            session.0,
+            organization_id,
+            request.connection_id,
+            request.provider,
+            &request.model,
+            bytes,
+        )
+        .await
+    } else {
+        gateway::response_for_user(
+            &state,
+            session.0,
+            request.connection_id,
+            request.provider,
+            &request.model,
+            bytes,
+        )
+        .await
+    }
 }
 
 fn attachment_text(attachment: &PlaygroundAttachment) -> Option<String> {
@@ -335,6 +366,7 @@ mod tests {
     fn request(provider: AgentProvider) -> PlaygroundChatRequest {
         PlaygroundChatRequest {
             connection_id: Uuid::new_v4(),
+            organization_id: None,
             provider,
             model: "test-model".to_owned(),
             messages: vec![

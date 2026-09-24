@@ -7,9 +7,17 @@ import { Button } from "@/components/ui/button";
 import Center from "@/components/ui/center";
 import Flex from "@/components/ui/flex";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useWorkspaceSession } from "@/components/workspace-shell/workspace-shell-session-context";
 import agentPoolsService from "@/services/agent-pools";
+import organizationsService from "@/services/organizations";
 import { agentPoolAccess } from "@/utils/utils.agent-pools";
 import playgroundService, {
   PlaygroundServiceError,
@@ -46,9 +54,6 @@ const providerNames: Record<PlaygroundProviderId, string> = {
   grok: "Grok",
   deepseek: "DeepSeek",
 };
-const selectStyle =
-  "h-11 w-full min-w-0 rounded-lg border border-input bg-white px-3 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
-
 export default function PlaygroundWorkspace({
   form,
 }: PlaygroundWorkspaceProps) {
@@ -62,31 +67,65 @@ export default function PlaygroundWorkspace({
   const viewport = useRef<HTMLDivElement>(null);
   const followOutput = useRef(true);
   const userId = session.user?.id;
+  const organizationId = form.watch("organizationId");
+  const organizationRequested = Boolean(organizationId);
   const poolQuery = useQuery({
     queryKey: [...agentPoolsService.queryKey, userId ?? "guest"],
     queryFn: () => agentPoolsService.list(),
-    enabled: session.status !== "loading",
+    enabled: session.status !== "loading" && !organizationRequested,
+  });
+  const organizationsQuery = useQuery({
+    queryKey: [...organizationsService.queryKey, userId ?? "guest"],
+    queryFn: organizationsService.list,
+    enabled: Boolean(userId),
+  });
+  const selectedOrganization = (organizationsQuery.data ?? []).find(
+    (organization) => organization.id === organizationId,
+  );
+  const organizationAgentsQuery = useQuery({
+    queryKey: [...organizationsService.queryKey, organizationId, "agents"],
+    queryFn: () => organizationsService.agents(organizationId),
+    enabled: Boolean(userId && selectedOrganization),
   });
   const providerIds = Object.keys(providerNames) as PlaygroundProviderId[];
   const provider =
     providerIds.find((id) => id === form.watch("provider")) ?? "chatgpt";
-  const accounts = (poolQuery.data ?? []).filter((pool) => {
-    if (!userId || pool.agent !== providerNames[provider]) return false;
-    const access = agentPoolAccess(pool, session.user?.username ?? null);
-    return access === "owner" || access === "joined";
-  });
+  const accounts = organizationRequested
+    ? (selectedOrganization ? (organizationAgentsQuery.data ?? []) : [])
+        .filter((agent) => agent.provider.toLowerCase() === provider)
+        .map((agent) => ({
+          id: agent.id,
+          accountLabel: agent.accountLabel ?? "Connected account",
+          ownerUsername: agent.ownerUsername,
+        }))
+    : (poolQuery.data ?? [])
+        .filter((pool) => {
+          if (!userId || pool.agent !== providerNames[provider]) return false;
+          const access = agentPoolAccess(pool, session.user?.username ?? null);
+          return access === "owner" || access === "joined";
+        })
+        .map((pool) => ({
+          id: pool.id,
+          accountLabel: pool.accountLabel,
+          ownerUsername: pool.owner.username,
+        }));
+  const accountLoading = organizationRequested
+    ? organizationsQuery.isPending ||
+      Boolean(selectedOrganization && organizationAgentsQuery.isPending)
+    : poolQuery.isPending;
   const selectedAccount =
     accounts.find((pool) => pool.id === form.watch("connectionId")) ??
     accounts[0];
   const connectionId = selectedAccount?.id;
 
   useEffect(() => {
+    if (accountLoading) return;
     const nextConnectionId = connectionId ?? "";
     if (form.getValues("connectionId") === nextConnectionId) return;
     form.setValue("connectionId", nextConnectionId);
     form.setValue("model", "");
     form.clearErrors("root");
-  }, [connectionId, form]);
+  }, [accountLoading, connectionId, form]);
 
   const modelQuery = useQuery({
     queryKey: [
@@ -95,10 +134,20 @@ export default function PlaygroundWorkspace({
       userId,
       provider,
       connectionId,
+      selectedOrganization?.id,
     ],
     queryFn: ({ signal }) =>
-      playgroundService.models(provider, connectionId!, signal),
-    enabled: Boolean(userId && connectionId),
+      playgroundService.models(
+        provider,
+        connectionId!,
+        signal,
+        selectedOrganization?.id,
+      ),
+    enabled: Boolean(
+      userId &&
+      connectionId &&
+      (!organizationRequested || selectedOrganization),
+    ),
   });
   const models = modelQuery.data ?? [];
   const currentLineupOnly = provider === "chatgpt" || provider === "claude";
@@ -109,17 +158,32 @@ export default function PlaygroundWorkspace({
       playgroundService.chat(options),
     retry: false,
     onSettled: () => {
-      void queryClient.invalidateQueries({
-        queryKey: agentPoolsService.queryKey,
-      });
+      if (organizationRequested) {
+        void queryClient.invalidateQueries({
+          queryKey: [...organizationsService.queryKey, organizationId],
+        });
+      } else {
+        void queryClient.invalidateQueries({
+          queryKey: agentPoolsService.queryKey,
+        });
+      }
     },
   });
   const busy = form.formState.isSubmitting || mutation.isPending;
   const attachments = form.watch("attachments");
   const hasMessage = Boolean(form.watch("prompt").trim() || attachments.length);
-  const queryError = poolQuery.error ?? modelQuery.error;
+  const queryError = organizationRequested
+    ? (organizationsQuery.error ??
+      organizationAgentsQuery.error ??
+      modelQuery.error)
+    : (poolQuery.error ?? modelQuery.error);
   const conversationError =
-    queryError?.message ?? form.formState.errors.root?.message;
+    queryError?.message ??
+    (organizationRequested &&
+    !organizationsQuery.isPending &&
+    !selectedOrganization
+      ? "This organization is unavailable. Select another organization."
+      : form.formState.errors.root?.message);
 
   useEffect(() => {
     mounted.current = true;
@@ -139,6 +203,13 @@ export default function PlaygroundWorkspace({
     if (session.status === "loading") return;
     if (!session.user) {
       session.openAuth();
+      return;
+    }
+    if (organizationRequested && !selectedOrganization) {
+      form.setError("root", {
+        message:
+          "This organization is unavailable. Select another organization.",
+      });
       return;
     }
     if (!connectionId || !selectedModel) {
@@ -197,6 +268,7 @@ export default function PlaygroundWorkspace({
       await mutation.mutateAsync({
         provider,
         connectionId,
+        organizationId: selectedOrganization?.id,
         model: selectedModel.id,
         messages: [
           ...history,
@@ -305,93 +377,159 @@ export default function PlaygroundWorkspace({
           <h2 className="text-sm font-semibold">Setup</h2>
         </header>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="space-y-2">
+            <Label htmlFor="playground-organization">Organization</Label>
+            <Select
+              disabled={busy || readingFiles || !userId}
+              onValueChange={(value) => {
+                form.setValue(
+                  "organizationId",
+                  value === "personal" ? "" : value,
+                );
+                form.setValue("connectionId", "");
+                form.setValue("model", "");
+                form.clearErrors("root");
+                setTurns([]);
+              }}
+              value={organizationId || "personal"}
+            >
+              <SelectTrigger
+                className="h-11! w-full min-w-0 bg-white"
+                id="playground-organization"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="personal">Personal</SelectItem>
+                {(organizationsQuery.data ?? []).map((organization) => (
+                  <SelectItem key={organization.id} value={organization.id}>
+                    {organization.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {!organizationRequested && organizationsQuery.error ? (
+              <div className="space-y-2">
+                <p className="text-xs text-destructive">
+                  Organizations could not be loaded.
+                </p>
+                <Button
+                  className="min-h-11"
+                  onClick={() => void organizationsQuery.refetch()}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  Retry organizations
+                </Button>
+              </div>
+            ) : null}
+          </div>
+
           <div className="space-y-2">
             <Label htmlFor="playground-provider">Provider</Label>
-            <select
-              id="playground-provider"
-              className={selectStyle}
+            <Select
               disabled={busy || readingFiles}
-              {...form.register("provider", {
-                onChange: () => {
-                  form.setValue("connectionId", "");
-                  form.setValue("model", "");
-                  form.clearErrors("root");
-                },
-              })}
+              onValueChange={(value) => {
+                form.setValue("provider", value);
+                form.setValue("connectionId", "");
+                form.setValue("model", "");
+                form.clearErrors("root");
+              }}
               value={provider}
             >
-              {providerIds.map((id) => (
-                <option key={id} value={id}>
-                  {providerNames[id]}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger
+                className="h-11! w-full min-w-0 bg-white"
+                id="playground-provider"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {providerIds.map((id) => (
+                  <SelectItem key={id} value={id}>
+                    {providerNames[id]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="playground-account">Account</Label>
-            <select
-              id="playground-account"
-              className={selectStyle}
+            <Select
               disabled={
                 busy ||
                 readingFiles ||
                 !userId ||
-                poolQuery.isPending ||
+                accountLoading ||
                 !accounts.length
               }
-              {...form.register("connectionId", {
-                onChange: () => {
-                  form.setValue("model", "");
-                  form.clearErrors("root");
-                },
-              })}
+              onValueChange={(value) => {
+                form.setValue("connectionId", value);
+                form.setValue("model", "");
+                form.clearErrors("root");
+              }}
               value={selectedAccount?.id ?? ""}
             >
-              <option value="">
-                {!userId
-                  ? ""
-                  : poolQuery.isPending
-                    ? "Loading accounts…"
-                    : "No accounts available"}
-              </option>
-              {accounts.map((pool) => (
-                <option key={pool.id} value={pool.id}>
-                  {pool.accountLabel} · {pool.owner.username}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger
+                className="h-11! w-full min-w-0 bg-white"
+                id="playground-account"
+              >
+                <SelectValue
+                  placeholder={
+                    !userId
+                      ? "Sign in to choose an account"
+                      : accountLoading
+                        ? "Loading accounts…"
+                        : "No accounts available"
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {accounts.map((account) => (
+                  <SelectItem key={account.id} value={account.id}>
+                    {account.accountLabel} · {account.ownerUsername}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="playground-model">Model</Label>
-            <select
-              id="playground-model"
-              className={selectStyle}
+            <Select
               disabled={
                 busy || readingFiles || modelQuery.isFetching || !models.length
               }
-              {...form.register("model", {
-                onChange: () => form.clearErrors("root"),
-              })}
+              onValueChange={(value) => {
+                form.setValue("model", value);
+                form.clearErrors("root");
+              }}
               value={selectedModel?.id ?? ""}
             >
-              {!models.length ? (
-                <option value="">
-                  {modelQuery.isFetching
-                    ? "Loading models…"
-                    : currentLineupOnly
-                      ? "No current models available"
-                      : "No models available"}
-                </option>
-              ) : null}
-              {models.map((entry) => (
-                <option key={entry.id} value={entry.id}>
-                  {entry.name}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger
+                className="h-11! w-full min-w-0 bg-white"
+                id="playground-model"
+              >
+                <SelectValue
+                  placeholder={
+                    modelQuery.isFetching
+                      ? "Loading models…"
+                      : currentLineupOnly
+                        ? "No current models available"
+                        : "No models available"
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {models.map((entry) => (
+                  <SelectItem key={entry.id} value={entry.id}>
+                    {entry.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
       </section>
@@ -519,10 +657,22 @@ export default function PlaygroundWorkspace({
                     <Button
                       type="button"
                       variant="outline"
-                      disabled={poolQuery.isFetching || modelQuery.isFetching}
+                      disabled={
+                        (organizationRequested
+                          ? organizationsQuery.isFetching ||
+                            organizationAgentsQuery.isFetching
+                          : poolQuery.isFetching) || modelQuery.isFetching
+                      }
                       onClick={() => {
-                        if (poolQuery.error) void poolQuery.refetch();
-                        else void modelQuery.refetch();
+                        if (organizationRequested) {
+                          if (organizationsQuery.error)
+                            void organizationsQuery.refetch();
+                          if (organizationAgentsQuery.error)
+                            void organizationAgentsQuery.refetch();
+                        } else if (poolQuery.error) {
+                          void poolQuery.refetch();
+                        }
+                        if (modelQuery.error) void modelQuery.refetch();
                       }}
                     >
                       Retry loading

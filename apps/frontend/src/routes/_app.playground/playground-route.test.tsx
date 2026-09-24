@@ -7,6 +7,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import WorkspaceShellSessionContext from "@/components/workspace-shell/workspace-shell-session-context";
 import agentPoolsService, { type AgentPool } from "@/services/agent-pools";
+import organizationsService, {
+  type OrganizationAgentDetails,
+} from "@/services/organizations";
 import playgroundService from "@/services/playground";
 import createQueryClient from "@/utils/utils.query-client";
 
@@ -30,6 +33,18 @@ vi.mock("@/services/agent-pools", async (importOriginal) => {
     await importOriginal<typeof import("@/services/agent-pools")>();
   return { ...original, default: { ...original.default, list: vi.fn() } };
 });
+vi.mock("@/services/organizations", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("@/services/organizations")>();
+  return {
+    ...original,
+    default: {
+      ...original.default,
+      list: vi.fn(),
+      agents: vi.fn(),
+    },
+  };
+});
 const account = {
   id: "account-a",
   accountLabel: "My account",
@@ -40,11 +55,27 @@ const account = {
   availability: { status: "active" },
 } as unknown as AgentPool;
 const openAuth = vi.fn();
+async function chooseOption(
+  user: ReturnType<typeof userEvent.setup>,
+  field: string,
+  option: string,
+) {
+  await user.click(screen.getByRole("combobox", { name: field }));
+  await user.click(await screen.findByRole("option", { name: option }));
+}
+
 async function selectAccount(user: ReturnType<typeof userEvent.setup>) {
-  await user.selectOptions(screen.getByLabelText("Provider"), "deepseek");
-  await screen.findByRole("option", { name: "My account · member" });
-  await user.selectOptions(screen.getByLabelText("Account"), "account-a");
-  await screen.findByRole("option", { name: "Provider model" });
+  await chooseOption(user, "Provider", "DeepSeek");
+  await waitFor(() =>
+    expect(screen.getByRole("combobox", { name: "Account" })).toHaveTextContent(
+      "My account · member",
+    ),
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("combobox", { name: "Model" })).toHaveTextContent(
+      "Provider model",
+    ),
+  );
 }
 interface HarnessProps {
   guest?: boolean;
@@ -83,6 +114,8 @@ function Harness({ guest = false }: HarnessProps) {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(agentPoolsService.list).mockResolvedValue([account]);
+  vi.mocked(organizationsService.list).mockResolvedValue([]);
+  vi.mocked(organizationsService.agents).mockResolvedValue([]);
   vi.mocked(playgroundService.models).mockResolvedValue([
     { id: "live-model-id", name: "Provider model" },
   ]);
@@ -97,9 +130,7 @@ describe("Playground conversation flow", () => {
     render(<Harness guest />);
     expect(screen.getByLabelText("Provider")).toBeEnabled();
     expect(screen.getByLabelText("Account")).toBeDisabled();
-    expect(
-      screen.queryByText("Sign in to choose an account"),
-    ).not.toBeInTheDocument();
+    expect(screen.getByText("Sign in to choose an account")).toBeVisible();
     const composer = screen.getByRole("group", { name: "Message composer" });
     expect(
       within(composer).getByRole("textbox", { name: "Message" }),
@@ -122,7 +153,9 @@ describe("Playground conversation flow", () => {
     );
     await selectAccount(user);
     expect(screen.getByLabelText("Message")).toHaveValue("Keep this question");
+    await user.click(screen.getByRole("combobox", { name: "Provider" }));
     expect(screen.getByRole("option", { name: "ChatGPT" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
     await user.click(screen.getByRole("button", { name: "Send message" }));
     expect(
       await screen.findByText("A real-service-shaped answer"),
@@ -229,9 +262,11 @@ describe("Playground conversation flow", () => {
   it("keeps selection unavailable without an account and does not send requests", async () => {
     vi.mocked(agentPoolsService.list).mockResolvedValue([]);
     render(<Harness />);
-    expect(
-      await screen.findByRole("option", { name: "No accounts available" }),
-    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("combobox", { name: "Account" }),
+      ).toHaveTextContent("No accounts available"),
+    );
     expect(screen.getByLabelText("Account")).toBeDisabled();
     expect(screen.getByLabelText("Model")).toBeDisabled();
     expect(
@@ -248,8 +283,18 @@ describe("Playground conversation flow", () => {
 
   it("selects the first accessible account for each provider and keeps a manual choice", async () => {
     vi.mocked(agentPoolsService.list).mockResolvedValue([
-      { ...account, id: "chatgpt-first", agent: "ChatGPT" },
-      { ...account, id: "gemini-first", agent: "Gemini" },
+      {
+        ...account,
+        id: "chatgpt-first",
+        agent: "ChatGPT",
+        accountLabel: "ChatGPT account",
+      },
+      {
+        ...account,
+        id: "gemini-first",
+        agent: "Gemini",
+        accountLabel: "First Gemini account",
+      },
       {
         ...account,
         id: "gemini-blocked",
@@ -266,21 +311,33 @@ describe("Playground conversation flow", () => {
     const user = userEvent.setup();
     render(<Harness />);
 
-    const provider = screen.getByLabelText("Provider");
-    const selectedAccount = screen.getByLabelText("Account");
-    await waitFor(() => expect(selectedAccount).toHaveValue("chatgpt-first"));
+    const selectedAccount = screen.getByRole("combobox", { name: "Account" });
+    await waitFor(() =>
+      expect(selectedAccount).toHaveTextContent("ChatGPT account · member"),
+    );
     expect(playgroundService.models).toHaveBeenCalledWith(
       "chatgpt",
       "chatgpt-first",
       expect.any(AbortSignal),
+      undefined,
     );
 
-    await user.selectOptions(provider, "gemini");
-    await waitFor(() => expect(selectedAccount).toHaveValue("gemini-first"));
+    await chooseOption(user, "Provider", "Gemini");
+    await waitFor(() =>
+      expect(selectedAccount).toHaveTextContent(
+        "First Gemini account · member",
+      ),
+    );
+    await user.click(selectedAccount);
     expect(
       screen.queryByRole("option", { name: /someone-else/ }),
     ).not.toBeInTheDocument();
-    await screen.findByRole("option", { name: "Provider model" });
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "Model" })).toHaveTextContent(
+        "Provider model",
+      ),
+    );
     await user.type(screen.getByLabelText("Message"), "Hello Gemini");
     await user.click(screen.getByRole("button", { name: "Send message" }));
     await screen.findByText("Completed");
@@ -291,17 +348,21 @@ describe("Playground conversation flow", () => {
       }),
     );
 
-    await user.selectOptions(selectedAccount, "gemini-second");
-    expect(selectedAccount).toHaveValue("gemini-second");
+    await chooseOption(user, "Account", "Second Gemini account · member");
+    expect(selectedAccount).toHaveTextContent("Second Gemini account · member");
     await user.type(screen.getByLabelText("Message"), "Keep my choice");
-    expect(selectedAccount).toHaveValue("gemini-second");
+    expect(selectedAccount).toHaveTextContent("Second Gemini account · member");
 
-    await user.selectOptions(provider, "grok");
-    expect(selectedAccount).toHaveValue("");
+    await chooseOption(user, "Provider", "Grok");
+    expect(selectedAccount).toHaveTextContent("No accounts available");
     expect(selectedAccount).toBeDisabled();
     expect(screen.getByLabelText("Model")).toBeDisabled();
-    await user.selectOptions(provider, "gemini");
-    await waitFor(() => expect(selectedAccount).toHaveValue("gemini-first"));
+    await chooseOption(user, "Provider", "Gemini");
+    await waitFor(() =>
+      expect(selectedAccount).toHaveTextContent(
+        "First Gemini account · member",
+      ),
+    );
   });
 
   it("sends on Enter, inserts a newline with Shift+Enter, and lists only owned or joined accounts", async () => {
@@ -323,13 +384,16 @@ describe("Playground conversation flow", () => {
     const user = userEvent.setup();
     render(<Harness />);
     await selectAccount(user);
+    await user.click(screen.getByRole("combobox", { name: "Account" }));
     expect(
       screen.queryByRole("option", { name: /someone-else/ }),
     ).not.toBeInTheDocument();
     expect(
       screen.getByRole("option", { name: "Shared account · pool-owner" }),
     ).toBeEnabled();
-    await user.selectOptions(screen.getByLabelText("Account"), "joined");
+    await user.click(
+      screen.getByRole("option", { name: "Shared account · pool-owner" }),
+    );
     await user.type(
       screen.getByLabelText("Message"),
       "First line{Shift>}{Enter}{/Shift}Second line",
@@ -393,10 +457,17 @@ describe("Playground conversation flow", () => {
     vi.mocked(playgroundService.models).mockResolvedValueOnce([]);
     const user = userEvent.setup();
     render(<Harness />);
-    await user.selectOptions(screen.getByLabelText("Provider"), "deepseek");
-    await screen.findByRole("option", { name: "My account · member" });
-    await user.selectOptions(screen.getByLabelText("Account"), "account-a");
-    await screen.findByRole("option", { name: "No models available" });
+    await chooseOption(user, "Provider", "DeepSeek");
+    await waitFor(() =>
+      expect(
+        screen.getByRole("combobox", { name: "Account" }),
+      ).toHaveTextContent("My account · member"),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "Model" })).toHaveTextContent(
+        "No models available",
+      ),
+    );
     expect(screen.getByText("What would you like to try?")).toBeVisible();
     expect(screen.getByLabelText("Model")).toBeDisabled();
   });
@@ -408,8 +479,12 @@ describe("Playground conversation flow", () => {
     vi.mocked(playgroundService.models).mockResolvedValue([]);
     const user = userEvent.setup();
     render(<Harness />);
-    await user.selectOptions(screen.getByLabelText("Provider"), "claude");
-    await screen.findByRole("option", { name: "No current models available" });
+    await chooseOption(user, "Provider", "Claude");
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "Model" })).toHaveTextContent(
+        "No current models available",
+      ),
+    );
     expect(screen.getByLabelText("Model")).toBeDisabled();
     expect(screen.getByText("What would you like to try?")).toBeVisible();
   });
@@ -443,6 +518,70 @@ describe("Playground conversation flow", () => {
           ],
         },
       ],
+    );
+  });
+
+  it("uses only agents shared with the selected organization and attributes its request", async () => {
+    const organizationId = "11111111-1111-4111-8111-111111111111";
+    vi.mocked(organizationsService.list).mockResolvedValue([
+      {
+        createdAt: "2026-09-23T00:00:00Z",
+        description: null,
+        id: organizationId,
+        name: "Team Mây",
+        role: "member",
+      },
+    ]);
+    vi.mocked(organizationsService.agents).mockResolvedValue([
+      {
+        accountLabel: "Team account",
+        availabilityStatus: "active",
+        createdAt: "2026-09-23T00:00:00Z",
+        id: "shared-account",
+        ownerUsername: "owner",
+        plan: "API",
+        provider: "deepseek",
+        rateLimitedUntil: null,
+        usage: [],
+      } satisfies OrganizationAgentDetails,
+    ]);
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    await waitFor(() => expect(organizationsService.list).toHaveBeenCalled());
+    await chooseOption(user, "Organization", "Team Mây");
+    await chooseOption(user, "Provider", "DeepSeek");
+    await waitFor(() =>
+      expect(
+        screen.getByRole("combobox", { name: "Account" }),
+      ).toHaveTextContent("Team account · owner"),
+    );
+    await user.click(screen.getByRole("combobox", { name: "Account" }));
+    expect(
+      screen.queryByRole("option", { name: "My account · member" }),
+    ).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(playgroundService.models).toHaveBeenCalledWith(
+        "deepseek",
+        "shared-account",
+        expect.any(AbortSignal),
+        organizationId,
+      ),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "Model" })).toHaveTextContent(
+        "Provider model",
+      ),
+    );
+    await user.type(screen.getByLabelText("Message"), "Hello team");
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+    await screen.findByText("Completed");
+    expect(playgroundService.chat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionId: "shared-account",
+        organizationId,
+      }),
     );
   });
 });

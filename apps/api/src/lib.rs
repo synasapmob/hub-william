@@ -6,6 +6,7 @@ mod error;
 mod gateway;
 mod health;
 mod openapi;
+mod organizations;
 mod playground;
 mod telegram;
 mod telegram_catalogue;
@@ -61,6 +62,13 @@ use gateway::{
 pub use health::HealthResponse;
 use health::health;
 pub use openapi::ApiDoc;
+pub use organizations::{
+    CreateOrganization, InviteOrganizationMember, Organization, OrganizationAgent,
+    OrganizationAgentDetails, OrganizationAgentListQuery, OrganizationInvitation,
+    OrganizationMember, OrganizationOverview, OrganizationPeriodQuery, OrganizationUsage,
+    OrganizationUsageBreakdown, OrganizationUsageDay, OrganizationUsageQuery,
+    ShareOrganizationAgent,
+};
 pub use telegram::{
     CreateTelegramOrder, SepayResult, SepayTransaction, TelegramAudience, TelegramOrder,
 };
@@ -188,6 +196,40 @@ pub fn app(state: AppState) -> Router {
             post(restock_product),
         )
         .route("/agent-pools", get(list_agent_pools))
+        .route(
+            "/organizations",
+            get(organizations::list_organizations).post(organizations::create_organization),
+        )
+        .route(
+            "/organization-invitations",
+            get(organizations::list_invitations),
+        )
+        .route(
+            "/organization-invitations/{invitation_id}/accept",
+            post(organizations::accept_invitation),
+        )
+        .route(
+            "/organization-invitations/{invitation_id}",
+            axum::routing::delete(organizations::decline_invitation),
+        )
+        .route("/organizations/{id}/overview", get(organizations::overview))
+        .route(
+            "/organizations/{id}/agents",
+            get(organizations::list_agents).post(organizations::share_agent),
+        )
+        .route(
+            "/organizations/{id}/agents/{connection_id}",
+            axum::routing::delete(organizations::unshare_agent),
+        )
+        .route(
+            "/organizations/{id}/members",
+            get(organizations::list_members).post(organizations::invite_member),
+        )
+        .route(
+            "/organizations/{id}/members/{username}",
+            axum::routing::delete(organizations::remove_member),
+        )
+        .route("/organizations/{id}/usage", get(organizations::usage))
         .route(
             "/agent-pools/{connection_id}/requests",
             post(create_request),

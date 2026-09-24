@@ -1,12 +1,18 @@
+import { useQuery } from "@tanstack/react-query";
 import { Link, NavLink, type NavLinkRenderProps } from "react-router";
 import { tv } from "tailwind-variants";
 
 import Center from "@/components/ui/center";
 import ImageFallBack from "@/components/ui/image-fallback";
+import organizationsService from "@/services/organizations";
 import assetPath from "@/utils/utils.asset-path";
 
 import WorkspaceShellAccount from "./workspace-shell-account";
-import { navigationItems } from "./workspace-shell-navigation-items";
+import { useWorkspaceSession } from "./workspace-shell-session-context";
+import {
+  navigationItems,
+  organizationNavigationItems,
+} from "./workspace-shell-navigation-items";
 
 const navigationLinkVariants = tv({
   base: "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-xs font-medium tracking-wide transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden",
@@ -15,6 +21,9 @@ const navigationLinkVariants = tv({
       true: "bg-zinc-900 text-white shadow-xs",
       false: "text-muted-foreground hover:bg-zinc-100/80 hover:text-foreground",
     },
+    disabled: {
+      true: "cursor-not-allowed text-zinc-400 hover:bg-transparent hover:text-zinc-400",
+    },
   },
 });
 
@@ -22,6 +31,7 @@ const navigationIconVariants = tv({
   base: "size-4",
   variants: {
     active: { true: "text-white", false: "text-zinc-500" },
+    disabled: { true: "text-zinc-300" },
   },
 });
 
@@ -64,7 +74,7 @@ interface WorkspaceNavigationProps {
 
 function WorkspaceNavigation({ onNavigate }: WorkspaceNavigationProps) {
   return (
-    <nav aria-label="Workspace" className="flex-1">
+    <nav aria-label="Workspace">
       <div className="space-y-1">
         <p className="px-2 pb-2 font-mono text-[10px] tracking-widest text-muted-foreground uppercase">
           Workspace
@@ -77,6 +87,80 @@ function WorkspaceNavigation({ onNavigate }: WorkspaceNavigationProps) {
             <NavLink
               key={item.href}
               to={item.href}
+              onClick={onNavigate}
+              className={({ isActive }: NavLinkRenderProps) =>
+                navigationLinkVariants({ active: isActive })
+              }
+            >
+              {({ isActive }: NavLinkRenderProps) => (
+                <>
+                  <Icon
+                    aria-hidden={true}
+                    className={navigationIconVariants({ active: isActive })}
+                  />
+                  <span>{item.label}</span>
+                </>
+              )}
+            </NavLink>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
+interface OrganizationNavigationProps {
+  onNavigate?: () => void;
+}
+
+function OrganizationNavigation({ onNavigate }: OrganizationNavigationProps) {
+  const session = useWorkspaceSession();
+  const userId = session.user?.id;
+  const organizationsQuery = useQuery({
+    enabled: Boolean(userId),
+    queryFn: organizationsService.list,
+    queryKey: [...organizationsService.queryKey, userId ?? "guest"],
+  });
+  const canOpenSections = Boolean(organizationsQuery.data?.length);
+
+  return (
+    <nav aria-label="Organization">
+      <p className="px-2 pb-2 font-mono text-[10px] tracking-widest text-muted-foreground uppercase">
+        Organization
+      </p>
+
+      <div className="space-y-1">
+        {organizationNavigationItems.map((item) => {
+          const Icon = item.icon;
+
+          if (item.href !== "/organization" && !canOpenSections) {
+            return (
+              <button
+                key={item.href}
+                className={navigationLinkVariants({
+                  active: false,
+                  disabled: true,
+                })}
+                disabled
+                type="button"
+              >
+                <Icon
+                  aria-hidden={true}
+                  className={navigationIconVariants({
+                    active: false,
+                    disabled: true,
+                  })}
+                />
+                <span>{item.label}</span>
+              </button>
+            );
+          }
+
+          return (
+            <NavLink
+              key={item.href}
+              to={item.href}
+              end={item.href === "/organization"}
               onClick={onNavigate}
               className={({ isActive }: NavLinkRenderProps) =>
                 navigationLinkVariants({ active: isActive })
@@ -121,7 +205,11 @@ export default function WorkspaceShellSidebar({
         <WorkspaceBrand onNavigate={onNavigate} />
       </div>
 
-      <WorkspaceNavigation onNavigate={onNavigate} />
+      <div className="flex-1 space-y-7 overflow-y-auto">
+        <WorkspaceNavigation onNavigate={onNavigate} />
+
+        <OrganizationNavigation onNavigate={onNavigate} />
+      </div>
 
       <WorkspaceShellAccount onNavigate={onNavigate} />
     </div>

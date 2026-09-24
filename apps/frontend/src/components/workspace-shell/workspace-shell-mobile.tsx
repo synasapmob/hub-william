@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LogIn, Menu } from "lucide-react";
+import { LogIn, Menu, UserRound } from "lucide-react";
 import { Link } from "react-router";
 
 import Center from "@/components/ui/center";
@@ -83,10 +83,22 @@ export default function WorkspaceShellMobile() {
         variant="outline"
         className="w-24"
         disabled={session.status === "loading"}
-        onClick={session.openAuth}
+        onClick={
+          session.user ? () => setMobileNavigationOpen(true) : session.openAuth
+        }
+        title={session.user?.username}
       >
-        <LogIn aria-hidden="true" data-icon="inline-start" />
-        {session.status === "loading" ? "Checking session…" : "Login"}
+        {session.user ? (
+          <>
+            <UserRound aria-hidden="true" data-icon="inline-start" />
+            <span className="truncate">{session.user.username}</span>
+          </>
+        ) : (
+          <>
+            <LogIn aria-hidden="true" data-icon="inline-start" />
+            {session.status === "loading" ? "Checking session…" : "Login"}
+          </>
+        )}
       </Button>
     </header>
   );
