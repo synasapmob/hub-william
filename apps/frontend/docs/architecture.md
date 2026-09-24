@@ -1,9 +1,10 @@
 # Architecture
 
 Hub William has a React Router frontend and a Rust business API with an
-in-process streaming gateway. The app exposes Home, Tools, Agents and a model
-Playground. Libraries, Activities and the Documents/MCP machine installer are
-retired; see [ADR-0024](../../../docs/decisions/0024-tools-agents-playground.md).
+in-process streaming gateway. The app exposes Home, Tools, Agents, Organization
+and a model Playground. Libraries, Activities and the Documents/MCP machine
+installer are retired; see [ADR-0024](../../../docs/decisions/0024-tools-agents-playground.md)
+and [ADR-0027](../../../docs/decisions/0027-organizations-and-session-agent-access.md).
 
 ## Frontend routes
 
@@ -27,12 +28,22 @@ retired; see [ADR-0024](../../../docs/decisions/0024-tools-agents-playground.md)
   refresh/delete controls live in the owner's Manage pool access dialog.
 - `/playground` supports real streaming conversations with text and attachments through the Rust gateway.
   Existing browser sessions authorize account-scoped model discovery and
-  streaming requests. Only owned or approved pools are eligible; the browser
+  streaming requests. Personal mode uses owned or approved pools; organization
+  mode uses agents shared with an accepted organization member. The browser
   never receives provider credentials or creates a gateway key. Conversation
   text stays in the mounted page; stopped and incomplete answers remain visible
   but do not enter follow-up context. Provider selection is public; account selection
-  requires sign-in and requests are pinned to an owned/joined account. Images use
+  requires sign-in and requests are pinned to the chosen account. Images use
   native provider blocks; text files and extracted PDF text join the prompt. See [ADR-0025](../../../docs/decisions/0025-session-backed-playground.md).
+- `/organization` selects one of the signed-in user's organizations and shows
+  team totals, daily requests and shared agents. Creation accepts an optional
+  description of up to 350 characters. `/organization/agents` lets any accepted
+  member or owner share their own existing or newly connected account through
+  Connect Agent; all accepted members can use it, and the sharer or owner can
+  remove it. The page also shows available agents;
+  `/organization/members` lets the owner invite and remove users;
+  `/organization/usage` filters request and reported token totals by period,
+  member, agent and model. The API checks accepted membership for every view.
 
 Removed pages have no route modules or dedicated redirect handlers. The existing
 generic catch-all returns unknown URLs to Home.
@@ -67,7 +78,8 @@ the Home contribution guide shows this boundary in its directory tree.
 ## Runtime data and ownership
 
 `apps/api` owns authentication, rotating PostgreSQL sessions, encrypted provider
-connections, pool membership and join decisions, and user-scoped gateway keys.
+connections, pool membership and join decisions, organization membership and
+agent shares, and user-scoped gateway keys.
 Public pool discovery contains no provider credentials. Membership and owner
 operations are authenticated by the API.
 
@@ -76,6 +88,12 @@ without receiving the provider token. Pool availability and provider quota are
 reported by the backend; the frontend does not fabricate usage. Known zero
 quota is displayed as Exhausted. Owner connection details are queried only
 when management is open, and refresh/reconnect success updates the query cache.
+
+Organization usage records successful generation responses selected through an
+organization and keeps unknown provider token counts distinct from zero. Input
+tokens include any reported cached input. Existing personal gateway keys retain
+their existing reach while organization gateway-key scope awaits a separate
+operator decision.
 
 The gateway remains `apps/api/src/gateway.rs`. Extraction into a separate
 service requires an explicit internal contract and must avoid an additional

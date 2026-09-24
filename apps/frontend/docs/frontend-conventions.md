@@ -35,6 +35,11 @@ code that does it, or in [architecture.md](./architecture.md).
 - Use `interface` for object shapes and component props. Reserve `type` for unions, literal unions, tuples, and utility compositions — anything that cannot be expressed as an interface.
 - Group state that changes together into one cohesive object.
 - Remote schemas are authoritative. Do not silently invent fallback fields when provider or database contracts are unclear.
+- Account quota UI follows the provider capability used by Workspace Agents.
+  Show provider quota metrics only when `agentProviderShowsUsage` supports that
+  provider; do not present an unavailable AGY/DeepSeek quota as account usage.
+  Organization request and token totals are separate recorded activity and
+  appear in an account detail only when that account has requests in the period.
 - Mirror database nullability in row types. A `not null default '{}'` column is not optional in TypeScript.
 - Dependencies need real consumers. Remove packages that are not used by the shipped app.
 

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import Flex from "@/components/ui/flex";
 import { useWorkspaceSession } from "@/components/workspace-shell/workspace-shell-session-context";
+import AgentsConnectDialog from "@/components/agents-connect-dialog";
 import agentConnectionsService, {
   AgentConnectionServiceError,
   type AgentConnection,
@@ -22,7 +23,6 @@ import AgentsRequestDialog, {
   type RequestFormValues,
 } from "./agents-request-dialog";
 import AgentsRequestsDialog from "./agents-requests-dialog";
-import AgentsConnectDialog from "./agents-connect-dialog";
 import AgentsGatewayKeyDialog from "./agents-gateway-key-dialog";
 
 interface RequestJoinVariables {

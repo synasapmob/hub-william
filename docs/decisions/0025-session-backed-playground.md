@@ -1,6 +1,6 @@
 # ADR-0025: Session-backed model Playground
 
-- Status: Accepted
+- Status: Accepted; personal-only account choice partially superseded by ADR-0027
 - Date: 2026-09-23
 - Partially supersedes: ADR-0024's demo-only Playground scope
 
