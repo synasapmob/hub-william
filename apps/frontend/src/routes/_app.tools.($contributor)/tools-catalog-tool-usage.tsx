@@ -34,17 +34,19 @@ function gatewayCommand(origin: string) {
   });
 }
 
-function openCodeCommand(origin: string) {
+function openCodeCommand(origin: string, includeKey = false) {
   return openCodeInstallCommand({
     gatewayOrigin: resolveGatewayOrigin(origin),
     installerUrl: catalogService.openCodeInstallerUrl(origin),
+    includeKey,
   });
 }
 
-function ompCommand(origin: string) {
+function ompCommand(origin: string, includeKey = false) {
   return ompInstallCommand({
     gatewayOrigin: resolveGatewayOrigin(origin),
     installerUrl: catalogService.ompInstallerUrl(origin),
+    includeKey,
   });
 }
 
@@ -105,12 +107,24 @@ export default function ToolsCatalogToolUsage({
           <p className={label()}>Install all live providers</p>
 
           <p className={description()}>
-            Enter one Hub key in the installer&rsquo;s hidden prompt. It
-            discovers models from your connected Codex, Claude, Gemini/AGY,
-            Grok, and DeepSeek pools and merges them into OpenCode.
+            Enter an active Hub key in the hidden prompt. The installer uses it
+            to fetch reachable models and saves it in the OpenCode provider
+            settings. If the key is invalid, it leaves your config untouched.
           </p>
 
           <CopyCommand command={openCodeCommand(siteOrigin)} />
+        </div>
+
+        <div className={section()}>
+          <p className={label()}>Pass a key explicitly</p>
+
+          <p className={description()}>
+            Replace <code>{GATEWAY_KEY_PLACEHOLDER}</code> before running this
+            command. A key passed on the command line may remain in shell
+            history.
+          </p>
+
+          <CopyCommand command={openCodeCommand(siteOrigin, true)} />
         </div>
 
         <div className={section()}>
@@ -141,13 +155,25 @@ export default function ToolsCatalogToolUsage({
           <p className={label()}>Install all live providers</p>
 
           <p className={description()}>
-            Enter one Hub key in the installer&rsquo;s hidden prompt. It
-            discovers models from your connected Codex, Claude, Gemini/AGY,
-            Grok, and DeepSeek pools and merges namespaced providers into
-            OMP&rsquo;s native <code>models.yml</code>.
+            Enter an active Hub key in the hidden prompt. The installer uses it
+            to fetch reachable models and saves it in OMP&rsquo;s{" "}
+            <code>models.yml</code> provider settings. If the key is invalid, it
+            leaves your config untouched.
           </p>
 
           <CopyCommand command={ompCommand(siteOrigin)} />
+        </div>
+
+        <div className={section()}>
+          <p className={label()}>Pass a key explicitly</p>
+
+          <p className={description()}>
+            Replace <code>{GATEWAY_KEY_PLACEHOLDER}</code> before running this
+            command. A key passed on the command line may remain in shell
+            history.
+          </p>
+
+          <CopyCommand command={ompCommand(siteOrigin, true)} />
         </div>
 
         <div className={section()}>

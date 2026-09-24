@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+from urllib.error import HTTPError
 
 
 FRONTEND_ROOT = Path(__file__).resolve().parents[3]
@@ -21,7 +22,7 @@ class OmpInstallerTest(unittest.TestCase):
         self.home = tempfile.TemporaryDirectory(prefix="hub-omp-")
         self.addCleanup(self.home.cleanup)
 
-    def test_build_document_overwrites_unrelated_provider_bytes(self):
+    def test_build_document_preserves_unrelated_provider_bytes(self):
         existing = (
             "# personal models\n"
             "providers:\n"
@@ -45,7 +46,7 @@ class OmpInstallerTest(unittest.TestCase):
             },
         )
 
-        self.assertNotIn("personal:", document)
+        self.assertIn(existing, document)
         self.assertEqual(installed, list(omp.PROVIDER_IDS))
         self.assertIn('api: "openai-responses"', document)
         self.assertIn('api: "anthropic-messages"', document)
@@ -60,7 +61,7 @@ class OmpInstallerTest(unittest.TestCase):
         self.assertEqual(document.count(omp.BEGIN), 1)
         self.assertEqual(document.count(omp.END), 1)
 
-    def test_rerun_replaces_the_entire_provider_document(self):
+    def test_rerun_replaces_only_the_managed_provider_block(self):
         first, _ = omp.build_document(
             "providers:\n  personal:\n    auth: none\n",
             "https://old.example",
@@ -87,30 +88,78 @@ class OmpInstallerTest(unittest.TestCase):
         )
 
         self.assertEqual(installed, ["hub-claude", "hub-grok"])
-        self.assertNotIn("personal:", second)
+        self.assertIn("  personal:\n    auth: none\n", second)
         self.assertNotIn("old.example", second)
         self.assertNotIn("old-model", second)
         self.assertIn("new.example", second)
         self.assertEqual(second.count(omp.BEGIN), 1)
 
-    def test_existing_hub_provider_is_replaced(self):
-        document, installed = omp.build_document(
-            "providers:\n  hub-codex:\n    auth: none\n",
+    def test_preserves_four_space_provider_indentation_on_rerun(self):
+        existing = (
+            "providers:\n"
+            "    personal:\n"
+            "        baseUrl: http://localhost:1234/v1\n"
+            "        api: openai-completions\n"
+            "        auth: none\n"
+        )
+        catalogue = {"codex": [{"id": "gpt-live"}]}
+        first, _ = omp.build_document(
+            existing, "https://api.hub.example", "hw_gateway_secret", catalogue
+        )
+        second, _ = omp.build_document(
+            first, "https://api.hub.example", "hw_gateway_secret", catalogue
+        )
+        self.assertEqual(first, second)
+        self.assertIn(existing, first)
+        self.assertIn("    hub-codex:", first.splitlines())
+        self.assertNotIn("  hub-codex:", first.splitlines())
+
+    def test_existing_hub_provider_outside_managed_block_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "outside Hub William"):
+            omp.build_document(
+                "providers:\n  hub-codex:\n    auth: none\n",
+                "https://api.hub.example",
+                "hw_gateway_secret",
+                {"codex": [{"id": "gpt-live"}]},
+            )
+
+    def test_indented_duplicate_and_markers_outside_providers_are_refused(self):
+        catalogue = {"codex": [{"id": "gpt-live"}]}
+        with self.assertRaisesRegex(ValueError, "outside Hub William"):
+            omp.build_document(
+                'providers:\n    "hub-codex":\n      api: openai-responses\n',
+                "https://api.hub.example",
+                "hw_gateway_secret",
+                catalogue,
+            )
+        with self.assertRaisesRegex(ValueError, "ambiguous Hub William"):
+            omp.build_document(
+                "providers:\n  personal:\n    auth: none\n"
+                "settings:\n"
+                + omp.BEGIN
+                + "\n"
+                + omp.END
+                + "\n",
+                "https://api.hub.example",
+                "hw_gateway_secret",
+                catalogue,
+            )
+
+    def test_existing_markers_do_not_hide_duplicate_provider(self):
+        document, _ = omp.build_document(
+            "providers:\n",
             "https://api.hub.example",
             "hw_gateway_secret",
-            {
-                "codex": [{"id": "gpt-live"}],
-                "claude": [],
-                "gemini": [],
-                "grok": [],
-                "deepseek": [],
-            },
+            {"codex": [{"id": "gpt-live"}]},
         )
-
-        self.assertEqual(installed, ["hub-codex", "hub-grok"])
-        self.assertIn('baseUrl: "https://api.hub.example/gateway/openai/v1"', document)
-        self.assertIn('id: "grok-build"', document)
-        self.assertNotIn("auth: none", document)
+        document += "    'hub-codex':\n      auth: none\n"
+        with self.assertRaisesRegex(ValueError, "outside Hub William"):
+            omp.build_document(
+                document,
+                "https://api.hub.example",
+                "hw_gateway_secret",
+                {"codex": [{"id": "gpt-live"}]},
+            )
 
     def test_install_discovers_models_and_writes_owner_only_yaml(self):
         terminal = io.StringIO()
@@ -134,6 +183,39 @@ class OmpInstallerTest(unittest.TestCase):
         self.assertIn(
             mock.call("https://api.hub.example", "hw_gateway_secret", "gemini"),
             gateway_models.call_args_list,
+        )
+
+    def test_invalid_gateway_key_keeps_existing_yaml(self):
+        path = os.path.join(self.home.name, ".omp", "agent", "models.yml")
+        os.makedirs(os.path.dirname(path))
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("providers:\n  personal:\n    auth: none\n")
+        error = HTTPError(
+            "https://api.hub.example/gateway/openai/v1/models",
+            401,
+            "Unauthorized",
+            {},
+            io.BytesIO(b'{"code":"invalid_gateway_key"}'),
+        )
+        args = omp.parse_args(
+            ["--url=https://api.hub.example", "--key=hw_gateway_secret"]
+        )
+        with mock.patch.object(omp, "urlopen", side_effect=error):
+            with self.assertRaisesRegex(ValueError, "invalid or revoked"):
+                omp.install(io.StringIO(), args, self.home.name)
+        with open(path, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "providers:\n  personal:\n    auth: none\n")
+        self.assertFalse(os.path.exists(path + ".hub-william.bak"))
+
+    def test_empty_discovery_does_not_install_grok_fallback_alone(self):
+        args = omp.parse_args(
+            ["--url=https://api.hub.example", "--key=hw_gateway_secret"]
+        )
+        with mock.patch.object(omp, "_gateway_models", return_value=[]):
+            with self.assertRaisesRegex(ValueError, "no provider models"):
+                omp.install(io.StringIO(), args, self.home.name)
+        self.assertFalse(
+            os.path.exists(os.path.join(self.home.name, ".omp", "agent", "models.yml"))
         )
 
     def test_uses_existing_models_yaml_and_refuses_legacy_json(self):

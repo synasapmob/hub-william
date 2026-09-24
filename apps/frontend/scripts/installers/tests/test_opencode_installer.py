@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+from urllib.error import HTTPError
 
 
 FRONTEND_ROOT = Path(__file__).resolve().parents[3]
@@ -22,13 +23,14 @@ class OpenCodeInstallerTest(unittest.TestCase):
         self.home = tempfile.TemporaryDirectory(prefix="hub-opencode-")
         self.addCleanup(self.home.cleanup)
 
-    def test_build_config_overwrites_old_settings_and_includes_grok(self):
+    def test_build_config_preserves_unrelated_settings_and_includes_grok(self):
         document = opencode.build_config(
             {"theme": "system", "provider": {"personal": {"npm": "custom"}}},
             "https://api.hub.example",
             "hw_gateway_secret",
             {
-                "codex": [
+                "codex": [{"id": "gpt-live"}],
+                "codex_metadata": [
                     {
                         "model": "gpt-live",
                         "displayName": "GPT Live",
@@ -63,8 +65,8 @@ class OpenCodeInstallerTest(unittest.TestCase):
             },
         )
 
-        self.assertNotIn("theme", document)
-        self.assertNotIn("personal", document["provider"])
+        self.assertEqual(document["theme"], "system")
+        self.assertEqual(document["provider"]["personal"], {"npm": "custom"})
         self.assertEqual(document["model"], "hub-codex/gpt-live")
         self.assertEqual(
             list(
@@ -118,7 +120,7 @@ class OpenCodeInstallerTest(unittest.TestCase):
             "https://api.hub.example",
             "hw_gateway_secret",
             {
-                "codex": None,
+                "codex": [],
                 "claude": [],
                 "deepseek": [],
                 "gemini": [],
@@ -137,7 +139,7 @@ class OpenCodeInstallerTest(unittest.TestCase):
             "https://api.hub.example",
             "hw_gateway_secret",
             {
-                "codex": None,
+                "codex": [],
                 "claude": [{"id": "claude-opus-5"}],
                 "deepseek": [],
                 "gemini": [],
@@ -148,6 +150,41 @@ class OpenCodeInstallerTest(unittest.TestCase):
         self.assertEqual(
             document["model"], "hub-claude/claude-opus-5"
         )
+
+    def test_codex_catalogue_uses_gateway_ids_with_local_metadata(self):
+        models = opencode._codex_model_config(
+            [{"id": "gpt-live"}, {"id": "gpt-new", "name": "GPT New"}],
+            [
+                {"model": "gpt-live", "displayName": "GPT Live"},
+                {"model": "gpt-old", "displayName": "GPT Old"},
+            ],
+        )
+        self.assertEqual(list(models), ["gpt-live", "gpt-new"])
+        self.assertEqual(models["gpt-live"]["name"], "GPT Live")
+        self.assertEqual(models["gpt-new"], {"name": "GPT New"})
+
+    def test_refresh_clears_removed_hub_models_from_agent_routing(self):
+        document = opencode.build_config(
+            {
+                "model": "hub-codex/gpt-old",
+                "small_model": "hub-codex/gpt-old",
+                "agent": {
+                    "build": {
+                        "model": "hub-codex/gpt-old",
+                        "variant": "ultra",
+                        "temperature": 0.5,
+                    },
+                    "explore": {"model": "personal/local"},
+                },
+            },
+            "https://api.hub.example",
+            "hw_gateway_secret",
+            {"codex": [{"id": "gpt-new"}]},
+        )
+        self.assertEqual(document["model"], "hub-codex/gpt-new")
+        self.assertNotIn("small_model", document)
+        self.assertEqual(document["agent"]["build"], {"temperature": 0.5})
+        self.assertEqual(document["agent"]["explore"], {"model": "personal/local"})
 
     def test_reads_jsonc_and_preserves_unrelated_values(self):
         path = os.path.join(
@@ -247,6 +284,41 @@ class OpenCodeInstallerTest(unittest.TestCase):
         self.assertEqual(document["model"], "hub-codex/gpt-live")
         self.assertEqual(document["agent"], {"build": {"variant": "ultra"}})
         self.assertIn("linear", document.get("mcp", {}))
+
+    def test_invalid_gateway_key_keeps_existing_config(self):
+        path = os.path.join(self.home.name, ".config", "opencode", "opencode.json")
+        os.makedirs(os.path.dirname(path))
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write('{"theme":"system"}\n')
+        error = HTTPError(
+            "https://api.hub.example/gateway/openai/v1/models",
+            401,
+            "Unauthorized",
+            {},
+            io.BytesIO(b'{"code":"invalid_gateway_key"}'),
+        )
+        args = opencode.parse_args(
+            ["--url=https://api.hub.example", "--key=hw_gateway_secret"]
+        )
+        with mock.patch.object(opencode, "urlopen", side_effect=error):
+            with self.assertRaisesRegex(ValueError, "invalid or revoked"):
+                opencode.install(io.StringIO(), args, self.home.name)
+        with open(path, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), '{"theme":"system"}\n')
+        self.assertFalse(os.path.exists(path + ".hub-william.bak"))
+
+    def test_empty_discovery_does_not_install_grok_fallback_alone(self):
+        args = opencode.parse_args(
+            ["--url=https://api.hub.example", "--key=hw_gateway_secret"]
+        )
+        with mock.patch.object(opencode, "_gateway_models", return_value=[]):
+            with self.assertRaisesRegex(ValueError, "no provider models"):
+                opencode.install(io.StringIO(), args, self.home.name)
+        self.assertFalse(
+            os.path.exists(
+                os.path.join(self.home.name, ".config", "opencode", "opencode.json")
+            )
+        )
 
     def test_gateway_url_rejects_cleartext_remote_origins(self):
         self.assertEqual(

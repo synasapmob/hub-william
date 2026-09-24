@@ -5,6 +5,7 @@
 """
 
 import argparse
+import copy
 import getpass
 import json
 import os
@@ -299,7 +300,21 @@ def _gateway_models(gateway_url, key, provider):
     try:
         with urlopen(request, timeout=12) as response:
             payload = json.load(response)
-    except (HTTPError, URLError, TimeoutError, ValueError):
+    except HTTPError as error:
+        try:
+            payload = json.load(error)
+        except (OSError, ValueError):
+            payload = {}
+        finally:
+            error.close()
+        if (
+            error.code == 401
+            and isinstance(payload, dict)
+            and payload.get("code") == "invalid_gateway_key"
+        ):
+            raise ValueError("the Hub gateway key is invalid or revoked")
+        return []
+    except (URLError, TimeoutError, ValueError):
         return []
     models = payload.get("data", []) if isinstance(payload, dict) else []
     return [model for model in models if isinstance(model, dict) and model.get("id")]
@@ -382,32 +397,38 @@ def _variants(efforts):
     return {effort: {"reasoningEffort": effort} for effort in efforts}
 
 
-def _codex_model_config(discovered):
-    if discovered is None:
-        return {}
-    models = {}
-    for model in discovered:
-        identifier = model["model"]
-        efforts = [
-            item.get("reasoningEffort")
-            for item in model.get("supportedReasoningEfforts", [])
-            if isinstance(item, dict) and item.get("reasoningEffort")
-        ]
-        models[identifier] = {
-            "name": model.get("displayName") or identifier,
-            "options": {"reasoningEffort": "medium"},
-            "variants": _variants(efforts or ("low", "medium", "high")),
-        }
-    if models:
-        return models
-    return {
-        identifier: {
-            "name": name,
-            "options": {"reasoningEffort": "medium"},
-            "variants": _variants(efforts),
-        }
+def _codex_model_config(available, discovered):
+    local = {model["model"]: model for model in discovered}
+    fallback = {
+        identifier: (name, efforts)
         for identifier, name, efforts in DEFAULT_CODEX_MODELS
     }
+    models = {}
+    for model in available:
+        identifier = model["id"]
+        if identifier in models:
+            continue
+        local_model = local.get(identifier, {})
+        efforts = [
+            item.get("reasoningEffort")
+            for item in local_model.get("supportedReasoningEfforts", [])
+            if isinstance(item, dict) and item.get("reasoningEffort")
+        ]
+        if not efforts and identifier in fallback:
+            efforts = fallback[identifier][1]
+        entry = {
+            "name": local_model.get("displayName")
+            or model.get("display_name")
+            or model.get("name")
+            or fallback.get(identifier, (identifier,))[0],
+        }
+        if efforts:
+            entry["options"] = {
+                "reasoningEffort": "medium" if "medium" in efforts else efforts[0]
+            }
+            entry["variants"] = _variants(efforts)
+        models[identifier] = entry
+    return models
 
 
 def _provider_model_config(models, effort_option=None):
@@ -433,13 +454,26 @@ def _provider_model_config(models, effort_option=None):
     return configured
 
 
+def _missing_managed_model(value, managed_ids, providers):
+    if not isinstance(value, str) or "/" not in value:
+        return False
+    provider_id, model_id = value.split("/", 1)
+    return provider_id in managed_ids and (
+        provider_id not in providers or model_id not in providers[provider_id]["models"]
+    )
+
+
 def build_config(existing, gateway_url, key, catalogues, plugin_path=None):
-    providers = {}
-    document = {
-        "$schema": "https://opencode.ai/config.json",
-        "disabled_providers": ["opencode"],
-        "provider": providers,
-    }
+    document = copy.deepcopy(existing) if isinstance(existing, dict) else {}
+    document["$schema"] = "https://opencode.ai/config.json"
+    disabled = document.get("disabled_providers")
+    if not isinstance(disabled, list):
+        disabled = []
+    document["disabled_providers"] = list(dict.fromkeys(disabled + ["opencode"]))
+    providers = document.get("provider")
+    if not isinstance(providers, dict):
+        providers = {}
+    document["provider"] = providers
 
     plugins = []
     if plugin_path:
@@ -451,9 +485,6 @@ def build_config(existing, gateway_url, key, catalogues, plugin_path=None):
     if plugins:
         document["plugin"] = plugins
 
-    if isinstance(existing, dict) and isinstance(existing.get("mcp"), dict):
-        document["mcp"] = existing["mcp"]
-
     provider_specs = {
         "hub-codex": {
             "name": "Hub William · Codex",
@@ -462,7 +493,9 @@ def build_config(existing, gateway_url, key, catalogues, plugin_path=None):
                 "apiKey": key,
                 "baseURL": gateway_url + "/gateway/openai/v1",
             },
-            "models": _codex_model_config(catalogues.get("codex", [])),
+            "models": _codex_model_config(
+                catalogues.get("codex", []), catalogues.get("codex_metadata", [])
+            ),
         },
         "hub-claude": {
             "name": "Hub William · Claude",
@@ -504,36 +537,34 @@ def build_config(existing, gateway_url, key, catalogues, plugin_path=None):
             "models": _provider_model_config(catalogues.get("deepseek", [])),
         },
     }
+    for provider_id in provider_specs:
+        providers.pop(provider_id, None)
     for provider_id, provider in provider_specs.items():
         if provider["models"]:
             providers[provider_id] = provider
-        else:
-            providers.pop(provider_id, None)
-
+    for model_key in ("model", "small_model"):
+        if _missing_managed_model(document.get(model_key), provider_specs, providers):
+            document.pop(model_key, None)
+    if isinstance(document.get("agent"), dict):
+        for settings in document["agent"].values():
+            if isinstance(settings, dict) and _missing_managed_model(
+                settings.get("model"), provider_specs, providers
+            ):
+                settings.pop("model", None)
+                settings.pop("variant", None)
     if "model" not in document:
-        if (
-            isinstance(existing, dict)
-            and isinstance(existing.get("model"), str)
-            and "/" in existing["model"]
-        ):
-            prov, mod = existing["model"].split("/", 1)
-            if prov in providers and mod in providers[prov]["models"]:
-                document["model"] = existing["model"]
-                if isinstance(existing.get("agent"), dict):
-                    document["agent"] = existing["agent"]
-        if "model" not in document:
-            if "hub-codex" in providers:
-                preferred = "gpt-5.6-sol"
-                if preferred not in providers["hub-codex"]["models"]:
-                    preferred = next(iter(providers["hub-codex"]["models"]))
-                document["model"] = "hub-codex/" + preferred
-            elif "hub-claude" in providers:
-                preferred = "claude-opus-5"
-                if preferred not in providers["hub-claude"]["models"]:
-                    preferred = "claude-sonnet-5"
-                if preferred not in providers["hub-claude"]["models"]:
-                    preferred = next(iter(providers["hub-claude"]["models"]))
-                document["model"] = "hub-claude/" + preferred
+        if "hub-codex" in providers:
+            preferred = "gpt-5.6-sol"
+            if preferred not in providers["hub-codex"]["models"]:
+                preferred = next(iter(providers["hub-codex"]["models"]))
+            document["model"] = "hub-codex/" + preferred
+        elif "hub-claude" in providers:
+            preferred = "claude-opus-5"
+            if preferred not in providers["hub-claude"]["models"]:
+                preferred = "claude-sonnet-5"
+            if preferred not in providers["hub-claude"]["models"]:
+                preferred = next(iter(providers["hub-claude"]["models"]))
+            document["model"] = "hub-claude/" + preferred
     return document
 
 
@@ -557,14 +588,16 @@ def install(terminal, args, home=None):
     )
     terminal.write("Discovering models from connected Hub pools…\n")
     terminal.flush()
-    codex_available = _gateway_models(gateway_url, key, "codex")
     catalogues = {
-        "codex": _codex_models() if codex_available else None,
+        "codex": _gateway_models(gateway_url, key, "codex"),
         "claude": _gateway_models(gateway_url, key, "claude"),
         "gemini": _gateway_models(gateway_url, key, "gemini"),
         "grok": _gateway_models(gateway_url, key, "grok"),
         "deepseek": _gateway_models(gateway_url, key, "deepseek"),
     }
+    if not any(catalogues.values()):
+        raise ValueError("no provider models could be discovered; check the key and gateway")
+    catalogues["codex_metadata"] = _codex_models() if catalogues["codex"] else []
     config_dir = os.path.join(
         home or os.path.expanduser("~"), ".config", "opencode"
     )

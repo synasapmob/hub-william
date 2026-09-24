@@ -107,7 +107,10 @@ curl -fsSL https://hub-william.site/omp.py | python3 - --url=https://hub-william
 ```
 
 The installers store the Hub key locally; provider OAuth credentials stay on the
-API. OpenCode and OMP discover the models reachable through that key.
+API. OpenCode and OMP discover the models reachable through that key, then write
+it into their provider settings. You can also pass `--key=YOUR_GATEWAY_KEY` after
+`--url` if you prefer to supply a key explicitly. An invalid or revoked key
+stops installation before either config is changed.
 
 Tool documentation is included at build time and remains downloadable as its
 original bytes. `/catalog/index.json` lists tool sources;
