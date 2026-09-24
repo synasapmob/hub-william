@@ -93,7 +93,10 @@ describe("ToolsCatalog", () => {
     renderTools("/tools?node=opencode");
 
     expect(screen.getByRole("heading", { name: "OpenCode" })).toBeVisible();
-    expect(screen.getByText(/opencode\.py.*--url=/)).toBeVisible();
+    expect(screen.getAllByText(/opencode\.py.*--url=/)).toHaveLength(2);
+    expect(
+      screen.getByText(/opencode\.py.*--key=YOUR_GATEWAY_KEY/),
+    ).toBeVisible();
     expect(screen.getAllByText("/models", { exact: true })).not.toHaveLength(0);
     expect(screen.getByText("/variants", { exact: true })).toBeVisible();
   });
@@ -102,7 +105,8 @@ describe("ToolsCatalog", () => {
     renderTools("/tools?node=omp");
 
     expect(screen.getByRole("heading", { name: "OMP" })).toBeVisible();
-    expect(screen.getByText(/omp\.py.*--url=/)).toBeVisible();
+    expect(screen.getAllByText(/omp\.py.*--url=/)).toHaveLength(2);
+    expect(screen.getByText(/omp\.py.*--key=YOUR_GATEWAY_KEY/)).toBeVisible();
     expect(screen.getByText("models.yml", { exact: true })).toBeVisible();
     expect(screen.getByText("/model", { exact: true })).toBeVisible();
   });
