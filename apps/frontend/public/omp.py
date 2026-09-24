@@ -116,7 +116,18 @@ def _gateway_models(gateway_url, key, provider):
         with urlopen(request, timeout=12) as response:
             payload = json.load(response)
     except HTTPError as error:
-        error.close()
+        try:
+            payload = json.load(error)
+        except (OSError, ValueError):
+            payload = {}
+        finally:
+            error.close()
+        if (
+            error.code == 401
+            and isinstance(payload, dict)
+            and payload.get("code") == "invalid_gateway_key"
+        ):
+            raise ValueError("the Hub gateway key is invalid or revoked")
         return []
     except (URLError, TimeoutError, ValueError):
         return []
@@ -207,12 +218,6 @@ def _inject_managed_providers(text, managed):
     lines = text.splitlines(True)
     begin = [index for index, line in enumerate(lines) if line.rstrip("\r\n") == BEGIN]
     end = [index for index, line in enumerate(lines) if line.rstrip("\r\n") == END]
-    managed_lines = managed.splitlines(True)
-    if begin or end:
-        if len(begin) != 1 or len(end) != 1 or begin[0] >= end[0]:
-            raise ValueError("models.yml has ambiguous Hub William provider markers")
-        return "".join(lines[: begin[0]] + managed_lines + lines[end[0] + 1 :])
-
     providers = [
         index
         for index, line in enumerate(lines)
@@ -221,6 +226,8 @@ def _inject_managed_providers(text, managed):
     if len(providers) > 1:
         raise ValueError("models.yml has more than one root providers mapping")
     if not providers:
+        if begin or end:
+            raise ValueError("models.yml has Hub William markers outside providers")
         meaningful = [
             line
             for line in lines
@@ -240,29 +247,59 @@ def _inject_managed_providers(text, managed):
         if line.strip() and not line[0].isspace() and not line.lstrip().startswith("#"):
             block_end = index
             break
-    provider_block = "".join(lines[provider_line + 1 : block_end])
-    for provider_id in PROVIDER_IDS:
-        if re.search(r"^  %s:\s*(?:#.*)?$" % re.escape(provider_id), provider_block, re.M):
+    indentation = [
+        len(line) - len(line.lstrip(" "))
+        for line in lines[provider_line + 1 : block_end]
+        if line.strip() and not line.lstrip().startswith("#") and line[0] == " "
+    ]
+    provider_indent = min(indentation) if indentation else 2
+    if provider_indent < 1:
+        raise ValueError("models.yml has invalid provider indentation")
+    delta = provider_indent - 2
+    managed_lines = []
+    for line in managed.splitlines(True):
+        if line.rstrip("\r\n") in (BEGIN, END):
+            managed_lines.append(line)
+        elif delta >= 0:
+            managed_lines.append(" " * delta + line)
+        else:
+            managed_lines.append(line[-delta:])
+    if begin or end:
+        if (
+            len(begin) != 1
+            or len(end) != 1
+            or not provider_line < begin[0] < end[0] < block_end
+        ):
+            raise ValueError("models.yml has ambiguous Hub William provider markers")
+        unmanaged = lines[provider_line + 1 : begin[0]] + lines[end[0] + 1 : block_end]
+    else:
+        unmanaged = lines[provider_line + 1 : block_end]
+    for line in unmanaged:
+        if not line[:1].isspace() or line.lstrip().startswith("#") or ":" not in line:
+            continue
+        provider_id = line.strip().split(":", 1)[0].strip("'\"")
+        if provider_id in PROVIDER_IDS:
             raise ValueError(
                 "models.yml already defines %s outside Hub William's managed block"
                 % provider_id
             )
+    if begin:
+        return "".join(lines[: begin[0]] + managed_lines + lines[end[0] + 1 :])
     before = "".join(lines[:block_end])
     if before and not before.endswith("\n"):
         before += "\n"
     if before and before.splitlines()[-1].strip():
         before += "\n"
-    return before + managed + "".join(lines[block_end:])
+    return before + "".join(managed_lines) + "".join(lines[block_end:])
 
 
 def build_document(existing, gateway_url, key, catalogues):
-    del existing
     managed, installed = _render_managed_providers(
         gateway_url, key, catalogues
     )
     if not installed:
         raise ValueError("the key has no reachable provider pools")
-    return "providers:\n" + managed, installed
+    return _inject_managed_providers(existing, managed), installed
 
 
 def parse_args(argv):
@@ -292,8 +329,11 @@ def install(terminal, args, home=None):
         "grok": _gateway_models(gateway_url, key, "grok"),
         "deepseek": _gateway_models(gateway_url, key, "deepseek"),
     }
+    if not any(catalogues.values()):
+        raise ValueError("no provider models could be discovered; check the key and gateway")
     path = _models_path(home)
-    document, installed = build_document("", gateway_url, key, catalogues)
+    existing = _read_document(path)
+    document, installed = build_document(existing, gateway_url, key, catalogues)
     _atomic_write(path, document)
     terminal.write("Installed OMP providers: %s.\n" % ", ".join(installed))
     terminal.write("Run omp and use /model to switch provider or model.\n")

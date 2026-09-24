@@ -2,7 +2,7 @@
 
 Install one OMP configuration for every provider pool available through your
 Hub William gateway key. OMP is the coding agent “with the IDE wired in”; this
-installer replaces the existing OMP provider config with a fresh Hub catalogue.
+installer refreshes the Hub provider block while preserving unrelated config.
 
 ## Install
 
@@ -11,10 +11,14 @@ curl -fsSL https://hub.example/omp.py | python3 - --url=https://api.hub.example
 ```
 
 Enter the key in the hidden prompt to keep it out of shell history. The
-installer writes a fresh `providers:` document to
+installer writes its managed provider block to
 `~/.omp/agent/models.yml` (or an existing `models.yaml`), creates one backup,
 and writes with owner-only permissions. If OMP still has a legacy `models.json`,
 run `omp models` once to let OMP migrate it before rerunning the installer.
+
+To pass an existing key explicitly, append `--key=YOUR_GATEWAY_KEY` after the
+URL and replace the placeholder. The key may remain in shell history. A revoked
+or invalid Hub key stops the installer without changing your config.
 
 ## Models
 
@@ -44,8 +48,9 @@ only when you want a smaller budget.
 
 Grok connections created before the current Build scopes were introduced must
 be reconnected once in `/agents`, then this installer must be run again. If the
-live Grok catalogue is temporarily unavailable, the installer still writes the
-`hub-grok/grok-build` entry so the provider remains selectable. It never falls
+live Grok catalogue is temporarily unavailable while another provider remains
+reachable, the installer still writes the `hub-grok/grok-build` entry. If no
+models can be discovered, it stops without changing the config. It never falls
 back from subscription quota to a paid xAI API key.
 
 ## Ownership and security
