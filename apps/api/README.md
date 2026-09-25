@@ -97,14 +97,18 @@ an unusable credential advances to the next candidate. An upstream `429`
 persists a 30-minute cooldown, while an upstream `401` marks that account for
 reauthorization. A Grok `403` does the same because expanded subscription
 scopes require an explicit reconnect. These failures advance to the next
-same-provider pool. Before any response is returned to the client, network
-failures and upstream `408`, `500`, `502`, `503`, and `504` responses use one
-four-attempt budget across all same-provider pools with bounded exponential
-backoff; partial streams are never combined with a retry. The first real
-request after a rate-limit timer is an atomic half-open probe. An owner can
-force-refresh the provider credential from pool management; a rejected or
-missing refresh token starts official authorization again on the same pool
-record. The API also refreshes connected OAuth provider credentials after 60
+same-provider pool. An AGY/Code Assist `403` also advances to the next Gemini
+pool for the current request, without assuming that reconnecting fixes an
+account, project or model permission failure. A malformed `400` remains
+visible to the caller. Browser Playground requests stay pinned to the
+explicitly selected account. Before any response is returned to the client,
+network failures and upstream `408`, `500`, `502`, `503`, and `504` responses
+use one four-attempt budget across all same-provider pools with bounded
+exponential backoff; partial streams are never combined with a retry. The
+first real request after a rate-limit timer is an atomic half-open probe. An
+owner can force-refresh the provider credential from pool management; a
+rejected or missing refresh token starts official authorization again on the
+same pool record. The API also refreshes connected OAuth provider credentials after 60
 minutes without rotation, isolating per-account failures so one stale pool
 cannot stop the remaining sweep. Static DeepSeek keys are validated when
 connected and on manual refresh instead. Provider credential payloads are

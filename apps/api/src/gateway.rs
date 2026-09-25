@@ -686,6 +686,7 @@ enum UpstreamDisposition {
     RateLimit,
     Reauthorize,
     RetryTransient,
+    NextPool,
 }
 
 #[utoipa::path(
@@ -1561,7 +1562,7 @@ async fn gemini_models_for_user(
                     continue 'candidates;
                 }
             };
-            match upstream_disposition(upstream.status()) {
+            match gemini_upstream_disposition(upstream.status()) {
                 UpstreamDisposition::RateLimit => {
                     mark_rate_limited(state, candidate.id).await?;
                     saw_rate_limit = true;
@@ -1599,17 +1600,18 @@ async fn gemini_models_for_user(
                     }
                     continue 'candidates;
                 }
-                UpstreamDisposition::Return if !upstream.status().is_success() => {
-                    if claimed_probe {
-                        release_probe(state, candidate.id).await?;
+                UpstreamDisposition::NextPool | UpstreamDisposition::Return => {
+                    if !upstream.status().is_success() {
+                        if claimed_probe {
+                            release_probe(state, candidate.id).await?;
+                        }
+                        last_error = Some(ApiError::Provider(format!(
+                            "Google model discovery returned HTTP {}.",
+                            upstream.status()
+                        )));
+                        continue 'candidates;
                     }
-                    last_error = Some(ApiError::Provider(format!(
-                        "Google model discovery returned HTTP {}.",
-                        upstream.status()
-                    )));
-                    continue 'candidates;
                 }
-                UpstreamDisposition::Return => {}
             }
             let payload = upstream.json::<Value>().await.map_err(|_| {
                 ApiError::Provider("Google returned an invalid Gemini model catalogue.".to_owned())
@@ -1710,6 +1712,7 @@ async fn gemini_proxy_request_for_user(
     let mut saw_rate_limit = false;
     let mut saw_reauthorization = false;
     let mut last_error = None;
+    let mut last_pool_response = None;
     let candidate_count = candidates.len();
     let mut attempts_used = 0;
 
@@ -1817,7 +1820,7 @@ async fn gemini_proxy_request_for_user(
                     continue 'candidates;
                 }
             };
-            match upstream_disposition(upstream.status()) {
+            match gemini_upstream_disposition(upstream.status()) {
                 UpstreamDisposition::RateLimit => {
                     mark_rate_limited(state, candidate.id).await?;
                     saw_rate_limit = true;
@@ -1826,6 +1829,13 @@ async fn gemini_proxy_request_for_user(
                 UpstreamDisposition::Reauthorize => {
                     mark_reauth_required(state, candidate.id).await?;
                     saw_reauthorization = true;
+                    continue 'candidates;
+                }
+                UpstreamDisposition::NextPool => {
+                    if claimed_probe {
+                        release_probe(state, candidate.id).await?;
+                    }
+                    last_pool_response = Some(upstream);
                     continue 'candidates;
                 }
                 UpstreamDisposition::RetryTransient => {
@@ -1893,6 +1903,8 @@ async fn gemini_proxy_request_for_user(
         Err(ApiError::Provider(
             "Every accessible pool for this provider needs to reconnect.".to_owned(),
         ))
+    } else if let Some(upstream) = last_pool_response {
+        gemini_upstream_response(upstream, operation, selection.connection_id.is_some()).await
     } else {
         Err(last_error.unwrap_or(ApiError::Forbidden))
     }
@@ -2383,6 +2395,9 @@ async fn proxy_request_for_user(
                     }
                     continue 'candidates;
                 }
+                UpstreamDisposition::NextPool => {
+                    unreachable!("only Gemini classifies an upstream response as pool-specific")
+                }
                 UpstreamDisposition::Return => {}
             }
             mark_active(state, candidate.id).await?;
@@ -2814,6 +2829,16 @@ fn upstream_disposition(status: StatusCode) -> UpstreamDisposition {
     }
 }
 
+fn gemini_upstream_disposition(status: StatusCode) -> UpstreamDisposition {
+    if status == StatusCode::FORBIDDEN {
+        // Code Assist can reject one account or project while another pool can
+        // serve the same request. A 403 alone does not prove OAuth needs renewal.
+        UpstreamDisposition::NextPool
+    } else {
+        upstream_disposition(status)
+    }
+}
+
 fn should_retry_same_candidate(
     attempts_used: usize,
     candidate_attempts: usize,
@@ -3062,10 +3087,10 @@ mod tests {
         UpstreamDisposition, UsageObserver, antigravity_model_id, chatgpt_account_id,
         default_claude_model_catalogue, default_openai_model_catalogue,
         ensure_claude_billing_header, gemini_code_assist_request, gemini_model_catalogue,
-        grok_proxy_headers, hash_gateway_key, merged_anthropic_beta, parse_claude_models_markdown,
-        parse_gemini_operation, parse_openai_models_markdown, rate_limit_cooldown, retry_delay,
-        should_retry_same_candidate, strip_unsupported_codex_fields, unwrap_gemini_response,
-        upstream_disposition,
+        gemini_upstream_disposition, grok_proxy_headers, hash_gateway_key, merged_anthropic_beta,
+        parse_claude_models_markdown, parse_gemini_operation, parse_openai_models_markdown,
+        rate_limit_cooldown, retry_delay, should_retry_same_candidate,
+        strip_unsupported_codex_fields, unwrap_gemini_response, upstream_disposition,
     };
 
     #[test]
@@ -3260,6 +3285,28 @@ mod tests {
         assert_eq!(
             upstream_disposition(axum::http::StatusCode::BAD_REQUEST),
             UpstreamDisposition::Return
+        );
+    }
+
+    #[test]
+    fn gemini_forbidden_is_account_failover_without_changing_other_client_errors() {
+        use axum::http::StatusCode;
+
+        assert_eq!(
+            gemini_upstream_disposition(StatusCode::FORBIDDEN),
+            UpstreamDisposition::NextPool
+        );
+        assert_eq!(
+            upstream_disposition(StatusCode::FORBIDDEN),
+            UpstreamDisposition::Return
+        );
+        assert_eq!(
+            gemini_upstream_disposition(StatusCode::BAD_REQUEST),
+            UpstreamDisposition::Return
+        );
+        assert_eq!(
+            gemini_upstream_disposition(StatusCode::UNAUTHORIZED),
+            UpstreamDisposition::Reauthorize
         );
     }
 
@@ -3509,6 +3556,235 @@ Legacy models (still available): [Claude Fable 5](https://platform.claude.com/do
         assert_eq!(models[3]["id"], "gpt-5.6-sol");
         assert_eq!(models[6]["id"], "gpt-5.5");
         assert_eq!(models[7]["id"], "gpt-5.3-codex");
+    }
+}
+
+#[cfg(all(test, feature = "database-tests"))]
+mod gemini_gateway_database_tests {
+    use std::sync::{Arc, Mutex};
+
+    use aes_gcm::{
+        Aes256Gcm, Nonce,
+        aead::{Aead, KeyInit},
+    };
+    use axum::{
+        Json, Router,
+        body::{Bytes, to_bytes},
+        extract::State,
+        http::{HeaderMap, StatusCode, header},
+        routing::post,
+    };
+    use rand::RngCore;
+    use serde_json::{Value, json};
+    use sqlx::PgPool;
+    use tokio::net::TcpListener;
+    use uuid::Uuid;
+
+    use super::{GatewaySelection, GeminiOperation, gemini_proxy_request_for_user};
+    use crate::{AppConfig, AppState};
+
+    #[derive(Clone)]
+    struct FakeCodeAssist {
+        blocked_status: Arc<Mutex<StatusCode>>,
+        generation_tokens: Arc<Mutex<Vec<String>>>,
+    }
+
+    async fn load_code_assist() -> Json<Value> {
+        Json(json!({ "cloudaicompanionProject": "test-project" }))
+    }
+
+    async fn generate(
+        State(fake): State<FakeCodeAssist>,
+        headers: HeaderMap,
+    ) -> (StatusCode, Json<Value>) {
+        let authorization = headers
+            .get(header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_owned();
+        fake.generation_tokens
+            .lock()
+            .unwrap()
+            .push(authorization.clone());
+        if authorization == "Bearer blocked-token" {
+            (
+                *fake.blocked_status.lock().unwrap(),
+                Json(json!({ "error": { "status": "PERMISSION_DENIED" } })),
+            )
+        } else {
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "response": {
+                        "candidates": [{
+                            "content": { "parts": [{ "text": "healthy pool" }] }
+                        }]
+                    }
+                })),
+            )
+        }
+    }
+
+    async fn add_gemini_connection(
+        state: &AppState,
+        user_id: Uuid,
+        access_token: &str,
+        older: bool,
+    ) -> Uuid {
+        let id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO agent_connections (id, user_id, provider, status)
+             VALUES ($1, $2, 'gemini', 'connected')",
+        )
+        .bind(id)
+        .bind(user_id)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+        if older {
+            sqlx::query(
+                "UPDATE agent_connections
+                 SET updated_at = NOW() - INTERVAL '1 minute' WHERE id = $1",
+            )
+            .bind(id)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+        }
+        let token = json!({
+            "access_token": access_token,
+            "cloudaicompanion_project": "test-project"
+        });
+        let cipher = Aes256Gcm::new_from_slice(&state.config.credential_encryption_key).unwrap();
+        let mut nonce = [0_u8; 12];
+        rand::rngs::OsRng.fill_bytes(&mut nonce);
+        let ciphertext = cipher
+            .encrypt(
+                Nonce::from_slice(&nonce),
+                serde_json::to_vec(&token).unwrap().as_ref(),
+            )
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO agent_connection_credentials
+             (connection_id, credential_ciphertext, credential_nonce)
+             VALUES ($1, $2, $3)",
+        )
+        .bind(id)
+        .bind(ciphertext)
+        .bind(nonce.to_vec())
+        .execute(&state.pool)
+        .await
+        .unwrap();
+        id
+    }
+
+    async fn generation(state: &AppState, selection: GatewaySelection) -> axum::response::Response {
+        gemini_proxy_request_for_user(
+            state,
+            selection,
+            "gemini-3.8-flash-high",
+            GeminiOperation::Generate,
+            Bytes::from_static(br#"{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}"#),
+        )
+        .await
+        .unwrap()
+    }
+
+    #[sqlx::test]
+    async fn blocked_gemini_pool_rotates_but_invalid_request_and_pinned_account_do_not(
+        pool: PgPool,
+    ) {
+        let fake = FakeCodeAssist {
+            blocked_status: Arc::new(Mutex::new(StatusCode::FORBIDDEN)),
+            generation_tokens: Arc::new(Mutex::new(Vec::new())),
+        };
+        let server = Router::new()
+            .route("/v1internal:loadCodeAssist", post(load_code_assist))
+            .route("/v1internal:generateContent", post(generate))
+            .with_state(fake.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let upstream_url = format!("http://{}", listener.local_addr().unwrap());
+        let server_task = tokio::spawn(async move { axum::serve(listener, server).await.unwrap() });
+        let mut config = AppConfig::default();
+        config.gemini_code_assist_url = upstream_url;
+        let state = AppState {
+            config,
+            http: reqwest::Client::new(),
+            gateway_http: reqwest::Client::new(),
+            pool,
+        };
+        let user_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO users (id, username, password_hash)
+             VALUES ($1, $2, 'test-only')",
+        )
+        .bind(user_id)
+        .bind(user_id.simple().to_string())
+        .execute(&state.pool)
+        .await
+        .unwrap();
+        add_gemini_connection(&state, user_id, "healthy-token", true).await;
+        let blocked_id = add_gemini_connection(&state, user_id, "blocked-token", false).await;
+        let selection = GatewaySelection::from(user_id);
+
+        let response = generation(&state, selection).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 1_000_000).await.unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap()["candidates"][0]["content"]["parts"][0]
+                ["text"],
+            "healthy pool"
+        );
+        assert_eq!(
+            std::mem::take(&mut *fake.generation_tokens.lock().unwrap()),
+            ["Bearer blocked-token", "Bearer healthy-token"]
+        );
+        let availability: String =
+            sqlx::query_scalar("SELECT availability_status FROM agent_connections WHERE id = $1")
+                .bind(blocked_id)
+                .fetch_one(&state.pool)
+                .await
+                .unwrap();
+        assert_eq!(availability, "active");
+
+        let pinned = GatewaySelection {
+            user_id,
+            connection_id: Some(blocked_id),
+            organization_id: None,
+        };
+        assert_eq!(
+            generation(&state, pinned).await.status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            std::mem::take(&mut *fake.generation_tokens.lock().unwrap()),
+            ["Bearer blocked-token"]
+        );
+
+        *fake.blocked_status.lock().unwrap() = StatusCode::BAD_REQUEST;
+        assert_eq!(
+            generation(&state, selection).await.status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            std::mem::take(&mut *fake.generation_tokens.lock().unwrap()),
+            ["Bearer blocked-token"]
+        );
+
+        *fake.blocked_status.lock().unwrap() = StatusCode::UNAUTHORIZED;
+        assert_eq!(generation(&state, selection).await.status(), StatusCode::OK);
+        assert_eq!(
+            std::mem::take(&mut *fake.generation_tokens.lock().unwrap()),
+            ["Bearer blocked-token", "Bearer healthy-token"]
+        );
+        let availability: String =
+            sqlx::query_scalar("SELECT availability_status FROM agent_connections WHERE id = $1")
+                .bind(blocked_id)
+                .fetch_one(&state.pool)
+                .await
+                .unwrap();
+        assert_eq!(availability, "reauth_required");
+        server_task.abort();
     }
 }
 
