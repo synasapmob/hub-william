@@ -2,8 +2,8 @@
 
 ## Supported versions
 
-Hub William is a continuously deployed static site. Only the latest revision on
-the `main` branch is supported with security fixes.
+Hub William is deployed to Railway. Only the latest revision on the `main`
+branch is supported with security fixes.
 
 ## Reporting a vulnerability
 

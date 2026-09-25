@@ -1,0 +1,38 @@
+name: Bug report
+description: Report a reproducible defect in a supported feature.
+title: "bug: "
+body:
+  - type: markdown
+    attributes:
+      value: For suspected security issues, use the private route in SECURITY.md instead of this public form.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Tools and installers
+        - Agents and accounts
+        - Playground
+        - API and gateway
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: What happened?
+      description: Include the expected behavior and the behavior you observed.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest reproducible example with safe, fake data.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or URL
+      description: Share the affected deployed URL or Git revision if known.
