@@ -1,22 +1,26 @@
 name: CI
 
-# Runs on every pull request, which is what makes "require branches to be up to
-# date before merging" mean anything: a rule can only wait for a check that a
-# pull request actually reports.
+# Run the trusted workflow from the default branch. Community PRs are checked
+# by contribution-policy without checking out or executing their code.
 on:
-  pull_request:
+  pull_request_target:
+    types: [opened, reopened, synchronize, edited, ready_for_review]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   checks:
     name: checks
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.user.login == github.repository_owner &&
+       github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
 
     steps:
@@ -24,6 +28,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
