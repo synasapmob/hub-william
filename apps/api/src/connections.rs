@@ -38,6 +38,8 @@ const DEFAULT_POLL_SECONDS: u64 = 5;
 const PROVIDER_CREDENTIAL_REFRESH_AFTER_MINUTES: i64 = 60;
 const EXPIRED_PROVIDER_AUTHORIZATION_MESSAGE: &str =
     "Provider authorization expired. Refresh this pool to reconnect.";
+const ACCOUNT_VERIFICATION_REQUIRED_MESSAGE: &str =
+    "Provider account verification is required. Reconnect this pool.";
 
 #[cfg(all(test, feature = "database-tests"))]
 mod database_tests;
@@ -2009,8 +2011,27 @@ async fn refresh_connected_connection(
             Err(error) => return finish_refresh_error(transaction, mode, error).await,
         };
     let (account_label, plan) = resolved_connection_metadata(state, provider, &merged).await;
+    let verification_probe = if provider == AgentProvider::Gemini && mode.restores_availability() {
+        match (
+            merged.get("access_token").and_then(Value::as_str),
+            merged
+                .get("cloudaicompanion_project")
+                .and_then(Value::as_str),
+        ) {
+            (Some(access_token), Some(project)) => {
+                crate::gateway::probe_gemini_account_verification(state, access_token, project)
+                    .await
+            }
+            _ => crate::gateway::GeminiVerificationProbe::Inconclusive,
+        }
+    } else {
+        crate::gateway::GeminiVerificationProbe::Verified
+    };
 
-    let restores_availability = mode.restores_availability();
+    let verification_required =
+        verification_probe == crate::gateway::GeminiVerificationProbe::ReauthorizationRequired;
+    let restores_availability = mode.restores_availability()
+        && verification_probe == crate::gateway::GeminiVerificationProbe::Verified;
     if mode.records_scheduled_attempt() {
         sqlx::query("SAVEPOINT scheduled_credential_persistence")
             .execute(&mut *transaction)
@@ -2036,10 +2057,11 @@ async fn refresh_connected_connection(
             "UPDATE agent_connections SET
             account_label = COALESCE($2, account_label),
             plan = COALESCE($3, plan),
-            availability_status = CASE WHEN $4 THEN 'active' ELSE availability_status END,
+            availability_status = CASE WHEN $5 THEN 'reauth_required'
+                                       WHEN $4 THEN 'active' ELSE availability_status END,
             rate_limited_until = CASE WHEN $4 THEN NULL ELSE rate_limited_until END,
             retry_claimed_at = CASE WHEN $4 THEN NULL ELSE retry_claimed_at END,
-            failure_message = CASE WHEN $4 THEN NULL ELSE failure_message END,
+            failure_message = CASE WHEN $5 THEN $6 WHEN $4 THEN NULL ELSE failure_message END,
             updated_at = NOW()
          WHERE id = $1",
         )
@@ -2047,6 +2069,8 @@ async fn refresh_connected_connection(
         .bind(account_label)
         .bind(plan)
         .bind(restores_availability)
+        .bind(verification_required)
+        .bind(ACCOUNT_VERIFICATION_REQUIRED_MESSAGE)
         .execute(&mut *transaction)
         .await
         .map_err(database_error)?;
@@ -2064,6 +2088,20 @@ async fn refresh_connected_connection(
     }
     transaction.commit().await.map_err(database_error)?;
     let updated = owned_connection_by_id(state, row.id).await?;
+    let remains_reauthorization_required = provider == AgentProvider::Gemini
+        && mode.restores_availability()
+        && verification_probe == crate::gateway::GeminiVerificationProbe::Inconclusive
+        && sqlx::query_scalar::<_, String>(
+            "SELECT availability_status FROM agent_connections WHERE id = $1",
+        )
+        .bind(row.id)
+        .fetch_one(&state.pool)
+        .await
+        .map_err(database_error)?
+            == "reauth_required";
+    if verification_required || remains_reauthorization_required {
+        return Ok(RefreshConnectionOutcome::ReauthorizationRequired(updated));
+    }
     connection_from_row(updated, None).map(|connection| RefreshConnectionOutcome::Connected {
         connection,
         refreshed: true,
@@ -2122,6 +2160,54 @@ pub(crate) async fn provider_credential(
     )?;
 
     Ok((AgentProvider::from_str(&row.provider)?, token))
+}
+
+/// Apply an observed Code Assist verification challenge only while the same
+/// access token is still stored. A completed reconnect changes the credential
+/// under this row lock and must not be overwritten by an older response.
+pub(crate) async fn mark_gemini_verification_required(
+    state: &AppState,
+    connection_id: Uuid,
+    observed_access_token: &str,
+) -> Result<bool, ApiError> {
+    let mut transaction = state.pool.begin().await.map_err(database_error)?;
+    let credential = sqlx::query_as::<_, CredentialRow>(
+        "SELECT credential_ciphertext, credential_nonce, access_token_expires_at,
+                refresh_token_expires_at, refresh_attempted_at, updated_at
+         FROM agent_connection_credentials WHERE connection_id = $1 FOR UPDATE",
+    )
+    .bind(connection_id)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(database_error)?;
+    let Some(credential) = credential else {
+        transaction.commit().await.map_err(database_error)?;
+        return Ok(false);
+    };
+    let current: Value = decrypt_json(
+        &state.config.credential_encryption_key,
+        &credential.credential_ciphertext,
+        &credential.credential_nonce,
+    )?;
+    if current.get("access_token").and_then(Value::as_str) != Some(observed_access_token) {
+        transaction.commit().await.map_err(database_error)?;
+        return Ok(false);
+    }
+    let changed = sqlx::query(
+        "UPDATE agent_connections
+         SET availability_status = 'reauth_required', rate_limited_until = NULL,
+             retry_claimed_at = NULL, failure_message = $2, updated_at = NOW()
+         WHERE id = $1 AND provider = 'gemini' AND status = 'connected'",
+    )
+    .bind(connection_id)
+    .bind(ACCOUNT_VERIFICATION_REQUIRED_MESSAGE)
+    .execute(&mut *transaction)
+    .await
+    .map_err(database_error)?
+    .rows_affected()
+        > 0;
+    transaction.commit().await.map_err(database_error)?;
+    Ok(changed)
 }
 
 async fn refresh_provider_token(

@@ -1502,7 +1502,7 @@ async fn gemini_models_for_user(
         loop {
             attempts_used += 1;
             candidate_attempts += 1;
-            let upstream = match state
+            let mut upstream = match state
                 .gateway_http
                 .post(&upstream_url)
                 .bearer_auth(access_token)
@@ -1577,6 +1577,22 @@ async fn gemini_models_for_user(
                 }
                 UpstreamDisposition::NextPool | UpstreamDisposition::Return => {
                     if !upstream.status().is_success() {
+                        if upstream.status() == StatusCode::FORBIDDEN
+                            && gemini_response_requires_verification(&mut upstream).await
+                        {
+                            if crate::connections::mark_gemini_verification_required(
+                                state,
+                                candidate.id,
+                                access_token,
+                            )
+                            .await?
+                            {
+                                saw_reauthorization = true;
+                            } else if claimed_probe {
+                                release_probe(state, candidate.id).await?;
+                            }
+                            continue 'candidates;
+                        }
                         if claimed_probe {
                             release_probe(state, candidate.id).await?;
                         }
@@ -1807,10 +1823,26 @@ async fn gemini_proxy_request_for_user(
                     continue 'candidates;
                 }
                 UpstreamDisposition::NextPool => {
-                    if claimed_probe {
-                        release_probe(state, candidate.id).await?;
+                    let (verification_required, forwarded) =
+                        inspect_gemini_forbidden_response(upstream).await?;
+                    if verification_required {
+                        if crate::connections::mark_gemini_verification_required(
+                            state,
+                            candidate.id,
+                            access_token,
+                        )
+                        .await?
+                        {
+                            saw_reauthorization = true;
+                        } else if claimed_probe {
+                            release_probe(state, candidate.id).await?;
+                        }
+                    } else {
+                        if claimed_probe {
+                            release_probe(state, candidate.id).await?;
+                        }
+                        last_pool_response = Some(forwarded);
                     }
-                    last_pool_response = Some(upstream);
                     continue 'candidates;
                 }
                 UpstreamDisposition::RetryTransient => {
@@ -1878,8 +1910,8 @@ async fn gemini_proxy_request_for_user(
         Err(ApiError::Provider(
             "Every accessible pool for this provider needs to reconnect.".to_owned(),
         ))
-    } else if let Some(upstream) = last_pool_response {
-        gemini_upstream_response(upstream, operation, selection.connection_id.is_some()).await
+    } else if let Some(response) = last_pool_response {
+        Ok(response)
     } else {
         Err(last_error.unwrap_or(ApiError::Forbidden))
     }
@@ -2735,7 +2767,7 @@ async fn mark_rate_limited(state: &AppState, connection_id: Uuid) -> Result<(), 
         "UPDATE agent_connections
          SET availability_status = 'rate_limited', rate_limited_until = $2,
              retry_claimed_at = NULL, updated_at = NOW()
-         WHERE id = $1",
+         WHERE id = $1 AND availability_status <> 'reauth_required'",
     )
     .bind(connection_id)
     .bind(retry_at)
@@ -2766,7 +2798,7 @@ async fn mark_active(state: &AppState, connection_id: Uuid) -> Result<(), ApiErr
         "UPDATE agent_connections
          SET availability_status = 'active', rate_limited_until = NULL,
              retry_claimed_at = NULL, updated_at = NOW()
-         WHERE id = $1 AND availability_status <> 'active'",
+         WHERE id = $1 AND availability_status NOT IN ('active', 'reauth_required')",
     )
     .bind(connection_id)
     .execute(&state.pool)
@@ -2811,6 +2843,193 @@ fn gemini_upstream_disposition(status: StatusCode) -> UpstreamDisposition {
         UpstreamDisposition::NextPool
     } else {
         upstream_disposition(status)
+    }
+}
+
+const MAX_GEMINI_ERROR_INSPECTION_BYTES: usize = 64 * 1024;
+
+fn gemini_verification_challenge(body: &[u8]) -> bool {
+    let parsed = serde_json::from_slice::<Value>(body).ok();
+    let message = if let Some(payload) = parsed.as_ref() {
+        payload
+            .pointer("/error/message")
+            .or_else(|| payload.get("message"))
+            .and_then(Value::as_str)
+    } else {
+        std::str::from_utf8(body).ok()
+    };
+    message.is_some_and(|message| {
+        message
+            .to_ascii_lowercase()
+            .contains("verify your account to continue")
+    })
+}
+
+async fn gemini_error_prefix(
+    upstream: &mut reqwest::Response,
+) -> Result<(Vec<u8>, Option<Bytes>), reqwest::Error> {
+    let mut prefix = Vec::new();
+    while prefix.len() < MAX_GEMINI_ERROR_INSPECTION_BYTES {
+        let Some(chunk) = upstream.chunk().await? else {
+            break;
+        };
+        let take = chunk
+            .len()
+            .min(MAX_GEMINI_ERROR_INSPECTION_BYTES - prefix.len());
+        prefix.extend_from_slice(&chunk[..take]);
+        if take < chunk.len() {
+            return Ok((prefix, Some(chunk.slice(take..))));
+        }
+    }
+    Ok((prefix, None))
+}
+
+async fn gemini_response_requires_verification(upstream: &mut reqwest::Response) -> bool {
+    gemini_error_prefix(upstream)
+        .await
+        .is_ok_and(|(prefix, _)| gemini_verification_challenge(&prefix))
+}
+
+async fn inspect_gemini_forbidden_response(
+    mut upstream: reqwest::Response,
+) -> Result<(bool, Response), ApiError> {
+    let status = upstream.status();
+    let headers = upstream.headers().clone();
+    let (prefix, overflow) = gemini_error_prefix(&mut upstream)
+        .await
+        .map_err(|error| upstream_network_error(AgentProvider::Gemini, error))?;
+    let verification_required = gemini_verification_challenge(&prefix);
+    let mut response = Response::builder().status(status);
+    for (name, value) in &headers {
+        if should_forward_response_header(name) {
+            response = response.header(name, value);
+        }
+    }
+    let chunks = std::iter::once(Bytes::from(prefix)).chain(overflow);
+    let body = Body::from_stream(
+        stream::iter(chunks.map(Ok::<_, reqwest::Error>)).chain(upstream.bytes_stream()),
+    );
+    Ok((
+        verification_required,
+        response.body(body).map_err(|_| ApiError::Internal)?,
+    ))
+}
+
+/// A forced refresh checks that a newly rotated AGY token can discover models,
+/// count tokens and make a minimal generation request through Code Assist. A
+/// generic 403 is inconclusive; only Google's explicit account verification
+/// challenge means the owner must reconnect.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GeminiVerificationProbe {
+    Verified,
+    ReauthorizationRequired,
+    Inconclusive,
+}
+
+pub(crate) async fn probe_gemini_account_verification(
+    state: &AppState,
+    access_token: &str,
+    project: &str,
+) -> GeminiVerificationProbe {
+    let models_url = format!(
+        "{}/v1internal:fetchAvailableModels",
+        state.config.gemini_code_assist_url.trim_end_matches('/')
+    );
+    let Ok(mut models) = state
+        .gateway_http
+        .post(models_url)
+        .bearer_auth(access_token)
+        .header("user-agent", ANTIGRAVITY_CLIENT_VERSION)
+        .json(&json!({ "project": project }))
+        .send()
+        .await
+    else {
+        return GeminiVerificationProbe::Inconclusive;
+    };
+    if models.status() == StatusCode::FORBIDDEN {
+        return if gemini_response_requires_verification(&mut models).await {
+            GeminiVerificationProbe::ReauthorizationRequired
+        } else {
+            GeminiVerificationProbe::Inconclusive
+        };
+    }
+    if !models.status().is_success() {
+        return GeminiVerificationProbe::Inconclusive;
+    }
+    let Ok(catalogue) = models.json::<Value>().await else {
+        return GeminiVerificationProbe::Inconclusive;
+    };
+    let model = ANTIGRAVITY_MODELS
+        .iter()
+        .find(|model| {
+            catalogue
+                .pointer("/models")
+                .and_then(|models| models.get(**model))
+                .is_some()
+        })
+        .copied()
+        .unwrap_or(ANTIGRAVITY_MODELS[0]);
+    let count_url = format!(
+        "{}/v1internal:countTokens",
+        state.config.gemini_code_assist_url.trim_end_matches('/')
+    );
+    let body = gemini_code_assist_request(
+        model,
+        project,
+        GeminiOperation::CountTokens,
+        &json!({"contents": [{"role": "user", "parts": [{"text": "verify"}]}]}),
+    );
+    let Ok(mut count) = state
+        .gateway_http
+        .post(count_url)
+        .bearer_auth(access_token)
+        .header("user-agent", ANTIGRAVITY_CLIENT_VERSION)
+        .json(&body)
+        .send()
+        .await
+    else {
+        return GeminiVerificationProbe::Inconclusive;
+    };
+    if count.status() == StatusCode::FORBIDDEN
+        && gemini_response_requires_verification(&mut count).await
+    {
+        return GeminiVerificationProbe::ReauthorizationRequired;
+    }
+    if !count.status().is_success() {
+        return GeminiVerificationProbe::Inconclusive;
+    }
+    let generate_url = format!(
+        "{}/v1internal:generateContent",
+        state.config.gemini_code_assist_url.trim_end_matches('/')
+    );
+    let body = gemini_code_assist_request(
+        model,
+        project,
+        GeminiOperation::Generate,
+        &json!({
+            "contents": [{"role": "user", "parts": [{"text": "Reply OK"}]}],
+            "generationConfig": {"maxOutputTokens": 8}
+        }),
+    );
+    let Ok(mut generated) = state
+        .gateway_http
+        .post(generate_url)
+        .bearer_auth(access_token)
+        .header("user-agent", ANTIGRAVITY_CLIENT_VERSION)
+        .json(&body)
+        .send()
+        .await
+    else {
+        return GeminiVerificationProbe::Inconclusive;
+    };
+    if generated.status() == StatusCode::FORBIDDEN
+        && gemini_response_requires_verification(&mut generated).await
+    {
+        GeminiVerificationProbe::ReauthorizationRequired
+    } else if generated.status().is_success() {
+        GeminiVerificationProbe::Verified
+    } else {
+        GeminiVerificationProbe::Inconclusive
     }
 }
 
@@ -3004,6 +3223,24 @@ fn database_error(error: sqlx::Error) -> ApiError {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn gemini_verification_challenge_requires_an_explicit_provider_message() {
+        use super::gemini_verification_challenge;
+
+        assert!(gemini_verification_challenge(
+            br#"{"error":{"code":403,"message":"Verify your account to continue.","status":"PERMISSION_DENIED"}}"#
+        ));
+        assert!(gemini_verification_challenge(
+            b"Please verify your account to continue."
+        ));
+        assert!(!gemini_verification_challenge(
+            br#"{"error":{"message":"Project lacks model permission"},"debug":"Verify your account to continue."}"#
+        ));
+        assert!(!gemini_verification_challenge(
+            br#"{"error":{"status":"PERMISSION_DENIED"}}"#
+        ));
+    }
+
     #[tokio::test]
     async fn playground_gemini_disconnect_closes_upstream_without_waiting_for_next_chunk() {
         use axum::{Router, routing::get};
@@ -3623,12 +3860,16 @@ mod gemini_gateway_database_tests {
     use tokio::net::TcpListener;
     use uuid::Uuid;
 
-    use super::{GatewaySelection, GeminiOperation, gemini_proxy_request_for_user};
+    use super::{
+        GatewaySelection, GeminiOperation, gemini_proxy_request_for_user, mark_active,
+        mark_rate_limited,
+    };
     use crate::{AppConfig, AppState};
 
     #[derive(Clone)]
     struct FakeCodeAssist {
         blocked_status: Arc<Mutex<StatusCode>>,
+        blocked_message: Arc<Mutex<Option<String>>>,
         generation_tokens: Arc<Mutex<Vec<String>>>,
     }
 
@@ -3650,9 +3891,12 @@ mod gemini_gateway_database_tests {
             .unwrap()
             .push(authorization.clone());
         if authorization == "Bearer blocked-token" {
+            let message = fake.blocked_message.lock().unwrap().clone();
             (
                 *fake.blocked_status.lock().unwrap(),
-                Json(json!({ "error": { "status": "PERMISSION_DENIED" } })),
+                Json(json!({ "error": {
+                    "status": "PERMISSION_DENIED", "message": message
+                } })),
             )
         } else {
             (
@@ -3739,6 +3983,7 @@ mod gemini_gateway_database_tests {
     ) {
         let fake = FakeCodeAssist {
             blocked_status: Arc::new(Mutex::new(StatusCode::FORBIDDEN)),
+            blocked_message: Arc::new(Mutex::new(None)),
             generation_tokens: Arc::new(Mutex::new(Vec::new())),
         };
         let server = Router::new()
@@ -3820,6 +4065,47 @@ mod gemini_gateway_database_tests {
             std::mem::take(&mut *fake.generation_tokens.lock().unwrap()),
             ["Bearer blocked-token", "Bearer healthy-token"]
         );
+        let availability: String =
+            sqlx::query_scalar("SELECT availability_status FROM agent_connections WHERE id = $1")
+                .bind(blocked_id)
+                .fetch_one(&state.pool)
+                .await
+                .unwrap();
+        assert_eq!(availability, "reauth_required");
+
+        sqlx::query(
+            "UPDATE agent_connections SET availability_status = 'active', updated_at = NOW()
+             WHERE id = $1",
+        )
+        .bind(blocked_id)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+        *fake.blocked_status.lock().unwrap() = StatusCode::FORBIDDEN;
+        *fake.blocked_message.lock().unwrap() = Some("Verify your account to continue.".to_owned());
+        assert_eq!(generation(&state, selection).await.status(), StatusCode::OK);
+        assert_eq!(
+            std::mem::take(&mut *fake.generation_tokens.lock().unwrap()),
+            ["Bearer blocked-token", "Bearer healthy-token"]
+        );
+        let (availability, failure_message): (String, Option<String>) = sqlx::query_as(
+            "SELECT availability_status, failure_message FROM agent_connections WHERE id = $1",
+        )
+        .bind(blocked_id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+        assert_eq!(availability, "reauth_required");
+        assert!(failure_message.unwrap().contains("verification"));
+        assert_eq!(generation(&state, selection).await.status(), StatusCode::OK);
+        assert_eq!(
+            std::mem::take(&mut *fake.generation_tokens.lock().unwrap()),
+            ["Bearer healthy-token"]
+        );
+        // Another request may already be in flight when the challenge turns
+        // this pool red. Its later 200 or 429 must not make it selectable.
+        mark_active(&state, blocked_id).await.unwrap();
+        mark_rate_limited(&state, blocked_id).await.unwrap();
         let availability: String =
             sqlx::query_scalar("SELECT availability_status FROM agent_connections WHERE id = $1")
                 .bind(blocked_id)
