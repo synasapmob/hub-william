@@ -114,7 +114,7 @@ class OpenCodeInstallerTest(unittest.TestCase):
         )
         self.assertIn("opencode", document["disabled_providers"])
 
-    def test_unreachable_pool_keeps_grok_provider_for_reconnect(self):
+    def test_empty_grok_catalogue_does_not_install_unverified_model(self):
         document = opencode.build_config(
             {},
             "https://api.hub.example",
@@ -127,10 +127,7 @@ class OpenCodeInstallerTest(unittest.TestCase):
                 "grok": [],
             },
         )
-        self.assertEqual(
-            document["provider"]["hub-grok"]["models"],
-            {"grok-build": {"name": "Grok Build"}},
-        )
+        self.assertNotIn("hub-grok", document["provider"])
         self.assertNotIn("model", document)
 
     def test_build_config_prefers_claude_when_codex_is_absent(self):
@@ -140,7 +137,7 @@ class OpenCodeInstallerTest(unittest.TestCase):
             "hw_gateway_secret",
             {
                 "codex": [],
-                "claude": [{"id": "claude-opus-5"}],
+                "claude": [{"id": "claude-opus-5-5"}],
                 "deepseek": [],
                 "gemini": [],
                 "grok": [],
@@ -148,7 +145,34 @@ class OpenCodeInstallerTest(unittest.TestCase):
         )
         self.assertIn("hub-claude", document["provider"])
         self.assertEqual(
-            document["model"], "hub-claude/claude-opus-5"
+            document["model"], "hub-claude/claude-opus-5-5"
+        )
+
+    def test_current_codex_is_default_and_legacy_metadata_is_not_bundled(self):
+        document = opencode.build_config(
+            {},
+            "https://api.hub.example",
+            "hw_gateway_secret",
+            {
+                "codex": [
+                    {"id": "gpt-6-astra"},
+                    {"id": "gpt-6-sol"},
+                    {"id": "gpt-5.6-sol"},
+                ]
+            },
+        )
+        self.assertEqual(document["model"], "hub-codex/gpt-6-sol")
+        bundled_ids = {model[0] for model in opencode.DEFAULT_CODEX_MODELS}
+        self.assertEqual(
+            bundled_ids,
+            {
+                "gpt-6-astra",
+                "gpt-6-sol",
+                "gpt-6-luna",
+                "gpt-5.6-sol",
+                "gpt-5.6-terra",
+                "gpt-5.6-luna",
+            },
         )
 
     def test_codex_catalogue_uses_gateway_ids_with_local_metadata(self):

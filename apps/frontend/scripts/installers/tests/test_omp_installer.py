@@ -87,7 +87,7 @@ class OmpInstallerTest(unittest.TestCase):
             },
         )
 
-        self.assertEqual(installed, ["hub-claude", "hub-grok"])
+        self.assertEqual(installed, ["hub-claude"])
         self.assertIn("  personal:\n    auth: none\n", second)
         self.assertNotIn("old.example", second)
         self.assertNotIn("old-model", second)
