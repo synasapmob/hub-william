@@ -3,7 +3,7 @@ use std::time::{Duration as StdDuration, Instant};
 
 use axum::{
     Json,
-    body::{Body, Bytes},
+    body::{Body, Bytes, to_bytes},
     extract::{OriginalUri, Path, State},
     http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, header},
     response::{IntoResponse, Response},
@@ -187,7 +187,7 @@ async fn models_for_selection(
             } else {
                 format!("{}/models", state.config.deepseek_api_url)
             };
-            proxy_request_for_user(
+            let response = proxy_request_for_user(
                 state,
                 selection,
                 GatewayUpstream {
@@ -199,7 +199,8 @@ async fn models_for_selection(
                 &HeaderMap::new(),
                 Bytes::new(),
             )
-            .await
+            .await?;
+            filter_current_live_model_response(response, provider).await
         }
     }
 }
@@ -850,7 +851,7 @@ pub async fn openai_models(
     Ok(Json(fetch_or_cached_openai_catalogue(&state.http).await))
 }
 
-fn default_openai_model_catalogue() -> Value {
+pub(crate) fn default_openai_model_catalogue() -> Value {
     json!({
         "object": "list",
         "data": [
@@ -865,45 +866,39 @@ fn default_openai_model_catalogue() -> Value {
 }
 
 pub(crate) fn parse_openai_models_markdown(content: &str) -> Option<Value> {
+    let recommended = content.split_once("## Recommended models")?.1;
+    let recommended = recommended.split("\n## ").next().unwrap_or(recommended);
     let mut models = Vec::new();
     let mut seen = std::collections::HashSet::new();
 
-    for line in content.lines() {
+    for line in recommended.lines() {
         let trimmed = line.trim();
-        if !trimmed.starts_with('-') || !trimmed.contains("/api/docs/models/") {
-            continue;
-        }
-        let Some(name_start) = trimmed.find('[') else {
-            continue;
-        };
-        let Some(name_end) = trimmed.find(']') else {
+        let Some(model_id) = trimmed
+            .strip_prefix("slug=\"")
+            .and_then(|value| value.strip_suffix('"'))
+        else {
             continue;
         };
-        let Some(url_start) = trimmed[name_end..].find("(/api/docs/models/") else {
-            continue;
-        };
-        let url_part = &trimmed[name_end + url_start + "(/api/docs/models/".len()..];
-        let Some(url_end) = url_part.find(".md)") else {
-            continue;
-        };
+        push_openai_model(&mut models, &mut seen, model_id);
+    }
 
-        let display_name = trimmed[name_start + 1..name_end].trim();
-        let model_id = url_part[..url_end].trim();
-
-        let is_target_model = model_id.starts_with("gpt-")
-            || model_id.starts_with("o1")
-            || model_id.starts_with("o3")
-            || model_id.starts_with("o4")
-            || model_id.starts_with("codex");
-
-        if !model_id.is_empty() && !seen.contains(model_id) && is_target_model {
-            seen.insert(model_id.to_string());
-            models.push(json!({
-                "id": model_id,
-                "name": display_name,
-                "object": "model",
-                "owned_by": "openai"
-            }));
+    // The older generation remains current during rollout, but has no ModelDetails
+    // block. Read only the explicit rollout paragraph in the recommended section.
+    if let Some(rollout) = recommended
+        .split("\n\n")
+        .find(|paragraph| paragraph.contains("remain available during the rollout"))
+    {
+        for fragment in rollout.split("GPT-").skip(1) {
+            let mut words = fragment.split_whitespace();
+            let (Some(version), Some(family)) = (words.next(), words.next()) else {
+                continue;
+            };
+            let version = version.trim_matches(|c: char| !c.is_ascii_digit() && c != '.');
+            let family = family.trim_matches(|c: char| !c.is_ascii_alphabetic());
+            if version.chars().any(|c| c.is_ascii_digit()) && !family.is_empty() {
+                let model_id = format!("gpt-{version}-{}", family.to_ascii_lowercase());
+                push_openai_model(&mut models, &mut seen, &model_id);
+            }
         }
     }
 
@@ -914,7 +909,38 @@ pub(crate) fn parse_openai_models_markdown(content: &str) -> Option<Value> {
     }
 }
 
-async fn fetch_or_cached_openai_catalogue(http: &reqwest::Client) -> Value {
+fn push_openai_model(
+    models: &mut Vec<Value>,
+    seen: &mut std::collections::HashSet<String>,
+    id: &str,
+) {
+    if !id.starts_with("gpt-") || !seen.insert(id.to_owned()) {
+        return;
+    }
+    let suffix = id.strip_prefix("gpt-").unwrap_or(id);
+    let name = format!(
+        "GPT-{}",
+        suffix
+            .split('-')
+            .enumerate()
+            .map(|(index, part)| {
+                if index == 0 {
+                    part.to_owned()
+                } else {
+                    let mut chars = part.chars();
+                    match chars.next() {
+                        Some(first) => first.to_uppercase().chain(chars).collect(),
+                        None => String::new(),
+                    }
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
+    models.push(json!({"id": id, "name": name, "object": "model", "owned_by": "openai"}));
+}
+
+pub(crate) async fn fetch_or_cached_openai_catalogue(http: &reqwest::Client) -> Value {
     let cache = OPENAI_DOCS_CACHE.get_or_init(|| {
         RwLock::new((
             Instant::now()
@@ -935,7 +961,7 @@ async fn fetch_or_cached_openai_catalogue(http: &reqwest::Client) -> Value {
 
     let fetched = async {
         let response = http
-            .get("https://developers.openai.com/api/docs/models.md")
+            .get("https://learn.chatgpt.com/docs/models.md")
             .timeout(StdDuration::from_secs(6))
             .header("User-Agent", "hub-william")
             .send()
@@ -1090,7 +1116,7 @@ pub async fn claude_models(
     Ok(Json(fetch_or_cached_claude_catalogue(&state.http).await))
 }
 
-fn default_claude_model_catalogue() -> Value {
+pub(crate) fn default_claude_model_catalogue() -> Value {
     let standard_effort = json!({
         "supported": true,
         "low": { "supported": true },
@@ -1118,13 +1144,6 @@ fn default_claude_model_catalogue() -> Value {
                 }
             },
             {
-                "id": "claude-opus-5",
-                "display_name": "Claude Opus 5",
-                "capabilities": {
-                    "effort": standard_effort
-                }
-            },
-            {
                 "id": "claude-sonnet-5",
                 "display_name": "Claude Sonnet 5",
                 "capabilities": {
@@ -1134,71 +1153,19 @@ fn default_claude_model_catalogue() -> Value {
             {
                 "id": "claude-haiku-4-5-20251001",
                 "display_name": "Claude Haiku 4.5"
-            },
-            {
-                "id": "claude-haiku-4-5",
-                "display_name": "Claude Haiku 4.5 (Latest)"
-            },
-            {
-                "id": "claude-fable-5",
-                "display_name": "Claude Fable 5",
-                "capabilities": {
-                    "effort": standard_effort
-                }
-            },
-            {
-                "id": "claude-opus-4-8",
-                "display_name": "Claude Opus 4.8",
-                "capabilities": {
-                    "effort": standard_effort
-                }
-            },
-            {
-                "id": "claude-opus-4-7",
-                "display_name": "Claude Opus 4.7",
-                "capabilities": {
-                    "effort": standard_effort
-                }
-            },
-            {
-                "id": "claude-opus-4-6",
-                "display_name": "Claude Opus 4.6",
-                "capabilities": {
-                    "effort": standard_effort
-                }
-            },
-            {
-                "id": "claude-sonnet-4-6",
-                "display_name": "Claude Sonnet 4.6",
-                "capabilities": {
-                    "effort": standard_effort
-                }
-            },
-            {
-                "id": "claude-sonnet-4-5",
-                "display_name": "Claude Sonnet 4.5",
-                "capabilities": {
-                    "effort": standard_effort
-                }
-            },
-            {
-                "id": "claude-opus-4-5",
-                "display_name": "Claude Opus 4.5",
-                "capabilities": {
-                    "effort": standard_effort
-                }
             }
         ]
     })
 }
 
 pub(crate) fn parse_claude_models_markdown(content: &str) -> Option<Value> {
+    let current = content.split_once("## Compare models")?.1;
+    let current = current.split("\n## ").next().unwrap_or(current);
     let mut header_cols: Vec<String> = Vec::new();
     let mut id_cols: Vec<String> = Vec::new();
     let mut effort_cols: Vec<String> = Vec::new();
-    let mut alias_cols: Vec<String> = Vec::new();
 
-    for line in content.lines() {
+    for line in current.lines() {
         let parts: Vec<&str> = line.split('|').map(str::trim).collect();
         if parts.len() > 2 {
             let label = parts[1].trim_start_matches('[');
@@ -1215,11 +1182,6 @@ pub(crate) fn parse_claude_models_markdown(content: &str) -> Option<Value> {
                     .collect();
             } else if label == "Default effort" {
                 effort_cols = parts[2..parts.len() - 1]
-                    .iter()
-                    .map(|s| s.trim_matches(|c| c == '`' || c == ' ').to_string())
-                    .collect();
-            } else if label == "Claude API alias" {
-                alias_cols = parts[2..parts.len() - 1]
                     .iter()
                     .map(|s| s.trim_matches(|c| c == '`' || c == ' ').to_string())
                     .collect();
@@ -1264,56 +1226,6 @@ pub(crate) fn parse_claude_models_markdown(content: &str) -> Option<Value> {
         models.push(entry);
     }
 
-    for (i, alias) in alias_cols.into_iter().enumerate() {
-        if !alias.is_empty() && !seen.contains(&alias) {
-            seen.insert(alias.clone());
-            let name = header_cols
-                .get(i)
-                .map(|h| format!("{h} (Latest)"))
-                .unwrap_or_else(|| alias.clone());
-            models.push(json!({
-                "id": alias,
-                "display_name": name,
-            }));
-        }
-    }
-
-    for line in content.lines() {
-        if line.contains("Legacy models") {
-            for part in line.split("https://platform.claude.com/docs/en/models/") {
-                if let Some(slug) = part.split("/overview").next() {
-                    let slug = slug.trim();
-                    if !slug.is_empty() && slug.chars().all(|c| c.is_alphanumeric() || c == '-') {
-                        let model_id = if slug.starts_with("claude-") {
-                            slug.to_string()
-                        } else {
-                            format!("claude-{slug}")
-                        };
-                        if !seen.contains(&model_id) {
-                            seen.insert(model_id.clone());
-                            let display_name = model_id
-                                .split('-')
-                                .map(|p| {
-                                    let mut chars = p.chars();
-                                    match chars.next() {
-                                        None => String::new(),
-                                        Some(first) => first.to_uppercase().chain(chars).collect(),
-                                    }
-                                })
-                                .collect::<Vec<_>>()
-                                .join(" ");
-                            models.push(json!({
-                                "id": model_id,
-                                "display_name": display_name,
-                                "capabilities": { "effort": standard_effort }
-                            }));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     if models.is_empty() {
         None
     } else {
@@ -1321,7 +1233,7 @@ pub(crate) fn parse_claude_models_markdown(content: &str) -> Option<Value> {
     }
 }
 
-async fn fetch_or_cached_claude_catalogue(http: &reqwest::Client) -> Value {
+pub(crate) async fn fetch_or_cached_claude_catalogue(http: &reqwest::Client) -> Value {
     let cache = CLAUDE_DOCS_CACHE.get_or_init(|| {
         RwLock::new((
             Instant::now()
@@ -1416,7 +1328,7 @@ pub async fn deepseek_models(
     OriginalUri(uri): OriginalUri,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    proxy_request(
+    let response = proxy_request(
         &state,
         AgentProvider::Deepseek,
         &format!("{}/models", state.config.deepseek_api_url),
@@ -1425,7 +1337,8 @@ pub async fn deepseek_models(
         &headers,
         Bytes::new(),
     )
-    .await
+    .await?;
+    filter_current_live_model_response(response, AgentProvider::Deepseek).await
 }
 
 pub async fn grok_models(
@@ -1433,7 +1346,7 @@ pub async fn grok_models(
     OriginalUri(uri): OriginalUri,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    proxy_request(
+    let response = proxy_request(
         &state,
         AgentProvider::Grok,
         GROK_MODELS_URL,
@@ -1442,7 +1355,69 @@ pub async fn grok_models(
         &headers,
         Bytes::new(),
     )
-    .await
+    .await?;
+    filter_current_live_model_response(response, AgentProvider::Grok).await
+}
+
+pub(crate) fn current_live_model_id(provider: AgentProvider, id: &str) -> bool {
+    match provider {
+        AgentProvider::Deepseek => matches!(id, "deepseek-flash" | "deepseek-v4-pro"),
+        AgentProvider::Grok => id == "grok-4.7",
+        _ => true,
+    }
+}
+
+fn filter_current_live_model_catalogue(
+    payload: &mut Value,
+    provider: AgentProvider,
+) -> Result<(), ApiError> {
+    let key = if payload.get("data").is_some() {
+        "data"
+    } else {
+        "models"
+    };
+    let models = payload
+        .get_mut(key)
+        .and_then(Value::as_array_mut)
+        .ok_or_else(|| {
+            ApiError::Provider("The provider returned an invalid model catalogue.".to_owned())
+        })?;
+    models.retain(|model| {
+        model
+            .get("id")
+            .or_else(|| model.get("slug"))
+            .and_then(Value::as_str)
+            .is_some_and(|id| current_live_model_id(provider, id))
+    });
+    Ok(())
+}
+
+async fn filter_current_live_model_response(
+    response: Response,
+    provider: AgentProvider,
+) -> Result<Response, ApiError> {
+    if !response.status().is_success() {
+        return Ok(response);
+    }
+    let (mut parts, body) = response.into_parts();
+    let bytes = to_bytes(body, 8 * 1024 * 1024)
+        .await
+        .map_err(|_| ApiError::Provider("The model catalogue could not be read.".to_owned()))?;
+    let mut payload: Value = serde_json::from_slice(&bytes).map_err(|_| {
+        ApiError::Provider("The provider returned an invalid model catalogue.".to_owned())
+    })?;
+    filter_current_live_model_catalogue(&mut payload, provider)?;
+    parts.headers.remove(header::CONTENT_LENGTH);
+    parts.headers.remove(header::CONTENT_ENCODING);
+    parts.headers.remove(header::ETAG);
+    parts.headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    Ok(Response::from_parts(
+        parts,
+        Body::from(serde_json::to_vec(&payload).map_err(|_| ApiError::Internal)?),
+    ))
 }
 
 pub async fn gemini_request(
@@ -3086,7 +3061,8 @@ mod tests {
         GeminiOperation, GeminiSseTransformer, MAX_USAGE_PAYLOAD_BYTES, TokenUsage,
         UpstreamDisposition, UsageObserver, antigravity_model_id, chatgpt_account_id,
         default_claude_model_catalogue, default_openai_model_catalogue,
-        ensure_claude_billing_header, gemini_code_assist_request, gemini_model_catalogue,
+        ensure_claude_billing_header, filter_current_live_model_catalogue,
+        filter_current_live_model_response, gemini_code_assist_request, gemini_model_catalogue,
         gemini_upstream_disposition, grok_proxy_headers, hash_gateway_key, merged_anthropic_beta,
         parse_claude_models_markdown, parse_gemini_operation, parse_openai_models_markdown,
         rate_limit_cooldown, retry_delay, should_retry_same_candidate,
@@ -3471,7 +3447,7 @@ mod tests {
     }
 
     #[test]
-    fn default_openai_model_catalogue_includes_gpt6_and_gpt5_models() {
+    fn default_openai_model_catalogue_includes_current_rollout_models() {
         let catalogue = default_openai_model_catalogue();
         assert_eq!(catalogue["object"], "list");
         let models = catalogue["data"].as_array().unwrap();
@@ -3479,6 +3455,9 @@ mod tests {
         assert_eq!(models[0]["id"], "gpt-6-astra");
         assert_eq!(models[1]["id"], "gpt-6-sol");
         assert_eq!(models[2]["id"], "gpt-6-luna");
+        assert_eq!(models[3]["id"], "gpt-5.6-sol");
+        assert_eq!(models[4]["id"], "gpt-5.6-terra");
+        assert_eq!(models[5]["id"], "gpt-5.6-luna");
     }
 
     #[test]
@@ -3486,22 +3465,23 @@ mod tests {
         let catalogue = default_claude_model_catalogue();
         assert_eq!(catalogue["object"], "list");
         let models = catalogue["data"].as_array().unwrap();
-        assert!(models.len() >= 4);
+        assert_eq!(models.len(), 4);
         assert_eq!(models[0]["id"], "claude-fable-5-1");
         assert_eq!(models[0]["display_name"], "Claude Fable 5.1");
         assert_eq!(models[0]["capabilities"]["effort"]["supported"], true);
         assert_eq!(models[1]["id"], "claude-opus-5-5");
         assert_eq!(models[1]["display_name"], "Claude Opus 5.5");
         assert_eq!(models[1]["capabilities"]["effort"]["supported"], true);
-        assert_eq!(models[2]["id"], "claude-opus-5");
-        assert_eq!(models[3]["id"], "claude-sonnet-5");
-        assert_eq!(models[3]["capabilities"]["effort"]["supported"], true);
-        assert_eq!(models[4]["id"], "claude-haiku-4-5-20251001");
+        assert_eq!(models[2]["id"], "claude-sonnet-5");
+        assert_eq!(models[2]["capabilities"]["effort"]["supported"], true);
+        assert_eq!(models[3]["id"], "claude-haiku-4-5-20251001");
     }
 
     #[test]
     fn parse_claude_models_markdown_extracts_models_and_effort() {
         let markdown = r#"
+## Compare models
+
 | Feature | Claude Fable 5.1 | Claude Opus 5.5 | Claude Sonnet 5 | Claude Haiku 4.5 |
 | :--- | :--- | :--- | :--- | :--- |
 | Claude API ID | `claude-fable-5-1` | `claude-opus-5-5` | `claude-sonnet-5` | `claude-haiku-4-5-20251001` |
@@ -3521,41 +3501,104 @@ Legacy models (still available): [Claude Fable 5](https://platform.claude.com/do
         assert_eq!(models[1]["capabilities"]["effort"]["supported"], true);
         assert_eq!(models[3]["id"], "claude-haiku-4-5-20251001");
         assert!(models[3].get("capabilities").is_none());
-        assert_eq!(models[4]["id"], "claude-haiku-4-5");
-        assert_eq!(models[5]["id"], "claude-fable-5");
-        assert_eq!(models[6]["id"], "claude-opus-5");
-        assert_eq!(models[7]["id"], "claude-opus-4-8");
+        assert_eq!(models.len(), 4);
     }
 
     #[test]
-    fn parse_openai_models_markdown_extracts_gpt_models() {
+    fn parse_openai_models_markdown_keeps_recommended_and_rollout_models() {
         let markdown = r#"
-## Featured models
+## Recommended models
 
-- [GPT-6 Astra](/api/docs/models/gpt-6-astra.md): Our most capable model
-- [GPT-6 Sol](/api/docs/models/gpt-6-sol.md): Complex coding and agentic workflows
-- [GPT-6 Luna](/api/docs/models/gpt-6-luna.md): Focused, high-volume tasks
-- [GPT-5.6 Sol](/api/docs/models/gpt-5.6-sol.md): Flagship model
-- [GPT-5.6 Terra](/api/docs/models/gpt-5.6-terra.md): Balances cost
-- [GPT-5.6 Luna](/api/docs/models/gpt-5.6-luna.md): High volume
+GPT-5.6 Sol, GPT-5.6 Terra, and GPT-5.6 Luna remain available during the rollout.
 
-## Browse our full catalog of models
+<ModelDetails
+  name="gpt-6-astra"
+  slug="gpt-6-astra"
+/>
+<ModelDetails
+  name="gpt-6-sol"
+  slug="gpt-6-sol"
+/>
+<ModelDetails
+  name="gpt-6-luna"
+  slug="gpt-6-luna"
+/>
 
-- [GPT-5.5](/api/docs/models/gpt-5.5.md): A new class of intelligence
-- [GPT-5.3-Codex](/api/docs/models/gpt-5.3-codex.md): Most capable coding model
-- [text-embedding-3-small](/api/docs/models/text-embedding-3-small.md): Small embedding
+## Other models
+
+<ModelDetails name="gpt-5.5" slug="gpt-5.5" />
+
+## Deprecated Codex models
+
+The `gpt-5.4` and `gpt-5.3-codex` models have retired.
 "#;
         let parsed = parse_openai_models_markdown(markdown).unwrap();
         assert_eq!(parsed["object"], "list");
         let models = parsed["data"].as_array().unwrap();
-        assert_eq!(models.len(), 8);
+        assert_eq!(models.len(), 6);
         assert_eq!(models[0]["id"], "gpt-6-astra");
         assert_eq!(models[0]["name"], "GPT-6 Astra");
         assert_eq!(models[1]["id"], "gpt-6-sol");
         assert_eq!(models[2]["id"], "gpt-6-luna");
         assert_eq!(models[3]["id"], "gpt-5.6-sol");
-        assert_eq!(models[6]["id"], "gpt-5.5");
-        assert_eq!(models[7]["id"], "gpt-5.3-codex");
+        assert_eq!(models[4]["id"], "gpt-5.6-terra");
+        assert_eq!(models[5]["id"], "gpt-5.6-luna");
+        assert!(
+            parse_openai_models_markdown(
+                "## Browse our full catalog of models\n- [GPT-5.5](/api/docs/models/gpt-5.5.md)"
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn live_deepseek_and_grok_catalogues_drop_retired_aliases() {
+        let mut deepseek = json!({"data": [
+            {"id": "deepseek-flash"},
+            {"id": "deepseek-v4-flash"},
+            {"id": "deepseek-v4-pro"}
+        ]});
+        filter_current_live_model_catalogue(&mut deepseek, AgentProvider::Deepseek).unwrap();
+        assert_eq!(deepseek["data"].as_array().unwrap().len(), 2);
+        assert_eq!(deepseek["data"][0]["id"], "deepseek-flash");
+        assert_eq!(deepseek["data"][1]["id"], "deepseek-v4-pro");
+
+        let mut grok = json!({"data": [
+            {"id": "grok-4.7"},
+            {"id": "grok-4.2"},
+            {"id": "grok-build"}
+        ]});
+        filter_current_live_model_catalogue(&mut grok, AgentProvider::Grok).unwrap();
+        assert_eq!(grok["data"].as_array().unwrap().len(), 1);
+        assert_eq!(grok["data"][0]["id"], "grok-4.7");
+    }
+
+    #[tokio::test]
+    async fn filtered_live_catalogue_keeps_upstream_status_and_non_body_headers() {
+        let response = axum::response::Response::builder()
+            .status(axum::http::StatusCode::PARTIAL_CONTENT)
+            .header("x-request-id", "upstream-request")
+            .header(axum::http::header::CONTENT_LENGTH, "999")
+            .body(axum::body::Body::from(
+                r#"{"data":[{"id":"grok-4.7"},{"id":"grok-build"}]}"#,
+            ))
+            .unwrap();
+        let filtered = filter_current_live_model_response(response, AgentProvider::Grok)
+            .await
+            .unwrap();
+        assert_eq!(filtered.status(), axum::http::StatusCode::PARTIAL_CONTENT);
+        assert_eq!(filtered.headers()["x-request-id"], "upstream-request");
+        assert!(
+            !filtered
+                .headers()
+                .contains_key(axum::http::header::CONTENT_LENGTH)
+        );
+        let body = axum::body::to_bytes(filtered.into_body(), 1024)
+            .await
+            .unwrap();
+        let payload: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload["data"].as_array().unwrap().len(), 1);
+        assert_eq!(payload["data"][0]["id"], "grok-4.7");
     }
 }
 

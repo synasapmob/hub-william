@@ -44,15 +44,7 @@ DEFAULT_CODEX_MODELS = (
         ("low", "medium", "high", "xhigh", "max", "ultra"),
     ),
     ("gpt-5.6-luna", "GPT-5.6 Luna", ("low", "medium", "high", "xhigh", "max")),
-    ("gpt-5.5", "GPT-5.5", ("low", "medium", "high", "xhigh")),
-    (
-        "gpt-5.3-codex-spark",
-        "GPT-5.3 Codex Spark",
-        ("low", "medium", "high", "xhigh"),
-    ),
 )
-
-DEFAULT_GROK_MODELS = [{"id": "grok-build", "name": "Grok Build"}]
 
 REMEMBER_MODEL_PLUGIN_SOURCE = """import fs from "node:fs";
 import path from "node:path";
@@ -523,9 +515,7 @@ def build_config(existing, gateway_url, key, catalogues, plugin_path=None):
                 "apiKey": key,
                 "baseURL": gateway_url + "/gateway/grok/v1",
             },
-            "models": _provider_model_config(
-                catalogues.get("grok", []) or DEFAULT_GROK_MODELS
-            ),
+            "models": _provider_model_config(catalogues.get("grok", [])),
         },
         "hub-deepseek": {
             "name": "Hub William · DeepSeek",
@@ -554,12 +544,12 @@ def build_config(existing, gateway_url, key, catalogues, plugin_path=None):
                 settings.pop("variant", None)
     if "model" not in document:
         if "hub-codex" in providers:
-            preferred = "gpt-5.6-sol"
+            preferred = "gpt-6-sol"
             if preferred not in providers["hub-codex"]["models"]:
                 preferred = next(iter(providers["hub-codex"]["models"]))
             document["model"] = "hub-codex/" + preferred
         elif "hub-claude" in providers:
-            preferred = "claude-opus-5"
+            preferred = "claude-opus-5-5"
             if preferred not in providers["hub-claude"]["models"]:
                 preferred = "claude-sonnet-5"
             if preferred not in providers["hub-claude"]["models"]:

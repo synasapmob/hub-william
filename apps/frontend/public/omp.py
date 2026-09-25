@@ -27,9 +27,6 @@ PROVIDER_IDS = (
     "hub-deepseek",
 )
 
-DEFAULT_GROK_MODELS = [{"id": "grok-build", "name": "Grok Build"}]
-
-
 def _validated_gateway_url(value):
     value = (value or "").strip().rstrip("/")
     parsed = urlparse(value)
@@ -194,7 +191,7 @@ def _render_managed_providers(gateway_url, key, catalogues):
             "hub-grok",
             gateway_url + "/gateway/grok/v1",
             "openai-responses",
-            catalogues.get("grok", []) or DEFAULT_GROK_MODELS,
+            catalogues.get("grok", []),
         ),
         (
             "hub-deepseek",
