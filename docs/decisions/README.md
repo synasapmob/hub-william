@@ -37,3 +37,4 @@ record and mark the old one superseded rather than rewriting its history.
 - [ADR-0028: Gemini forbidden pool failover](0028-gemini-forbidden-pool-failover.md)
 - [ADR-0029: Current provider model catalogue convention](0029-current-provider-model-catalogues.md)
 - [ADR-0030: Nightly connected-account credential check](0030-nightly-connected-account-credential-check.md)
+- [ADR-0031: Explicit AGY account verification challenge](0031-explicit-agy-account-verification.md)

@@ -99,7 +99,9 @@ reauthorization. A Grok `403` does the same because expanded subscription
 scopes require an explicit reconnect. These failures advance to the next
 same-provider pool. An AGY/Code Assist `403` also advances to the next Gemini
 pool for the current request, without assuming that reconnecting fixes an
-account, project or model permission failure. A malformed `400` remains
+account, project or model permission failure. An explicit `Verify your account
+to continue.` response instead marks only that AGY pool for reconnection before
+trying the next account. A malformed `400` remains
 visible to the caller. Browser Playground requests stay pinned to the
 explicitly selected account. Before any response is returned to the client,
 network failures and upstream `408`, `500`, `502`, `503`, and `504` responses
@@ -128,7 +130,9 @@ cargo run --locked --manifest-path apps/api/Cargo.toml --example refresh_provide
 ```
 
 This reuses the normal credential row locks and provider refresh implementation,
-validates DeepSeek keys, and prints only connection IDs, providers and outcomes.
+validates DeepSeek keys, probes AGY's Code Assist model, token-count and minimal
+generation endpoints for an explicit account-verification challenge, and prints only
+connection IDs, providers and outcomes.
 One failure does not stop the remaining accounts. Expired or rejected refresh
 tokens are marked for reauthorization without creating login prompts; reconnect
 those pools through the UI. OAuth client-configuration errors remain failures
