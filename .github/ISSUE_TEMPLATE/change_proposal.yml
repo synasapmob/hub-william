@@ -1,0 +1,40 @@
+name: Change proposal
+description: Propose a change outside community tool documentation.
+title: "proposal: "
+body:
+  - type: markdown
+    attributes:
+      value: Community code and repository policy changes start as issues. Tool documentation in your own folder may be submitted as a pull request.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - API or gateway
+        - Frontend or user experience
+        - Tools or installers
+        - Models or providers
+        - Deployment or CI
+        - Conventions or repository structure
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and context
+      description: Describe the current behavior and who it affects.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Explain the behavior you want without posting secrets or private data.
+    validations:
+      required: true
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Link relevant docs, examples, or prior discussion if available.
