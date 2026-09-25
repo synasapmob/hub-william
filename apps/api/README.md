@@ -126,10 +126,12 @@ cargo run --locked --manifest-path apps/api/Cargo.toml --example refresh_provide
 
 This reuses the normal credential row locks and provider refresh implementation,
 validates DeepSeek keys, and prints only connection IDs, providers and outcomes.
-One failure does not stop the remaining accounts. Rejected credentials are marked
-for reauthorization without creating login prompts; reconnect those pools through
-the UI. A nonzero exit means at least one account could not refresh or the batch
-could not complete. This command neither applies migrations nor merges accounts.
+One failure does not stop the remaining accounts. Expired or rejected refresh
+tokens are marked for reauthorization without creating login prompts; reconnect
+those pools through the UI. OAuth client-configuration errors remain failures
+instead of being mislabeled as expired account credentials. A nonzero exit
+means at least one account could not refresh or the batch could not complete.
+This command neither applies migrations nor merges accounts.
 
 The reconnect and batch-refresh database regressions use SQLx-created test
 databases. Point `DATABASE_URL` at an isolated local PostgreSQL instance with

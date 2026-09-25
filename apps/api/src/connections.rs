@@ -2112,8 +2112,15 @@ async fn refresh_provider_token(
     }
     .map_err(|error| ProviderRefreshError::Api(upstream_network_error(provider, error)))?;
 
-    if refresh_requires_reauthorization(response.status()) {
-        return Err(ProviderRefreshError::ReauthorizationRequired);
+    if !response.status().is_success() {
+        let status = response.status();
+        let payload = response.json::<Value>().await.ok();
+        if refresh_requires_reauthorization(provider, status, payload.as_ref()) {
+            return Err(ProviderRefreshError::ReauthorizationRequired);
+        }
+        return Err(ProviderRefreshError::Api(upstream_status_error(
+            provider, status,
+        )));
     }
 
     parse_token_response(provider, response)
@@ -2121,11 +2128,32 @@ async fn refresh_provider_token(
         .map_err(ProviderRefreshError::Api)
 }
 
-fn refresh_requires_reauthorization(status: reqwest::StatusCode) -> bool {
-    matches!(
+fn refresh_requires_reauthorization(
+    provider: AgentProvider,
+    status: reqwest::StatusCode,
+    payload: Option<&Value>,
+) -> bool {
+    if !matches!(
         status,
         reqwest::StatusCode::BAD_REQUEST | reqwest::StatusCode::UNAUTHORIZED
-    )
+    ) {
+        return false;
+    }
+    let error = payload
+        .and_then(|payload| payload.get("error"))
+        .and_then(|error| {
+            error
+                .as_str()
+                .or_else(|| error.get("type").and_then(Value::as_str))
+        });
+    if error == Some("invalid_grant") {
+        return true;
+    }
+    provider == AgentProvider::Chatgpt
+        && payload
+            .and_then(|payload| payload.pointer("/error/code"))
+            .and_then(Value::as_str)
+            == Some("refresh_token_invalidated")
 }
 
 fn merge_token_response(mut stored: Value, refreshed: Value) -> Value {
@@ -3091,13 +3119,47 @@ mod tests {
     #[test]
     fn rejected_refresh_tokens_require_provider_authorization() {
         assert!(refresh_requires_reauthorization(
-            reqwest::StatusCode::BAD_REQUEST
+            AgentProvider::Gemini,
+            reqwest::StatusCode::BAD_REQUEST,
+            Some(&json!({ "error": "invalid_grant" }))
         ));
         assert!(refresh_requires_reauthorization(
-            reqwest::StatusCode::UNAUTHORIZED
+            AgentProvider::Claude,
+            reqwest::StatusCode::UNAUTHORIZED,
+            Some(&json!({ "error": { "type": "invalid_grant" } }))
+        ));
+        assert!(refresh_requires_reauthorization(
+            AgentProvider::Chatgpt,
+            reqwest::StatusCode::UNAUTHORIZED,
+            Some(&json!({ "error": {
+                "type": "invalid_request_error",
+                "code": "refresh_token_invalidated"
+            } }))
         ));
         assert!(!refresh_requires_reauthorization(
-            reqwest::StatusCode::TOO_MANY_REQUESTS
+            AgentProvider::Gemini,
+            reqwest::StatusCode::UNAUTHORIZED,
+            Some(&json!({ "error": { "code": "refresh_token_invalidated" } }))
+        ));
+        assert!(!refresh_requires_reauthorization(
+            AgentProvider::Gemini,
+            reqwest::StatusCode::UNAUTHORIZED,
+            Some(&json!({ "error": "invalid_client" }))
+        ));
+        assert!(!refresh_requires_reauthorization(
+            AgentProvider::Gemini,
+            reqwest::StatusCode::BAD_REQUEST,
+            Some(&json!({ "error": "invalid_request" }))
+        ));
+        assert!(!refresh_requires_reauthorization(
+            AgentProvider::Gemini,
+            reqwest::StatusCode::BAD_REQUEST,
+            None
+        ));
+        assert!(!refresh_requires_reauthorization(
+            AgentProvider::Gemini,
+            reqwest::StatusCode::TOO_MANY_REQUESTS,
+            Some(&json!({ "error": "invalid_grant" }))
         ));
     }
 
