@@ -1,0 +1,107 @@
+name: Community PR scope
+
+# The workflow and script come from the trusted base branch. Never check out or
+# execute the pull request's code here.
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, edited, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  contribution-policy:
+    name: contribution-policy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate community PR scope
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const { owner, repo } = context.repo;
+
+            // The repository owner maintains application and release changes.
+            if (pr.user.login.toLowerCase() === owner.toLowerCase()) {
+              core.info("Repository owner PR; community path restrictions do not apply.");
+              return;
+            }
+
+            if (pr.base.ref !== "dev") {
+              core.setFailed("Community pull requests must target dev.");
+              return;
+            }
+
+            const { data: current } = await github.rest.pulls.get({
+              owner, repo, pull_number: pr.number,
+            });
+            if (current.head.sha !== pr.head.sha || current.base.ref !== pr.base.ref) {
+              core.setFailed("The pull request changed during validation; rerun for the latest revision.");
+              return;
+            }
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner, repo, pull_number: pr.number, per_page: 100,
+            });
+            if (files.length === 0 || files.length !== current.changed_files) {
+              core.setFailed("Could not inspect every changed file in this pull request.");
+              return;
+            }
+
+            const login = pr.user.login.toLowerCase();
+            const validDocumentPath = (path) => {
+              const parts = path.split("/");
+              return parts.length >= 5 &&
+                parts[0] === "contributors" &&
+                parts[1] === login &&
+                parts[2] === "tools" &&
+                /^[a-z0-9][a-z0-9-]*$/.test(parts[3]) &&
+                parts.slice(4).every((part) => /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(part)) &&
+                parts.at(-1).endsWith(".md");
+            };
+
+            const allowedStatuses = new Set(["added", "modified", "removed", "renamed"]);
+            const invalid = files.filter((file) =>
+              !allowedStatuses.has(file.status) ||
+              !validDocumentPath(file.filename) ||
+              (file.previous_filename && !validDocumentPath(file.previous_filename))
+            );
+            if (invalid.length > 0) {
+              core.setFailed(
+                "Community PRs may only change Markdown files in their own tool folder. Invalid paths: " +
+                invalid.map((file) => JSON.stringify(file.filename)).join(", ")
+              );
+              return;
+            }
+
+            if (!pr.head.repo) {
+              core.setFailed("The pull request source repository is unavailable.");
+              return;
+            }
+            const { data: tree } = await github.rest.git.getTree({
+              owner: pr.head.repo.owner.login,
+              repo: pr.head.repo.name,
+              tree_sha: pr.head.sha,
+              recursive: "true",
+            });
+            if (tree.truncated) {
+              core.setFailed("The pull request file tree is too large to validate completely.");
+              return;
+            }
+
+            const entries = new Map(tree.tree.map((entry) => [entry.path, entry]));
+            const unsafe = files.filter((file) => {
+              if (file.status === "removed") return false;
+              const entry = entries.get(file.filename);
+              return entry?.type !== "blob" || entry.mode !== "100644";
+            });
+            if (unsafe.length > 0) {
+              core.setFailed(
+                "Community tool docs must be ordinary, non-executable files. Invalid files: " +
+                unsafe.map((file) => JSON.stringify(file.filename)).join(", ")
+              );
+              return;
+            }
+
+            core.info(`Validated ${files.length} Markdown file(s) for ${login}.`);
