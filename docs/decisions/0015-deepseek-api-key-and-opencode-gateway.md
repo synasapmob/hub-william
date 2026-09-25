@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-09-15
+- Partially superseded by: ADR-0030's daily DeepSeek key validation
 
 ## Context
 
