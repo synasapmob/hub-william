@@ -36,6 +36,8 @@ const GROK_CLIENT_SURFACE: &str = "grok-build";
 const DEFAULT_DEVICE_EXPIRY_SECONDS: i64 = 900;
 const DEFAULT_POLL_SECONDS: u64 = 5;
 const PROVIDER_CREDENTIAL_REFRESH_AFTER_MINUTES: i64 = 60;
+const EXPIRED_PROVIDER_AUTHORIZATION_MESSAGE: &str =
+    "Provider authorization expired. Refresh this pool to reconnect.";
 
 #[cfg(all(test, feature = "database-tests"))]
 mod database_tests;
@@ -241,11 +243,12 @@ enum CredentialRefreshMode {
     Force,
     NearExpiry,
     Stale,
+    Nightly(DateTime<Utc>),
 }
 
 impl CredentialRefreshMode {
     fn records_scheduled_attempt(self) -> bool {
-        matches!(self, Self::Stale)
+        matches!(self, Self::Stale | Self::Nightly(_))
     }
 
     fn restores_availability(self) -> bool {
@@ -532,12 +535,7 @@ pub async fn get_connection(
             {
                 RefreshConnectionOutcome::Connected { connection, .. } => connection,
                 RefreshConnectionOutcome::ReauthorizationRequired(row) => {
-                    fail_connection(
-                        &state,
-                        row,
-                        "Provider authorization expired. Refresh this pool to reconnect.",
-                    )
-                    .await?
+                    connection_from_row(row, None)?
                 }
             };
         return Ok(Json(connection));
@@ -1679,34 +1677,61 @@ pub async fn refresh_due_provider_credentials(
     .fetch_all(&state.pool)
     .await?;
 
+    refresh_scheduled_provider_credentials(state, rows, CredentialRefreshMode::Stale).await
+}
+
+/// Once per Vietnam calendar day, rotate connected OAuth credentials that have
+/// not already refreshed today and validate static DeepSeek keys. The row-lock
+/// recheck keeps this idempotent across API replicas and restarts.
+pub async fn refresh_nightly_provider_credentials(
+    state: &AppState,
+    day_start_utc: DateTime<Utc>,
+) -> Result<ProviderCredentialRefreshSummary, sqlx::Error> {
+    let rows = sqlx::query_as::<_, ConnectionRow>(
+        "SELECT connections.id, connections.provider, connections.status,
+                connections.account_label, connections.plan, connections.failure_message,
+                connections.created_at, connections.updated_at
+         FROM agent_connections AS connections
+         JOIN agent_connection_credentials AS credentials
+           ON credentials.connection_id = connections.id
+         WHERE connections.status = 'connected'
+           AND connections.availability_status <> 'reauth_required'
+           AND GREATEST(
+                 credentials.updated_at,
+                 COALESCE(credentials.refresh_attempted_at, credentials.updated_at)
+               ) < $1
+         ORDER BY connections.provider, connections.created_at",
+    )
+    .bind(day_start_utc)
+    .fetch_all(&state.pool)
+    .await?;
+
+    refresh_scheduled_provider_credentials(
+        state,
+        rows,
+        CredentialRefreshMode::Nightly(day_start_utc),
+    )
+    .await
+}
+
+async fn refresh_scheduled_provider_credentials(
+    state: &AppState,
+    rows: Vec<ConnectionRow>,
+    mode: CredentialRefreshMode,
+) -> Result<ProviderCredentialRefreshSummary, sqlx::Error> {
     let mut summary = ProviderCredentialRefreshSummary::default();
     for row in rows {
         let connection_id = row.id;
         let provider = row.provider.clone();
-        match refresh_connected_connection(state, row, CredentialRefreshMode::Stale).await {
+        match refresh_connected_connection(state, row, mode).await {
             Ok(RefreshConnectionOutcome::Connected {
                 refreshed: true, ..
             }) => summary.refreshed += 1,
             Ok(RefreshConnectionOutcome::Connected {
                 refreshed: false, ..
             }) => {}
-            Ok(RefreshConnectionOutcome::ReauthorizationRequired(row)) => {
-                match fail_connection(
-                    state,
-                    row,
-                    "Provider authorization expired. Refresh this pool to reconnect.",
-                )
-                .await
-                {
-                    Ok(_) => summary.reauthorization_required += 1,
-                    Err(error) => {
-                        summary.failed += 1;
-                        record_scheduled_refresh_attempt(state, connection_id).await;
-                        eprintln!(
-                            "scheduled {provider} credential failure update failed for {connection_id}: {error:?}"
-                        );
-                    }
-                }
+            Ok(RefreshConnectionOutcome::ReauthorizationRequired(_)) => {
+                summary.reauthorization_required += 1;
             }
             Err(error) => {
                 summary.failed += 1;
@@ -1743,17 +1768,8 @@ pub async fn refresh_all_provider_credentials(
                 Ok(RefreshConnectionOutcome::Connected { .. }) => {
                     ProviderCredentialRefreshStatus::Refreshed
                 }
-                Ok(RefreshConnectionOutcome::ReauthorizationRequired(row)) => {
-                    match fail_connection(
-                        state,
-                        row,
-                        "Provider authorization expired. Refresh this pool to reconnect.",
-                    )
-                    .await
-                    {
-                        Ok(_) => ProviderCredentialRefreshStatus::ReauthorizationRequired,
-                        Err(_) => ProviderCredentialRefreshStatus::Failed,
-                    }
+                Ok(RefreshConnectionOutcome::ReauthorizationRequired(_)) => {
+                    ProviderCredentialRefreshStatus::ReauthorizationRequired
                 }
                 Err(_) => ProviderCredentialRefreshStatus::Failed,
             };
@@ -1791,6 +1807,55 @@ fn normalize_plan_label(value: &str) -> String {
     }
 }
 
+async fn finish_refresh_reauthorization(
+    mut transaction: Transaction<'_, Postgres>,
+    row: ConnectionRow,
+) -> Result<RefreshConnectionOutcome, ApiError> {
+    // Keep the credential lock until the failure state is committed. A fresh
+    // login that writes this credential must then finish after this update.
+    // Do not delete a concurrent manual reauthorization prompt.
+    let updated = sqlx::query_as::<_, ConnectionRow>(
+        "UPDATE agent_connections
+         SET availability_status = 'reauth_required',
+             failure_message = $2, updated_at = NOW()
+         WHERE id = $1 AND status = 'connected'
+           AND availability_status <> 'reauth_required'
+         RETURNING id, provider, status, account_label, plan, failure_message, created_at, updated_at",
+    )
+    .bind(row.id)
+    .bind(EXPIRED_PROVIDER_AUTHORIZATION_MESSAGE)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(database_error)?;
+    let updated = match updated {
+        Some(updated) => updated,
+        None => sqlx::query_as::<_, ConnectionRow>(
+            "SELECT id, provider, status, account_label, plan, failure_message,
+                    created_at, updated_at
+             FROM agent_connections WHERE id = $1",
+        )
+        .bind(row.id)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(database_error)?,
+    };
+    transaction.commit().await.map_err(database_error)?;
+    Ok(RefreshConnectionOutcome::ReauthorizationRequired(updated))
+}
+
+async fn finish_refresh_error(
+    transaction: Transaction<'_, Postgres>,
+    mode: CredentialRefreshMode,
+    error: ApiError,
+) -> Result<RefreshConnectionOutcome, ApiError> {
+    if mode.records_scheduled_attempt() {
+        transaction.commit().await.map_err(database_error)?;
+    } else {
+        transaction.rollback().await.map_err(database_error)?;
+    }
+    Err(error)
+}
+
 async fn refresh_connected_connection(
     state: &AppState,
     row: ConnectionRow,
@@ -1808,8 +1873,32 @@ async fn refresh_connected_connection(
     .await
     .map_err(database_error)?;
     let Some(credential) = credential else {
-        transaction.rollback().await.map_err(database_error)?;
-        return Ok(RefreshConnectionOutcome::ReauthorizationRequired(row));
+        let current = sqlx::query_as::<_, ConnectionRow>(
+            "SELECT id, provider, status, account_label, plan, failure_message,
+                    created_at, updated_at
+             FROM agent_connections WHERE id = $1 FOR UPDATE",
+        )
+        .bind(row.id)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(database_error)?;
+        let credential_now_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM agent_connection_credentials WHERE connection_id = $1)",
+        )
+        .bind(row.id)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(database_error)?;
+        if credential_now_exists {
+            transaction.commit().await.map_err(database_error)?;
+            return connection_from_row(current, None).map(|connection| {
+                RefreshConnectionOutcome::Connected {
+                    connection,
+                    refreshed: false,
+                }
+            });
+        }
+        return finish_refresh_reauthorization(transaction, current).await;
     };
 
     let last_refresh_activity_at = credential
@@ -1846,12 +1935,7 @@ async fn refresh_connected_connection(
         .refresh_token_expires_at
         .is_some_and(|expires_at| expires_at <= Utc::now())
     {
-        if mode.records_scheduled_attempt() {
-            transaction.commit().await.map_err(database_error)?;
-        } else {
-            transaction.rollback().await.map_err(database_error)?;
-        }
-        return Ok(RefreshConnectionOutcome::ReauthorizationRequired(row));
+        return finish_refresh_reauthorization(transaction, row).await;
     }
 
     let stored_token: Value = match decrypt_json(
@@ -1861,25 +1945,20 @@ async fn refresh_connected_connection(
     ) {
         Ok(stored_token) => stored_token,
         Err(error) => {
-            if mode.records_scheduled_attempt() {
-                transaction.commit().await.map_err(database_error)?;
-            }
-            return Err(error);
+            return finish_refresh_error(transaction, mode, error).await;
         }
     };
     let provider = AgentProvider::from_str(&row.provider)?;
     if provider == AgentProvider::Deepseek {
         let Some(api_key) = stored_token.get("access_token").and_then(Value::as_str) else {
-            transaction.rollback().await.map_err(database_error)?;
-            return Ok(RefreshConnectionOutcome::ReauthorizationRequired(row));
+            return finish_refresh_reauthorization(transaction, row).await;
         };
         match validate_deepseek_key(state, api_key).await {
             Ok(()) => {}
             Err(ApiError::Validation(_)) => {
-                transaction.rollback().await.map_err(database_error)?;
-                return Ok(RefreshConnectionOutcome::ReauthorizationRequired(row));
+                return finish_refresh_reauthorization(transaction, row).await;
             }
-            Err(error) => return Err(error),
+            Err(error) => return finish_refresh_error(transaction, mode, error).await,
         }
         if mode.restores_availability() {
             sqlx::query(
@@ -1902,31 +1981,16 @@ async fn refresh_connected_connection(
         });
     }
     let Some(refresh_token) = stored_token.get("refresh_token").and_then(Value::as_str) else {
-        if mode.records_scheduled_attempt() {
-            transaction.commit().await.map_err(database_error)?;
-        } else {
-            transaction.rollback().await.map_err(database_error)?;
-        }
-        return Ok(RefreshConnectionOutcome::ReauthorizationRequired(row));
+        return finish_refresh_reauthorization(transaction, row).await;
     };
     let refreshed =
         match refresh_provider_token(state, provider, refresh_token, &stored_token).await {
             Ok(refreshed) => refreshed,
             Err(ProviderRefreshError::ReauthorizationRequired) => {
-                if mode.records_scheduled_attempt() {
-                    transaction.commit().await.map_err(database_error)?;
-                } else {
-                    transaction.rollback().await.map_err(database_error)?;
-                }
-                return Ok(RefreshConnectionOutcome::ReauthorizationRequired(row));
+                return finish_refresh_reauthorization(transaction, row).await;
             }
             Err(ProviderRefreshError::Api(error)) => {
-                if mode.records_scheduled_attempt() {
-                    transaction.commit().await.map_err(database_error)?;
-                } else {
-                    transaction.rollback().await.map_err(database_error)?;
-                }
-                return Err(error);
+                return finish_refresh_error(transaction, mode, error).await;
             }
         };
     let access_token_expires_at = refreshed
@@ -1940,26 +2004,36 @@ async fn refresh_connected_connection(
         .or(credential.refresh_token_expires_at);
     let merged = merge_token_response(stored_token, refreshed);
     let (credential_ciphertext, credential_nonce) =
-        encrypt_json(&state.config.credential_encryption_key, &merged)?;
+        match encrypt_json(&state.config.credential_encryption_key, &merged) {
+            Ok(encrypted) => encrypted,
+            Err(error) => return finish_refresh_error(transaction, mode, error).await,
+        };
     let (account_label, plan) = resolved_connection_metadata(state, provider, &merged).await;
 
     let restores_availability = mode.restores_availability();
-    sqlx::query(
-        "UPDATE agent_connection_credentials SET credential_ciphertext = $2,
+    if mode.records_scheduled_attempt() {
+        sqlx::query("SAVEPOINT scheduled_credential_persistence")
+            .execute(&mut *transaction)
+            .await
+            .map_err(database_error)?;
+    }
+    let persistence = async {
+        sqlx::query(
+            "UPDATE agent_connection_credentials SET credential_ciphertext = $2,
          credential_nonce = $3, access_token_expires_at = $4,
          refresh_token_expires_at = $5, refresh_attempted_at = NOW(), updated_at = NOW()
          WHERE connection_id = $1",
-    )
-    .bind(row.id)
-    .bind(credential_ciphertext)
-    .bind(credential_nonce)
-    .bind(access_token_expires_at)
-    .bind(refresh_token_expires_at)
-    .execute(&mut *transaction)
-    .await
-    .map_err(database_error)?;
-    sqlx::query(
-        "UPDATE agent_connections SET
+        )
+        .bind(row.id)
+        .bind(credential_ciphertext)
+        .bind(credential_nonce)
+        .bind(access_token_expires_at)
+        .bind(refresh_token_expires_at)
+        .execute(&mut *transaction)
+        .await
+        .map_err(database_error)?;
+        sqlx::query(
+            "UPDATE agent_connections SET
             account_label = COALESCE($2, account_label),
             plan = COALESCE($3, plan),
             availability_status = CASE WHEN $4 THEN 'active' ELSE availability_status END,
@@ -1968,14 +2042,26 @@ async fn refresh_connected_connection(
             failure_message = CASE WHEN $4 THEN NULL ELSE failure_message END,
             updated_at = NOW()
          WHERE id = $1",
-    )
-    .bind(row.id)
-    .bind(account_label)
-    .bind(plan)
-    .bind(restores_availability)
-    .execute(&mut *transaction)
-    .await
-    .map_err(database_error)?;
+        )
+        .bind(row.id)
+        .bind(account_label)
+        .bind(plan)
+        .bind(restores_availability)
+        .execute(&mut *transaction)
+        .await
+        .map_err(database_error)?;
+        Ok::<(), ApiError>(())
+    }
+    .await;
+    if let Err(error) = persistence {
+        if mode.records_scheduled_attempt() {
+            sqlx::query("ROLLBACK TO SAVEPOINT scheduled_credential_persistence")
+                .execute(&mut *transaction)
+                .await
+                .map_err(database_error)?;
+        }
+        return finish_refresh_error(transaction, mode, error).await;
+    }
     transaction.commit().await.map_err(database_error)?;
     let updated = owned_connection_by_id(state, row.id).await?;
     connection_from_row(updated, None).map(|connection| RefreshConnectionOutcome::Connected {
@@ -1997,6 +2083,7 @@ fn should_refresh_credential(
         CredentialRefreshMode::Stale => {
             updated_at <= now - Duration::minutes(PROVIDER_CREDENTIAL_REFRESH_AFTER_MINUTES)
         }
+        CredentialRefreshMode::Nightly(day_start_utc) => updated_at < day_start_utc,
     }
 }
 
@@ -2011,15 +2098,7 @@ pub(crate) async fn provider_credential(
 
     match refresh_connected_connection(state, row, CredentialRefreshMode::NearExpiry).await? {
         RefreshConnectionOutcome::Connected { .. } => {}
-        RefreshConnectionOutcome::ReauthorizationRequired(row) => {
-            fail_connection(
-                state,
-                row,
-                "Provider authorization expired. Refresh this pool to reconnect.",
-            )
-            .await?;
-            return Err(ApiError::Forbidden);
-        }
+        RefreshConnectionOutcome::ReauthorizationRequired(_) => return Err(ApiError::Forbidden),
     }
     let row = owned_connection_by_id(state, connection_id).await?;
     if AgentConnectionStatus::from_str(&row.status)? != AgentConnectionStatus::Connected {
@@ -3180,6 +3259,26 @@ mod tests {
             None,
             now - chrono::Duration::minutes(60),
             now,
+        ));
+    }
+
+    #[test]
+    fn nightly_refresh_skips_credentials_already_checked_today() {
+        let day_start = chrono::DateTime::parse_from_rfc3339("2026-09-25T17:00:00Z")
+            .unwrap()
+            .to_utc();
+
+        assert!(should_refresh_credential(
+            CredentialRefreshMode::Nightly(day_start),
+            None,
+            day_start - chrono::Duration::seconds(1),
+            day_start,
+        ));
+        assert!(!should_refresh_credential(
+            CredentialRefreshMode::Nightly(day_start),
+            None,
+            day_start,
+            day_start,
         ));
     }
 

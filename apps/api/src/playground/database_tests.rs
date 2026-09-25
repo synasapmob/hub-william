@@ -32,12 +32,12 @@ fn request(connection_id: Uuid, cookie: &str, origin: &str) -> Request<Body> {
     Request::builder().method("POST").uri("/playground/chat")
         .header("cookie", cookie).header("origin", origin).header("content-type", "application/json")
         .header("x-browser-secret", "never-forward-this")
-        .body(Body::from(json!({"connection_id":connection_id,"provider":"deepseek", "model":"test-model", "messages":[{"role":"user", "content":"Hello"},{"role":"assistant", "content":"Hi"},{"role":"user", "content":"Continue"}]}).to_string())).unwrap()
+        .body(Body::from(json!({"connection_id":connection_id,"provider":"deepseek", "model":"deepseek-flash", "messages":[{"role":"user", "content":"Hello"},{"role":"assistant", "content":"Hi"},{"role":"user", "content":"Continue"}]}).to_string())).unwrap()
 }
 
 async fn fixture(pool: PgPool) -> (AppState, tokio::task::JoinHandle<()>) {
     let upstream = Router::new()
-        .route("/models", get(|| async { Json(json!({"data":[{"id":"test-model", "name":"Test model"}]})) }))
+        .route("/models", get(|| async { Json(json!({"data":[{"id":"deepseek-flash", "name":"Test model"}]})) }))
         .route("/responses", post(|headers: HeaderMap, Json(body): Json<Value>| async move {
             assert_eq!(headers.get("authorization").unwrap(), "Bearer test-provider-token");
             assert!(!headers.contains_key("cookie"));
@@ -205,7 +205,10 @@ async fn session_authorization_streaming_and_membership_revocation(pool: PgPool)
     assert_eq!(response.status(), StatusCode::OK);
     let models: Value =
         serde_json::from_slice(&to_bytes(response.into_body(), 65536).await.unwrap()).unwrap();
-    assert_eq!(models, json!([{"id":"test-model", "name":"Test model"}]));
+    assert_eq!(
+        models,
+        json!([{"id":"deepseek-flash", "name":"Test model"}])
+    );
     sqlx::query("UPDATE agent_pool_join_requests SET status='rejected' WHERE requester_user_id=$1")
         .bind(member)
         .execute(&state.pool)

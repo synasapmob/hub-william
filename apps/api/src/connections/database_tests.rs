@@ -1,4 +1,10 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
 
 use axum::{
     Form, Json, Router,
@@ -6,14 +12,17 @@ use axum::{
     routing::{get, post},
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use chrono::{Duration, Utc};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use tokio::net::TcpListener;
 use uuid::Uuid;
 
 use super::{
-    ConnectionRow, ProviderCredentialRefreshStatus, decrypt_json, encrypt_json, finish_connection,
-    refresh_all_provider_credentials,
+    ConnectionRow, CredentialRefreshMode, ProviderCredentialRefreshStatus,
+    RefreshConnectionOutcome, decrypt_json, encrypt_json, finish_connection,
+    refresh_all_provider_credentials, refresh_connected_connection,
+    refresh_nightly_provider_credentials,
 };
 use crate::{AppConfig, AppState};
 
@@ -406,5 +415,264 @@ async fn forced_batch_validates_deepseek_and_distinguishes_rejection_from_outage
                 .unwrap();
         assert_eq!(availability, expected_availability);
     }
+    server.abort();
+}
+
+#[sqlx::test]
+async fn nightly_sweep_checks_all_connected_types_once_across_replicas(pool: PgPool) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let issuer = format!("http://{}", listener.local_addr().unwrap());
+    let oauth_calls = Arc::new(AtomicUsize::new(0));
+    let key_checks = Arc::new(AtomicUsize::new(0));
+    let oauth_counter = oauth_calls.clone();
+    let key_counter = key_checks.clone();
+    let app = Router::new()
+        .route(
+            "/oauth2/token",
+            post(move || {
+                let counter = oauth_counter.clone();
+                async move {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    Json(json!({
+                        "access_token": "rotated-access",
+                        "refresh_token": "rotated-refresh",
+                        "expires_in": 3600
+                    }))
+                }
+            }),
+        )
+        .route(
+            "/models",
+            get(move || {
+                let counter = key_counter.clone();
+                async move {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    StatusCode::OK
+                }
+            }),
+        );
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let mut state = state(pool);
+    state.config.grok_issuer = issuer.clone();
+    state.config.deepseek_api_url = issuer;
+    let owner = user(&state.pool).await;
+    let oauth = connection(&state, owner, "grok").await;
+    store_credential(
+        &state,
+        oauth.id,
+        json!({"access_token": "old", "refresh_token": "valid"}),
+    )
+    .await;
+    let static_key = connection(&state, owner, "deepseek").await;
+    store_credential(&state, static_key.id, json!({"access_token": "valid"})).await;
+    let fresh = connection(&state, owner, "grok").await;
+    store_credential(
+        &state,
+        fresh.id,
+        json!({"access_token": "current", "refresh_token": "valid"}),
+    )
+    .await;
+    let reauthorization_required = connection(&state, owner, "grok").await;
+    store_credential(
+        &state,
+        reauthorization_required.id,
+        json!({"access_token": "old", "refresh_token": "revoked"}),
+    )
+    .await;
+
+    let day_start = Utc::now() - Duration::hours(1);
+    for id in [oauth.id, static_key.id, reauthorization_required.id] {
+        sqlx::query(
+            "UPDATE agent_connection_credentials
+             SET updated_at = $2, refresh_attempted_at = NULL WHERE connection_id = $1",
+        )
+        .bind(id)
+        .bind(day_start - Duration::minutes(1))
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    }
+    sqlx::query("UPDATE agent_connections SET availability_status = 'rate_limited' WHERE id = $1")
+        .bind(oauth.id)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE agent_connections SET availability_status = 'reauth_required' WHERE id = $1",
+    )
+    .bind(reauthorization_required.id)
+    .execute(&state.pool)
+    .await
+    .unwrap();
+
+    let (first, second) = tokio::join!(
+        refresh_nightly_provider_credentials(&state, day_start),
+        refresh_nightly_provider_credentials(&state, day_start)
+    );
+    let first = first.unwrap();
+    let second = second.unwrap();
+    assert_eq!(first.refreshed + second.refreshed, 2);
+    assert_eq!(first.failed + second.failed, 0);
+    assert_eq!(oauth_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(key_checks.load(Ordering::SeqCst), 1);
+
+    let repeated = refresh_nightly_provider_credentials(&state, day_start)
+        .await
+        .unwrap();
+    assert_eq!(repeated.refreshed, 0);
+    for id in [oauth.id, static_key.id] {
+        let attempted_at: Option<chrono::DateTime<Utc>> = sqlx::query_scalar(
+            "SELECT refresh_attempted_at FROM agent_connection_credentials WHERE connection_id = $1",
+        )
+        .bind(id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+        assert!(attempted_at.is_some_and(|attempted_at| attempted_at >= day_start));
+    }
+    let availability: String =
+        sqlx::query_scalar("SELECT availability_status FROM agent_connections WHERE id = $1")
+            .bind(oauth.id)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+    assert_eq!(availability, "rate_limited");
+    for id in [fresh.id, reauthorization_required.id] {
+        let attempted_at: Option<chrono::DateTime<Utc>> = sqlx::query_scalar(
+            "SELECT refresh_attempted_at FROM agent_connection_credentials WHERE connection_id = $1",
+        )
+        .bind(id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+        assert!(attempted_at.is_none());
+    }
+    server.abort();
+}
+
+#[sqlx::test]
+async fn nightly_provider_outage_records_attempt_before_unlocking(pool: PgPool) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let api_url = format!("http://{}", listener.local_addr().unwrap());
+    let checks = Arc::new(AtomicUsize::new(0));
+    let counter = checks.clone();
+    let app = Router::new().route(
+        "/models",
+        get(move || {
+            let counter = counter.clone();
+            async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                StatusCode::SERVICE_UNAVAILABLE
+            }
+        }),
+    );
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let mut state = state(pool);
+    state.config.deepseek_api_url = api_url;
+    let owner = user(&state.pool).await;
+    let static_key = connection(&state, owner, "deepseek").await;
+    store_credential(&state, static_key.id, json!({"access_token": "valid"})).await;
+    let day_start = Utc::now() - Duration::hours(1);
+    sqlx::query(
+        "UPDATE agent_connection_credentials
+         SET updated_at = $2, refresh_attempted_at = NULL WHERE connection_id = $1",
+    )
+    .bind(static_key.id)
+    .bind(day_start - Duration::minutes(1))
+    .execute(&state.pool)
+    .await
+    .unwrap();
+
+    let (first, second) = tokio::join!(
+        refresh_nightly_provider_credentials(&state, day_start),
+        refresh_nightly_provider_credentials(&state, day_start)
+    );
+    let first = first.unwrap();
+    let second = second.unwrap();
+    assert_eq!(first.failed + second.failed, 1);
+    assert_eq!(checks.load(Ordering::SeqCst), 1);
+    let attempted_at: Option<chrono::DateTime<Utc>> = sqlx::query_scalar(
+        "SELECT refresh_attempted_at FROM agent_connection_credentials WHERE connection_id = $1",
+    )
+    .bind(static_key.id)
+    .fetch_one(&state.pool)
+    .await
+    .unwrap();
+    assert!(attempted_at.is_some_and(|attempted_at| attempted_at >= day_start));
+    let availability: String =
+        sqlx::query_scalar("SELECT availability_status FROM agent_connections WHERE id = $1")
+            .bind(static_key.id)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+    assert_eq!(availability, "active");
+    server.abort();
+}
+
+#[sqlx::test]
+async fn rejected_refresh_marks_reauthorization_before_a_new_login(pool: PgPool) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let issuer = format!("http://{}", listener.local_addr().unwrap());
+    let app = Router::new().route(
+        "/oauth2/token",
+        post(|| async {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "invalid_grant"})),
+            )
+        }),
+    );
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let mut state = state(pool);
+    state.config.grok_issuer = issuer;
+    let owner = user(&state.pool).await;
+    let old = connection(&state, owner, "grok").await;
+    let connection_id = old.id;
+    store_credential(&state, old.id, token("grok", "same-account", "old")).await;
+    let day_start = Utc::now() - Duration::hours(1);
+    sqlx::query(
+        "UPDATE agent_connection_credentials
+         SET updated_at = $2, refresh_attempted_at = NULL WHERE connection_id = $1",
+    )
+    .bind(old.id)
+    .bind(day_start - Duration::minutes(1))
+    .execute(&state.pool)
+    .await
+    .unwrap();
+    let connected: ConnectionRow = sqlx::query_as(
+        "SELECT id, provider, status, account_label, plan, failure_message,
+                created_at, updated_at FROM agent_connections WHERE id = $1",
+    )
+    .bind(old.id)
+    .fetch_one(&state.pool)
+    .await
+    .unwrap();
+
+    assert!(matches!(
+        refresh_connected_connection(&state, connected, CredentialRefreshMode::Nightly(day_start))
+            .await
+            .unwrap(),
+        RefreshConnectionOutcome::ReauthorizationRequired(_)
+    ));
+    let availability: String =
+        sqlx::query_scalar("SELECT availability_status FROM agent_connections WHERE id = $1")
+            .bind(old.id)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+    assert_eq!(availability, "reauth_required");
+
+    let fresh = token("grok", "same-account", "new");
+    finish_connection(&state, old, fresh).await.unwrap();
+    let (availability, failure_message): (String, Option<String>) = sqlx::query_as(
+        "SELECT availability_status, failure_message FROM agent_connections WHERE id = $1",
+    )
+    .bind(connection_id)
+    .fetch_one(&state.pool)
+    .await
+    .unwrap();
+    assert_eq!(availability, "active");
+    assert!(failure_message.is_none());
     server.abort();
 }
