@@ -110,8 +110,11 @@ owner can force-refresh the provider credential from pool management; a
 rejected or missing refresh token starts official authorization again on the
 same pool record. The API also refreshes connected OAuth provider credentials after 60
 minutes without rotation, isolating per-account failures so one stale pool
-cannot stop the remaining sweep. Static DeepSeek keys are validated when
-connected and on manual refresh instead. Provider credential payloads are
+cannot stop the remaining sweep. Around 00:00 Vietnam time, it checks every
+connected credential not already checked that local day: OAuth credentials are
+rotated, while static DeepSeek keys are validated. A restart catches up missed
+nightly checks. Accounts with rejected credentials need manual reconnection;
+the background sweeps cannot log in for them. Provider credential payloads are
 AES-256-GCM encrypted. Do not log request authorization headers, API keys,
 OAuth codes, device codes, callback URLs, or provider response bodies.
 

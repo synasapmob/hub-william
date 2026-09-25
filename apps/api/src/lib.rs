@@ -46,7 +46,7 @@ pub use connections::{
     ConnectDeepseekRequest, ProviderCredentialRefreshResult, ProviderCredentialRefreshStatus,
     ProviderCredentialRefreshSummary, StartAgentConnectionRequest,
     refresh_all_provider_credentials, refresh_due_provider_credentials,
-    refresh_stored_connection_metadata,
+    refresh_nightly_provider_credentials, refresh_stored_connection_metadata,
 };
 use connections::{
     complete_authorization, connect_deepseek, disconnect, get_connection, list_connections,
