@@ -229,19 +229,35 @@ async fn chatgpt_logins_sharing_a_workspace_remain_separate_and_reauthorize_inde
 async fn forced_batch_refresh_isolates_rejected_credentials_and_keeps_pool_ids(pool: PgPool) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let issuer = format!("http://{}", listener.local_addr().unwrap());
-    let app = Router::new().route(
-        "/oauth2/token",
-        post(|Form(form): Form<HashMap<String, String>>| async move {
-            if form.get("refresh_token").map(String::as_str) == Some("rejected") {
-                (StatusCode::BAD_REQUEST, Json(json!({"error": "invalid_grant"})))
-            } else {
-                (StatusCode::OK, Json(json!({"access_token": "rotated-access", "refresh_token": "rotated-refresh", "expires_in": 3600})))
-            }
-        }),
-    );
+    let app = Router::new()
+        .route(
+            "/oauth2/token",
+            post(|Form(form): Form<HashMap<String, String>>| async move {
+                if form.get("refresh_token").map(String::as_str) == Some("rejected") {
+                    (StatusCode::BAD_REQUEST, Json(json!({"error": "invalid_grant"})))
+                } else if form.get("refresh_token").map(String::as_str) == Some("bad-client") {
+                    (StatusCode::UNAUTHORIZED, Json(json!({"error": "invalid_client"})))
+                } else {
+                    (StatusCode::OK, Json(json!({"access_token": "rotated-access", "refresh_token": "rotated-refresh", "expires_in": 3600})))
+                }
+            }),
+        )
+        .route(
+            "/oauth/token",
+            post(|| async {
+                (
+                    StatusCode::UNAUTHORIZED,
+                    Json(json!({ "error": {
+                        "type": "invalid_request_error",
+                        "code": "refresh_token_invalidated"
+                    } })),
+                )
+            }),
+        );
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     let mut state = state(pool);
-    state.config.grok_issuer = issuer;
+    state.config.grok_issuer = issuer.clone();
+    state.config.codex_issuer = issuer;
     let owner = user(&state.pool).await;
     let rejected = connection(&state, owner, "grok").await;
     store_credential(
@@ -257,6 +273,20 @@ async fn forced_batch_refresh_isolates_rejected_credentials_and_keeps_pool_ids(p
         json!({"access_token": "old", "refresh_token": "valid"}),
     )
     .await;
+    let client_error = connection(&state, owner, "grok").await;
+    store_credential(
+        &state,
+        client_error.id,
+        json!({"access_token": "old", "refresh_token": "bad-client"}),
+    )
+    .await;
+    let invalidated_chatgpt = connection(&state, owner, "chatgpt").await;
+    store_credential(
+        &state,
+        invalidated_chatgpt.id,
+        json!({"access_token": "old", "refresh_token": "revoked-chatgpt"}),
+    )
+    .await;
     sqlx::query("UPDATE agent_connections SET availability_status='reauth_required' WHERE id=$1")
         .bind(accepted.id)
         .execute(&state.pool)
@@ -264,7 +294,7 @@ async fn forced_batch_refresh_isolates_rejected_credentials_and_keeps_pool_ids(p
         .unwrap();
 
     let results = refresh_all_provider_credentials(&state).await.unwrap();
-    assert_eq!(results.len(), 2);
+    assert_eq!(results.len(), 4);
     assert!(
         results
             .iter()
@@ -280,7 +310,27 @@ async fn forced_batch_refresh_isolates_rejected_credentials_and_keeps_pool_ids(p
             .any(|result| result.connection_id == accepted.id
                 && matches!(result.status, ProviderCredentialRefreshStatus::Refreshed))
     );
-    for (id, expected_availability) in [(rejected.id, "reauth_required"), (accepted.id, "active")] {
+    assert!(
+        results
+            .iter()
+            .any(|result| result.connection_id == client_error.id
+                && matches!(result.status, ProviderCredentialRefreshStatus::Failed))
+    );
+    assert!(
+        results
+            .iter()
+            .any(|result| result.connection_id == invalidated_chatgpt.id
+                && matches!(
+                    result.status,
+                    ProviderCredentialRefreshStatus::ReauthorizationRequired
+                ))
+    );
+    for (id, expected_availability) in [
+        (rejected.id, "reauth_required"),
+        (accepted.id, "active"),
+        (client_error.id, "active"),
+        (invalidated_chatgpt.id, "reauth_required"),
+    ] {
         let row: (String, String, bool) = sqlx::query_as(
             "SELECT c.status, c.availability_status, d.refresh_attempted_at IS NOT NULL
              FROM agent_connections c JOIN agent_connection_credentials d ON d.connection_id=c.id WHERE c.id=$1",
