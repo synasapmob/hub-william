@@ -126,31 +126,44 @@ pub async fn models(
     let value: Value = serde_json::from_slice(&bytes).map_err(|_| {
         ApiError::Provider("The provider returned an invalid model catalogue.".to_owned())
     })?;
-    Ok(Json(normalize_models(provider, &value)?))
+    let current_catalogue = match provider {
+        AgentProvider::Chatgpt => {
+            Some(gateway::fetch_or_cached_openai_catalogue(&state.http).await)
+        }
+        AgentProvider::Claude => Some(gateway::fetch_or_cached_claude_catalogue(&state.http).await),
+        _ => None,
+    };
+    Ok(Json(normalize_models(
+        provider,
+        &value,
+        current_catalogue.as_ref(),
+    )?))
 }
 
-// The picker is limited to the current general text lineup, intersected with
-// models actually advertised by the selected account. Other providers keep
-// their own live catalogue without an inferred version policy.
-// Refresh IDs from https://developers.openai.com/api/docs/models and
-// https://platform.claude.com/docs/en/models/overview when lineups change.
-fn current_playground_model(provider: AgentProvider, id: &str) -> bool {
+// The picker intersects the chosen account's live models with the same current
+// catalogue used by gateway installers. Grok and DeepSeek are filtered at the
+// gateway boundary as well so every client sees their current lineup.
+fn current_playground_model(
+    provider: AgentProvider,
+    id: &str,
+    current_catalogue: Option<&Value>,
+) -> bool {
     match provider {
-        AgentProvider::Chatgpt => matches!(id, "gpt-6-astra" | "gpt-6-sol" | "gpt-6-luna"),
-        AgentProvider::Claude => matches!(
-            id,
-            "claude-fable-5-1"
-                | "claude-opus-5-5"
-                | "claude-sonnet-5"
-                | "claude-haiku-4-5-20251001"
-        ),
-        AgentProvider::Gemini | AgentProvider::Deepseek | AgentProvider::Grok => true,
+        AgentProvider::Chatgpt | AgentProvider::Claude => current_catalogue
+            .and_then(|catalogue| catalogue.get("data"))
+            .and_then(Value::as_array)
+            .is_some_and(|models| models.iter().any(|model| model["id"] == id)),
+        AgentProvider::Gemini => true,
+        AgentProvider::Deepseek | AgentProvider::Grok => {
+            gateway::current_live_model_id(provider, id)
+        }
     }
 }
 
 fn normalize_models(
     provider: AgentProvider,
     value: &Value,
+    current_catalogue: Option<&Value>,
 ) -> Result<Vec<PlaygroundModel>, ApiError> {
     let entries = value
         .get("data")
@@ -169,7 +182,7 @@ fn normalize_models(
         else {
             continue;
         };
-        if !current_playground_model(provider, id) {
+        if !current_playground_model(provider, id, current_catalogue) {
             continue;
         }
         if entry
@@ -498,11 +511,11 @@ mod tests {
 
     #[test]
     fn catalogue_uses_existing_names_and_deduplicates_ids() {
-        let models = normalize_models(AgentProvider::Gemini, &json!({"data":[{"id":"one", "display_name":"One"},{"id":"one"},{"id":"two", "name":"Two"},{"id":"three"},{"name":"invalid"}]})).unwrap();
+        let models = normalize_models(AgentProvider::Gemini, &json!({"data":[{"id":"one", "display_name":"One"},{"id":"one"},{"id":"two", "name":"Two"},{"id":"three"},{"name":"invalid"}]}), None).unwrap();
         assert_eq!(models.len(), 3);
         assert_eq!(models[0].name, "One");
         assert_eq!(models[2].name, "three");
-        assert!(normalize_models(AgentProvider::Gemini, &json!({"unknown":[]})).is_err());
+        assert!(normalize_models(AgentProvider::Gemini, &json!({"unknown":[]}), None).is_err());
         let codex = normalize_models(
             AgentProvider::Chatgpt,
             &json!({"models":[
@@ -510,11 +523,13 @@ mod tests {
                 {"slug":"internal-model", "visibility":"Hidden"},
                 {"id":"gpt-5.6-sol", "display_name":"GPT-5.6 Sol"}
             ]}),
+            Some(&gateway::default_openai_model_catalogue()),
         )
         .unwrap();
-        assert_eq!(codex.len(), 1);
+        assert_eq!(codex.len(), 2);
         assert_eq!(codex[0].id, "gpt-6-astra");
         assert_eq!(codex[0].name, "GPT-6 Astra");
+        assert_eq!(codex[1].id, "gpt-5.6-sol");
     }
 
     #[test]
@@ -529,6 +544,7 @@ mod tests {
                 {"id":"claude-sonnet-5"},
                 {"id":"claude-haiku-4-5-20251001"}
             ]}),
+            Some(&gateway::default_claude_model_catalogue()),
         )
         .unwrap();
         assert_eq!(
@@ -548,11 +564,27 @@ mod tests {
                 {"slug":"gpt-6-astra"},
                 {"slug":"gpt-6-sol"}
             ]}),
+            Some(&gateway::default_openai_model_catalogue()),
         )
         .unwrap();
         assert_eq!(
             codex.into_iter().map(|model| model.id).collect::<Vec<_>>(),
-            ["gpt-6-astra", "gpt-6-sol",]
+            ["gpt-5.6-sol", "gpt-6-astra", "gpt-6-sol"]
+        );
+    }
+
+    #[test]
+    fn newly_documented_model_is_not_blocked_by_a_second_picker_list() {
+        let docs = json!({"data": [{"id": "gpt-6-new"}]});
+        let models = normalize_models(
+            AgentProvider::Chatgpt,
+            &json!({"models": [{"slug": "gpt-6-new"}, {"slug": "gpt-5.5"}]}),
+            Some(&docs),
+        )
+        .unwrap();
+        assert_eq!(
+            models.into_iter().map(|model| model.id).collect::<Vec<_>>(),
+            ["gpt-6-new"]
         );
     }
 }
