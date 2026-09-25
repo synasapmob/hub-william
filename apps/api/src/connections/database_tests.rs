@@ -363,6 +363,174 @@ async fn forced_batch_refresh_isolates_rejected_credentials_and_keeps_pool_ids(p
 }
 
 #[sqlx::test]
+async fn forced_batch_marks_only_explicit_gemini_verification_challenges_red(pool: PgPool) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let issuer = format!("http://{}", listener.local_addr().unwrap());
+    let app = Router::new()
+        .route(
+            "/token",
+            post(|Form(form): Form<HashMap<String, String>>| async move {
+                let access = match form.get("refresh_token").map(String::as_str) {
+                    Some("fetch-challenge") => "fetch-challenge-access",
+                    Some("count-challenge") => "count-challenge-access",
+                    Some("generation-challenge") => "generation-challenge-access",
+                    Some("verified") => "verified-access",
+                    Some("generic-forbidden") => "generic-forbidden-access",
+                    Some("generic-red") => "generic-red-access",
+                    other => panic!("unexpected refresh token: {other:?}"),
+                };
+                Json(json!({
+                    "access_token": access,
+                    "refresh_token": "rotated-refresh",
+                    "expires_in": 3600
+                }))
+            }),
+        )
+        .route(
+            "/v1internal:fetchAvailableModels",
+            post(|headers: HeaderMap| async move {
+                match headers
+                    .get("authorization")
+                    .and_then(|value| value.to_str().ok())
+                {
+                    Some("Bearer fetch-challenge-access") => (
+                        StatusCode::FORBIDDEN,
+                        Json(json!({"error": {"message": "Verify your account to continue."}})),
+                    ),
+                    Some("Bearer count-challenge-access")
+                    | Some("Bearer generation-challenge-access")
+                    | Some("Bearer verified-access") => (
+                        StatusCode::OK,
+                        Json(
+                            json!({"models": {"gemini-3.8-flash-high": {"displayName": "Flash"}}}),
+                        ),
+                    ),
+                    Some("Bearer generic-forbidden-access") | Some("Bearer generic-red-access") => {
+                        (
+                            StatusCode::FORBIDDEN,
+                            Json(json!({"error": {"message": "Project lacks model permission"}})),
+                        )
+                    }
+                    other => panic!("unexpected authorization: {other:?}"),
+                }
+            }),
+        )
+        .route(
+            "/v1internal:countTokens",
+            post(|headers: HeaderMap| async move {
+                match headers
+                    .get("authorization")
+                    .and_then(|value| value.to_str().ok())
+                {
+                    Some("Bearer count-challenge-access") => (
+                        StatusCode::FORBIDDEN,
+                        Json(json!({"error": {"message": "Verify your account to continue."}})),
+                    ),
+                    Some("Bearer generation-challenge-access") | Some("Bearer verified-access") => {
+                        (StatusCode::OK, Json(json!({"tokenCount": 1})))
+                    }
+                    other => panic!("unexpected count authorization: {other:?}"),
+                }
+            }),
+        )
+        .route(
+            "/v1internal:generateContent",
+            post(|headers: HeaderMap| async move {
+                match headers
+                    .get("authorization")
+                    .and_then(|value| value.to_str().ok())
+                {
+                    Some("Bearer generation-challenge-access") => (
+                        StatusCode::FORBIDDEN,
+                        Json(json!({"error": {"message": "Verify your account to continue."}})),
+                    ),
+                    Some("Bearer verified-access") => (
+                        StatusCode::OK,
+                        Json(json!({"response": {"candidates": []}})),
+                    ),
+                    other => panic!("unexpected generation authorization: {other:?}"),
+                }
+            }),
+        );
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let mut state = state(pool);
+    state.config.gemini_token_url = format!("{issuer}/token");
+    state.config.gemini_code_assist_url = issuer;
+    let owner = user(&state.pool).await;
+    let mut ids = HashMap::new();
+    for case in [
+        "fetch-challenge",
+        "count-challenge",
+        "generation-challenge",
+        "verified",
+        "generic-forbidden",
+        "generic-red",
+    ] {
+        let row = connection(&state, owner, "gemini").await;
+        let mut credential = token("gemini", case, "old-access");
+        credential["refresh_token"] = json!(case);
+        credential["cloudaicompanion_project"] = json!("test-project");
+        store_credential(&state, row.id, credential).await;
+        if case == "generic-red" {
+            sqlx::query(
+                "UPDATE agent_connections SET availability_status = 'reauth_required' WHERE id = $1",
+            )
+            .bind(row.id)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+        }
+        ids.insert(case, row.id);
+    }
+
+    let results = refresh_all_provider_credentials(&state).await.unwrap();
+    assert_eq!(results.len(), 6);
+    for (case, expected_result, expected_availability) in [
+        (
+            "fetch-challenge",
+            "reauthorization_required",
+            "reauth_required",
+        ),
+        (
+            "count-challenge",
+            "reauthorization_required",
+            "reauth_required",
+        ),
+        (
+            "generation-challenge",
+            "reauthorization_required",
+            "reauth_required",
+        ),
+        ("verified", "refreshed", "active"),
+        ("generic-forbidden", "refreshed", "active"),
+        ("generic-red", "reauthorization_required", "reauth_required"),
+    ] {
+        let result = results
+            .iter()
+            .find(|result| result.connection_id == ids[case])
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(&result.status).unwrap(),
+            expected_result
+        );
+        let (availability, ciphertext, nonce): (String, Vec<u8>, Vec<u8>) = sqlx::query_as(
+            "SELECT c.availability_status, d.credential_ciphertext, d.credential_nonce
+             FROM agent_connections c JOIN agent_connection_credentials d
+               ON d.connection_id = c.id WHERE c.id = $1",
+        )
+        .bind(ids[case])
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+        assert_eq!(availability, expected_availability);
+        let stored: Value =
+            decrypt_json(&state.config.credential_encryption_key, &ciphertext, &nonce).unwrap();
+        assert_eq!(stored["refresh_token"], "rotated-refresh");
+    }
+    server.abort();
+}
+
+#[sqlx::test]
 async fn forced_batch_validates_deepseek_and_distinguishes_rejection_from_outage(pool: PgPool) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let api_url = format!("http://{}", listener.local_addr().unwrap());
