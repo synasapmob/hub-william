@@ -87,7 +87,9 @@ writes without changing the operator's installed agent settings.
 
 ## Deployment
 
-Pull requests run CI. After a verified `dev` change is promoted to `main`, the
+Owner pull requests run full CI; community pull requests run the trusted
+contribution-scope check without executing their changed files. After a verified
+`dev` change is promoted to `main`, the
 Railway workflow deploys the API, Telegram adapter and frontend to the existing
 production project. Add a production-scoped Railway project token as the GitHub
 Actions secret `RAILWAY_TOKEN`; until it is present, deployment is explicitly
@@ -118,13 +120,14 @@ original bytes. `/catalog/index.json` lists tool sources;
 
 ## Contributing
 
-Branch from `dev` and open a pull request into `dev`. Change tool documentation
-under your own `contributors/<github-login>/tools/<tool-name>/` folder.
-`contributors/default/` is system-owned and read-only for contributors; do not
-edit, rename or delete its files. The Tools
-contributor selector and `/tools/<github-login>` continue to show contributed
-tools automatically. Repository workflow sources remain independent and do not
-create app pages. See the contribution guide for validation and security expectations.
+Community pull requests are for Markdown tool documentation in the author's own
+`contributors/<github-login>/tools/<tool-name>/` folder and target `dev`.
+The Tools catalogue groups docs by contributor and tool; it has no separate
+category field. For API, frontend, installer, workflow, convention, or other
+repository changes, [open an issue](https://github.com/synasapmob/hub-william/issues/new/choose)
+instead. `contributors/default/` and `contributors/*/libraries/` are maintained
+internally. Read the [contribution guide](.github/CONTRIBUTING.md) before
+opening a pull request.
 
 ## Stack
 
