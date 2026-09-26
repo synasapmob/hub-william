@@ -49,7 +49,7 @@ async fn user(pool: &PgPool) -> Uuid {
 async fn connection(state: &AppState, owner: Uuid, provider: &str) -> ConnectionRow {
     sqlx::query_as(
         "INSERT INTO agent_connections (id, user_id, provider, status)
-         VALUES ($1, $2, $3, 'pending') RETURNING id, provider, status,
+         VALUES ($1, $2, $3, 'pending') RETURNING id, provider, status, availability_status,
          account_label, plan, failure_message, created_at, updated_at",
     )
     .bind(Uuid::new_v4())
@@ -809,7 +809,7 @@ async fn rejected_refresh_marks_reauthorization_before_a_new_login(pool: PgPool)
     .await
     .unwrap();
     let connected: ConnectionRow = sqlx::query_as(
-        "SELECT id, provider, status, account_label, plan, failure_message,
+        "SELECT id, provider, status, availability_status, account_label, plan, failure_message,
                 created_at, updated_at FROM agent_connections WHERE id = $1",
     )
     .bind(old.id)

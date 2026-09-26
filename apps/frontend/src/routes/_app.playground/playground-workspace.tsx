@@ -18,7 +18,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { useWorkspaceSession } from "@/components/workspace-shell/workspace-shell-session-context";
 import agentPoolsService from "@/services/agent-pools";
 import organizationsService from "@/services/organizations";
-import { agentPoolAccess } from "@/utils/utils.agent-pools";
+import {
+  agentAvailabilityStatusLabel,
+  agentPoolAccess,
+} from "@/utils/utils.agent-pools";
+import agentConnectionsService from "@/services/agent-connections";
 import playgroundService, {
   PlaygroundServiceError,
   type PlaygroundChatOptions,
@@ -166,15 +170,14 @@ export default function PlaygroundWorkspace({
       playgroundService.chat(options),
     retry: false,
     onSettled: () => {
-      if (organizationRequested) {
-        void queryClient.invalidateQueries({
-          queryKey: [...organizationsService.queryKey, organizationId],
-        });
-      } else {
-        void queryClient.invalidateQueries({
-          queryKey: agentPoolsService.queryKey,
-        });
-      }
+      // Provider availability belongs to the account in every sharing scope.
+      void Promise.all(
+        [
+          agentPoolsService.queryKey,
+          agentConnectionsService.queryKey,
+          organizationsService.queryKey,
+        ].map((queryKey) => queryClient.invalidateQueries({ queryKey })),
+      );
     },
   });
   const busy = form.formState.isSubmitting || mutation.isPending;
@@ -497,10 +500,8 @@ export default function PlaygroundWorkspace({
               <SelectContent>
                 {accounts.map((account) => (
                   <SelectItem key={account.id} value={account.id}>
-                    {account.accountLabel} · {account.ownerUsername}
-                    {account.availabilityStatus === "reauth_required"
-                      ? " · Needs reconnect"
-                      : ""}
+                    {account.accountLabel} · {account.ownerUsername} ·{" "}
+                    {agentAvailabilityStatusLabel(account.availabilityStatus)}
                   </SelectItem>
                 ))}
               </SelectContent>

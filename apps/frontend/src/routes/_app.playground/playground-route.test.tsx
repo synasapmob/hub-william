@@ -129,80 +129,87 @@ beforeEach(() => {
 });
 
 describe("Playground conversation flow", () => {
-  it("defaults to a usable organization account and keeps a blocked selection pinned", async () => {
-    vi.mocked(organizationsService.list).mockResolvedValue([
-      {
-        id: "team",
-        name: "Team",
-        role: "member",
-        description: null,
+  it.each(["chatgpt", "claude", "gemini", "grok", "deepseek"])(
+    "defaults to a usable %s organization account and keeps a blocked selection pinned",
+    async (provider) => {
+      vi.mocked(organizationsService.list).mockResolvedValue([
+        {
+          id: "team",
+          name: "Team",
+          role: "member",
+          description: null,
+          createdAt: "2026-09-26",
+        },
+      ]);
+      const shared: OrganizationAgentDetails = {
+        id: "blocked",
+        accountLabel: "Blocked AGY",
+        ownerUsername: "owner",
+        provider,
+        availabilityStatus: "reauth_required",
+        rateLimitedUntil: null,
         createdAt: "2026-09-26",
-      },
-    ]);
-    const shared: OrganizationAgentDetails = {
-      id: "blocked",
-      accountLabel: "Blocked AGY",
-      ownerUsername: "owner",
-      provider: "Gemini",
-      availabilityStatus: "reauth_required",
-      rateLimitedUntil: null,
-      createdAt: "2026-09-26",
-      plan: "Unknown",
-      usage: [],
-    };
-    vi.mocked(organizationsService.agents).mockResolvedValue([
-      shared,
-      {
-        ...shared,
-        id: "ready",
-        accountLabel: "Ready AGY",
-        availabilityStatus: "active",
-      },
-    ]);
-    const user = userEvent.setup();
-    render(
-      <Harness initialEntry="/playground?organization=team&provider=gemini" />,
-    );
-    await waitFor(() =>
-      expect(screen.getByLabelText("Account")).toHaveTextContent("Ready AGY"),
-    );
-    await waitFor(() =>
-      expect(screen.getByLabelText("Model")).toHaveTextContent(
-        "Provider model",
-      ),
-    );
-    expect(playgroundService.models).toHaveBeenCalledWith(
-      "gemini",
-      "ready",
-      expect.any(AbortSignal),
-      "team",
-    );
-    await user.type(screen.getByLabelText("Message"), "Hello team");
-    await user.click(screen.getByRole("button", { name: "Send message" }));
-    await screen.findByText("Completed");
-    expect(playgroundService.chat).toHaveBeenCalledWith(
-      expect.objectContaining({
-        connectionId: "ready",
-        organizationId: "team",
-      }),
-    );
-    vi.mocked(playgroundService.models).mockClear();
-    vi.mocked(playgroundService.chat).mockClear();
-    await chooseOption(
-      user,
-      "Account",
-      "Blocked AGY · owner · Needs reconnect",
-    );
-    expect(screen.getByLabelText("Account")).toHaveTextContent("Blocked AGY");
-    expect(
-      screen.getByText(/Its owner must reconnect it in Agents/),
-    ).toBeVisible();
-    await user.type(screen.getByLabelText("Message"), "Do not send this");
-    expect(screen.getByLabelText("Model")).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
-    expect(playgroundService.models).not.toHaveBeenCalled();
-    expect(playgroundService.chat).not.toHaveBeenCalled();
-  });
+        plan: "Unknown",
+        usage: [],
+      };
+      vi.mocked(organizationsService.agents).mockResolvedValue([
+        shared,
+        {
+          ...shared,
+          id: "ready",
+          accountLabel: "Ready AGY",
+          availabilityStatus: "active",
+        },
+      ]);
+      const user = userEvent.setup();
+      render(
+        <Harness
+          initialEntry={`/playground?organization=team&provider=${provider}`}
+        />,
+      );
+      await waitFor(() =>
+        expect(screen.getByLabelText("Account")).toHaveTextContent("Ready AGY"),
+      );
+      await waitFor(() =>
+        expect(screen.getByLabelText("Model")).toHaveTextContent(
+          "Provider model",
+        ),
+      );
+      expect(playgroundService.models).toHaveBeenCalledWith(
+        provider,
+        "ready",
+        expect.any(AbortSignal),
+        "team",
+      );
+      await user.type(screen.getByLabelText("Message"), "Hello team");
+      await user.click(screen.getByRole("button", { name: "Send message" }));
+      await screen.findByText("Completed");
+      expect(playgroundService.chat).toHaveBeenCalledWith(
+        expect.objectContaining({
+          connectionId: "ready",
+          organizationId: "team",
+        }),
+      );
+      vi.mocked(playgroundService.models).mockClear();
+      vi.mocked(playgroundService.chat).mockClear();
+      await chooseOption(
+        user,
+        "Account",
+        "Blocked AGY · owner · Reconnect required",
+      );
+      expect(screen.getByLabelText("Account")).toHaveTextContent("Blocked AGY");
+      expect(
+        screen.getByText(/Its owner must reconnect it in Agents/),
+      ).toBeVisible();
+      await user.type(screen.getByLabelText("Message"), "Do not send this");
+      expect(screen.getByLabelText("Model")).toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: "Send message" }),
+      ).toBeDisabled();
+      expect(playgroundService.models).not.toHaveBeenCalled();
+      expect(playgroundService.chat).not.toHaveBeenCalled();
+    },
+  );
 
   it("keeps an explicitly linked blocked personal account selected until reconnect", async () => {
     vi.mocked(agentPoolsService.list).mockResolvedValue([
@@ -265,7 +272,7 @@ describe("Playground conversation flow", () => {
     );
     await screen.findByText(/Its owner must reconnect it in Agents/);
     expect(screen.getByLabelText("Account")).toHaveTextContent(
-      "Needs reconnect",
+      "Reconnect required",
     );
     expect(screen.getByLabelText("Model")).toBeDisabled();
     expect(playgroundService.models).not.toHaveBeenCalled();
@@ -495,10 +502,18 @@ describe("Playground conversation flow", () => {
       }),
     );
 
-    await chooseOption(user, "Account", "Second Gemini account · member");
-    expect(selectedAccount).toHaveTextContent("Second Gemini account · member");
+    await chooseOption(
+      user,
+      "Account",
+      "Second Gemini account · member · Active",
+    );
+    expect(selectedAccount).toHaveTextContent(
+      "Second Gemini account · member · Active",
+    );
     await user.type(screen.getByLabelText("Message"), "Keep my choice");
-    expect(selectedAccount).toHaveTextContent("Second Gemini account · member");
+    expect(selectedAccount).toHaveTextContent(
+      "Second Gemini account · member · Active",
+    );
 
     await chooseOption(user, "Provider", "Grok");
     expect(selectedAccount).toHaveTextContent("No accounts available");
@@ -536,10 +551,14 @@ describe("Playground conversation flow", () => {
       screen.queryByRole("option", { name: /someone-else/ }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("option", { name: "Shared account · pool-owner" }),
+      screen.getByRole("option", {
+        name: "Shared account · pool-owner · Active",
+      }),
     ).toBeEnabled();
     await user.click(
-      screen.getByRole("option", { name: "Shared account · pool-owner" }),
+      screen.getByRole("option", {
+        name: "Shared account · pool-owner · Active",
+      }),
     );
     await user.type(
       screen.getByLabelText("Message"),
