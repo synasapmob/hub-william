@@ -37,6 +37,10 @@ import agentConnectionsService, {
   type AgentConnection,
   type AgentProvider,
 } from "@/services/agent-connections";
+import agentPoolsService from "@/services/agent-pools";
+import organizationsService from "@/services/organizations";
+import playgroundService from "@/services/playground";
+import { agentAvailabilityStatusLabel } from "@/utils/utils.agent-pools";
 
 interface ConnectionFormValues {
   apiKey: string;
@@ -51,6 +55,7 @@ interface AgentsConnectDialogProps {
 
 interface AgentProviderOptionProps {
   connectedCount: number;
+  reconnectCount: number;
   disabled: boolean;
   label: string;
   onConnect: (provider: AgentProvider) => void;
@@ -77,6 +82,7 @@ const providers: ProviderOption[] = [
 
 function AgentProviderOption({
   connectedCount,
+  reconnectCount,
   disabled,
   label,
   onConnect,
@@ -85,7 +91,7 @@ function AgentProviderOption({
   return (
     <li>
       <Button
-        className="h-auto w-full justify-between p-3"
+        className="h-auto w-full flex-wrap justify-between p-3"
         disabled={disabled}
         onClick={() => onConnect(provider)}
         type="button"
@@ -100,8 +106,13 @@ function AgentProviderOption({
 
         <Flex className="items-center gap-2">
           {connectedCount > 0 ? (
-            <Badge className="bg-emerald-50 text-emerald-700">
-              {connectedCount} connected
+            <Badge variant="secondary">
+              {connectedCount} {connectedCount === 1 ? "account" : "accounts"}
+            </Badge>
+          ) : null}
+          {reconnectCount > 0 ? (
+            <Badge variant="destructive">
+              {reconnectCount} reconnect required
             </Badge>
           ) : null}
           {provider === "deepseek" ? (
@@ -196,6 +207,13 @@ export default function AgentsConnectDialog({
     async (connection: AgentConnection) => {
       if (notifiedConnectionIds.current.has(connection.id)) return;
       notifiedConnectionIds.current.add(connection.id);
+      await Promise.all(
+        [
+          agentPoolsService.queryKey,
+          organizationsService.queryKey,
+          playgroundService.queryKey,
+        ].map((queryKey) => queryClient.invalidateQueries({ queryKey })),
+      );
       try {
         await onConnected?.(connection);
       } catch (error) {
@@ -206,7 +224,7 @@ export default function AgentsConnectDialog({
         );
       }
     },
-    [onConnected],
+    [onConnected, queryClient],
   );
 
   useEffect(() => {
@@ -390,8 +408,9 @@ export default function AgentsConnectDialog({
           </Center>
           <DialogTitle>Connect an agent account</DialogTitle>
           <DialogDescription>
-            Subscription accounts open their official authorization page.
-            DeepSeek API keys are verified once and encrypted server-side.
+            {onAddExisting
+              ? "Add an account already connected in Workspace, or connect a new account below."
+              : "Subscription accounts open their official authorization page. DeepSeek API keys are verified once and encrypted server-side."}
           </DialogDescription>
         </DialogHeader>
 
@@ -399,7 +418,8 @@ export default function AgentsConnectDialog({
           <section className="space-y-2 border-b border-zinc-200 pb-4">
             <h3 className="text-sm font-semibold">Share a connected agent</h3>
             <p className="text-xs text-muted-foreground">
-              Everyone in this organization can use an agent you share.
+              Add your existing account without signing in again. Its current
+              provider status applies in both Workspace and this organization.
             </p>
             <ul className="max-h-40 space-y-1.5 overflow-y-auto">
               {availableConnections.map((connection) => (
@@ -412,12 +432,19 @@ export default function AgentsConnectDialog({
                     type="button"
                     variant="outline"
                   >
-                    <span className="truncate">
-                      {providers.find(
-                        (item) => item.provider === connection.provider,
-                      )?.label ?? connection.provider}{" "}
-                      · {connection.accountLabel ?? "Connected account"}
-                    </span>
+                    <div className="min-w-0 space-y-1">
+                      <p className="truncate">
+                        {providers.find(
+                          (item) => item.provider === connection.provider,
+                        )?.label ?? connection.provider}{" "}
+                        · {connection.accountLabel ?? "Connected account"}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {agentAvailabilityStatusLabel(
+                          connection.availabilityStatus,
+                        )}
+                      </p>
+                    </div>
                     <span className="shrink-0 text-xs">
                       {addingExistingId === connection.id ? "Adding…" : "Add"}
                     </span>
@@ -426,6 +453,10 @@ export default function AgentsConnectDialog({
               ))}
             </ul>
           </section>
+        ) : null}
+
+        {onAddExisting ? (
+          <h3 className="text-sm font-semibold">Connect a new account</h3>
         ) : null}
 
         <ul className="grid gap-2">
@@ -437,6 +468,14 @@ export default function AgentsConnectDialog({
                   (connection) =>
                     connection.provider === provider &&
                     connection.status === "connected",
+                ).length
+              }
+              reconnectCount={
+                connections.filter(
+                  (connection) =>
+                    connection.provider === provider &&
+                    connection.status === "connected" &&
+                    connection.availabilityStatus === "reauth_required",
                 ).length
               }
               disabled={startMutation.isPending || deepseekMutation.isPending}

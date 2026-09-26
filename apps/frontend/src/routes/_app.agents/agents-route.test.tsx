@@ -148,6 +148,7 @@ function renderRoute(
   user?: SessionFixture,
   initialPools = [poolFixture()],
   reauthorizationRequired = false,
+  queryClient = createQueryClient(),
 ) {
   let pools = initialPools;
   const fetchMock = vi.fn(
@@ -302,7 +303,7 @@ function renderRoute(
   vi.stubGlobal("fetch", fetchMock);
 
   render(
-    <QueryClientProvider client={createQueryClient()}>
+    <QueryClientProvider client={queryClient}>
       <MemoryRouter>
         <TooltipProvider>
           <WorkspaceShellSession>
@@ -1151,7 +1152,25 @@ describe("AgentsRoute", () => {
     };
     vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
     const user = userEvent.setup();
-    renderRoute({ id: "owner-1", username: "synasapmob" });
+    const queryClient = createQueryClient();
+    const sharedViews = [
+      ["organizations", "team", "agents"],
+      ["playground", "models", "owner-1", "chatgpt", poolFixture().id],
+      ["agent-connections", "owner-1"],
+    ];
+    for (const key of sharedViews) queryClient.setQueryData(key, []);
+    const pollingKey = [
+      "agent-connections",
+      "refresh-status",
+      poolFixture().id,
+    ];
+    queryClient.setQueryData(pollingKey, {});
+    renderRoute(
+      { id: "owner-1", username: "synasapmob" },
+      [poolFixture()],
+      false,
+      queryClient,
+    );
 
     await openAccount(user);
     await user.click(screen.getByRole("button", { name: "Manage" }));
@@ -1164,6 +1183,10 @@ describe("AgentsRoute", () => {
     ).toBeVisible();
     expect(screen.getByText("Provider credential refreshed")).toBeVisible();
     expect(popup.close).toHaveBeenCalled();
+    for (const key of sharedViews) {
+      expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true);
+    }
+    expect(queryClient.getQueryState(pollingKey)?.isInvalidated).toBe(false);
   });
 
   it("opens provider authorization and reconnects the same pool when refresh is rejected", async () => {

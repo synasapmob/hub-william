@@ -47,6 +47,17 @@ struct GatewaySelection {
     organization_id: Option<Uuid>,
 }
 
+fn reauthorization_error(selection: GatewaySelection) -> ApiError {
+    ApiError::Provider(
+        if selection.connection_id.is_some() {
+            "The selected account needs to reconnect. Its owner must complete provider reauthorization or account verification in Agents, or you can choose another account."
+        } else {
+            "Every accessible pool for this provider needs to reconnect."
+        }
+        .to_owned(),
+    )
+}
+
 impl From<Uuid> for GatewaySelection {
     fn from(user_id: Uuid) -> Self {
         Self {
@@ -1615,9 +1626,7 @@ async fn gemini_models_for_user(
     if saw_rate_limit {
         Err(ApiError::RateLimited)
     } else if saw_reauthorization {
-        Err(ApiError::Provider(
-            "Every accessible pool for this provider needs to reconnect.".to_owned(),
-        ))
+        Err(reauthorization_error(selection))
     } else {
         Err(last_error.unwrap_or(ApiError::Forbidden))
     }
@@ -1907,9 +1916,7 @@ async fn gemini_proxy_request_for_user(
     if saw_rate_limit {
         Err(ApiError::RateLimited)
     } else if saw_reauthorization {
-        Err(ApiError::Provider(
-            "Every accessible pool for this provider needs to reconnect.".to_owned(),
-        ))
+        Err(reauthorization_error(selection))
     } else if let Some(response) = last_pool_response {
         Ok(response)
     } else {
@@ -2430,9 +2437,7 @@ async fn proxy_request_for_user(
     if saw_rate_limit {
         Err(ApiError::RateLimited)
     } else if saw_reauthorization {
-        Err(ApiError::Provider(
-            "Every accessible pool for this provider needs to reconnect.".to_owned(),
-        ))
+        Err(reauthorization_error(selection))
     } else {
         Err(last_error.unwrap_or(ApiError::Forbidden))
     }
@@ -4113,6 +4118,63 @@ mod gemini_gateway_database_tests {
                 .await
                 .unwrap();
         assert_eq!(availability, "reauth_required");
+
+        // An organization request stays pinned even when another shared pool
+        // is usable. The error must describe only its selected account.
+        let org_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO organizations (id, name) VALUES ($1, 'Team')")
+            .bind(org_id)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_memberships (id, org_id, user_id, role, status, joined_at)
+             VALUES ($1, $2, $3, 'owner', 'accepted', NOW())",
+        )
+        .bind(Uuid::new_v4())
+        .bind(org_id)
+        .bind(user_id)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_agents (org_id, connection_id, owner_user_id)
+             SELECT $1, id, user_id FROM agent_connections WHERE user_id = $2",
+        )
+        .bind(org_id)
+        .bind(user_id)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+        for organization_id in [None, Some(org_id)] {
+            let pinned = GatewaySelection {
+                user_id,
+                connection_id: Some(blocked_id),
+                organization_id,
+            };
+            let models = super::gemini_models_for_user(&state, pinned).await;
+            assert!(
+                matches!(models, Err(crate::error::ApiError::Provider(message))
+                if message.starts_with("The selected account needs to reconnect."))
+            );
+            for operation in [GeminiOperation::Generate, GeminiOperation::CountTokens] {
+                let result = gemini_proxy_request_for_user(
+                    &state,
+                    pinned,
+                    "gemini-3.8-flash-high",
+                    operation,
+                    Bytes::from_static(
+                        br#"{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}"#,
+                    ),
+                )
+                .await;
+                assert!(
+                    matches!(result, Err(crate::error::ApiError::Provider(message))
+                    if message.starts_with("The selected account needs to reconnect."))
+                );
+            }
+        }
+        assert!(fake.generation_tokens.lock().unwrap().is_empty());
         server_task.abort();
     }
 }

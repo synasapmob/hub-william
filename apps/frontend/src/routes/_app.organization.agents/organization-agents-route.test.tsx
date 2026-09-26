@@ -26,6 +26,7 @@ const organization = {
 const connection: AgentConnection = {
   accountLabel: "••••1234",
   authorization: null,
+  availabilityStatus: "active",
   createdAt: "2026-09-23T00:00:00Z",
   failureMessage: null,
   id: "22222222-2222-4222-8222-222222222222",
@@ -38,78 +39,102 @@ const connection: AgentConnection = {
 afterEach(() => vi.restoreAllMocks());
 
 describe("Organization Agents", () => {
-  it("shows the provider layout with zero counts when no agents are shared", async () => {
-    vi.spyOn(agentConnectionsService, "list").mockResolvedValue([connection]);
-    vi.spyOn(organizationsService, "agents").mockResolvedValue([]);
-    const addAgent = vi
-      .spyOn(organizationsService, "addAgent")
-      .mockResolvedValue({
-        accountLabel: connection.accountLabel,
-        availabilityStatus: "active",
-        createdAt: connection.createdAt,
-        id: connection.id,
-        ownerUsername: "minh",
-        provider: connection.provider,
-        rateLimitedUntil: null,
+  it.each([
+    ["chatgpt", "ChatGPT"],
+    ["claude", "Claude"],
+    ["gemini", "Gemini / AGY"],
+    ["grok", "Grok"],
+    ["deepseek", "DeepSeek"],
+  ] as const)(
+    "shares an existing %s account with its real status without reauthorization",
+    async (provider, label) => {
+      const existing: AgentConnection = {
+        ...connection,
+        provider,
+        availabilityStatus: "reauth_required",
+      };
+      const start = vi.spyOn(agentConnectionsService, "start");
+      const refresh = vi.spyOn(agentConnectionsService, "refresh");
+      const complete = vi.spyOn(agentConnectionsService, "complete");
+      const popup = vi.spyOn(window, "open");
+      vi.spyOn(agentConnectionsService, "list").mockResolvedValue([existing]);
+      vi.spyOn(organizationsService, "agents").mockResolvedValue([]);
+      const addAgent = vi
+        .spyOn(organizationsService, "addAgent")
+        .mockResolvedValue({
+          accountLabel: existing.accountLabel,
+          availabilityStatus: existing.availabilityStatus,
+          createdAt: existing.createdAt,
+          id: existing.id,
+          ownerUsername: "minh",
+          provider: existing.provider,
+          rateLimitedUntil: null,
+        });
+
+      render(
+        <QueryClientProvider client={createQueryClient()}>
+          <WorkspaceShellSessionContext.Provider
+            value={{
+              user: {
+                id: "33333333-3333-4333-8333-333333333333",
+                username: "minh",
+                recoveryEmail: null,
+              },
+              status: "authenticated",
+              openAuth: vi.fn(),
+              signOut: vi.fn(),
+            }}
+          >
+            <MemoryRouter initialEntries={["/organization/agents"]}>
+              <Routes>
+                <Route
+                  path="/organization"
+                  element={<Outlet context={{ organization }} />}
+                >
+                  <Route path="agents" element={<OrganizationAgentsRoute />} />
+                </Route>
+              </Routes>
+            </MemoryRouter>
+          </WorkspaceShellSessionContext.Provider>
+        </QueryClientProvider>,
+      );
+
+      const providers = await screen.findByRole("navigation", {
+        name: "Agent providers",
       });
+      expect(
+        within(providers).getByRole("button", { name: "ChatGPT, 0 accounts" }),
+      ).toBeVisible();
+      expect(
+        within(providers).getByRole("button", { name: "DeepSeek, 0 accounts" }),
+      ).toBeVisible();
+      expect(
+        screen.getByRole("textbox", { name: "Search accounts" }),
+      ).toBeVisible();
+      expect(screen.queryByText("No agents yet")).not.toBeInTheDocument();
+      expect(screen.queryByText("Add my agent")).not.toBeInTheDocument();
+      expect(screen.queryByText(/No accounts match/)).not.toBeInTheDocument();
 
-    render(
-      <QueryClientProvider client={createQueryClient()}>
-        <WorkspaceShellSessionContext.Provider
-          value={{
-            user: {
-              id: "33333333-3333-4333-8333-333333333333",
-              username: "minh",
-              recoveryEmail: null,
-            },
-            status: "authenticated",
-            openAuth: vi.fn(),
-            signOut: vi.fn(),
-          }}
-        >
-          <MemoryRouter initialEntries={["/organization/agents"]}>
-            <Routes>
-              <Route
-                path="/organization"
-                element={<Outlet context={{ organization }} />}
-              >
-                <Route path="agents" element={<OrganizationAgentsRoute />} />
-              </Route>
-            </Routes>
-          </MemoryRouter>
-        </WorkspaceShellSessionContext.Provider>
-      </QueryClientProvider>,
-    );
-
-    const providers = await screen.findByRole("navigation", {
-      name: "Agent providers",
-    });
-    expect(
-      within(providers).getByRole("button", { name: "ChatGPT, 0 accounts" }),
-    ).toBeVisible();
-    expect(
-      within(providers).getByRole("button", { name: "DeepSeek, 0 accounts" }),
-    ).toBeVisible();
-    expect(
-      screen.getByRole("textbox", { name: "Search accounts" }),
-    ).toBeVisible();
-    expect(screen.queryByText("No agents yet")).not.toBeInTheDocument();
-    expect(screen.queryByText("Add my agent")).not.toBeInTheDocument();
-    expect(screen.queryByText(/No accounts match/)).not.toBeInTheDocument();
-
-    const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Connect Agent" }));
-    expect(screen.getByText("Share a connected agent")).toBeVisible();
-    await user.click(
-      screen.getByRole("button", {
-        name: "Add DeepSeek ••••1234 to organization",
-      }),
-    );
-    await waitFor(() =>
-      expect(addAgent).toHaveBeenCalledWith(organization.id, connection.id),
-    );
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-  });
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: "Connect Agent" }));
+      expect(screen.getByText("Share a connected agent")).toBeVisible();
+      expect(await screen.findByText("Reconnect required")).toBeVisible();
+      expect(screen.getByText(/without signing in again/)).toBeVisible();
+      await user.click(
+        screen.getByRole("button", {
+          name: `Add ${label} ••••1234 to organization`,
+        }),
+      );
+      await waitFor(() =>
+        expect(addAgent).toHaveBeenCalledWith(organization.id, existing.id),
+      );
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(start).not.toHaveBeenCalled();
+      expect(refresh).not.toHaveBeenCalled();
+      expect(complete).not.toHaveBeenCalled();
+      expect(popup).not.toHaveBeenCalled();
+    },
+  );
 
   it("lets a member connect an agent and immediately shares it with the organization", async () => {
     let shared: OrganizationAgentDetails[] = [];

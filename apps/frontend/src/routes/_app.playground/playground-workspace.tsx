@@ -18,7 +18,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { useWorkspaceSession } from "@/components/workspace-shell/workspace-shell-session-context";
 import agentPoolsService from "@/services/agent-pools";
 import organizationsService from "@/services/organizations";
-import { agentPoolAccess } from "@/utils/utils.agent-pools";
+import {
+  agentAvailabilityStatusLabel,
+  agentPoolAccess,
+} from "@/utils/utils.agent-pools";
+import agentConnectionsService from "@/services/agent-connections";
 import playgroundService, {
   PlaygroundServiceError,
   type PlaygroundChatOptions,
@@ -97,6 +101,7 @@ export default function PlaygroundWorkspace({
           id: agent.id,
           accountLabel: agent.accountLabel ?? "Connected account",
           ownerUsername: agent.ownerUsername,
+          availabilityStatus: agent.availabilityStatus,
         }))
     : (poolQuery.data ?? [])
         .filter((pool) => {
@@ -108,6 +113,7 @@ export default function PlaygroundWorkspace({
           id: pool.id,
           accountLabel: pool.accountLabel,
           ownerUsername: pool.owner.username,
+          availabilityStatus: pool.availability.status,
         }));
   const accountLoading = organizationRequested
     ? organizationsQuery.isPending ||
@@ -115,8 +121,13 @@ export default function PlaygroundWorkspace({
     : poolQuery.isPending;
   const selectedAccount =
     accounts.find((pool) => pool.id === form.watch("connectionId")) ??
+    accounts.find(
+      (account) => account.availabilityStatus !== "reauth_required",
+    ) ??
     accounts[0];
   const connectionId = selectedAccount?.id;
+  const needsReconnect =
+    selectedAccount?.availabilityStatus === "reauth_required";
 
   useEffect(() => {
     if (accountLoading) return;
@@ -146,10 +157,11 @@ export default function PlaygroundWorkspace({
     enabled: Boolean(
       userId &&
       connectionId &&
+      !needsReconnect &&
       (!organizationRequested || selectedOrganization),
     ),
   });
-  const models = modelQuery.data ?? [];
+  const models = needsReconnect ? [] : (modelQuery.data ?? []);
   const currentLineupOnly = provider === "chatgpt" || provider === "claude";
   const selectedModel =
     models.find((entry) => entry.id === form.watch("model")) ?? models[0];
@@ -158,15 +170,14 @@ export default function PlaygroundWorkspace({
       playgroundService.chat(options),
     retry: false,
     onSettled: () => {
-      if (organizationRequested) {
-        void queryClient.invalidateQueries({
-          queryKey: [...organizationsService.queryKey, organizationId],
-        });
-      } else {
-        void queryClient.invalidateQueries({
-          queryKey: agentPoolsService.queryKey,
-        });
-      }
+      // Provider availability belongs to the account in every sharing scope.
+      void Promise.all(
+        [
+          agentPoolsService.queryKey,
+          agentConnectionsService.queryKey,
+          organizationsService.queryKey,
+        ].map((queryKey) => queryClient.invalidateQueries({ queryKey })),
+      );
     },
   });
   const busy = form.formState.isSubmitting || mutation.isPending;
@@ -489,7 +500,8 @@ export default function PlaygroundWorkspace({
               <SelectContent>
                 {accounts.map((account) => (
                   <SelectItem key={account.id} value={account.id}>
-                    {account.accountLabel} · {account.ownerUsername}
+                    {account.accountLabel} · {account.ownerUsername} ·{" "}
+                    {agentAvailabilityStatusLabel(account.availabilityStatus)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -532,6 +544,33 @@ export default function PlaygroundWorkspace({
             </Select>
           </div>
         </div>
+
+        {needsReconnect ? (
+          <div className="space-y-2">
+            <p className="text-sm text-destructive">
+              This account needs provider reauthorization or verification. Its
+              owner must reconnect it in Agents. You can choose another account.
+            </p>
+
+            <Button
+              disabled={
+                organizationRequested
+                  ? organizationAgentsQuery.isFetching
+                  : poolQuery.isFetching
+              }
+              onClick={() =>
+                void (organizationRequested
+                  ? organizationAgentsQuery.refetch()
+                  : poolQuery.refetch())
+              }
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Refresh account status
+            </Button>
+          </div>
+        ) : null}
       </section>
 
       <section className="flex h-[calc(100svh-18rem)] min-h-112 max-h-192 min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-white">
