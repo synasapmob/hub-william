@@ -148,6 +148,7 @@ pub struct AgentAuthorizationPrompt {
 pub struct AgentConnection {
     pub account_label: Option<String>,
     pub authorization: Option<AgentAuthorizationPrompt>,
+    pub availability_status: String,
     pub created_at: DateTime<Utc>,
     pub failure_message: Option<String>,
     pub id: Uuid,
@@ -159,6 +160,7 @@ pub struct AgentConnection {
 
 #[derive(Debug, FromRow)]
 struct ConnectionRow {
+    availability_status: String,
     account_label: Option<String>,
     created_at: DateTime<Utc>,
     failure_message: Option<String>,
@@ -328,7 +330,7 @@ pub async fn start(
         "INSERT INTO agent_connections
             (id, user_id, provider, status, account_label, plan, failure_message)
          VALUES ($1, $2, $3, 'pending', NULL, NULL, NULL)
-         RETURNING id, provider, status, account_label, plan, failure_message, created_at, updated_at",
+         RETURNING id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at",
     )
     .bind(connection_id)
     .bind(user_id)
@@ -411,7 +413,7 @@ pub async fn connect_deepseek(
         "INSERT INTO agent_connections
             (id, user_id, provider, status, account_label, plan, failure_message)
          VALUES ($1, $2, 'deepseek', 'pending', NULL, NULL, NULL)
-         RETURNING id, provider, status, account_label, plan, failure_message, created_at, updated_at",
+         RETURNING id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at",
     )
     .bind(Uuid::new_v4())
     .bind(user_id)
@@ -465,7 +467,7 @@ async fn start_connection_reauthorization(
              failure_message = NULL,
              updated_at = NOW()
          WHERE id = $1
-         RETURNING id, provider, status, account_label, plan, failure_message, created_at, updated_at",
+         RETURNING id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at",
     )
     .bind(row.id)
     .fetch_one(&mut *transaction)
@@ -491,7 +493,7 @@ pub async fn list_connections(
 ) -> Result<Json<Vec<AgentConnection>>, ApiError> {
     let user_id = authenticated_user_id(&state, &jar).await?;
     let rows = sqlx::query_as::<_, ConnectionRow>(
-        "SELECT id, provider, status, account_label, plan, failure_message, created_at, updated_at
+        "SELECT id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at
          FROM agent_connections WHERE user_id = $1 ORDER BY created_at ASC",
     )
     .bind(user_id)
@@ -1271,7 +1273,7 @@ async fn finish_connection(
         "UPDATE agent_connections SET status = 'connected', account_label = $2, plan = $3,
           failure_message = NULL, availability_status = 'active', rate_limited_until = NULL,
           retry_claimed_at = NULL, user_id = $4, updated_at = NOW() WHERE id = $1
-          RETURNING id, provider, status, account_label, plan, failure_message, created_at, updated_at",
+          RETURNING id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at",
     )
     .bind(target_id)
     .bind(account_label)
@@ -1658,7 +1660,7 @@ pub async fn refresh_due_provider_credentials(
     state: &AppState,
 ) -> Result<ProviderCredentialRefreshSummary, sqlx::Error> {
     let rows = sqlx::query_as::<_, ConnectionRow>(
-        "SELECT connections.id, connections.provider, connections.status,
+        "SELECT connections.id, connections.provider, connections.status, connections.availability_status,
                 connections.account_label, connections.plan, connections.failure_message,
                 connections.created_at, connections.updated_at
          FROM agent_connections AS connections
@@ -1690,7 +1692,7 @@ pub async fn refresh_nightly_provider_credentials(
     day_start_utc: DateTime<Utc>,
 ) -> Result<ProviderCredentialRefreshSummary, sqlx::Error> {
     let rows = sqlx::query_as::<_, ConnectionRow>(
-        "SELECT connections.id, connections.provider, connections.status,
+        "SELECT connections.id, connections.provider, connections.status, connections.availability_status,
                 connections.account_label, connections.plan, connections.failure_message,
                 connections.created_at, connections.updated_at
          FROM agent_connections AS connections
@@ -1755,7 +1757,7 @@ pub async fn refresh_all_provider_credentials(
     state: &AppState,
 ) -> Result<Vec<ProviderCredentialRefreshResult>, sqlx::Error> {
     let rows = sqlx::query_as::<_, ConnectionRow>(
-        "SELECT id, provider, status, account_label, plan, failure_message, created_at, updated_at
+        "SELECT id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at
          FROM agent_connections WHERE status = 'connected' ORDER BY provider, created_at",
     )
     .fetch_all(&state.pool)
@@ -1822,7 +1824,7 @@ async fn finish_refresh_reauthorization(
              failure_message = $2, updated_at = NOW()
          WHERE id = $1 AND status = 'connected'
            AND availability_status <> 'reauth_required'
-         RETURNING id, provider, status, account_label, plan, failure_message, created_at, updated_at",
+         RETURNING id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at",
     )
     .bind(row.id)
     .bind(EXPIRED_PROVIDER_AUTHORIZATION_MESSAGE)
@@ -1832,7 +1834,7 @@ async fn finish_refresh_reauthorization(
     let updated = match updated {
         Some(updated) => updated,
         None => sqlx::query_as::<_, ConnectionRow>(
-            "SELECT id, provider, status, account_label, plan, failure_message,
+            "SELECT id, provider, status, availability_status, account_label, plan, failure_message,
                     created_at, updated_at
              FROM agent_connections WHERE id = $1",
         )
@@ -1876,7 +1878,7 @@ async fn refresh_connected_connection(
     .map_err(database_error)?;
     let Some(credential) = credential else {
         let current = sqlx::query_as::<_, ConnectionRow>(
-            "SELECT id, provider, status, account_label, plan, failure_message,
+            "SELECT id, provider, status, availability_status, account_label, plan, failure_message,
                     created_at, updated_at
              FROM agent_connections WHERE id = $1 FOR UPDATE",
         )
@@ -2354,7 +2356,7 @@ async fn fail_connection(
              failure_message = $2,
              updated_at = NOW()
          WHERE id = $1
-         RETURNING id, provider, status, account_label, plan, failure_message, created_at, updated_at",
+         RETURNING id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at",
     )
     .bind(row.id)
     .bind(message)
@@ -2370,7 +2372,7 @@ async fn owned_connection(
     connection_id: Uuid,
 ) -> Result<ConnectionRow, ApiError> {
     sqlx::query_as::<_, ConnectionRow>(
-        "SELECT id, provider, status, account_label, plan, failure_message, created_at, updated_at
+        "SELECT id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at
          FROM agent_connections WHERE id = $1 AND user_id = $2",
     )
     .bind(connection_id)
@@ -2386,7 +2388,7 @@ async fn owned_connection_by_id(
     connection_id: Uuid,
 ) -> Result<ConnectionRow, ApiError> {
     sqlx::query_as::<_, ConnectionRow>(
-        "SELECT id, provider, status, account_label, plan, failure_message, created_at, updated_at
+        "SELECT id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at
          FROM agent_connections WHERE id = $1",
     )
     .bind(connection_id)
@@ -2443,6 +2445,7 @@ fn connection_from_row(
     Ok(AgentConnection {
         account_label: row.account_label,
         authorization,
+        availability_status: row.availability_status,
         created_at: row.created_at,
         failure_message: row.failure_message,
         id: row.id,

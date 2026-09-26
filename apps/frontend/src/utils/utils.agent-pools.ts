@@ -46,6 +46,12 @@ export const agentPoolAvailabilityLabels: Record<
   reauth_required: "Reconnect required",
 };
 
+export function agentAvailabilityStatusLabel(status: string) {
+  return (
+    agentPoolAvailabilityLabels[status as AgentPoolAvailabilityStatus] ?? status
+  );
+}
+
 export function agentPoolAccess(pool: AgentPool, username: string | null) {
   if (username === pool.owner.username) return "owner";
   if (pool.members.some((member) => member.username === username))

@@ -17,6 +17,8 @@ import agentPoolsService, {
   type AgentPool,
   type AgentPoolRequestStatus,
 } from "@/services/agent-pools";
+import organizationsService from "@/services/organizations";
+import playgroundService from "@/services/playground";
 
 import AgentsExplorer from "./agents-explorer";
 import AgentsRequestDialog, {
@@ -45,6 +47,27 @@ export default function AgentsRoute() {
   const queryClient = useQueryClient();
   const [requestPoolId, setRequestPoolId] = useState<string | null>(null);
   const [reviewPoolId, setReviewPoolId] = useState<string | null>(null);
+  const refreshAgentData = useCallback(
+    () =>
+      Promise.all(
+        [
+          agentPoolsService.queryKey,
+          agentConnectionsService.queryKey,
+          organizationsService.queryKey,
+          playgroundService.queryKey,
+        ].map((queryKey) =>
+          queryClient.invalidateQueries({
+            queryKey,
+            // Completion polling already supplied the fresh connection. Refetching
+            // it here would trigger onRefreshComplete and invalidate it forever.
+            predicate: (query) =>
+              query.queryKey[1] !== "refresh-status" &&
+              query.queryKey[1] !== "status",
+          }),
+        ),
+      ),
+    [queryClient],
+  );
   const poolsQuery = useQuery({
     enabled: session.status !== "loading",
     queryFn: agentPoolsService.list,
@@ -76,16 +99,13 @@ export default function AgentsRoute() {
   });
   const refreshMutation = useMutation({
     mutationFn: (poolId: string) => agentConnectionsService.refresh(poolId),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: agentPoolsService.queryKey }),
+    onSuccess: refreshAgentData,
   });
   const deletePoolMutation = useMutation({
     mutationFn: (poolId: string) => agentConnectionsService.disconnect(poolId),
     onSuccess: async () => {
       setReviewPoolId(null);
-      await queryClient.invalidateQueries({
-        queryKey: agentPoolsService.queryKey,
-      });
+      await refreshAgentData();
     },
   });
   const pools = poolsQuery.data ?? [];
@@ -168,11 +188,9 @@ export default function AgentsRoute() {
         ],
         connection,
       );
-      void queryClient.invalidateQueries({
-        queryKey: agentPoolsService.queryKey,
-      });
+      void refreshAgentData();
     },
-    [queryClient],
+    [queryClient, refreshAgentData],
   );
 
   return (
