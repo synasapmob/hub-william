@@ -79,14 +79,18 @@ async function selectAccount(user: ReturnType<typeof userEvent.setup>) {
 }
 interface HarnessProps {
   guest?: boolean;
+  initialEntry?: string;
 }
-function Harness({ guest = false }: HarnessProps) {
+function Harness({
+  guest = false,
+  initialEntry = "/playground",
+}: HarnessProps) {
   const [queryClient] = useState(createQueryClient);
   const [signedIn, setSignedIn] = useState(!guest);
   return (
     <StrictMode>
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter>
+        <MemoryRouter initialEntries={[initialEntry]}>
           <WorkspaceShellSessionContext.Provider
             value={{
               user: signedIn
@@ -125,6 +129,149 @@ beforeEach(() => {
 });
 
 describe("Playground conversation flow", () => {
+  it("defaults to a usable organization account and keeps a blocked selection pinned", async () => {
+    vi.mocked(organizationsService.list).mockResolvedValue([
+      {
+        id: "team",
+        name: "Team",
+        role: "member",
+        description: null,
+        createdAt: "2026-09-26",
+      },
+    ]);
+    const shared: OrganizationAgentDetails = {
+      id: "blocked",
+      accountLabel: "Blocked AGY",
+      ownerUsername: "owner",
+      provider: "Gemini",
+      availabilityStatus: "reauth_required",
+      rateLimitedUntil: null,
+      createdAt: "2026-09-26",
+      plan: "Unknown",
+      usage: [],
+    };
+    vi.mocked(organizationsService.agents).mockResolvedValue([
+      shared,
+      {
+        ...shared,
+        id: "ready",
+        accountLabel: "Ready AGY",
+        availabilityStatus: "active",
+      },
+    ]);
+    const user = userEvent.setup();
+    render(
+      <Harness initialEntry="/playground?organization=team&provider=gemini" />,
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("Account")).toHaveTextContent("Ready AGY"),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("Model")).toHaveTextContent(
+        "Provider model",
+      ),
+    );
+    expect(playgroundService.models).toHaveBeenCalledWith(
+      "gemini",
+      "ready",
+      expect.any(AbortSignal),
+      "team",
+    );
+    await user.type(screen.getByLabelText("Message"), "Hello team");
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+    await screen.findByText("Completed");
+    expect(playgroundService.chat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionId: "ready",
+        organizationId: "team",
+      }),
+    );
+    vi.mocked(playgroundService.models).mockClear();
+    vi.mocked(playgroundService.chat).mockClear();
+    await chooseOption(
+      user,
+      "Account",
+      "Blocked AGY · owner · Needs reconnect",
+    );
+    expect(screen.getByLabelText("Account")).toHaveTextContent("Blocked AGY");
+    expect(
+      screen.getByText(/Its owner must reconnect it in Agents/),
+    ).toBeVisible();
+    await user.type(screen.getByLabelText("Message"), "Do not send this");
+    expect(screen.getByLabelText("Model")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+    expect(playgroundService.models).not.toHaveBeenCalled();
+    expect(playgroundService.chat).not.toHaveBeenCalled();
+  });
+
+  it("keeps an explicitly linked blocked personal account selected until reconnect", async () => {
+    vi.mocked(agentPoolsService.list).mockResolvedValue([
+      {
+        ...account,
+        availability: { ...account.availability, status: "reauth_required" },
+      },
+      { ...account, id: "ready", accountLabel: "Ready account" },
+    ]);
+    const user = userEvent.setup();
+    render(
+      <Harness initialEntry="/playground?provider=deepseek&connection=account-a" />,
+    );
+    await screen.findByText(/Its owner must reconnect it in Agents/);
+    expect(screen.getByLabelText("Account")).toHaveTextContent("My account");
+    expect(playgroundService.models).not.toHaveBeenCalled();
+    await user.type(screen.getByLabelText("Message"), "Keep draft");
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+    vi.mocked(agentPoolsService.list).mockResolvedValue([account]);
+    await user.click(
+      screen.getByRole("button", { name: "Refresh account status" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("Model")).toHaveTextContent(
+        "Provider model",
+      ),
+    );
+    expect(
+      screen.queryByText(/Its owner must reconnect it in Agents/),
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Message")).toHaveValue("Keep draft");
+    expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
+  });
+
+  it("shows recovery guidance when all organization accounts need reconnect", async () => {
+    vi.mocked(organizationsService.list).mockResolvedValue([
+      {
+        id: "team",
+        name: "Team",
+        role: "member",
+        description: null,
+        createdAt: "2026-09-26",
+      },
+    ]);
+    vi.mocked(organizationsService.agents).mockResolvedValue([
+      {
+        id: "blocked",
+        accountLabel: "Blocked AGY",
+        ownerUsername: "owner",
+        provider: "Gemini",
+        availabilityStatus: "reauth_required",
+        rateLimitedUntil: null,
+        createdAt: "2026-09-26",
+        plan: "Unknown",
+        usage: [],
+      },
+    ]);
+    render(
+      <Harness initialEntry="/playground?organization=team&provider=gemini" />,
+    );
+    await screen.findByText(/Its owner must reconnect it in Agents/);
+    expect(screen.getByLabelText("Account")).toHaveTextContent(
+      "Needs reconnect",
+    );
+    expect(screen.getByLabelText("Model")).toBeDisabled();
+    expect(playgroundService.models).not.toHaveBeenCalled();
+    expect(playgroundService.chat).not.toHaveBeenCalled();
+  });
+
   it("keeps a guest draft through authentication and loads only accessible models", async () => {
     const user = userEvent.setup();
     render(<Harness guest />);
