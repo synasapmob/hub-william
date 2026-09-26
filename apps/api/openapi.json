@@ -1502,7 +1502,14 @@
       },
       "AgentConnection": {
         "type": "object",
-        "required": ["created_at", "id", "provider", "status", "updated_at"],
+        "required": [
+          "availability_status",
+          "created_at",
+          "id",
+          "provider",
+          "status",
+          "updated_at"
+        ],
         "properties": {
           "account_label": {
             "type": ["string", "null"]
@@ -1516,6 +1523,9 @@
                 "$ref": "#/components/schemas/AgentAuthorizationPrompt"
               }
             ]
+          },
+          "availability_status": {
+            "type": "string"
           },
           "created_at": {
             "type": "string",

@@ -20,6 +20,7 @@ export interface AgentAuthorizationPrompt {
 export interface AgentConnection {
   accountLabel: string | null;
   authorization: AgentAuthorizationPrompt | null;
+  availabilityStatus: string;
   createdAt: string;
   failureMessage: string | null;
   id: string;
@@ -43,6 +44,7 @@ export class AgentConnectionServiceError extends Error {}
 function connectionFromApi(connection: ApiAgentConnection): AgentConnection {
   return {
     accountLabel: connection.account_label ?? null,
+    availabilityStatus: connection.availability_status,
     authorization: connection.authorization
       ? {
           authorizationUrl: connection.authorization.authorization_url,

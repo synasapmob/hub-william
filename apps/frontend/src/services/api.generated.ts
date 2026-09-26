@@ -516,6 +516,7 @@ export interface components {
     AgentConnection: {
       account_label?: string | null;
       authorization?: null | components["schemas"]["AgentAuthorizationPrompt"];
+      availability_status: string;
       /** Format: date-time */
       created_at: string;
       failure_message?: string | null;

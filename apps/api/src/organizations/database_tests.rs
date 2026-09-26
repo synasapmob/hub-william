@@ -56,6 +56,81 @@ fn state(pool: PgPool) -> AppState {
 }
 
 #[sqlx::test]
+async fn existing_accounts_share_without_reauthorizing_and_keep_status_for_every_provider(
+    pool: PgPool,
+) {
+    let state = state(pool);
+    let owner = test_user(&state.pool).await;
+    let (_, Json(org)) = create_organization(
+        State(state.clone()),
+        owner.jar.clone(),
+        Json(CreateOrganization {
+            name: "All providers".to_owned(),
+            description: None,
+        }),
+    )
+    .await
+    .unwrap();
+    for provider in ["chatgpt", "claude", "gemini", "grok", "deepseek"] {
+        for availability in ["active", "reauth_required", "rate_limited", "half_open"] {
+            let id = Uuid::new_v4();
+            sqlx::query(
+                "INSERT INTO agent_connections (id, user_id, provider, status, availability_status)
+                 VALUES ($1, $2, $3, 'connected', $4)",
+            )
+            .bind(id)
+            .bind(owner.id)
+            .bind(provider)
+            .bind(availability)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+            // Sharing must not read, rotate or replace provider credentials.
+            sqlx::query(
+                "INSERT INTO agent_connection_credentials (connection_id, credential_ciphertext, credential_nonce)
+                 VALUES ($1, decode('010203', 'hex'), decode('000000000000000000000000', 'hex'))",
+            ).bind(id).execute(&state.pool).await.unwrap();
+            let (_, Json(shared)) = share_agent(
+                State(state.clone()),
+                owner.jar.clone(),
+                Path(org.id),
+                Json(ShareOrganizationAgent { connection_id: id }),
+            )
+            .await
+            .unwrap();
+            assert_eq!(shared.id, id);
+            assert_eq!(shared.availability_status, availability);
+            let Json(connections) =
+                crate::connections::list_connections(State(state.clone()), owner.jar.clone())
+                    .await
+                    .unwrap();
+            let workspace = connections.iter().find(|row| row.id == id).unwrap();
+            assert_eq!(workspace.availability_status, availability);
+            let (status, ciphertext, authorizations): (String, Vec<u8>, i64) = sqlx::query_as(
+                "SELECT c.status, cr.credential_ciphertext,
+                    (SELECT count(*) FROM agent_connection_authorizations WHERE connection_id = c.id)
+                 FROM agent_connections c JOIN agent_connection_credentials cr ON cr.connection_id = c.id
+                 WHERE c.id = $1",
+            ).bind(id).fetch_one(&state.pool).await.unwrap();
+            assert_eq!(status, "connected");
+            assert_eq!(ciphertext, [1, 2, 3]);
+            assert_eq!(authorizations, 0);
+        }
+    }
+    let Json(shared) = list_agents(
+        State(state.clone()),
+        owner.jar,
+        Path(org.id),
+        Query(OrganizationAgentListQuery {
+            include_usage: Some(false),
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(shared.len(), 20);
+}
+
+#[sqlx::test]
 async fn invitation_sharing_and_usage_obey_organization_boundary(pool: PgPool) {
     let state = state(pool);
     let owner = test_user(&state.pool).await;

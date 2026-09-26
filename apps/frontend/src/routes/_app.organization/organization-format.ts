@@ -21,11 +21,6 @@ export function providerLabel(value: string) {
 }
 
 export function availabilityLabel(value: string) {
-  const labels: Record<string, string> = {
-    active: "Active",
-    half_open: "Checking",
-    rate_limited: "Rate limited",
-    reauth_required: "Reconnect required",
-  };
-  return labels[value] ?? value;
+  return agentAvailabilityStatusLabel(value);
 }
+import { agentAvailabilityStatusLabel } from "@/utils/utils.agent-pools";

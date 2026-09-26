@@ -33,14 +33,16 @@ function requestOptions(
 }
 
 function renderDialog(fetchImplementation: typeof fetch) {
+  const queryClient = createQueryClient();
   vi.stubGlobal("fetch", vi.fn(fetchImplementation));
   render(
-    <QueryClientProvider client={createQueryClient()}>
+    <QueryClientProvider client={queryClient}>
       <WorkspaceShellSession>
         <AgentsConnectDialog />
       </WorkspaceShellSession>
     </QueryClientProvider>,
   );
+  return queryClient;
 }
 
 afterEach(() => {
@@ -118,7 +120,7 @@ describe("AgentsConnectDialog", () => {
 
   it("connects a DeepSeek key without opening an OAuth popup", async () => {
     const open = vi.spyOn(window, "open");
-    renderDialog(async (input, init) => {
+    const queryClient = renderDialog(async (input, init) => {
       const request = requestOptions(input, init);
       if (request.pathname === "/auth/session") {
         return jsonResponse({
@@ -133,6 +135,7 @@ describe("AgentsConnectDialog", () => {
           {
             account_label: "••••1234",
             authorization: null,
+            availability_status: "active",
             created_at: "2026-09-15T01:00:00Z",
             failure_message: null,
             id: "8c4b1408-a1f1-4f70-853f-2fd0916c2e25",
@@ -146,6 +149,13 @@ describe("AgentsConnectDialog", () => {
       }
       return jsonResponse([]);
     });
+
+    const accountQueries = [
+      ["agent-pools", "user-1"],
+      ["organizations", "team", "agents"],
+      ["playground", "models", "user-1", "deepseek"],
+    ];
+    for (const key of accountQueries) queryClient.setQueryData(key, []);
 
     const user = userEvent.setup();
     await waitFor(() =>
@@ -164,6 +174,9 @@ describe("AgentsConnectDialog", () => {
       expect(screen.getByText("Agent connected")).toBeVisible(),
     );
     expect(open).not.toHaveBeenCalled();
+    for (const key of accountQueries) {
+      expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true);
+    }
   });
 
   it("keeps every connected account for the same provider available", async () => {
@@ -179,6 +192,7 @@ describe("AgentsConnectDialog", () => {
           {
             account_label: "fi**rst@exa**.com",
             authorization: null,
+            availability_status: "active",
             created_at: "2026-09-09T11:45:00Z",
             failure_message: null,
             id: "8c4b1408-a1f1-4f70-853f-2fd0916c2e25",
@@ -190,6 +204,7 @@ describe("AgentsConnectDialog", () => {
           {
             account_label: "se**ond@exa**.com",
             authorization: null,
+            availability_status: "active",
             created_at: "2026-09-09T11:46:00Z",
             failure_message: null,
             id: "9d5c2519-b2f2-4f81-9640-3ae2027d3f36",
@@ -210,7 +225,7 @@ describe("AgentsConnectDialog", () => {
       ).toBeEnabled(),
     );
     await user.click(screen.getByRole("button", { name: "Connect Agent" }));
-    expect(await screen.findByText("2 connected")).toBeVisible();
+    expect(await screen.findByText("2 accounts")).toBeVisible();
     expect(screen.getByRole("button", { name: /claude/i })).toBeEnabled();
   });
 });
