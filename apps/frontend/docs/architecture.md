@@ -11,7 +11,7 @@ and [ADR-0027](../../../docs/decisions/0027-organizations-and-session-agent-acce
 - `/` remains the Home white paper about tool contributions, sharing agent
   pools with teammates, and keeping provider credentials on the server. The
   retired Documents setup section is removed.
-- `/tools` shows shared tools, currently Gateway, OpenCode and OMP. The existing
+- `/tools` shows shared tools, currently Gateway, OpenCode, OMP and DOWNLOAD REEL. The existing
   contributor selector and `/tools/<contributor>` show contributed tools.
   Search checks tool metadata and
   documentation filenames. Selecting a tool sets `?node=` and opens a sheet
@@ -55,7 +55,7 @@ route under `src/routes/_app.tools.($contributor)/`.
 ## Static tool documentation
 
 `src/services/catalog/` reads `contributors/*/tools/` using eager raw imports.
-Gateway, OpenCode and OMP keep their existing presentation and ordering; new tool
+Gateway, OpenCode, OMP and DOWNLOAD REEL keep their presentation and ordering; new tool
 folders remain discoverable with a derived label. File titles and descriptions come from their
 existing Markdown; the service does not rewrite sources or render Markdown as
 HTML.
@@ -101,6 +101,15 @@ API-to-gateway hop for each prompt. The Telegram application is a separate
 adapter that calls the business API.
 
 ## Standalone installers
+
+The frontend also serves `download-reel.sh`, a standalone Bash/Python video
+downloader linked from DOWNLOAD REEL. It accepts `--platform=tiktok|facebook`,
+`--url=VIDEO_URL` and an optional `--output-dir`. The Tools commands pipe curl
+directly into Bash with the platform and URL options. Omitting the URL prompts
+through the controlling terminal; positional URLs remain supported. Downloads run on the user's
+computer using yt-dlp, with a public-embed fallback for Facebook. It selects
+combined video/audio formats, preserves existing files and does not read browser
+cookies. No media download API or server-side video storage is introduced.
 
 The frontend serves `gateway.py`, `opencode.py` and `omp.py` from `public/`.
 These scripts are independent of the retired Documents installer and use

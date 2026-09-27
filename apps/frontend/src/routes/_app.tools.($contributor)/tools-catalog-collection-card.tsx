@@ -1,4 +1,10 @@
-import { Files, Network, Terminal, type LucideIcon } from "lucide-react";
+import {
+  Download,
+  Files,
+  Network,
+  Terminal,
+  type LucideIcon,
+} from "lucide-react";
 
 import Center from "@/components/ui/center";
 import Flex from "@/components/ui/flex";
@@ -8,6 +14,7 @@ const collectionIcons: Record<string, LucideIcon> = {
   gateway: Network,
   opencode: Terminal,
   omp: Terminal,
+  "download-reel": Download,
 };
 
 interface ToolsCatalogCollectionCardProps {
