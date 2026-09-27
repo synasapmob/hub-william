@@ -118,68 +118,77 @@ describe("AgentsConnectDialog", () => {
     expect(screen.getByLabelText("Callback URL or code")).toBeVisible();
   });
 
-  it("connects a DeepSeek key without opening an OAuth popup", async () => {
-    const open = vi.spyOn(window, "open");
-    const queryClient = renderDialog(async (input, init) => {
-      const request = requestOptions(input, init);
-      if (request.pathname === "/auth/session") {
-        return jsonResponse({
-          user: { id: "user-1", recovery_email: null, username: "syn" },
-        });
+  it.each([
+    ["deepseek", "DeepSeek", "sk-deepseek-secret-1234"],
+    ["groq", "Groq", "gsk_groq_test_secret_1234"],
+  ])(
+    "connects a %s key without opening an OAuth popup",
+    async (provider, label, key) => {
+      const open = vi.spyOn(window, "open");
+      const queryClient = renderDialog(async (input, init) => {
+        const request = requestOptions(input, init);
+        if (request.pathname === "/auth/session") {
+          return jsonResponse({
+            user: { id: "user-1", recovery_email: null, username: "syn" },
+          });
+        }
+        if (
+          request.pathname === `/agent-connections/${provider}` &&
+          request.method === "POST"
+        ) {
+          return jsonResponse(
+            {
+              account_label: "••••1234",
+              availability_status: "active",
+              authorization: null,
+              created_at: "2026-09-15T01:00:00Z",
+              failure_message: null,
+              id: "8c4b1408-a1f1-4f70-853f-2fd0916c2e25",
+              plan: "API",
+              provider,
+              status: "connected",
+              updated_at: "2026-09-15T01:00:00Z",
+            },
+            201,
+          );
+        }
+        return jsonResponse([]);
+      });
+
+      const accountQueries = [
+        ["agent-pools", "user-1"],
+        ["organizations", "team", "agents"],
+        ["playground", "models", "user-1", provider],
+      ];
+      for (const queryKey of accountQueries)
+        queryClient.setQueryData(queryKey, []);
+
+      const user = userEvent.setup();
+      await waitFor(() =>
+        expect(
+          screen.getByRole("button", { name: "Connect Agent" }),
+        ).toBeEnabled(),
+      );
+      await user.click(screen.getByRole("button", { name: "Connect Agent" }));
+      await user.click(screen.getByRole("button", { name: label }));
+      const input = screen.getByLabelText(`${label} API key`);
+      expect(input).toHaveAttribute("type", "password");
+      await user.type(input, key);
+      await user.click(
+        screen.getByRole("button", { name: `Connect ${label}` }),
+      );
+
+      await waitFor(() =>
+        expect(screen.getByText("Agent connected")).toBeVisible(),
+      );
+      expect(open).not.toHaveBeenCalled();
+      for (const queryKey of accountQueries) {
+        expect(queryClient.getQueryState(queryKey)?.isInvalidated).toBe(true);
       }
-      if (
-        request.pathname === "/agent-connections/deepseek" &&
-        request.method === "POST"
-      ) {
-        return jsonResponse(
-          {
-            account_label: "••••1234",
-            authorization: null,
-            availability_status: "active",
-            created_at: "2026-09-15T01:00:00Z",
-            failure_message: null,
-            id: "8c4b1408-a1f1-4f70-853f-2fd0916c2e25",
-            plan: "API",
-            provider: "deepseek",
-            status: "connected",
-            updated_at: "2026-09-15T01:00:00Z",
-          },
-          201,
-        );
-      }
-      return jsonResponse([]);
-    });
+    },
+  );
 
-    const accountQueries = [
-      ["agent-pools", "user-1"],
-      ["organizations", "team", "agents"],
-      ["playground", "models", "user-1", "deepseek"],
-    ];
-    for (const key of accountQueries) queryClient.setQueryData(key, []);
-
-    const user = userEvent.setup();
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: "Connect Agent" }),
-      ).toBeEnabled(),
-    );
-    await user.click(screen.getByRole("button", { name: "Connect Agent" }));
-    await user.click(screen.getByRole("button", { name: /deepseek/i }));
-    const input = screen.getByLabelText("DeepSeek API key");
-    expect(input).toHaveAttribute("type", "password");
-    await user.type(input, "sk-deepseek-secret-1234");
-    await user.click(screen.getByRole("button", { name: "Connect DeepSeek" }));
-
-    await waitFor(() =>
-      expect(screen.getByText("Agent connected")).toBeVisible(),
-    );
-    expect(open).not.toHaveBeenCalled();
-    for (const key of accountQueries) {
-      expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true);
-    }
-  });
-
-  it("keeps every connected account for the same provider available", async () => {
+  it("keeps providers available without connection-count badges", async () => {
     renderDialog(async (input, init) => {
       const request = requestOptions(input, init);
       if (request.pathname === "/auth/session") {
@@ -225,7 +234,15 @@ describe("AgentsConnectDialog", () => {
       ).toBeEnabled(),
     );
     await user.click(screen.getByRole("button", { name: "Connect Agent" }));
-    expect(await screen.findByText("2 accounts")).toBeVisible();
-    expect(screen.getByRole("button", { name: /claude/i })).toBeEnabled();
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          url: expect.stringContaining("/agent-connections"),
+        }),
+        undefined,
+      ),
+    );
+    expect(screen.getByRole("button", { name: "Claude" })).toBeEnabled();
+    expect(screen.queryByText(/\d+ connected/)).not.toBeInTheDocument();
   });
 });

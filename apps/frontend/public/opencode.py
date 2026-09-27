@@ -21,30 +21,199 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 
-DEFAULT_CODEX_MODELS = (
-    (
-        "gpt-6-astra",
-        "GPT-6 Astra",
-        ("low", "medium", "high", "xhigh", "max", "ultra"),
-    ),
-    (
-        "gpt-6-sol",
-        "GPT-6 Sol",
-        ("low", "medium", "high", "xhigh", "max", "ultra"),
-    ),
-    ("gpt-6-luna", "GPT-6 Luna", ("low", "medium", "high", "xhigh", "max")),
-    (
-        "gpt-5.6-sol",
-        "GPT-5.6 Sol",
-        ("low", "medium", "high", "xhigh", "max", "ultra"),
-    ),
-    (
-        "gpt-5.6-terra",
-        "GPT-5.6 Terra",
-        ("low", "medium", "high", "xhigh", "max", "ultra"),
-    ),
-    ("gpt-5.6-luna", "GPT-5.6 Luna", ("low", "medium", "high", "xhigh", "max")),
-)
+# provider-catalogue: begin (generated)
+PROVIDER_CATALOGUE = json.loads(r'''
+{
+  "codex": {
+    "id": "chatgpt",
+    "hub_id": "hub-codex",
+    "name": "Hub William · ChatGPT",
+    "base_path": "/gateway/openai/v1",
+    "models_path": "/gateway/openai/v1/models",
+    "owned_by": "openai",
+    "npm": "@ai-sdk/openai",
+    "auth": "api_key",
+    "effort_option": "reasoningEffort",
+    "metadata_adapter": "codex_app_server",
+    "preferred_models": [
+      "gpt-6-sol"
+    ],
+    "model_metadata": [
+      {
+        "id": "gpt-6-astra",
+        "name": "GPT-6 Astra",
+        "status": "current",
+        "capabilities": [
+          "chat",
+          "image_input"
+        ],
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max",
+          "ultra"
+        ]
+      },
+      {
+        "id": "gpt-6-sol",
+        "name": "GPT-6 Sol",
+        "status": "current",
+        "capabilities": [
+          "chat",
+          "image_input"
+        ],
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max",
+          "ultra"
+        ]
+      },
+      {
+        "id": "gpt-6-luna",
+        "name": "GPT-6 Luna",
+        "status": "current",
+        "capabilities": [
+          "chat",
+          "image_input"
+        ],
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      {
+        "id": "gpt-5.6-sol",
+        "name": "GPT-5.6 Sol",
+        "status": "current",
+        "capabilities": [
+          "chat",
+          "image_input"
+        ],
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max",
+          "ultra"
+        ]
+      },
+      {
+        "id": "gpt-5.6-terra",
+        "name": "GPT-5.6 Terra",
+        "status": "current",
+        "capabilities": [
+          "chat",
+          "image_input"
+        ],
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max",
+          "ultra"
+        ]
+      },
+      {
+        "id": "gpt-5.6-luna",
+        "name": "GPT-5.6 Luna",
+        "status": "current",
+        "capabilities": [
+          "chat",
+          "image_input"
+        ],
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      }
+    ]
+  },
+  "claude": {
+    "id": "claude",
+    "hub_id": "hub-claude",
+    "name": "Hub William · Claude",
+    "base_path": "/gateway/claude",
+    "models_path": "/gateway/claude/v1/models?limit=1000",
+    "owned_by": "anthropic",
+    "npm": "@ai-sdk/anthropic",
+    "auth": "auth_token",
+    "effort_option": "effort",
+    "metadata_adapter": null,
+    "preferred_models": [
+      "claude-opus-5-5",
+      "claude-sonnet-5"
+    ]
+  },
+  "gemini": {
+    "id": "gemini",
+    "hub_id": "hub-gemini",
+    "name": "Hub William · Gemini / AGY",
+    "base_path": "/gateway/gemini/v1beta",
+    "models_path": "/gateway/gemini/v1beta/models",
+    "owned_by": "google",
+    "npm": "@ai-sdk/google",
+    "auth": "bearer_header",
+    "effort_option": null,
+    "metadata_adapter": null,
+    "preferred_models": []
+  },
+  "grok": {
+    "id": "grok",
+    "hub_id": "hub-grok",
+    "name": "Hub William · Grok",
+    "base_path": "/gateway/grok/v1",
+    "models_path": "/gateway/grok/v1/models",
+    "owned_by": "xai",
+    "npm": "@ai-sdk/openai",
+    "auth": "api_key",
+    "effort_option": null,
+    "metadata_adapter": null,
+    "preferred_models": []
+  },
+  "deepseek": {
+    "id": "deepseek",
+    "hub_id": "hub-deepseek",
+    "name": "Hub William · DeepSeek",
+    "base_path": "/gateway/deepseek",
+    "models_path": "/gateway/deepseek/models",
+    "owned_by": "deepseek",
+    "npm": "@ai-sdk/openai",
+    "auth": "api_key",
+    "effort_option": null,
+    "metadata_adapter": null,
+    "preferred_models": []
+  },
+  "groq": {
+    "id": "groq",
+    "hub_id": "hub-groq",
+    "name": "Hub William · Groq",
+    "base_path": "/gateway/groq/v1",
+    "models_path": "/gateway/groq/v1/models",
+    "owned_by": "groq",
+    "npm": "@ai-sdk/openai",
+    "auth": "api_key",
+    "effort_option": null,
+    "metadata_adapter": null,
+    "preferred_models": []
+  }
+}
+''')
+MANAGED_PROVIDER_IDS = ('hub-codex', 'hub-claude', 'hub-gemini', 'hub-grok', 'hub-deepseek', 'hub-groq')
+DEFAULT_PROVIDERS = ['codex', 'claude']
+# provider-catalogue: end
 
 REMEMBER_MODEL_PLUGIN_SOURCE = """import fs from "node:fs";
 import path from "node:path";
@@ -278,15 +447,8 @@ def _atomic_write(path, text):
 
 
 def _gateway_models(gateway_url, key, provider):
-    paths = {
-        "codex": "/gateway/openai/v1/models",
-        "claude": "/gateway/claude/v1/models?limit=1000",
-        "gemini": "/gateway/gemini/v1beta/models",
-        "deepseek": "/gateway/deepseek/models",
-        "grok": "/gateway/grok/v1/models",
-    }
     request = Request(
-        gateway_url + paths[provider],
+        gateway_url + PROVIDER_CATALOGUE[provider]["models_path"],
         headers={"Authorization": "Bearer " + key, "Accept": "application/json"},
     )
     try:
@@ -389,11 +551,16 @@ def _variants(efforts):
     return {effort: {"reasoningEffort": effort} for effort in efforts}
 
 
-def _codex_model_config(available, discovered):
+def _codex_model_config(available, discovered, metadata=None):
     local = {model["model"]: model for model in discovered}
+    if metadata is None:
+        metadata = next(
+            (spec.get("model_metadata", []) for spec in PROVIDER_CATALOGUE.values() if spec["id"] == "chatgpt"),
+            [],
+        )
     fallback = {
-        identifier: (name, efforts)
-        for identifier, name, efforts in DEFAULT_CODEX_MODELS
+        model["id"]: (model["name"], model.get("reasoning_efforts", []))
+        for model in metadata
     }
     models = {}
     for model in available:
@@ -477,84 +644,56 @@ def build_config(existing, gateway_url, key, catalogues, plugin_path=None):
     if plugins:
         document["plugin"] = plugins
 
-    provider_specs = {
-        "hub-codex": {
-            "name": "Hub William · Codex",
-            "npm": "@ai-sdk/openai",
-            "options": {
-                "apiKey": key,
-                "baseURL": gateway_url + "/gateway/openai/v1",
-            },
-            "models": _codex_model_config(
-                catalogues.get("codex", []), catalogues.get("codex_metadata", [])
-            ),
-        },
-        "hub-claude": {
-            "name": "Hub William · Claude",
-            "npm": "@ai-sdk/anthropic",
-            "options": {
-                "authToken": key,
-                "baseURL": gateway_url + "/gateway/claude/v1",
-            },
-            "models": _provider_model_config(catalogues.get("claude", []), effort_option="effort"),
-        },
-        "hub-gemini": {
-            "name": "Hub William · Gemini / AGY",
-            "npm": "@ai-sdk/google",
-            "options": {
-                "apiKey": "hub-william",
-                "baseURL": gateway_url + "/gateway/gemini/v1beta",
-                "headers": {"Authorization": "Bearer " + key},
-            },
-            "models": _provider_model_config(catalogues.get("gemini", [])),
-        },
-        "hub-grok": {
-            "name": "Hub William · Grok",
-            "npm": "@ai-sdk/openai",
-            "options": {
-                "apiKey": key,
-                "baseURL": gateway_url + "/gateway/grok/v1",
-            },
-            "models": _provider_model_config(catalogues.get("grok", [])),
-        },
-        "hub-deepseek": {
-            "name": "Hub William · DeepSeek",
-            "npm": "@ai-sdk/openai",
-            "options": {
-                "apiKey": key,
-                "baseURL": gateway_url + "/gateway/deepseek",
-            },
-            "models": _provider_model_config(catalogues.get("deepseek", [])),
-        },
-    }
-    for provider_id in provider_specs:
+    provider_specs = {}
+    for provider_key, spec in PROVIDER_CATALOGUE.items():
+        options = {"baseURL": gateway_url + spec["base_path"]}
+        if spec["auth"] == "auth_token":
+            options["authToken"] = key
+        elif spec["auth"] == "bearer_header":
+            options["apiKey"] = "hub-william"
+            options["headers"] = {"Authorization": "Bearer " + key}
+        else:
+            options["apiKey"] = key
+        available = catalogues.get(provider_key, [])
+        models = (
+            _codex_model_config(available, catalogues.get("codex_metadata", []), spec.get("model_metadata", []))
+            if spec["metadata_adapter"] == "codex_app_server"
+            else _provider_model_config(available, effort_option=spec["effort_option"])
+        )
+        provider_specs[spec["hub_id"]] = {
+            "name": spec["name"],
+            "npm": spec["npm"],
+            "options": options,
+            "models": models,
+        }
+    managed_ids = set(MANAGED_PROVIDER_IDS) | provider_specs.keys()
+    for provider_id in managed_ids:
         providers.pop(provider_id, None)
     for provider_id, provider in provider_specs.items():
         if provider["models"]:
             providers[provider_id] = provider
     for model_key in ("model", "small_model"):
-        if _missing_managed_model(document.get(model_key), provider_specs, providers):
+        if _missing_managed_model(document.get(model_key), managed_ids, providers):
             document.pop(model_key, None)
     if isinstance(document.get("agent"), dict):
         for settings in document["agent"].values():
             if isinstance(settings, dict) and _missing_managed_model(
-                settings.get("model"), provider_specs, providers
+                settings.get("model"), managed_ids, providers
             ):
                 settings.pop("model", None)
                 settings.pop("variant", None)
     if "model" not in document:
-        if "hub-codex" in providers:
-            preferred = "gpt-6-sol"
-            if preferred not in providers["hub-codex"]["models"]:
-                preferred = next(iter(providers["hub-codex"]["models"]))
-            document["model"] = "hub-codex/" + preferred
-        elif "hub-claude" in providers:
-            preferred = "claude-opus-5-5"
-            if preferred not in providers["hub-claude"]["models"]:
-                preferred = "claude-sonnet-5"
-            if preferred not in providers["hub-claude"]["models"]:
-                preferred = next(iter(providers["hub-claude"]["models"]))
-            document["model"] = "hub-claude/" + preferred
+        for provider_key in DEFAULT_PROVIDERS:
+            spec = PROVIDER_CATALOGUE[provider_key]
+            installed = providers.get(spec["hub_id"])
+            if not installed:
+                continue
+            preferred = next(
+                (mid for mid in spec["preferred_models"] if mid in installed["models"]),
+                next(iter(installed["models"])),
+            )
+            document["model"] = spec["hub_id"] + "/" + preferred
+            break
     return document
 
 
@@ -579,15 +718,16 @@ def install(terminal, args, home=None):
     terminal.write("Discovering models from connected Hub pools…\n")
     terminal.flush()
     catalogues = {
-        "codex": _gateway_models(gateway_url, key, "codex"),
-        "claude": _gateway_models(gateway_url, key, "claude"),
-        "gemini": _gateway_models(gateway_url, key, "gemini"),
-        "grok": _gateway_models(gateway_url, key, "grok"),
-        "deepseek": _gateway_models(gateway_url, key, "deepseek"),
+        provider: _gateway_models(gateway_url, key, provider)
+        for provider in PROVIDER_CATALOGUE
     }
     if not any(catalogues.values()):
         raise ValueError("no provider models could be discovered; check the key and gateway")
-    catalogues["codex_metadata"] = _codex_models() if catalogues["codex"] else []
+    catalogues["codex_metadata"] = _codex_models() if any(
+        catalogues[provider]
+        for provider, spec in PROVIDER_CATALOGUE.items()
+        if spec["metadata_adapter"] == "codex_app_server"
+    ) else []
     config_dir = os.path.join(
         home or os.path.expanduser("~"), ".config", "opencode"
     )

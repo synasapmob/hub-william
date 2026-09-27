@@ -1,8 +1,20 @@
 # ADR-0029: Current provider model catalogue convention
 
-- Status: Accepted
+- Status: Accepted; dedicated Playground voice-model exception added by ADR-0032
 - Date: 2026-09-25
+- Partially superseded by: [ADR-0038](0038-shared-provider-model-catalogue.md) for catalogue ownership, the update workflow and the historical five-provider verification scope. The current-model selection and live-availability rules remain in force.
 - Supersedes: ADR-0025's allowance for older advertised models in gateway model lists. Existing saved generation requests remain compatible.
+
+## Current applicability
+
+Use [ADR-0038](0038-shared-provider-model-catalogue.md) and the
+[catalogue maintenance guide](../provider-catalogue.md) for the shared metadata
+source and generation/check commands. Refresh every provider and supported client
+in that source, including Groq; the five-provider list below records the original
+scope rather than limiting future updates. Playground Call exceptions follow
+[ADR-0032](0032-playground-native-voice.md),
+[ADR-0033](0033-groq-api-key-chat-and-call.md) and its
+[ADR-0037](0037-browser-local-speech-recognition.md) refinement.
 
 ## Context
 

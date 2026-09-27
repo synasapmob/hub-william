@@ -23,6 +23,30 @@ class OpenCodeInstallerTest(unittest.TestCase):
         self.home = tempfile.TemporaryDirectory(prefix="hub-opencode-")
         self.addCleanup(self.home.cleanup)
 
+    def test_reinstall_removes_retired_hub_routing_but_preserves_personal_config(self):
+        existing = {
+            "model": "hub-retired/old-model",
+            "small_model": "personal/local-model",
+            "provider": {"hub-retired": {"models": {"old-model": {}}}, "personal": {"npm": "custom"}},
+            "agent": {"worker": {"model": "hub-retired/old-model", "variant": "high", "prompt": "keep me"}},
+        }
+        with mock.patch.object(opencode, "MANAGED_PROVIDER_IDS", (*opencode.MANAGED_PROVIDER_IDS, "hub-retired")):
+            result = opencode.build_config(existing, "https://api.hub.example", "fixture", {"groq": [{"id": "openai/gpt-oss-20b"}]})
+        self.assertNotIn("hub-retired", result["provider"])
+        self.assertNotIn("model", result)
+        self.assertEqual(result["provider"]["personal"], existing["provider"]["personal"])
+        self.assertEqual(result["agent"]["worker"], {"prompt": "keep me"})
+        self.assertEqual(result["small_model"], "personal/local-model")
+        self.assertIn("hub-retired", existing["provider"])
+
+    def test_metadata_is_scoped_to_the_selected_provider(self):
+        result = opencode._codex_model_config(
+            [{"id": "gpt-6-sol"}], [],
+            [{"id": "gpt-6-sol", "name": "Separate catalogue", "reasoning_efforts": ["low"]}],
+        )
+        self.assertEqual(result["gpt-6-sol"]["name"], "Separate catalogue")
+        self.assertEqual(list(result["gpt-6-sol"]["variants"]), ["low"])
+
     def test_build_config_preserves_unrelated_settings_and_includes_grok(self):
         document = opencode.build_config(
             {"theme": "system", "provider": {"personal": {"npm": "custom"}}},
@@ -55,6 +79,7 @@ class OpenCodeInstallerTest(unittest.TestCase):
                     }
                 ],
                 "deepseek": [{"id": "deepseek-v4-pro"}],
+                "groq": [{"id": "openai/gpt-oss-20b"}],
                 "gemini": [
                     {
                         "id": "gemini-3.8-flash-medium",
@@ -65,6 +90,8 @@ class OpenCodeInstallerTest(unittest.TestCase):
             },
         )
 
+        self.assertEqual(document["provider"]["hub-groq"]["options"], {"apiKey": "hw_gateway_secret", "baseURL": "https://api.hub.example/gateway/groq/v1"})
+        self.assertIn("openai/gpt-oss-20b", document["provider"]["hub-groq"]["models"])
         self.assertEqual(document["theme"], "system")
         self.assertEqual(document["provider"]["personal"], {"npm": "custom"})
         self.assertEqual(document["model"], "hub-codex/gpt-live")
@@ -162,7 +189,7 @@ class OpenCodeInstallerTest(unittest.TestCase):
             },
         )
         self.assertEqual(document["model"], "hub-codex/gpt-6-sol")
-        bundled_ids = {model[0] for model in opencode.DEFAULT_CODEX_MODELS}
+        bundled_ids = {model["id"] for model in opencode.PROVIDER_CATALOGUE["codex"]["model_metadata"]}
         self.assertEqual(
             bundled_ids,
             {

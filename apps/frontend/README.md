@@ -23,6 +23,24 @@ pnpm dev
 Set `VITE_API_BASE_URL` in `apps/frontend/.env` to select the API used during
 local development. Railway builds use the same-origin `/api` proxy.
 
+To use the staging API with only the frontend running locally:
+
+```bash
+VITE_API_BASE_URL=/api DEV_API_PROXY_TARGET=https://hub-william-staging.up.railway.app pnpm dev
+```
+
+The loopback dev server proxies `/api` and translates its own request origin to
+staging. Sign in on the local page; browser sessions are separate from the staging
+site. Staging cookie and origin restrictions remain unchanged.
+
+For plain `pnpm dev` to use the same configuration, save both variables in
+`apps/frontend/.env`:
+
+```dotenv
+VITE_API_BASE_URL=/api
+DEV_API_PROXY_TARGET=https://hub-william-staging.up.railway.app
+```
+
 Root developer commands delegate to this workspace. Standalone installer
 checks live in `scripts/installers/tests/`; the retired Documents machine
 installer is no longer distributed.

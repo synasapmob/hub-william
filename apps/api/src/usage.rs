@@ -74,6 +74,11 @@ async fn fetch_provider_usage(
                 "Google exposes subscription usage through gateway responses, not a stable quota endpoint.",
             )],
         },
+        AgentProvider::Groq => ConnectionUsage {
+            metrics: vec![unavailable(
+                "Groq does not expose account quota through this connection.",
+            )],
+        },
         AgentProvider::Deepseek => ConnectionUsage {
             metrics: vec![unavailable(
                 "DeepSeek does not expose account quota through this connection.",

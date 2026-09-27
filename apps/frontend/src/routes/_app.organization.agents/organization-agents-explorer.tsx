@@ -205,7 +205,7 @@ export default function OrganizationAgentsExplorer({
             </Flex>
 
             {agents.length > 0 && filteredAgents.length === 0 ? (
-              <p className="relative z-10 rounded-xl border border-dashed border-zinc-200 bg-background p-5 text-xs/relaxed text-zinc-500">
+              <p className="relative z-10 rounded-xl border border-dashed border-zinc-200 bg-background p-5 text-center text-xs/relaxed text-zinc-500">
                 No accounts match. Try another provider or filter.
               </p>
             ) : null}
@@ -247,10 +247,11 @@ export default function OrganizationAgentsExplorer({
                         <p className="truncate font-mono text-xs font-semibold text-zinc-900">
                           {agent.accountLabel ?? "Connected account"}
                         </p>
+
                         <p className="mt-1 text-[11px] text-zinc-500">
-                          {name} · {agent.plan} · added by @
-                          {agent.ownerUsername}
+                          {name} {agent.plan}
                         </p>
+
                         {primaryUsage ? (
                           <p className="mt-2 text-[10px] text-zinc-500">
                             {primaryUsage.label} ·{" "}

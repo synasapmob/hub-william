@@ -39,7 +39,7 @@ const providerButton = tv({
 });
 
 const accountSkeletons = [0, 1, 2, 3, 4, 5];
-type AccountFilter = "all" | "mine" | "joined";
+type AccountFilter = "all" | "me" | "joined";
 
 interface AgentsExplorerProps {
   currentUsername: string | null;
@@ -72,17 +72,26 @@ export default function AgentsExplorer({
     ) ??
     "ChatGPT";
   const normalizedQuery = query.trim().toLowerCase();
-  const filteredPools = pools.filter((pool) => {
+  const scopedPools = pools.filter((pool) => {
     const access = agentPoolAccess(pool, currentUsername);
     return (
-      pool.agent === selectedProvider &&
-      (filter === "all" ||
-        (filter === "mine" ? access === "owner" : access === "joined")) &&
-      `${pool.accountLabel} ${pool.owner.username} ${pool.plan}`
-        .toLowerCase()
-        .includes(normalizedQuery)
+      filter === "all" ||
+      (filter === "me" ? access === "owner" : access === "joined")
     );
   });
+  const providerCounts = new Map(
+    AGENT_PROVIDERS.map((agent) => [
+      agent,
+      scopedPools.filter((pool) => pool.agent === agent).length,
+    ]),
+  );
+  const filteredPools = scopedPools.filter(
+    (pool) =>
+      pool.agent === selectedProvider &&
+      `${pool.accountLabel} ${pool.owner.username} ${pool.plan}`
+        .toLowerCase()
+        .includes(normalizedQuery),
+  );
   const currentPool = pools.find((pool) => pool.id === selectedPool?.id);
   if (selectedPool && !loading && !currentPool) setSelectedPool(null);
   // Keep the selected public account visible while login refreshes the query.
@@ -139,7 +148,7 @@ export default function AgentsExplorer({
                       selected: selectedProvider === agent,
                     })}
                     data-agent-node={`provider:${agent}`}
-                    aria-label={`${agent}, ${pools.filter((pool) => pool.agent === agent).length} ${pools.filter((pool) => pool.agent === agent).length === 1 ? "account" : "accounts"}`}
+                    aria-label={`${agent}, ${providerCounts.get(agent)} ${providerCounts.get(agent) === 1 ? "account" : "accounts"}`}
                     aria-pressed={selectedProvider === agent}
                     onClick={() => {
                       setProvider(agent);
@@ -149,7 +158,7 @@ export default function AgentsExplorer({
                     <AgentsProviderIcon provider={agent} />
                     <span className="font-medium">{agent}</span>
                     <span className="ml-auto pl-2 font-mono text-[10px] opacity-60">
-                      {pools.filter((pool) => pool.agent === agent).length}
+                      {providerCounts.get(agent)}
                     </span>
                   </button>
                 ),
@@ -203,16 +212,16 @@ export default function AgentsExplorer({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All accounts</SelectItem>
-                    <SelectItem value="mine">Mine</SelectItem>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="me">Me</SelectItem>
                     <SelectItem value="joined">Joined</SelectItem>
                   </SelectContent>
                 </Select>
               )}
             </Flex>
 
-            {!loading && filteredPools.length === 0 ? (
-              <p className="relative z-10 rounded-xl border border-dashed border-zinc-200 bg-background p-5 text-xs/relaxed text-zinc-500">
+            {!loading && pools.length > 0 && filteredPools.length === 0 ? (
+              <p className="relative z-10 rounded-xl border border-dashed border-zinc-200 bg-background p-5 text-center text-xs/relaxed text-zinc-500">
                 No accounts match. Try another provider or filter.
               </p>
             ) : null}
@@ -234,7 +243,6 @@ export default function AgentsExplorer({
                       }}
                     >
                       <AgentsAccountRow
-                        currentUsername={currentUsername}
                         pool={pool}
                         selected={selectedPool?.id === pool.id}
                         onOpen={(button) => {

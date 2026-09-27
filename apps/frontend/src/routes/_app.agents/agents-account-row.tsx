@@ -8,8 +8,6 @@ import {
 } from "@/components/ui/tooltip";
 import type { AgentPool } from "@/services/agent-pools";
 import {
-  agentPoolAccess,
-  agentPoolAccessLabels,
   agentPoolTokenDetail,
   agentPoolUsageIssues,
   agentPoolWarning,
@@ -31,14 +29,12 @@ const account = tv({
   },
 });
 interface AgentsAccountRowProps {
-  currentUsername: string | null;
   onOpen: (button: HTMLButtonElement) => void;
   pool: AgentPool;
   selected: boolean;
 }
 
 export default function AgentsAccountRow({
-  currentUsername,
   onOpen,
   pool,
   selected,
@@ -48,7 +44,6 @@ export default function AgentsAccountRow({
   const warning = agentPoolWarning(pool);
   const hasIssue = Boolean(warning) || agentPoolUsageIssues(pool).length > 0;
   const tokens = showUsage ? agentPoolTokenDetail(pool) : undefined;
-  const access = agentPoolAccess(pool, currentUsername);
 
   return (
     <Tooltip
@@ -70,9 +65,11 @@ export default function AgentsAccountRow({
             <p className="min-w-0 truncate font-mono text-xs font-semibold text-zinc-900">
               {pool.accountLabel}
             </p>
+
             <p className="mt-1 text-[11px] text-zinc-500">
-              {pool.agent} · {pool.plan} · {agentPoolAccessLabels[access]}
+              {pool.agent} {pool.plan}
             </p>
+
             {tokens ? (
               <p className="mt-2 text-[10px] text-zinc-500">{tokens}</p>
             ) : null}

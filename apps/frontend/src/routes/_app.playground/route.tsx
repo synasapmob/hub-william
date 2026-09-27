@@ -7,6 +7,7 @@ import { useSearchParams } from "react-router";
 import { useWorkspaceSession } from "@/components/workspace-shell/workspace-shell-session-context";
 
 import type { PlaygroundAttachment } from "@/services/playground";
+import playgroundMedia from "@/utils/utils.playground-media";
 
 import PlaygroundWorkspace from "./playground-workspace";
 
@@ -16,6 +17,7 @@ export interface PlaygroundFormValues {
   organizationId: string;
   provider: string;
   model: string;
+  mode: "chat" | "voice";
   prompt: string;
 }
 
@@ -30,6 +32,7 @@ export default function PlaygroundRoute() {
     organizationId: z.string(),
     provider: z.string(),
     model: z.string(),
+    mode: z.enum(["chat", "voice"]),
     prompt: z.string().trim(),
     attachments: z
       .array(
@@ -57,6 +60,7 @@ export default function PlaygroundRoute() {
       organizationId: organizationFromUrl,
       provider: providerFromUrl,
       model: "",
+      mode: "chat",
       prompt: "",
     },
   });
@@ -68,16 +72,21 @@ export default function PlaygroundRoute() {
   const previousUserId = useRef(session.user?.id);
   const { reset } = form;
   useEffect(() => {
+    form.setValue("mode", playgroundMedia.readMode());
+  }, [form]);
+  useEffect(() => {
     form.setValue("organizationId", organizationFromUrl);
     form.setValue("connectionId", connectionFromUrl);
     form.setValue("provider", providerFromUrl);
     form.setValue("model", "");
   }, [connectionFromUrl, form, organizationFromUrl, providerFromUrl]);
   useEffect(() => {
-    if (previousUserId.current && previousUserId.current !== session.user?.id)
+    if (previousUserId.current && previousUserId.current !== session.user?.id) {
       reset();
+      form.setValue("mode", playgroundMedia.readMode());
+    }
     previousUserId.current = session.user?.id;
-  }, [reset, session.user?.id]);
+  }, [form, reset, session.user?.id]);
 
   return (
     <section className="mx-auto w-full max-w-400 space-y-5 px-4 pt-6 pb-4 sm:px-6 lg:px-8 lg:pt-8">
@@ -87,7 +96,7 @@ export default function PlaygroundRoute() {
         </h1>
 
         <p className="text-sm text-muted-foreground">
-          Choose a model, send a message and read its response here.
+          Choose Chat or Call, then select an account and model.
         </p>
       </header>
 

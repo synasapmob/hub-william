@@ -114,3 +114,16 @@ models_base_url = "https://<hub-william-origin>/api/gateway/grok/v1"
 base_url = "https://<hub-william-origin>/api/gateway/grok/v1"
 api_key = "YOUR_GATEWAY_KEY"
 ```
+
+## Shared provider catalogue
+
+<!-- provider-catalogue: begin (generated) -->
+| Provider     | Chat models in the reviewed catalogue                                                                                                                                                                                                                                                                                                                   | Call                        | Client protocol                      |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | ------------------------------------ |
+| ChatGPT      | `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`                                                                                                                                                                                                                                                                | Playground: native realtime | `OpenAI Responses`                   |
+| Claude       | `claude-fable-5-1`, `claude-opus-5-5`, `claude-sonnet-5`, `claude-haiku-4-5-20251001`                                                                                                                                                                                                                                                                   | —                           | `Anthropic Messages`                 |
+| Gemini / AGY | `gemini-3.8-flash-high`, `gemini-3.8-flash-medium`, `gemini-3.8-flash-low`, `gemini-3.7-flash-high`, `gemini-3.7-flash-medium`, `gemini-3.7-flash-low`, `gemini-3.6-flash-high`, `gemini-3.6-flash-medium`, `gemini-3.6-flash-low`, `gemini-3.1-pro-high`, `gemini-3.1-pro-low`, `claude-sonnet-4-6`, `claude-opus-4-6-thinking`, `gpt-oss-120b-medium` | —                           | `Gemini native API via Google OAuth` |
+| Grok         | `grok-4.7`                                                                                                                                                                                                                                                                                                                                              | —                           | `OpenAI-compatible chat`             |
+
+Generated from `apps/api/src/provider_catalogue.json`. Model availability is checked live through Hub; this reviewed snapshot is not proof of account access. Call profiles are Playground-only; coding-client lists contain only chat-capable model IDs.
+<!-- provider-catalogue: end -->

@@ -35,6 +35,24 @@ and [ADR-0027](../../../docs/decisions/0027-organizations-and-session-agent-acce
   but do not enter follow-up context. Provider selection is public; account selection
   requires sign-in and requests are pinned to the chosen account. Images use
   native provider blocks; text files and extracted PDF text join the prompt. See [ADR-0025](../../../docs/decisions/0025-session-backed-playground.md).
+  Setup queries stay stable during chat/call: completing, failing or stopping a
+  request does not invalidate pools or models. Playground disables tab-focus
+  and network-reconnect refetches, including the shared organization navigation
+  observer while this page is open. Page entry, changed account/context,
+  explicit retries and account-management invalidation still fetch current
+  data. The backend/provider remains authoritative for request access and
+  availability errors; stale selections do not bypass those checks.
+  Setup orders Organization, Mode, Provider, Account and Model, with Chat/Call
+  filtering model options by their supported
+  mode. Both modes list providers with at least one accessible account; Call
+  narrows that list to implemented call providers, currently ChatGPT and Groq. Account selection keeps its
+  existing access rules; Account and Model display "Sign in to continue"
+  when no account is available. Call displays exact model IDs, renders "Ready to
+  talk" before account selection, and waits for account/model readiness before
+  allowing Start. The API's mode remains `voice`. `gpt-live-1-codex`
+  exchanges a session-authorized audio SDP through the API and then uses native
+  WebRTC for speech and two-sided transcripts. The video-style layout contains
+  a local-only camera preview. See [ADR-0032](../../../docs/decisions/0032-playground-native-voice.md).
 - `/organization` selects one of the signed-in user's organizations and shows
   team totals, daily requests and shared agents. Creation accepts an optional
   description of up to 350 characters. `/organization/agents` lets any accepted
@@ -137,3 +155,35 @@ its mocked API base independently of developer `.env` settings.
 Railway is the deployment target for the frontend, API and Telegram adapter.
 GitHub Pages and Vercel publishing are retired. `main` remains protected by the
 repository's branch and CI policies; see [ADR-0026](../../../docs/decisions/0026-railway-only-deployment.md).
+
+Groq connects with a personal API key and appears in both Playground modes.
+Chat models are the current free-tier Qwen 3.8 27B (Preview) and GPT-OSS 20B/120B
+intersected with live account discovery. Call lists GPT-OSS 20B when its chat
+and Orpheus TTS models are advertised. `playground-groq-voice.ts` owns the
+AudioWorklet lifecycle, bounded audio capture, turn-taking, English playback
+and cancellation; `playground-voice-audio.ts` owns VAD. `playground-local-stt.ts`
+owns a dedicated worker running pinned multilingual Whisper base through Transformers.js:
+WebGPU preferred, quantized WASM fallback, local language-token detection before
+transcription, cached public model downloads and no remote inference fallback. Cumulative local snapshots
+and decoded token callbacks update YOU; after the two-second pause, final local
+text goes to the API. Microphone audio is never uploaded for Groq Call.
+The route supplies the per-turn TanStack mutation and renders both transcripts.
+Groq captures continuously, interrupts pending replies/playback on renewed
+speech, and sends a turn after two seconds of silence. `playground-groq-stream.ts`
+validates SSE records and delivers text deltas before audio completion.
+`playground-groq-playback.ts` predecodes a bounded queue and schedules consecutive
+audio sources against the audio clock. It buffers two chunks, flushes the last
+single chunk, and caps initial buffer waiting at 1.2 seconds. All scheduled nodes
+feed the local recording mix and stop on interruption or End.
+Mode and Voice/Camera preferences persist in localStorage independently of device
+cleanup. First use defaults to Chat; restoring Call never starts media automatically.
+Native ChatGPT keeps its provider-controlled turn boundaries and incremental
+transcripts. See [ADR-0033](../../../docs/decisions/0033-groq-api-key-chat-and-call.md)
+and [ADR-0039](../../../docs/decisions/0039-local-language-detection-and-buffered-speech.md).
+
+Zoom Screen expands the existing Chat or Call conversation over the viewport
+without remounting it. Setup and shell controls are covered and inert while
+zoomed; Exit Zoom or Escape restores them. An open recording menu/dialog handles
+Escape first. Zoom uses component state only and resets on reload. Call setup
+eligibility is reflected by the disabled Start call button; model dropdown
+states and actual errors remain in Setup.

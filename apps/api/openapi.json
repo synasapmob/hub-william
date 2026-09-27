@@ -98,6 +98,64 @@
         }
       }
     },
+    "/agent-connections/groq": {
+      "post": {
+        "tags": ["agent connections"],
+        "operationId": "connect_groq",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectGroqRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentConnection"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/agent-connections/start": {
       "post": {
         "tags": ["agent connections"],
@@ -1388,6 +1446,167 @@
         }
       }
     },
+    "/playground/groq/voice/turn": {
+      "post": {
+        "tags": ["playground"],
+        "operationId": "create_groq_voice_turn",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GroqVoiceTurnRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "JSON by default; stream=true returns SSE transcript, delta, audio, done or error events. stream_audio=true allows delta and audio to interleave",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroqVoiceTurnResponse"
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/playground/voice": {
+      "post": {
+        "tags": ["playground"],
+        "operationId": "create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlaygroundVoiceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaygroundVoiceSession"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/playground/{provider}/accounts/{connection_id}/models": {
       "get": {
         "tags": ["playground"],
@@ -1798,7 +2017,7 @@
       },
       "AgentProvider": {
         "type": "string",
-        "enum": ["chatgpt", "claude", "gemini", "deepseek", "grok"]
+        "enum": ["chatgpt", "claude", "gemini", "grok", "deepseek", "groq"]
       },
       "AuthenticatedUser": {
         "type": "object",
@@ -1816,6 +2035,59 @@
           }
         }
       },
+      "CallKind": {
+        "type": "string",
+        "enum": ["native_realtime", "local_stt_llm_tts"]
+      },
+      "CallProfile": {
+        "type": "object",
+        "required": [
+          "id",
+          "provider",
+          "name",
+          "kind",
+          "transport",
+          "selector_model",
+          "availability",
+          "models"
+        ],
+        "properties": {
+          "availability": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/CallKind"
+          },
+          "models": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/AgentProvider"
+          },
+          "selector_model": {
+            "type": "string"
+          },
+          "transport": {
+            "$ref": "#/components/schemas/CallTransport"
+          }
+        }
+      },
+      "CallTransport": {
+        "type": "string",
+        "enum": ["codex_v3_webrtc", "groq_sse"]
+      },
       "CompleteAuthorizationRequest": {
         "type": "object",
         "required": ["callback_url"],
@@ -1826,6 +2098,15 @@
         }
       },
       "ConnectDeepseekRequest": {
+        "type": "object",
+        "required": ["api_key"],
+        "properties": {
+          "api_key": {
+            "type": "string"
+          }
+        }
+      },
+      "ConnectGroqRequest": {
         "type": "object",
         "required": ["api_key"],
         "properties": {
@@ -1916,6 +2197,74 @@
           }
         }
       },
+      "GroqVoiceMessage": {
+        "type": "object",
+        "required": ["role", "content"],
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/PlaygroundRole"
+          }
+        },
+        "additionalProperties": false
+      },
+      "GroqVoiceTurnRequest": {
+        "type": "object",
+        "required": ["connection_id", "model", "transcript", "messages"],
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GroqVoiceMessage"
+            }
+          },
+          "model": {
+            "type": "string"
+          },
+          "organization_id": {
+            "type": ["string", "null"],
+            "format": "uuid"
+          },
+          "stream": {
+            "type": "boolean",
+            "description": "Stream accepted transcript, reply deltas and audio clips as SSE."
+          },
+          "stream_audio": {
+            "type": "boolean",
+            "description": "With stream=true, allow sentence audio to interleave with reply deltas."
+          },
+          "transcript": {
+            "type": "string",
+            "description": "Final transcript recognized locally in the browser, at most 8000 UTF-8 bytes."
+          }
+        },
+        "additionalProperties": false
+      },
+      "GroqVoiceTurnResponse": {
+        "type": "object",
+        "required": ["transcript", "reply", "audio"],
+        "properties": {
+          "audio": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ordered base64 WAV clips. Each TTS input is at most 200 characters."
+          },
+          "reply": {
+            "type": "string"
+          },
+          "transcript": {
+            "type": "string"
+          }
+        }
+      },
       "HealthResponse": {
         "type": "object",
         "required": ["status", "service"],
@@ -1957,6 +2306,16 @@
             "type": "string"
           }
         }
+      },
+      "ModelCapability": {
+        "type": "string",
+        "enum": [
+          "chat",
+          "image_input",
+          "realtime_audio",
+          "transcription",
+          "speech_output"
+        ]
       },
       "Organization": {
         "type": "object",
@@ -2440,12 +2799,38 @@
         },
         "additionalProperties": false
       },
+      "PlaygroundMode": {
+        "type": "string",
+        "enum": ["chat", "voice"]
+      },
       "PlaygroundModel": {
         "type": "object",
-        "required": ["id", "name"],
+        "required": ["id", "name", "modes", "capabilities"],
         "properties": {
+          "call": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CallProfile"
+              }
+            ]
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelCapability"
+            }
+          },
           "id": {
             "type": "string"
+          },
+          "modes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlaygroundMode"
+            }
           },
           "name": {
             "type": "string"
@@ -2455,6 +2840,39 @@
       "PlaygroundRole": {
         "type": "string",
         "enum": ["user", "assistant"]
+      },
+      "PlaygroundVoiceRequest": {
+        "type": "object",
+        "required": ["connection_id", "provider", "model", "sdp"],
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "model": {
+            "type": "string"
+          },
+          "organization_id": {
+            "type": ["string", "null"],
+            "format": "uuid"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/AgentProvider"
+          },
+          "sdp": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "PlaygroundVoiceSession": {
+        "type": "object",
+        "required": ["sdp"],
+        "properties": {
+          "sdp": {
+            "type": "string"
+          }
+        }
       },
       "RegisterRequest": {
         "type": "object",

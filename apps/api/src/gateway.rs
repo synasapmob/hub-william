@@ -27,6 +27,11 @@ use crate::{
     error::ApiError,
 };
 
+mod groq_voice;
+mod voice;
+pub(crate) use groq_voice::groq_voice_turn_for_user;
+pub(crate) use voice::create_voice_session_for_user;
+
 const OPENAI_RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
 const OPENAI_CODEX_MODELS_URL: &str = "https://chatgpt.com/backend-api/codex/models";
 const OPENAI_MODELS_URL: &str = "https://chatgpt.com/backend-api/models";
@@ -192,9 +197,11 @@ async fn models_for_selection(
         AgentProvider::Gemini => Ok(gemini_models_for_user(state, selection)
             .await?
             .into_response()),
-        AgentProvider::Grok | AgentProvider::Deepseek => {
+        AgentProvider::Grok | AgentProvider::Deepseek | AgentProvider::Groq => {
             let url = if provider == AgentProvider::Grok {
                 GROK_MODELS_URL.to_owned()
+            } else if provider == AgentProvider::Groq {
+                format!("{}/models", state.config.groq_api_url)
             } else {
                 format!("{}/models", state.config.deepseek_api_url)
             };
@@ -211,7 +218,11 @@ async fn models_for_selection(
                 Bytes::new(),
             )
             .await?;
-            filter_current_live_model_response(response, provider).await
+            if provider == AgentProvider::Groq {
+                Ok(response)
+            } else {
+                filter_current_live_model_response(response, provider).await
+            }
         }
     }
 }
@@ -283,6 +294,7 @@ async fn response_for_selection(
         ),
         AgentProvider::Grok => (GROK_RESPONSES_URL.to_owned(), body),
         AgentProvider::Deepseek => (format!("{}/responses", state.config.deepseek_api_url), body),
+        AgentProvider::Groq => (format!("{}/responses", state.config.groq_api_url), body),
         AgentProvider::Gemini => unreachable!("Gemini uses its native gateway path"),
     };
     let mut headers = HeaderMap::new();
@@ -316,23 +328,6 @@ const DOCS_CACHE_TTL: StdDuration = StdDuration::from_secs(3600);
 
 static CLAUDE_DOCS_CACHE: OnceLock<RwLock<(Instant, Value)>> = OnceLock::new();
 static OPENAI_DOCS_CACHE: OnceLock<RwLock<(Instant, Value)>> = OnceLock::new();
-const ANTIGRAVITY_MODELS: [&str; 14] = [
-    "gemini-3.8-flash-high",
-    "gemini-3.8-flash-medium",
-    "gemini-3.8-flash-low",
-    "gemini-3.7-flash-high",
-    "gemini-3.7-flash-medium",
-    "gemini-3.7-flash-low",
-    "gemini-3.6-flash-high",
-    "gemini-3.6-flash-medium",
-    "gemini-3.6-flash-low",
-    "gemini-3.1-pro-high",
-    "gemini-3.1-pro-low",
-    "claude-sonnet-4-6",
-    "claude-opus-4-6-thinking",
-    "gpt-oss-120b-medium",
-];
-
 #[derive(Debug, Serialize, ToSchema)]
 pub struct GatewayKey {
     pub created_at: DateTime<Utc>,
@@ -578,7 +573,10 @@ impl UsageObserver {
                     }
                 }
             }
-            AgentProvider::Chatgpt | AgentProvider::Grok | AgentProvider::Deepseek => {
+            AgentProvider::Chatgpt
+            | AgentProvider::Grok
+            | AgentProvider::Deepseek
+            | AgentProvider::Groq => {
                 if matches!(
                     value.get("status").and_then(Value::as_str),
                     Some("failed" | "incomplete")
@@ -863,17 +861,7 @@ pub async fn openai_models(
 }
 
 pub(crate) fn default_openai_model_catalogue() -> Value {
-    json!({
-        "object": "list",
-        "data": [
-            { "id": "gpt-6-astra", "name": "GPT-6 Astra", "object": "model", "owned_by": "openai" },
-            { "id": "gpt-6-sol", "name": "GPT-6 Sol", "object": "model", "owned_by": "openai" },
-            { "id": "gpt-6-luna", "name": "GPT-6 Luna", "object": "model", "owned_by": "openai" },
-            { "id": "gpt-5.6-sol", "name": "GPT-5.6 Sol", "object": "model", "owned_by": "openai" },
-            { "id": "gpt-5.6-terra", "name": "GPT-5.6 Terra", "object": "model", "owned_by": "openai" },
-            { "id": "gpt-5.6-luna", "name": "GPT-5.6 Luna", "object": "model", "owned_by": "openai" }
-        ]
-    })
+    crate::provider_catalogue::default_model_catalogue(AgentProvider::Chatgpt)
 }
 
 pub(crate) fn parse_openai_models_markdown(content: &str) -> Option<Value> {
@@ -972,7 +960,11 @@ pub(crate) async fn fetch_or_cached_openai_catalogue(http: &reqwest::Client) -> 
 
     let fetched = async {
         let response = http
-            .get("https://learn.chatgpt.com/docs/models.md")
+            .get(
+                &crate::provider_catalogue::provider(AgentProvider::Chatgpt)
+                    .discovery
+                    .docs_url,
+            )
             .timeout(StdDuration::from_secs(6))
             .header("User-Agent", "hub-william")
             .send()
@@ -1128,45 +1120,7 @@ pub async fn claude_models(
 }
 
 pub(crate) fn default_claude_model_catalogue() -> Value {
-    let standard_effort = json!({
-        "supported": true,
-        "low": { "supported": true },
-        "medium": { "supported": true },
-        "high": { "supported": true },
-        "xhigh": { "supported": true },
-        "max": { "supported": true }
-    });
-
-    json!({
-        "object": "list",
-        "data": [
-            {
-                "id": "claude-fable-5-1",
-                "display_name": "Claude Fable 5.1",
-                "capabilities": {
-                    "effort": standard_effort
-                }
-            },
-            {
-                "id": "claude-opus-5-5",
-                "display_name": "Claude Opus 5.5",
-                "capabilities": {
-                    "effort": standard_effort
-                }
-            },
-            {
-                "id": "claude-sonnet-5",
-                "display_name": "Claude Sonnet 5",
-                "capabilities": {
-                    "effort": standard_effort
-                }
-            },
-            {
-                "id": "claude-haiku-4-5-20251001",
-                "display_name": "Claude Haiku 4.5"
-            }
-        ]
-    })
+    crate::provider_catalogue::default_model_catalogue(AgentProvider::Claude)
 }
 
 pub(crate) fn parse_claude_models_markdown(content: &str) -> Option<Value> {
@@ -1204,14 +1158,14 @@ pub(crate) fn parse_claude_models_markdown(content: &str) -> Option<Value> {
         return None;
     }
 
-    let standard_effort = json!({
-        "supported": true,
-        "low": { "supported": true },
-        "medium": { "supported": true },
-        "high": { "supported": true },
-        "xhigh": { "supported": true },
-        "max": { "supported": true }
-    });
+    let standard_effort = crate::provider_catalogue::effort_capability(
+        &crate::provider_catalogue::provider(AgentProvider::Claude)
+            .models
+            .iter()
+            .find(|model| !model.reasoning_efforts.is_empty())
+            .map(|model| model.reasoning_efforts.clone())
+            .unwrap_or_default(),
+    );
 
     let mut models = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -1265,7 +1219,11 @@ pub(crate) async fn fetch_or_cached_claude_catalogue(http: &reqwest::Client) -> 
 
     let fetched = async {
         let response = http
-            .get("https://platform.claude.com/docs/en/models/overview.md")
+            .get(
+                &crate::provider_catalogue::provider(AgentProvider::Claude)
+                    .discovery
+                    .docs_url,
+            )
             .timeout(StdDuration::from_secs(6))
             .header("User-Agent", "hub-william")
             .send()
@@ -1352,6 +1310,60 @@ pub async fn deepseek_models(
     filter_current_live_model_response(response, AgentProvider::Deepseek).await
 }
 
+pub async fn groq_chat(
+    State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, ApiError> {
+    proxy_request(
+        &state,
+        AgentProvider::Groq,
+        &format!("{}/chat/completions", state.config.groq_api_url),
+        Method::POST,
+        &uri,
+        &headers,
+        body,
+    )
+    .await
+}
+
+pub async fn groq_responses(
+    State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, ApiError> {
+    proxy_request(
+        &state,
+        AgentProvider::Groq,
+        &format!("{}/responses", state.config.groq_api_url),
+        Method::POST,
+        &uri,
+        &headers,
+        body,
+    )
+    .await
+}
+
+pub async fn groq_models(
+    State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    let response = proxy_request(
+        &state,
+        AgentProvider::Groq,
+        &format!("{}/models", state.config.groq_api_url),
+        Method::GET,
+        &uri,
+        &headers,
+        Bytes::new(),
+    )
+    .await?;
+    filter_current_live_model_response(response, AgentProvider::Groq).await
+}
+
 pub async fn grok_models(
     State(state): State<AppState>,
     OriginalUri(uri): OriginalUri,
@@ -1371,11 +1383,7 @@ pub async fn grok_models(
 }
 
 pub(crate) fn current_live_model_id(provider: AgentProvider, id: &str) -> bool {
-    match provider {
-        AgentProvider::Deepseek => matches!(id, "deepseek-flash" | "deepseek-v4-pro"),
-        AgentProvider::Grok => id == "grok-4.7",
-        _ => true,
-    }
+    crate::provider_catalogue::current_chat_model(provider, id)
 }
 
 fn filter_current_live_model_catalogue(
@@ -1985,10 +1993,11 @@ fn gemini_model_catalogue(payload: &Value) -> Value {
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
-    let models = ANTIGRAVITY_MODELS
-        .iter()
-        .filter_map(|identifier| {
-            let metadata = available.get(*identifier)?;
+    let models = crate::provider_catalogue::provider(AgentProvider::Gemini)
+        .chat_models()
+        .filter_map(|model| {
+            let identifier = &model.id;
+            let metadata = available.get(identifier)?;
             let display_name = metadata.get("displayName").and_then(Value::as_str)?;
             if display_name.is_empty()
                 || metadata
@@ -2318,7 +2327,7 @@ async fn proxy_request_for_user(
                         .header("anthropic-dangerous-direct-browser-access", "true")
                 }
                 AgentProvider::Gemini => request,
-                AgentProvider::Deepseek => request,
+                AgentProvider::Deepseek | AgentProvider::Groq => request,
                 AgentProvider::Grok => {
                     let grok_headers = grok_proxy_headers(
                         &state.config.grok_client_version,
@@ -2964,16 +2973,18 @@ pub(crate) async fn probe_gemini_account_verification(
     let Ok(catalogue) = models.json::<Value>().await else {
         return GeminiVerificationProbe::Inconclusive;
     };
-    let model = ANTIGRAVITY_MODELS
-        .iter()
+    let definition = crate::provider_catalogue::provider(AgentProvider::Gemini);
+    let model = definition
+        .chat_models()
         .find(|model| {
             catalogue
                 .pointer("/models")
-                .and_then(|models| models.get(**model))
+                .and_then(|models| models.get(&model.id))
                 .is_some()
         })
-        .copied()
-        .unwrap_or(ANTIGRAVITY_MODELS[0]);
+        .or_else(|| definition.chat_models().next())
+        .expect("validated Gemini chat catalogue");
+    let model = model.id.as_str();
     let count_url = format!(
         "{}/v1internal:countTokens",
         state.config.gemini_code_assist_url.trim_end_matches('/')
