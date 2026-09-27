@@ -1,4 +1,5 @@
-interface PlaygroundGroqPlaybackOptions {
+import type { PlaygroundSpeechAudio } from "./playground-local-tts";
+interface PlaygroundVoicePlaybackOptions {
   context: AudioContext;
   recordingOutput: AudioNode | null;
   signal: AbortSignal;
@@ -7,9 +8,9 @@ interface PlaygroundGroqPlaybackOptions {
 }
 
 /** Per-turn predecode and scheduling; text delivery never waits for playback. */
-export default class PlaygroundGroqPlayback {
-  private options: PlaygroundGroqPlaybackOptions;
-  private encoded: string[] = [];
+export default class PlaygroundVoicePlayback {
+  private options: PlaygroundVoicePlaybackOptions;
+  private encoded: (string | PlaygroundSpeechAudio)[] = [];
   private ready: AudioBuffer[] = [];
   private sources = new Set<AudioBufferSourceNode>();
   private decoding = false;
@@ -25,17 +26,18 @@ export default class PlaygroundGroqPlayback {
     this.resolve = resolve;
   });
 
-  constructor(options: PlaygroundGroqPlaybackOptions) {
+  constructor(options: PlaygroundVoicePlaybackOptions) {
     this.options = options;
     options.signal.addEventListener("abort", this.stop, { once: true });
     if (options.signal.aborted) this.stop();
   }
 
-  append(audio: string) {
+  append(audio: string | PlaygroundSpeechAudio) {
     if (this.stopped || this.ended) return;
-    this.encodedBytes += audio.length;
-    if (this.encodedBytes > 6 * 1024 * 1024) {
-      this.fail(new Error("Groq returned oversized voice audio."));
+    this.encodedBytes +=
+      typeof audio === "string" ? audio.length : audio.samples.byteLength;
+    if (this.encodedBytes > 32 * 1024 * 1024) {
+      this.fail(new Error("Speech synthesis returned oversized voice audio."));
       return;
     }
     this.encoded.push(audio);
@@ -76,10 +78,21 @@ export default class PlaygroundGroqPlayback {
     this.decoding = true;
     try {
       while (!this.stopped && this.encoded.length && this.ready.length < 2) {
-        const bytes = Uint8Array.from(atob(this.encoded.shift()!), (value) =>
-          value.charCodeAt(0),
-        );
-        const buffer = await this.options.context.decodeAudioData(bytes.buffer);
+        const audio = this.encoded.shift()!;
+        let buffer: AudioBuffer;
+        if (typeof audio === "string") {
+          const bytes = Uint8Array.from(atob(audio), (value) =>
+            value.charCodeAt(0),
+          );
+          buffer = await this.options.context.decodeAudioData(bytes.buffer);
+        } else {
+          buffer = this.options.context.createBuffer(
+            1,
+            audio.samples.length,
+            audio.sampleRate,
+          );
+          buffer.copyToChannel(new Float32Array(audio.samples), 0);
+        }
         if (this.stopped) return;
         this.decodedBytes += buffer.length * buffer.numberOfChannels * 4;
         if (
@@ -87,7 +100,7 @@ export default class PlaygroundGroqPlayback {
           buffer.duration <= 0 ||
           this.decodedBytes > 64 * 1024 * 1024
         )
-          throw new Error("Groq returned invalid voice audio.");
+          throw new Error("Speech synthesis returned invalid voice audio.");
         await this.options.context.resume();
         if (this.stopped) return;
         this.ready.push(buffer);

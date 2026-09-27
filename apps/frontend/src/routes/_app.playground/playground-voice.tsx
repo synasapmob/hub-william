@@ -14,9 +14,8 @@ import { tv } from "tailwind-variants";
 import { Button } from "@/components/ui/button";
 import Center from "@/components/ui/center";
 import Flex from "@/components/ui/flex";
-import playgroundService, {
-  type PlaygroundProviderId,
-} from "@/services/playground";
+import type { PlaygroundProviderId } from "@/services/playground";
+import playgroundWhisperTurnService from "@/services/playground/playground-whisper-turn";
 import playgroundVoiceService, {
   type PlaygroundVoiceCall,
   type PlaygroundVoiceAudioSources,
@@ -36,6 +35,7 @@ interface PlaygroundVoiceProps {
   provider: PlaygroundProviderId;
   model?: string;
   callProfile?: CatalogueCallProfile;
+  mode: "call-live" | "call-whisper";
   disabled: boolean;
   zoomed: boolean;
   onToggleZoom: () => void;
@@ -72,6 +72,7 @@ export default function PlaygroundVoice({
   provider,
   model,
   callProfile,
+  mode,
   disabled,
   zoomed,
   onToggleZoom,
@@ -159,8 +160,9 @@ export default function PlaygroundVoice({
   });
 
   const turnMutation = useMutation({
-    mutationFn: playgroundService.groqTurn,
+    mutationFn: playgroundWhisperTurnService.turn,
     retry: false,
+    gcTime: 0,
   });
 
   async function start() {
@@ -197,6 +199,7 @@ export default function PlaygroundVoice({
         provider,
         model,
         callProfile,
+        mode,
         signal: request.signal,
         voiceEnabled: preferences.voice,
         cameraEnabled: preferences.camera,
@@ -258,6 +261,7 @@ export default function PlaygroundVoice({
             <Button
               type="button"
               variant="destructive"
+              className="min-h-10"
               disabled={state.status === "ending"}
               onClick={end}
             >
@@ -267,6 +271,7 @@ export default function PlaygroundVoice({
           ) : (
             <Button
               type="button"
+              className="min-h-10"
               disabled={
                 disabled || !connectionId || !model || mutation.isPending
               }

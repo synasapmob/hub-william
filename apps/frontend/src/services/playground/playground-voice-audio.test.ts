@@ -6,14 +6,14 @@ describe("Groq microphone turns", () => {
     const activity = new PlaygroundVoiceActivity();
     const quiet = new Float32Array(1600);
     const speech = new Float32Array(1600).fill(0.1);
-    for (let i = 0; i < 30; i++) expect(activity.push(quiet)).toBeNull();
-    expect(activity.push(speech)).toBeNull();
-    for (let i = 0; i < 20; i++) expect(activity.push(quiet)).toBeNull();
-    for (let i = 0; i < 3; i++) activity.push(quiet);
-    activity.push(speech);
-    activity.push(speech);
-    for (let i = 0; i < 19; i++) expect(activity.push(quiet)).toBeNull();
-    const turn = activity.push(quiet)!;
+    for (let i = 0; i < 30; i++) expect(activity.push(quiet, 0.01)).toBeNull();
+    expect(activity.push(speech, 0.95)).toBeNull();
+    for (let i = 0; i < 20; i++) expect(activity.push(quiet, 0.01)).toBeNull();
+    for (let i = 0; i < 3; i++) activity.push(quiet, 0.01);
+    activity.push(speech, 0.95);
+    activity.push(speech, 0.95);
+    for (let i = 0; i < 19; i++) expect(activity.push(quiet, 0.01)).toBeNull();
+    const turn = activity.push(quiet, 0.01)!;
     expect(turn.length).toBe(25 * 1600);
     expect(turn[3 * 1600]).toBeCloseTo(0.1);
   });
@@ -22,22 +22,23 @@ describe("Groq microphone turns", () => {
     const activity = new PlaygroundVoiceActivity();
     const quiet = new Float32Array(1600);
     const speech = new Float32Array(1600).fill(0.1);
-    activity.push(speech);
-    activity.push(speech);
-    for (let i = 0; i < 15; i++) expect(activity.push(quiet)).toBeNull();
-    expect(activity.push(speech)).toBeNull();
-    for (let i = 0; i < 19; i++) expect(activity.push(quiet)).toBeNull();
-    expect(activity.push(quiet)).not.toBeNull();
+    activity.push(speech, 0.95);
+    activity.push(speech, 0.95);
+    for (let i = 0; i < 15; i++) expect(activity.push(quiet, 0.01)).toBeNull();
+    expect(activity.push(speech, 0.95)).toBeNull();
+    for (let i = 0; i < 19; i++) expect(activity.push(quiet, 0.01)).toBeNull();
+    expect(activity.push(quiet, 0.01)).not.toBeNull();
   });
 
   it("bounds continuous speech to 20 seconds and discards a muted partial turn", () => {
     const activity = new PlaygroundVoiceActivity();
     const speech = new Float32Array(1600).fill(0.1);
-    for (let i = 0; i < 199; i++) expect(activity.push(speech)).toBeNull();
-    expect(activity.push(speech)?.length).toBe(320000);
-    activity.push(speech);
+    for (let i = 0; i < 199; i++)
+      expect(activity.push(speech, 0.95)).toBeNull();
+    expect(activity.push(speech, 0.95)?.length).toBe(320000);
+    activity.push(speech, 0.95);
     activity.reset();
     for (let i = 0; i < 10; i++)
-      expect(activity.push(new Float32Array(1600))).toBeNull();
+      expect(activity.push(new Float32Array(1600), 0.01)).toBeNull();
   });
 });

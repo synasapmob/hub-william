@@ -2,10 +2,10 @@ import providerCatalogue from "@/services/provider-catalogue";
 import type { CatalogueCallProfile } from "@/services/provider-catalogue.generated";
 import playgroundService, { type PlaygroundVoiceSessionOptions } from "./index";
 import type {
-  PlaygroundGroqTurnOptions,
-  PlaygroundGroqTurnResult,
-} from "./index";
-import playgroundGroqVoiceService from "./playground-groq-voice";
+  PlaygroundWhisperTurnOptions,
+  PlaygroundWhisperTurnResult,
+} from "./playground-whisper-turn";
+import playgroundWhisperVoiceService from "./playground-whisper-voice";
 import PlaygroundVoiceMeter from "./playground-voice-meter";
 import {
   appendVoiceTranscript,
@@ -32,6 +32,7 @@ export interface PlaygroundVoiceStartOptions extends Omit<
   "sdp"
 > {
   callProfile?: CatalogueCallProfile;
+  mode?: "call-live" | "call-whisper";
   voiceEnabled?: boolean;
   cameraEnabled?: boolean;
   onStatus: (status: PlaygroundVoiceStatus) => void;
@@ -50,8 +51,8 @@ export interface PlaygroundVoiceStartOptions extends Omit<
   onInputActive?: (active: boolean) => void;
   onOutputLevel?: (level: number) => void;
   sendTurn?: (
-    options: PlaygroundGroqTurnOptions,
-  ) => Promise<PlaygroundGroqTurnResult | null>;
+    options: PlaygroundWhisperTurnOptions,
+  ) => Promise<PlaygroundWhisperTurnResult | null>;
 }
 
 function stopStream(stream: MediaStream | null) {
@@ -75,17 +76,25 @@ function mediaError(error: unknown): string {
 async function start(
   options: PlaygroundVoiceStartOptions,
 ): Promise<PlaygroundVoiceCall> {
+  if (options.mode === "call-whisper") {
+    if (
+      !providerCatalogue.supportsMode(options.provider, "call-whisper") ||
+      !options.model
+    )
+      throw new Error("Choose an available chat model for Call Whisper.");
+    return playgroundWhisperVoiceService.start(options);
+  }
   const profile =
     options.callProfile ??
     providerCatalogue.callProfile(options.provider, options.model);
   if (
     !profile ||
     profile.provider !== options.provider ||
-    profile.selector_model !== options.model
+    profile.selector_model !== options.model ||
+    profile.kind !== "native_realtime" ||
+    profile.transport !== "codex_v3_webrtc"
   )
     throw new Error("Choose an available call model.");
-  if (profile.transport === "groq_sse")
-    return playgroundGroqVoiceService.start(options);
   if (
     !navigator.mediaDevices?.getUserMedia ||
     typeof RTCPeerConnection === "undefined"

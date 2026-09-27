@@ -1,9 +1,20 @@
 import catalogue, {
   type ApiKeyProviderId,
+  type CatalogueCallProfile,
   type CatalogueProvider,
   type ProviderId,
   type ProviderLabel,
 } from "./provider-catalogue.generated";
+
+export const playgroundModes = ["chat", "call-live", "call-whisper"] as const;
+export type PlaygroundMode = (typeof playgroundModes)[number];
+const callModes: Record<
+  CatalogueCallProfile["kind"],
+  Exclude<PlaygroundMode, "chat">
+> = {
+  native_realtime: "call-live",
+  local_stt_llm_tts: "call-whisper",
+};
 
 const providers = Object.fromEntries(
   catalogue.providers.map((provider) => [provider.id, provider]),
@@ -34,16 +45,24 @@ function callProfile(provider: ProviderId, model?: string) {
   );
 }
 
-function supportsMode(provider: ProviderId, mode: "chat" | "voice") {
-  return mode === "chat"
+function callMode(profile: CatalogueCallProfile) {
+  return callModes[profile.kind];
+}
+
+function supportsMode(provider: ProviderId, mode: PlaygroundMode | "voice") {
+  return mode === "chat" || mode === "call-whisper" || mode === "voice"
     ? providers[provider].chat_capabilities.includes("chat")
-    : catalogue.call_profiles.some((profile) => profile.provider === provider);
+    : catalogue.call_profiles.some(
+        (profile) =>
+          profile.provider === provider && callMode(profile) === mode,
+      );
 }
 
 const providerCatalogueService = {
   byId: (id: ProviderId) => providers[id],
   byLabel,
   byIdOrLabel,
+  callMode,
   callProfile,
   isApiKeyProvider,
   list,

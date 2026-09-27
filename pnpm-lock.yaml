@@ -10,6 +10,9 @@ importers:
 
   apps/frontend:
     dependencies:
+      '@diffusionstudio/piper-wasm':
+        specifier: 1.0.0
+        version: 1.0.0
       '@fontsource-variable/jetbrains-mono':
         specifier: 5.3.0
         version: 5.3.0
@@ -43,6 +46,9 @@ importers:
       lucide-react:
         specifier: ^1.28.0
         version: 1.28.0(react@19.2.8)
+      onnxruntime-web:
+        specifier: 1.31.0-dev.20260914-8d85527a0
+        version: 1.31.0-dev.20260914-8d85527a0
       openapi-fetch:
         specifier: ^0.17.0
         version: 0.17.0
@@ -362,6 +368,9 @@ packages:
   '@csstools/css-tokenizer@4.0.0':
     resolution: {integrity: sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA==}
     engines: {node: '>=20.19.0'}
+
+  '@diffusionstudio/piper-wasm@1.0.0':
+    resolution: {integrity: sha512-4Hgh7wJ1PuGEVgVi1CpducESnyXwjFRJN4zXjYRpxgquM+Zh6Eqq8ZaiGpCKm4yXvT1Y2SPQXbv0dEckFD9NaQ==}
 
   '@dotenvx/dotenvx@1.75.1':
     resolution: {integrity: sha512-/BITOC9dmS/edY2zQwZNicQ059O6RKabtQfyEafV0nGtfYRNHYy1DIPiYVcov40+tob9hfmBnbR963dS+EQ1DQ==}
@@ -4775,6 +4784,8 @@ snapshots:
       css-tree: 3.2.1
 
   '@csstools/css-tokenizer@4.0.0': {}
+
+  '@diffusionstudio/piper-wasm@1.0.0': {}
 
   '@dotenvx/dotenvx@1.75.1':
     dependencies:

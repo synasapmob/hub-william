@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PlaygroundGroqTurnResult } from "./index";
+import type { PlaygroundWhisperTurnResult } from "./playground-whisper-turn";
 import type { PlaygroundVoiceStartOptions } from "./playground-voice";
-import playgroundGroqVoiceService from "./playground-groq-voice";
+import playgroundWhisperVoiceService from "./playground-whisper-voice";
+import type { PlaygroundLocalVadStartOptions } from "./playground-local-vad";
 
 const local = vi.hoisted(() => ({
   transcribe: vi.fn(),
@@ -9,6 +10,19 @@ const local = vi.hoisted(() => ({
   start: vi.fn(),
 }));
 vi.mock("./playground-local-stt", () => ({ default: { start: local.start } }));
+const vad = vi.hoisted(() => ({
+  start: vi.fn(),
+  dispose: vi.fn(),
+  reset: vi.fn(),
+  probability: null as number | null,
+}));
+vi.mock("./playground-local-vad", () => ({ default: { start: vad.start } }));
+
+vi.mock("./playground-local-tts", () => ({
+  default: {
+    start: vi.fn(async () => ({ synthesize: vi.fn(), dispose: vi.fn() })),
+  },
+}));
 
 const micTrack = { stop: vi.fn(), enabled: true, onended: null };
 const cameraTrack = { stop: vi.fn(), onended: null };
@@ -104,6 +118,15 @@ beforeEach(() => {
   vi.clearAllMocks();
   local.transcribe.mockReset().mockResolvedValue("Hello");
   local.start.mockReset().mockResolvedValue(local);
+  vad.probability = null;
+  vad.start
+    .mockReset()
+    .mockImplementation(async (options: PlaygroundLocalVadStartOptions) => ({
+      push: (audio: Float32Array) =>
+        options.onFrame(audio, vad.probability ?? (audio[0] ? 0.95 : 0.01)),
+      reset: vad.reset,
+      dispose: vad.dispose,
+    }));
   receive = null;
   autoEnd = true;
   micTrack.enabled = true;
@@ -122,10 +145,33 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("Groq call lifecycle", () => {
+describe("Local Whisper call lifecycle", () => {
+  it("rejects loud non-speech before Whisper or barge-in, but transcribes quiet speech confirmed by VAD", async () => {
+    const input = options();
+    const call = await playgroundWhisperVoiceService.start(input);
+    vad.probability = 0.02;
+    frames(80, 0.8);
+    expect(local.transcribe).not.toHaveBeenCalled();
+    expect(input.onTranscripts).not.toHaveBeenCalled();
+    expect(input.sendTurn).not.toHaveBeenCalled();
+    expect(input.onInputLevel).toHaveBeenLastCalledWith(0);
+    vad.probability = 0.92;
+    frames(11, 0.001);
+    await vi.waitFor(() => expect(local.transcribe).toHaveBeenCalledOnce());
+    expect(input.sendTurn).not.toHaveBeenCalled();
+    vad.probability = 0.02;
+    frames(19, 0.8);
+    expect(input.onInputActive).toHaveBeenLastCalledWith(true);
+    expect(input.sendTurn).not.toHaveBeenCalled();
+    frames(1, 0.8);
+    await vi.waitFor(() => expect(input.sendTurn).toHaveBeenCalledOnce());
+    await call.end();
+    expect(vad.dispose).toHaveBeenCalledOnce();
+  });
+
   it("keeps previews entirely local even after twelve recognition updates", async () => {
     const input = options();
-    const call = await playgroundGroqVoiceService.start(input);
+    const call = await playgroundWhisperVoiceService.start(input);
     frames(11);
     for (let count = 1; count <= 14; count++) {
       await vi.waitFor(() =>
@@ -160,7 +206,7 @@ describe("Groq call lifecycle", () => {
               reject = fail;
             }),
         );
-      const call = await playgroundGroqVoiceService.start(input);
+      const call = await playgroundWhisperVoiceService.start(input);
       frames(11);
       await vi.waitFor(() =>
         expect(input.onTranscripts).toHaveBeenLastCalledWith([
@@ -188,7 +234,7 @@ describe("Groq call lifecycle", () => {
       .mockResolvedValueOnce("I want")
       .mockResolvedValueOnce("I would like some help")
       .mockResolvedValueOnce("Hello");
-    const call = await playgroundGroqVoiceService.start(input);
+    const call = await playgroundWhisperVoiceService.start(input);
     frames(11);
     await vi.waitFor(() =>
       expect(input.onTranscripts).toHaveBeenLastCalledWith([
@@ -233,7 +279,7 @@ describe("Groq call lifecycle", () => {
           }),
       );
     local.transcribe.mockResolvedValueOnce(".");
-    const call = await playgroundGroqVoiceService.start(input);
+    const call = await playgroundWhisperVoiceService.start(input);
     frames(11);
     await vi.waitFor(() => expect(input.onTranscripts).toHaveBeenCalled());
     frames(10);
@@ -263,7 +309,7 @@ describe("Groq call lifecycle", () => {
             late = resolve;
           }),
       );
-      const call = await playgroundGroqVoiceService.start(input);
+      const call = await playgroundWhisperVoiceService.start(input);
       frames(11);
       const preview = vi.mocked(local.transcribe).mock.calls[0][1];
       if (action === "mute") call.mute(true);
@@ -279,7 +325,7 @@ describe("Groq call lifecycle", () => {
 
   it("holds an active input turn through silence, resets on speech, and clears on submission/mute/end", async () => {
     const input = options();
-    const call = await playgroundGroqVoiceService.start(input);
+    const call = await playgroundWhisperVoiceService.start(input);
     const voiced = {
       data: new Float32Array(1600).fill(0.1),
     } as MessageEvent<Float32Array>;
@@ -318,7 +364,7 @@ describe("Groq call lifecycle", () => {
   it("keeps listening after no speech without rows/audio and accepts the next real turn", async () => {
     const input = options();
     local.transcribe.mockResolvedValueOnce(".");
-    const call = await playgroundGroqVoiceService.start(input);
+    const call = await playgroundWhisperVoiceService.start(input);
     speak();
     await vi.waitFor(() =>
       expect(input.onPhase).toHaveBeenLastCalledWith("listening"),
@@ -350,7 +396,7 @@ describe("Groq call lifecycle", () => {
         }),
     );
     const input = options();
-    await expect(playgroundGroqVoiceService.start(input)).rejects.toThrow(
+    await expect(playgroundWhisperVoiceService.start(input)).rejects.toThrow(
       "Allow microphone access",
     );
     expect(input.onStatus).toHaveBeenLastCalledWith("failed");
@@ -362,7 +408,7 @@ describe("Groq call lifecycle", () => {
   });
   it("sends only locally recognized text on the chosen account, prints both sides, plays every clip and remembers history", async () => {
     const input = options();
-    const call = await playgroundGroqVoiceService.start(input);
+    const call = await playgroundWhisperVoiceService.start(input);
     speak();
     await vi.waitFor(() =>
       expect(input.onPhase).toHaveBeenLastCalledWith("listening"),
@@ -400,9 +446,9 @@ describe("Groq call lifecycle", () => {
     >[0][] = [];
     input.sendTurn = vi.fn((turn) => {
       turns.push(turn);
-      return new Promise<PlaygroundGroqTurnResult>(() => {});
+      return new Promise<PlaygroundWhisperTurnResult>(() => {});
     });
-    const call = await playgroundGroqVoiceService.start(input);
+    const call = await playgroundWhisperVoiceService.start(input);
     speak();
     await vi.waitFor(() => expect(turns).toHaveLength(1));
     const first = turns[0];
@@ -453,9 +499,9 @@ describe("Groq call lifecycle", () => {
     input.voiceEnabled = false;
     input.cameraEnabled = false;
     input.sendTurn = vi.fn(
-      () => new Promise<PlaygroundGroqTurnResult>(() => {}),
+      () => new Promise<PlaygroundWhisperTurnResult>(() => {}),
     );
-    const call = await playgroundGroqVoiceService.start(input);
+    const call = await playgroundWhisperVoiceService.start(input);
     expect(micTrack.enabled).toBe(false);
     expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledOnce();
     speak();
@@ -475,7 +521,7 @@ describe("Groq call lifecycle", () => {
     const input = options();
     const controller = new AbortController();
     input.signal = controller.signal;
-    let resolve!: (value: PlaygroundGroqTurnResult) => void;
+    let resolve!: (value: PlaygroundWhisperTurnResult) => void;
     input.sendTurn = vi.fn<
       NonNullable<PlaygroundVoiceStartOptions["sendTurn"]>
     >(
@@ -484,7 +530,7 @@ describe("Groq call lifecycle", () => {
           resolve = done;
         }),
     );
-    const call = await playgroundGroqVoiceService.start(input);
+    const call = await playgroundWhisperVoiceService.start(input);
     call.mute(true);
     expect(input.onInputLevel).toHaveBeenLastCalledWith(0);
     speak();
@@ -515,7 +561,7 @@ describe("Groq call lifecycle", () => {
   it("does not replay a failed provider turn and releases media", async () => {
     const input = options();
     input.sendTurn = vi.fn().mockRejectedValue(new Error("Groq quota reached"));
-    await playgroundGroqVoiceService.start(input);
+    await playgroundWhisperVoiceService.start(input);
     speak();
     await vi.waitFor(() =>
       expect(input.onError).toHaveBeenCalledWith("Groq quota reached"),
@@ -528,7 +574,7 @@ describe("Groq call lifecycle", () => {
 
   it("reports actual mic levels and remains ending until audio cleanup finishes", async () => {
     const input = options();
-    const call = await playgroundGroqVoiceService.start(input);
+    const call = await playgroundWhisperVoiceService.start(input);
     receive?.({ data: new Float32Array(1600) } as MessageEvent<Float32Array>);
     expect(input.onInputLevel).toHaveBeenLastCalledWith(0);
     receive?.({

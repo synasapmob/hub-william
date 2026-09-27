@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import PlaygroundGroqPlayback from "./playground-groq-playback";
+import PlaygroundVoicePlayback from "./playground-voice-playback";
 
 const clip = btoa("wav fixture");
 const buffer = { duration: 2, length: 32000, numberOfChannels: 1 };
@@ -21,6 +21,12 @@ function fixture() {
     destination: {},
     resume: vi.fn().mockResolvedValue(undefined),
     decodeAudioData: vi.fn().mockResolvedValue(buffer),
+    createBuffer: vi.fn((channels: number, length: number, rate: number) => ({
+      numberOfChannels: channels,
+      length,
+      duration: length / rate,
+      copyToChannel: vi.fn(),
+    })),
     createBufferSource: () => {
       const node = source();
       nodes.push(node);
@@ -31,7 +37,7 @@ function fixture() {
   const recordingOutput = {} as AudioNode;
   const onPhase = vi.fn();
   const onError = vi.fn();
-  const playback = new PlaygroundGroqPlayback({
+  const playback = new PlaygroundVoicePlayback({
     context: context as unknown as AudioContext,
     signal: controller.signal,
     recordingOutput,
@@ -56,7 +62,22 @@ async function decoded() {
 
 afterEach(() => vi.useRealTimers());
 
-describe("buffered Groq speech playback", () => {
+describe("buffered speech playback", () => {
+  it("plays local PCM directly and routes it to the recording mix without WAV decoding", async () => {
+    const f = fixture();
+    const samples = new Float32Array(22050).fill(0.1);
+    f.playback.append({ samples, sampleRate: 22050 });
+    const drained = f.playback.complete();
+    await decoded();
+    expect(f.context.decodeAudioData).not.toHaveBeenCalled();
+    expect(f.context.createBuffer).toHaveBeenCalledWith(1, 22050, 22050);
+    expect(f.nodes).toHaveLength(1);
+    expect(f.nodes[0].connect).toHaveBeenCalledWith(f.context.destination);
+    expect(f.nodes[0].connect).toHaveBeenCalledWith(f.recordingOutput);
+    f.nodes[0].onended?.();
+    await drained;
+  });
+
   it("predecodes and schedules contiguous audio before the previous clip ends, including the recording mix", async () => {
     const f = fixture();
     f.playback.append(clip);

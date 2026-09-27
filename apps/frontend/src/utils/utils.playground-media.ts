@@ -1,3 +1,11 @@
+import {
+  playgroundModes,
+  type PlaygroundMode,
+} from "@/services/provider-catalogue";
+
+// Legacy Call is resolved after the workspace's accessible accounts load.
+export type SavedPlaygroundMode = PlaygroundMode | "voice";
+
 export interface PlaygroundMediaPreferences {
   voice: boolean;
   camera: boolean;
@@ -7,15 +15,18 @@ const key = "hub.playground.media";
 const modeKey = "hub.playground.mode";
 const defaults: PlaygroundMediaPreferences = { voice: true, camera: true };
 
-function readMode(): "chat" | "voice" {
+function readMode(): SavedPlaygroundMode {
   try {
-    return window.localStorage.getItem(modeKey) === "voice" ? "voice" : "chat";
+    const value = window.localStorage.getItem(modeKey);
+    return value === "voice"
+      ? value
+      : (playgroundModes.find((mode) => mode === value) ?? "chat");
   } catch {
     return "chat";
   }
 }
 
-function writeMode(mode: "chat" | "voice") {
+function writeMode(mode: PlaygroundMode) {
   try {
     window.localStorage.setItem(modeKey, mode);
   } catch {

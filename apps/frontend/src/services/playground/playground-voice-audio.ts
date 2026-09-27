@@ -1,3 +1,5 @@
+export const VOICE_SPEECH_PROBABILITY = 0.5;
+// Visual meter/native-call activity only; local transcription is gated by VAD.
 export const VOICE_ACTIVITY_THRESHOLD = 0.015;
 
 export function voiceSampleLevel(frame: Float32Array): number {
@@ -29,16 +31,16 @@ export class PlaygroundVoiceActivity {
     this.voiced = 0;
   }
 
-  push(frame: Float32Array): Float32Array | null {
-    const rms = voiceSampleLevel(frame);
-    if (!this.frames.length && rms < VOICE_ACTIVITY_THRESHOLD) {
+  push(frame: Float32Array, probability: number): Float32Array | null {
+    const speech = probability >= VOICE_SPEECH_PROBABILITY;
+    if (!this.frames.length && !speech) {
       this.preroll = [...this.preroll.slice(-2), frame];
       return null;
     }
     if (!this.frames.length) this.frames = this.preroll;
     this.frames.push(frame);
-    this.silent = rms < VOICE_ACTIVITY_THRESHOLD ? this.silent + 1 : 0;
-    if (rms >= VOICE_ACTIVITY_THRESHOLD) this.voiced += 1;
+    this.silent = speech ? 0 : this.silent + 1;
+    if (speech) this.voiced += 1;
     if (this.silent < 20 && this.frames.length < 200) return null;
     const frames = this.frames;
     const voiced = this.voiced;

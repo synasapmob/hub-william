@@ -23,6 +23,7 @@ import agentPoolsService from "@/services/agent-pools";
 import organizationsService from "@/services/organizations";
 import { agentPoolAccess } from "@/utils/utils.agent-pools";
 import playgroundMedia from "@/utils/utils.playground-media";
+import playgroundSpeechPreload from "@/services/playground/playground-speech-preload";
 import playgroundService, {
   PlaygroundServiceError,
   type PlaygroundChatOptions,
@@ -89,6 +90,10 @@ export default function PlaygroundWorkspace({
   form,
 }: PlaygroundWorkspaceProps) {
   const session = useWorkspaceSession();
+  useEffect(() => {
+    if (session.status === "loading") return;
+    return playgroundSpeechPreload.preload();
+  }, [session.status]);
   const [readingFiles, setReadingFiles] = useState(false);
   const [voiceActive, setVoiceActive] = useState(false);
   const [zoomed, setZoomed] = useState(false);
@@ -123,7 +128,7 @@ export default function PlaygroundWorkspace({
     queryFn: () => organizationsService.agents(organizationId),
     enabled: Boolean(userId && selectedOrganization),
   });
-  const mode = form.watch("mode");
+  const savedMode = form.watch("mode");
   const providerIds = Object.keys(providers) as PlaygroundProviderId[];
   const accessibleAccounts = organizationRequested
     ? (selectedOrganization ? (organizationAgentsQuery.data ?? []) : []).map(
@@ -148,17 +153,32 @@ export default function PlaygroundWorkspace({
             (id) => providers[id].label === pool.agent,
           ),
         }));
-  const visibleProviderIds = providerIds.filter(
+  const availableProviderIds = providerIds.filter(
     (id) =>
-      providerCatalogue.supportsMode(id, mode) &&
+      providerCatalogue.supportsMode(id, savedMode) &&
       accessibleAccounts.some((account) => account.provider === id),
   );
+  const requestedProvider = form.watch("provider");
+  const legacyProvider =
+    availableProviderIds.find((id) => id === requestedProvider) ??
+    availableProviderIds[0];
+  const mode =
+    savedMode === "voice"
+      ? legacyProvider &&
+        !providerCatalogue.supportsMode(legacyProvider, "call-live")
+        ? "call-whisper"
+        : "call-live"
+      : savedMode;
+  const visibleProviderIds = availableProviderIds.filter((id) =>
+    providerCatalogue.supportsMode(id, mode),
+  );
   const provider =
-    visibleProviderIds.find((id) => id === form.watch("provider")) ??
+    visibleProviderIds.find((id) => id === requestedProvider) ??
     visibleProviderIds[0] ??
     "chatgpt";
   const accounts = accessibleAccounts.filter(
-    (account) => account.provider === provider,
+    (account) =>
+      visibleProviderIds.includes(provider) && account.provider === provider,
   );
   const accountLoading = organizationRequested
     ? organizationsQuery.isPending ||
@@ -173,6 +193,18 @@ export default function PlaygroundWorkspace({
   const connectionId = selectedAccount?.id;
   const needsReconnect =
     selectedAccount?.availabilityStatus === "reauth_required";
+
+  useEffect(() => {
+    if (
+      savedMode !== "voice" ||
+      !legacyProvider ||
+      accountLoading ||
+      session.status === "loading"
+    )
+      return;
+    form.setValue("mode", mode);
+    playgroundMedia.writeMode(mode);
+  }, [accountLoading, form, legacyProvider, mode, savedMode, session.status]);
 
   useEffect(() => {
     if (accountLoading) return;
@@ -208,7 +240,18 @@ export default function PlaygroundWorkspace({
     ),
   });
   const models = (needsReconnect ? [] : (modelQuery.data ?? [])).filter(
-    (entry) => entry.modes.includes(mode),
+    (entry) => {
+      if (mode === "chat" || mode === "call-whisper")
+        return entry.modes.includes("chat");
+      const profile =
+        entry.call ?? providerCatalogue.callProfile(provider, entry.id);
+      return (
+        entry.modes.includes("voice") &&
+        profile?.provider === provider &&
+        profile.selector_model === entry.id &&
+        providerCatalogue.callMode(profile) === mode
+      );
+    },
   );
   const currentLineupOnly =
     providers[provider].discovery.strategy === "official_docs";
@@ -490,21 +533,28 @@ export default function PlaygroundWorkspace({
               value={mode}
               disabled={busy || readingFiles}
               onValueChange={(value) => {
-                if (value !== "chat" && value !== "voice") return;
+                if (
+                  value !== "chat" &&
+                  value !== "call-live" &&
+                  value !== "call-whisper"
+                )
+                  return;
                 form.setValue("mode", value);
                 playgroundMedia.writeMode(value);
                 form.setValue("model", "");
-                if (!providerCatalogue.supportsMode(provider, value)) {
-                  form.setValue(
-                    "provider",
-                    providerIds.find(
-                      (id) =>
-                        providerCatalogue.supportsMode(id, value) &&
-                        accessibleAccounts.some(
-                          (account) => account.provider === id,
-                        ),
-                    ) ?? "",
-                  );
+                const nextProvider =
+                  providerCatalogue.supportsMode(provider, value) &&
+                  visibleProviderIds.includes(provider)
+                    ? provider
+                    : (providerIds.find(
+                        (id) =>
+                          providerCatalogue.supportsMode(id, value) &&
+                          accessibleAccounts.some(
+                            (account) => account.provider === id,
+                          ),
+                      ) ?? "");
+                form.setValue("provider", nextProvider);
+                if (nextProvider !== provider) {
                   form.setValue("connectionId", "");
                 }
                 form.clearErrors("root");
@@ -518,7 +568,8 @@ export default function PlaygroundWorkspace({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="chat">Chat</SelectItem>
-                <SelectItem value="voice">Call</SelectItem>
+                <SelectItem value="call-live">Call Live</SelectItem>
+                <SelectItem value="call-whisper">Call Whisper</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -534,6 +585,7 @@ export default function PlaygroundWorkspace({
                 !visibleProviderIds.length
               }
               onValueChange={(value) => {
+                if (!visibleProviderIds.some((id) => id === value)) return;
                 form.setValue("provider", value);
                 form.setValue("connectionId", "");
                 form.setValue("model", "");
@@ -638,7 +690,7 @@ export default function PlaygroundWorkspace({
                       ? "Sign in to continue"
                       : modelQuery.isFetching
                         ? "Loading models…"
-                        : mode === "voice"
+                        : mode !== "chat"
                           ? "No call models available"
                           : currentLineupOnly
                             ? "No current models available"
@@ -649,7 +701,7 @@ export default function PlaygroundWorkspace({
               <SelectContent>
                 {models.map((entry) => (
                   <SelectItem key={entry.id} value={entry.id}>
-                    {mode === "voice" ? entry.id : entry.name}
+                    {mode === "chat" ? entry.name : entry.id}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -720,14 +772,15 @@ export default function PlaygroundWorkspace({
       ) : null}
 
       <PlaygroundConversation zoomed={zoomed} onExitZoom={exitZoom}>
-        {mode === "voice" ? (
+        {mode !== "chat" ? (
           <PlaygroundVoice
-            key={`${connectionId}:${selectedModel?.id}`}
+            key={`${mode}:${connectionId}:${selectedModel?.id}`}
             connectionId={connectionId}
             organizationId={selectedOrganization?.id}
             provider={provider}
             model={selectedModel?.id}
             callProfile={selectedModel?.call}
+            mode={mode}
             disabled={
               accountLoading ||
               modelQuery.isFetching ||
@@ -745,7 +798,6 @@ export default function PlaygroundWorkspace({
               <Flex className="flex-wrap gap-2">
                 <Button
                   type="button"
-                  variant="outline"
                   size="sm"
                   className="min-h-10"
                   disabled={busy || readingFiles || !turns.length}

@@ -23,7 +23,10 @@ import organizationsService, {
   type OrganizationAgentDetails,
 } from "@/services/organizations";
 import playgroundService from "@/services/playground";
+import playgroundWhisperTurnService from "@/services/playground/playground-whisper-turn";
+import playgroundSpeechPreload from "@/services/playground/playground-speech-preload";
 import playgroundVoiceService from "@/services/playground/playground-voice";
+import providerCatalogue from "@/services/provider-catalogue";
 import createQueryClient from "@/utils/utils.query-client";
 
 import PlaygroundRoute from "./route";
@@ -436,7 +439,7 @@ describe("Playground conversation flow", () => {
     await user.keyboard("{Escape}");
     await chooseOption(user, "Account", "Second account");
     await user.type(screen.getByLabelText("Message"), "Keep my chat draft");
-    await chooseOption(user, "Mode", "Call");
+    await chooseOption(user, "Mode", "Call Live");
     expect(screen.getByLabelText("Account")).toHaveTextContent(
       "Second account",
     );
@@ -507,90 +510,393 @@ describe("Playground conversation flow", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("retains Mode, Voice and Camera choices through End call and remount without starting a call automatically", async () => {
+  it.each([
+    ["Call Live", "call-live", "ChatGPT", "gpt-live-1-codex"],
+    ["Call Whisper", "call-whisper", "Groq", "openai/gpt-oss-20b"],
+  ] as const)(
+    "retains %s, Voice and Camera through End and remount without starting automatically",
+    async (label, storedMode, agent, model) => {
+      vi.mocked(agentPoolsService.list).mockResolvedValue([
+        { ...account, agent },
+      ]);
+      vi.mocked(playgroundService.models).mockResolvedValue([
+        {
+          id: model,
+          name: model,
+          modes: agent === "ChatGPT" ? ["voice"] : ["chat"],
+        },
+      ]);
+      const start = vi
+        .spyOn(playgroundVoiceService, "start")
+        .mockImplementation(async (options) => {
+          options.onStatus("connected");
+          return {
+            mute: vi.fn(),
+            camera: vi.fn(),
+            end: () => {
+              options.onCamera(null);
+              options.onStatus("ended");
+            },
+          };
+        });
+      const user = userEvent.setup();
+      const view = render(<Harness />);
+      await chooseOption(user, "Mode", label);
+      expect(window.localStorage.getItem("hub.playground.mode")).toBe(
+        storedMode,
+      );
+      await waitFor(() =>
+        expect(
+          screen.getByRole("button", { name: "Start call" }),
+        ).toBeEnabled(),
+      );
+      await user.click(screen.getByRole("button", { name: "Voice" }));
+      await user.click(screen.getByRole("button", { name: "Camera" }));
+      await user.click(screen.getByRole("button", { name: "Start call" }));
+      expect(start.mock.lastCall?.[0]).toEqual(
+        expect.objectContaining({ voiceEnabled: false, cameraEnabled: false }),
+      );
+      await user.click(screen.getByRole("button", { name: "End call" }));
+      expect(screen.getByRole("button", { name: "Voice" })).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+      expect(screen.getByRole("button", { name: "Camera" })).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+      view.unmount();
+      const restored = render(<Harness />);
+      await waitFor(() =>
+        expect(
+          screen.getByRole("combobox", { name: "Mode" }),
+        ).toHaveTextContent(label),
+      );
+      expect(screen.getByRole("button", { name: "Voice" })).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+      expect(screen.getByRole("button", { name: "Camera" })).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+      expect(start).toHaveBeenCalledOnce();
+      await waitFor(() =>
+        expect(
+          screen.getByRole("button", { name: "Start call" }),
+        ).toBeEnabled(),
+      );
+      await user.click(screen.getByRole("button", { name: "Start call" }));
+      expect(start.mock.lastCall?.[0]).toEqual(
+        expect.objectContaining({ voiceEnabled: false, cameraEnabled: false }),
+      );
+      await user.click(screen.getByRole("button", { name: "End call" }));
+      await chooseOption(user, "Mode", "Chat");
+      restored.unmount();
+      render(<Harness />);
+      await waitFor(() =>
+        expect(
+          screen.getByRole("combobox", { name: "Mode" }),
+        ).toHaveTextContent("Chat"),
+      );
+      expect(start).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it("separates native and Whisper providers/models and ends the old call when changing call modes", async () => {
+    const groqProfile = providerCatalogue.callProfile(
+      "groq",
+      "openai/gpt-oss-20b",
+    )!;
     vi.mocked(agentPoolsService.list).mockResolvedValue([
-      { ...account, agent: "Groq" },
-    ]);
-    vi.mocked(playgroundService.models).mockResolvedValue([
+      { ...account, agent: "ChatGPT" },
       {
-        id: "openai/gpt-oss-20b",
-        name: "openai/gpt-oss-20b",
-        modes: ["voice"],
+        ...account,
+        id: "groq-account",
+        agent: "Groq",
+        accountLabel: "Groq account",
       },
+      { ...account, id: "gemini-account", agent: "Gemini" },
     ]);
+    vi.mocked(playgroundService.models).mockImplementation(async (provider) =>
+      provider === "chatgpt"
+        ? [
+            { id: "gpt-6-sol", name: "GPT-6 Sol", modes: ["chat"] },
+            { id: "gpt-live-1-codex", name: "Native call", modes: ["voice"] },
+            { id: "unknown-call", name: "Unknown call", modes: ["voice"] },
+            {
+              id: "wrong-kind",
+              name: "Wrong kind",
+              modes: ["voice"],
+              call: {
+                ...groqProfile,
+                provider: "chatgpt",
+                selector_model: "wrong-kind",
+              },
+            },
+            {
+              id: "wrong-provider",
+              name: "Wrong provider",
+              modes: ["voice"],
+              call: {
+                ...groqProfile,
+                kind: "native_realtime",
+                selector_model: "wrong-provider",
+              },
+            },
+          ]
+        : [
+            {
+              id: "openai/gpt-oss-20b",
+              name: "GPT OSS 20B",
+              modes: ["chat", "voice"],
+              call: groqProfile,
+            },
+          ],
+    );
+    const end = vi.fn();
     const start = vi
       .spyOn(playgroundVoiceService, "start")
       .mockImplementation(async (options) => {
         options.onStatus("connected");
-        return {
-          mute: vi.fn(),
-          camera: vi.fn(),
-          end: () => {
-            options.onCamera(null);
-            options.onStatus("ended");
-          },
-        };
+        return { end, mute: vi.fn(), camera: vi.fn() };
       });
     const user = userEvent.setup();
-    const view = render(<Harness />);
-    await chooseOption(user, "Mode", "Call");
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Start call" })).toBeEnabled(),
-    );
-    await user.click(screen.getByRole("button", { name: "Voice" }));
-    await user.click(screen.getByRole("button", { name: "Camera" }));
-    await user.click(screen.getByRole("button", { name: "Start call" }));
-    expect(start.mock.lastCall?.[0]).toEqual(
-      expect.objectContaining({ voiceEnabled: false, cameraEnabled: false }),
-    );
-    await user.click(screen.getByRole("button", { name: "End call" }));
-    expect(screen.getByRole("button", { name: "Voice" })).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    );
-    expect(screen.getByRole("button", { name: "Camera" })).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    );
-    view.unmount();
-    const restored = render(<Harness />);
-    await waitFor(() =>
-      expect(screen.getByRole("combobox", { name: "Mode" })).toHaveTextContent(
-        "Call",
-      ),
-    );
-    expect(screen.getByRole("button", { name: "Voice" })).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    );
-    expect(screen.getByRole("button", { name: "Camera" })).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    );
-    expect(start).toHaveBeenCalledOnce();
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Start call" })).toBeEnabled(),
-    );
-    await user.click(screen.getByRole("button", { name: "Start call" }));
-    expect(start.mock.lastCall?.[0]).toEqual(
-      expect.objectContaining({ voiceEnabled: false, cameraEnabled: false }),
-    );
-    await user.click(screen.getByRole("button", { name: "End call" }));
-    await chooseOption(user, "Mode", "Chat");
-    restored.unmount();
     render(<Harness />);
     await waitFor(() =>
-      expect(screen.getByRole("combobox", { name: "Mode" })).toHaveTextContent(
-        "Chat",
+      expect(screen.getByLabelText("Model")).toHaveTextContent("GPT-6 Sol"),
+    );
+    await user.click(screen.getByLabelText("Mode"));
+    expect(
+      screen.getAllByRole("option").map((option) => option.textContent),
+    ).toEqual(["Chat", "Call Live", "Call Whisper"]);
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByLabelText("Provider"));
+    expect(
+      screen.getAllByRole("option").map((option) => option.textContent),
+    ).toEqual(["ChatGPT (1)", "Gemini (1)", "Groq (1)"]);
+    await user.keyboard("{Escape}");
+    await chooseOption(user, "Mode", "Call Live");
+    await user.click(screen.getByLabelText("Provider"));
+    expect(
+      screen.getAllByRole("option").map((option) => option.textContent),
+    ).toEqual(["ChatGPT (1)"]);
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByLabelText("Model"));
+    expect(
+      screen.getAllByRole("option").map((option) => option.textContent),
+    ).toEqual(["gpt-live-1-codex"]);
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Start call" }));
+    expect(start).toHaveBeenCalledOnce();
+    await chooseOption(user, "Mode", "Call Whisper");
+    expect(screen.getByLabelText("Model")).toHaveTextContent("gpt-6-sol");
+    await chooseOption(user, "Provider", "Groq");
+    expect(start.mock.calls[0][0].signal.aborted).toBe(true);
+    expect(end).toHaveBeenCalledOnce();
+    await waitFor(() =>
+      expect(screen.getByLabelText("Model")).toHaveTextContent(
+        "openai/gpt-oss-20b",
       ),
     );
-    expect(start).toHaveBeenCalledTimes(2);
+    expect(screen.getByLabelText("Account")).toHaveTextContent("Groq account");
+    await user.click(screen.getByLabelText("Provider"));
+    expect(
+      screen.getAllByRole("option").map((option) => option.textContent),
+    ).toEqual(["ChatGPT (1)", "Gemini (1)", "Groq (1)"]);
+    await user.keyboard("{Escape}");
+    expect(start).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole("button", { name: "Start call" }));
+    expect(start.mock.lastCall?.[0]).toEqual(
+      expect.objectContaining({
+        provider: "groq",
+        model: "openai/gpt-oss-20b",
+        connectionId: "groq-account",
+        callProfile: groqProfile,
+      }),
+    );
+    await chooseOption(user, "Mode", "Chat");
+    expect(end).toHaveBeenCalledTimes(2);
+    expect(screen.getByLabelText("Account")).toHaveTextContent("Groq account");
+    expect(screen.getByLabelText("Model")).toHaveTextContent("GPT OSS 20B");
+    expect(agentPoolsService.list).toHaveBeenCalledOnce();
+    expect(playgroundService.models).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ["ChatGPT", "Call Live", "call-live", "gpt-live-1-codex"],
+    ["Groq", "Call Whisper", "call-whisper", "openai/gpt-oss-20b"],
+    ["DeepSeek", "Call Whisper", "call-whisper", "deepseek-v4"],
+    ["Gemini", "Call Whisper", "call-whisper", "gemini-chat"],
+  ] as const)(
+    "migrates legacy Call after %s account discovery without starting media",
+    async (agent, label, storedMode, model) => {
+      window.localStorage.setItem("hub.playground.mode", "voice");
+      let resolveAccounts!: (accounts: AgentPool[]) => void;
+      vi.mocked(agentPoolsService.list).mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveAccounts = resolve;
+          }),
+      );
+      vi.mocked(playgroundService.models).mockResolvedValue([
+        {
+          id: model,
+          name: model,
+          modes: agent === "ChatGPT" ? ["voice"] : ["chat"],
+        },
+      ]);
+      const start = vi.spyOn(playgroundVoiceService, "start");
+      render(<Harness />);
+      expect(window.localStorage.getItem("hub.playground.mode")).toBe("voice");
+      expect(screen.getByRole("button", { name: "Start call" })).toBeDisabled();
+      await act(async () => resolveAccounts([{ ...account, agent }]));
+      await waitFor(() =>
+        expect(screen.getByLabelText("Model")).toHaveTextContent(model),
+      );
+      expect(screen.getByLabelText("Mode")).toHaveTextContent(label);
+      expect(window.localStorage.getItem("hub.playground.mode")).toBe(
+        storedMode,
+      );
+      expect(screen.getByRole("button", { name: "Start call" })).toBeEnabled();
+      expect(start).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["guest", "no accounts", "discovery error"])(
+    "defers legacy Call migration with %s until an eligible account is known",
+    async (state) => {
+      window.localStorage.setItem("hub.playground.mode", "voice");
+      if (state === "discovery error")
+        vi.mocked(agentPoolsService.list).mockRejectedValueOnce(
+          new Error("Accounts unavailable"),
+        );
+      else vi.mocked(agentPoolsService.list).mockResolvedValueOnce([]);
+      vi.mocked(agentPoolsService.list).mockResolvedValue([
+        { ...account, agent: "Groq" },
+      ]);
+      vi.mocked(playgroundService.models).mockResolvedValue([
+        { id: "openai/gpt-oss-20b", name: "Groq call", modes: ["chat"] },
+      ]);
+      const client = createQueryClient();
+      const start = vi.spyOn(playgroundVoiceService, "start");
+      const user = userEvent.setup();
+      render(<Harness guest={state === "guest"} queryClient={client} />);
+      await waitFor(() =>
+        expect(screen.getByLabelText("Provider")).toHaveTextContent(
+          "No providers available",
+        ),
+      );
+      expect(window.localStorage.getItem("hub.playground.mode")).toBe("voice");
+      expect(screen.getByRole("button", { name: "Start call" })).toBeDisabled();
+      if (state === "guest")
+        await user.click(
+          screen.getByRole("button", { name: "Change test session" }),
+        );
+      else
+        await act(async () => {
+          await client.invalidateQueries({
+            queryKey: agentPoolsService.queryKey,
+          });
+        });
+      await waitFor(() =>
+        expect(screen.getByLabelText("Model")).toHaveTextContent(
+          "openai/gpt-oss-20b",
+        ),
+      );
+      expect(screen.getByLabelText("Mode")).toHaveTextContent("Call Whisper");
+      expect(window.localStorage.getItem("hub.playground.mode")).toBe(
+        "call-whisper",
+      );
+      expect(start).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["ChatGPT", "chatgpt"],
+    ["Gemini", "gemini"],
+    ["Claude", "claude"],
+    ["DeepSeek", "deepseek"],
+    ["Grok", "grok"],
+    ["Groq", "groq"],
+  ] as const)(
+    "offers %s chat models in Call Whisper without native voice or Orpheus access",
+    async (agent, provider) => {
+      vi.mocked(agentPoolsService.list).mockResolvedValue([
+        { ...account, agent },
+      ]);
+      vi.mocked(playgroundService.models).mockResolvedValue([
+        {
+          id: "selected-chat-model",
+          name: "Friendly chat name",
+          modes: ["chat"],
+        },
+        { id: "audio-only", name: "Audio only", modes: ["voice"] },
+      ]);
+      const preload = vi
+        .spyOn(playgroundSpeechPreload, "preload")
+        .mockReturnValue(vi.fn());
+      const start = vi
+        .spyOn(playgroundVoiceService, "start")
+        .mockImplementation(async (options) => {
+          options.onStatus("connected");
+          return { end: vi.fn(), mute: vi.fn(), camera: vi.fn() };
+        });
+      const user = userEvent.setup();
+      render(<Harness />);
+      await waitFor(() =>
+        expect(screen.getByLabelText("Account")).toHaveTextContent(
+          "My account",
+        ),
+      );
+      expect(preload).toHaveBeenCalledOnce();
+      expect(start).not.toHaveBeenCalled();
+      await chooseOption(user, "Mode", "Call Whisper");
+      expect(screen.getByLabelText("Model")).toHaveTextContent(
+        "selected-chat-model",
+      );
+      await user.click(screen.getByLabelText("Model"));
+      expect(
+        screen.getAllByRole("option").map((option) => option.textContent),
+      ).toEqual(["selected-chat-model"]);
+      await user.keyboard("{Escape}");
+      await user.click(screen.getByRole("button", { name: "Start call" }));
+      expect(start.mock.calls[0][0]).toMatchObject({
+        provider,
+        connectionId: "account-a",
+        model: "selected-chat-model",
+        mode: "call-whisper",
+      });
+      expect(playgroundService.models).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("keeps Start disabled when an account only advertises native audio models", async () => {
+    vi.mocked(agentPoolsService.list).mockResolvedValue([
+      { ...account, agent: "ChatGPT" },
+    ]);
+    vi.mocked(playgroundService.models).mockResolvedValue([
+      { id: "gpt-live-1-codex", name: "Native call", modes: ["voice"] },
+    ]);
+    const user = userEvent.setup();
+    render(<Harness />);
+    await waitFor(() =>
+      expect(screen.getByLabelText("Account")).toHaveTextContent("My account"),
+    );
+    await chooseOption(user, "Mode", "Call Whisper");
+    expect(screen.getByLabelText("Provider")).toHaveTextContent("ChatGPT (1)");
+    expect(screen.getByLabelText("Account")).toHaveTextContent("My account");
+    expect(screen.getByLabelText("Model")).not.toHaveTextContent(
+      "gpt-live-1-codex",
+    );
+    expect(screen.getByRole("button", { name: "Start call" })).toBeDisabled();
+    expect(playgroundService.models).toHaveBeenCalledOnce();
   });
 
   it("keeps the Groq account while switching between chat and the locally transcribed call", async () => {
     const sendTurn = vi
-      .spyOn(playgroundService, "groqTurn")
-      .mockResolvedValue(null);
+      .spyOn(playgroundWhisperTurnService, "turn")
+      .mockResolvedValue({ transcript: "Hello", reply: "Hi", audio: [] });
     vi.mocked(agentPoolsService.list).mockResolvedValue([
       { ...account, agent: "Groq" },
     ]);
@@ -617,11 +923,11 @@ describe("Playground conversation flow", () => {
         "qwen/qwen3.8-27b",
       ),
     );
-    await chooseOption(user, "Mode", "Call");
+    await chooseOption(user, "Mode", "Call Whisper");
     expect(screen.getByLabelText("Provider")).toHaveTextContent("Groq (1)");
     expect(screen.getByLabelText("Account")).toHaveTextContent("My account");
     expect(screen.getByLabelText("Model")).toHaveTextContent(
-      "openai/gpt-oss-20b",
+      "qwen/qwen3.8-27b",
     );
     await user.click(screen.getByRole("button", { name: "Start call" }));
     expect(await screen.findByText("Ready to talk")).toBeVisible();
@@ -634,8 +940,10 @@ describe("Playground conversation flow", () => {
     );
     const callbacks = start.mock.calls[0][0];
     const turn = {
+      provider: "groq" as const,
+      speech: { synthesize: vi.fn(), dispose: vi.fn() },
       connectionId: "account-a",
-      model: "openai/gpt-oss-20b",
+      model: "qwen/qwen3.8-27b",
       transcript: "Hello",
       messages: [],
       signal: callbacks.signal,
@@ -691,7 +999,7 @@ describe("Playground conversation flow", () => {
     expect(start.mock.calls[0][0]).toEqual(
       expect.objectContaining({
         provider: "groq",
-        model: "openai/gpt-oss-20b",
+        model: "qwen/qwen3.8-27b",
         connectionId: "account-a",
         sendTurn: expect.any(Function),
       }),
@@ -703,42 +1011,47 @@ describe("Playground conversation flow", () => {
     );
   });
 
-  it("hides providers without accessible Call accounts and restores chat providers", async () => {
-    const start = vi.spyOn(playgroundVoiceService, "start");
-    const user = userEvent.setup();
-    render(<Harness />);
-    await selectAccount(user);
-    await chooseOption(user, "Mode", "Call");
-    expect(screen.getByLabelText("Provider")).toHaveTextContent(
-      "No providers available",
-    );
-    expect(screen.getByLabelText("Provider")).toBeDisabled();
-    expect(screen.getAllByText("Sign in to continue")).toHaveLength(2);
-    expect(screen.getByLabelText("Account")).toHaveTextContent(
-      "Sign in to continue",
-    );
-    expect(screen.getByLabelText("Account")).toBeDisabled();
-    expect(screen.getByLabelText("Model")).toBeDisabled();
-    expect(screen.getByText("Ready to talk")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Start call" })).toBeDisabled();
-    expect(screen.queryByLabelText("Message")).not.toBeInTheDocument();
-    await user.click(screen.getByLabelText("Provider"));
-    expect(screen.queryAllByRole("option")).toHaveLength(0);
-    expect(playgroundService.models).toHaveBeenCalledTimes(1);
-    await chooseOption(user, "Mode", "Chat");
-    await user.click(screen.getByLabelText("Provider"));
-    expect(screen.getAllByRole("option")).toHaveLength(1);
-    expect(screen.getByRole("option", { name: "DeepSeek (1)" })).toBeVisible();
-    expect(start).not.toHaveBeenCalled();
-    expect(playgroundService.models).toHaveBeenCalledTimes(2);
-    expect(
-      vi
-        .mocked(playgroundService.models)
-        .mock.calls.every(
-          ([provider, id]) => provider === "deepseek" && id === "account-a",
-        ),
-    ).toBe(true);
-  });
+  it.each(["Call Live"])(
+    "hides providers without accessible %s accounts and restores chat providers",
+    async (label) => {
+      const start = vi.spyOn(playgroundVoiceService, "start");
+      const user = userEvent.setup();
+      render(<Harness />);
+      await selectAccount(user);
+      await chooseOption(user, "Mode", label);
+      expect(screen.getByLabelText("Provider")).toHaveTextContent(
+        "No providers available",
+      );
+      expect(screen.getByLabelText("Provider")).toBeDisabled();
+      expect(screen.getAllByText("Sign in to continue")).toHaveLength(2);
+      expect(screen.getByLabelText("Account")).toHaveTextContent(
+        "Sign in to continue",
+      );
+      expect(screen.getByLabelText("Account")).toBeDisabled();
+      expect(screen.getByLabelText("Model")).toBeDisabled();
+      expect(screen.getByText("Ready to talk")).toBeVisible();
+      expect(screen.getByRole("button", { name: "Start call" })).toBeDisabled();
+      expect(screen.queryByLabelText("Message")).not.toBeInTheDocument();
+      await user.click(screen.getByLabelText("Provider"));
+      expect(screen.queryAllByRole("option")).toHaveLength(0);
+      expect(playgroundService.models).toHaveBeenCalledTimes(1);
+      await chooseOption(user, "Mode", "Chat");
+      await user.click(screen.getByLabelText("Provider"));
+      expect(screen.getAllByRole("option")).toHaveLength(1);
+      expect(
+        screen.getByRole("option", { name: "DeepSeek (1)" }),
+      ).toBeVisible();
+      expect(start).not.toHaveBeenCalled();
+      expect(playgroundService.models).toHaveBeenCalledTimes(2);
+      expect(
+        vi
+          .mocked(playgroundService.models)
+          .mock.calls.every(
+            ([provider, id]) => provider === "deepseek" && id === "account-a",
+          ),
+      ).toBe(true);
+    },
+  );
 
   it("keeps Call selected during account discovery and does not substitute a chat-only model", async () => {
     vi.mocked(agentPoolsService.list).mockResolvedValue([
@@ -770,10 +1083,10 @@ describe("Playground conversation flow", () => {
     await waitFor(() =>
       expect(screen.getByLabelText("Model")).toHaveTextContent("Chat only"),
     );
-    await chooseOption(user, "Mode", "Call");
+    await chooseOption(user, "Mode", "Call Live");
     expect(screen.getByRole("button", { name: "Start call" })).toBeEnabled();
     await chooseOption(user, "Account", "Second account");
-    expect(screen.getByLabelText("Mode")).toHaveTextContent("Call");
+    expect(screen.getByLabelText("Mode")).toHaveTextContent("Call Live");
     expect(screen.getByLabelText("Model")).toHaveTextContent("Loading models");
     expect(screen.getByRole("button", { name: "Start call" })).toBeDisabled();
     await act(async () =>
@@ -789,7 +1102,7 @@ describe("Playground conversation flow", () => {
         "No call models available",
       ),
     );
-    expect(screen.getByLabelText("Mode")).toHaveTextContent("Call");
+    expect(screen.getByLabelText("Mode")).toHaveTextContent("Call Live");
     expect(screen.getByRole("button", { name: "Start call" })).toBeDisabled();
     await chooseOption(user, "Account", "My account");
     await waitFor(() =>
@@ -797,30 +1110,33 @@ describe("Playground conversation flow", () => {
         "gpt-live-1-codex",
       ),
     );
-    expect(screen.getByLabelText("Mode")).toHaveTextContent("Call");
+    expect(screen.getByLabelText("Mode")).toHaveTextContent("Call Live");
     expect(screen.getByRole("button", { name: "Start call" })).toBeEnabled();
   });
 
-  it("lets guests explore Call without account or microphone access", async () => {
-    const start = vi.spyOn(playgroundVoiceService, "start");
-    const user = userEvent.setup();
-    render(<Harness guest />);
-    await chooseOption(user, "Mode", "Call");
-    expect(screen.getByText("Ready to talk")).toBeVisible();
-    expect(
-      screen.queryByText("Sign in and choose an account to start a call."),
-    ).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Provider")).toHaveTextContent(
-      "No providers available",
-    );
-    expect(screen.getByLabelText("Provider")).toBeDisabled();
-    expect(screen.getAllByText("Sign in to continue")).toHaveLength(2);
-    expect(screen.getByLabelText("Account")).toBeDisabled();
-    expect(screen.getByLabelText("Model")).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Start call" })).toBeDisabled();
-    expect(playgroundService.models).not.toHaveBeenCalled();
-    expect(start).not.toHaveBeenCalled();
-  });
+  it.each(["Call Live", "Call Whisper"])(
+    "lets guests explore %s without account or microphone access",
+    async (label) => {
+      const start = vi.spyOn(playgroundVoiceService, "start");
+      const user = userEvent.setup();
+      render(<Harness guest />);
+      await chooseOption(user, "Mode", label);
+      expect(screen.getByText("Ready to talk")).toBeVisible();
+      expect(
+        screen.queryByText("Sign in and choose an account to start a call."),
+      ).not.toBeInTheDocument();
+      expect(screen.getByLabelText("Provider")).toHaveTextContent(
+        "No providers available",
+      );
+      expect(screen.getByLabelText("Provider")).toBeDisabled();
+      expect(screen.getAllByText("Sign in to continue")).toHaveLength(2);
+      expect(screen.getByLabelText("Account")).toBeDisabled();
+      expect(screen.getByLabelText("Model")).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Start call" })).toBeDisabled();
+      expect(playgroundService.models).not.toHaveBeenCalled();
+      expect(start).not.toHaveBeenCalled();
+    },
+  );
 
   it("shows model discovery errors in Call and retries without changing mode", async () => {
     vi.mocked(agentPoolsService.list).mockResolvedValue([
@@ -836,7 +1152,7 @@ describe("Playground conversation flow", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Models could not be loaded.",
     );
-    await chooseOption(user, "Mode", "Call");
+    await chooseOption(user, "Mode", "Call Live");
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Models could not be loaded.",
     );
@@ -849,7 +1165,7 @@ describe("Playground conversation flow", () => {
       ),
     );
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Mode")).toHaveTextContent("Call");
+    expect(screen.getByLabelText("Mode")).toHaveTextContent("Call Live");
     expect(screen.getByRole("button", { name: "Start call" })).toBeEnabled();
   });
 

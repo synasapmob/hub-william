@@ -1,4 +1,6 @@
-import type { PlaygroundGroqTurnOptions } from "./index";
+import type { PlaygroundWhisperTurnOptions } from "./playground-whisper-turn";
+import type { PlaygroundLocalTts } from "./playground-local-tts";
+import playgroundSpeechPreload from "./playground-speech-preload";
 import type {
   PlaygroundVoiceCall,
   PlaygroundVoiceStartOptions,
@@ -7,13 +9,12 @@ import type { PlaygroundVoiceTranscript } from "./playground-voice-events";
 import {
   PlaygroundVoiceActivity,
   voiceSampleLevel,
-  VOICE_ACTIVITY_THRESHOLD,
+  VOICE_SPEECH_PROBABILITY,
 } from "./playground-voice-audio";
 
-import playgroundLocalSttService, {
-  type PlaygroundLocalStt,
-} from "./playground-local-stt";
-import PlaygroundGroqPlayback from "./playground-groq-playback";
+import type { PlaygroundLocalStt } from "./playground-local-stt";
+import PlaygroundVoicePlayback from "./playground-voice-playback";
+import type { PlaygroundLocalVad } from "./playground-local-vad";
 
 function stopStream(stream: MediaStream | null) {
   stream?.getTracks().forEach((track) => track.stop());
@@ -28,12 +29,12 @@ async function start(
     typeof AudioWorkletNode === "undefined"
   )
     throw new Error(
-      "Groq Call needs microphone access in a browser supporting AudioWorklet on HTTPS.",
+      "Call Whisper needs microphone access in a browser supporting AudioWorklet on HTTPS.",
     );
   const sendTurn = options.sendTurn;
   if (!sendTurn)
     throw new Error(
-      "Groq Call is unavailable. Reload Playground and try again.",
+      "Call Whisper is unavailable. Reload Playground and try again.",
     );
   options.signal.throwIfAborted();
   const context = new AudioContext({ sampleRate: 16000 });
@@ -60,6 +61,8 @@ async function start(
   let previewFrames = 0;
   let preview: AbortController | null = null;
   let recognizer: PlaygroundLocalStt | null = null;
+  let detector: PlaygroundLocalVad | null = null;
+  let speech: PlaygroundLocalTts | null = null;
   let recognizingFinal = false;
 
   function updateTranscript(
@@ -155,15 +158,26 @@ async function start(
     activeUserId = null;
   }
 
-  function history(): PlaygroundGroqTurnOptions["messages"] {
+  function history(): PlaygroundWhisperTurnOptions["messages"] {
     // Include only text already visible to the user, even after an interruption.
-    const messages = transcripts
-      .filter(
-        (entry) =>
-          entry.text.trim() && (entry.role === "assistant" || entry.complete),
-      )
-      .slice(-20)
-      .map((entry) => ({ role: entry.role, content: entry.text }));
+    const messages: PlaygroundWhisperTurnOptions["messages"] = [];
+    for (let index = 0; index < transcripts.length - 1; index++) {
+      const user = transcripts[index];
+      const bot = transcripts[index + 1];
+      if (
+        user.role === "user" &&
+        user.complete &&
+        bot.role === "assistant" &&
+        bot.text.trim()
+      ) {
+        messages.push(
+          { role: "user", content: user.text },
+          { role: "assistant", content: bot.text },
+        );
+        index++;
+      }
+    }
+    if (messages.length > 20) messages.splice(0, messages.length - 20);
     while (
       new TextEncoder().encode(
         messages.map((message) => message.content).join(""),
@@ -180,6 +194,8 @@ async function start(
     cameraVersion += 1;
     controller.abort();
     recognizer?.dispose();
+    detector?.dispose();
+    speech?.dispose();
     interrupt();
     discardInput();
     options.signal.removeEventListener("abort", end);
@@ -210,6 +226,7 @@ async function start(
     end: () => finish(),
     mute(value) {
       muted = value;
+      detector?.reset();
       if (muted) {
         options.onInputLevel?.(0);
         if (recognizingFinal) {
@@ -270,7 +287,7 @@ async function start(
       !closed && activeTurn === request && !request.signal.aborted;
     let sawEvent = false;
     let reply = "";
-    const playback = new PlaygroundGroqPlayback({
+    const playback = new PlaygroundVoicePlayback({
       context,
       recordingOutput,
       signal: request.signal,
@@ -296,11 +313,11 @@ async function start(
         void finish(
           error instanceof Error
             ? error.message
-            : "Groq Call failed. Start a new call to retry.",
+            : "Call Whisper failed. Start a new call to retry.",
         );
     }
 
-    const onEvent: NonNullable<PlaygroundGroqTurnOptions["onEvent"]> = (
+    const onEvent: NonNullable<PlaygroundWhisperTurnOptions["onEvent"]> = (
       event,
     ) => {
       if (!current()) return;
@@ -347,6 +364,8 @@ async function start(
       update(userId, "user", text, true);
       options.onPhase?.("thinking");
       const result = await sendTurn!({
+        provider: options.provider,
+        speech: speech!,
         connectionId: options.connectionId,
         organizationId: options.organizationId,
         model: options.model,
@@ -383,10 +402,17 @@ async function start(
       `${import.meta.env.BASE_URL}audio/groq-capture.js`,
     );
     controller.signal.throwIfAborted();
-    recognizer = await playgroundLocalSttService.start({
+    const resources = await playgroundSpeechPreload.take({
       signal: controller.signal,
       onLoading: options.onLoading,
+      onError: (error) => {
+        void finish(error.message);
+      },
+      onFrame: processFrame,
     });
+    recognizer = resources.recognizer;
+    detector = resources.detector;
+    speech = resources.speech;
     controller.signal.throwIfAborted();
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -414,32 +440,7 @@ async function start(
     capture = new AudioWorkletNode(context, "groq-capture");
     capture.port.onmessage = (event: MessageEvent<Float32Array>) => {
       if (closed || muted) return;
-      const level = voiceSampleLevel(event.data);
-      options.onInputLevel?.(level);
-      speechFrames = level >= VOICE_ACTIVITY_THRESHOLD ? speechFrames + 1 : 0;
-      if (speechFrames >= 2 && activeTurn) {
-        interrupt();
-        options.onPhase?.("listening");
-      }
-      const samples = activity.push(event.data);
-      updateInputActivity();
-      if (activity.active && inputId === null) {
-        inputId = nextTranscriptId;
-        nextTranscriptId += 2;
-      }
-      if (samples && inputId !== null) {
-        const id = inputId;
-        inputId = null;
-        previewFrames = 0;
-        cancelPreview();
-        void turn(samples, id);
-      } else if (inputId !== null) {
-        previewFrames += 1;
-        // At most one local decode at a time; no work during silent pauses.
-        // Each cumulative result replaces the same provisional YOU row.
-        if (previewFrames >= 10 && level >= VOICE_ACTIVITY_THRESHOLD)
-          void transcribe(inputId);
-      }
+      detector?.push(event.data);
     };
     input.connect(capture);
     capture.connect(context.destination); // Processor output is silence; microphone is never played back.
@@ -463,7 +464,37 @@ async function start(
       );
     throw failure;
   }
+
+  function processFrame(frame: Float32Array, probability: number) {
+    if (closed || muted) return;
+    const isSpeech = probability >= VOICE_SPEECH_PROBABILITY;
+    const level = isSpeech ? voiceSampleLevel(frame) : 0;
+    options.onInputLevel?.(level);
+    speechFrames = isSpeech ? speechFrames + 1 : 0;
+    if (speechFrames >= 2 && activeTurn) {
+      interrupt();
+      options.onPhase?.("listening");
+    }
+    const samples = activity.push(frame, probability);
+    updateInputActivity();
+    if (activity.active && inputId === null) {
+      inputId = nextTranscriptId;
+      nextTranscriptId += 2;
+    }
+    if (samples && inputId !== null) {
+      const id = inputId;
+      inputId = null;
+      previewFrames = 0;
+      cancelPreview();
+      void turn(samples, id);
+    } else if (inputId !== null) {
+      previewFrames += 1;
+      // At most one local decode at a time; no work during silent pauses.
+      // Each cumulative result replaces the same provisional YOU row.
+      if (previewFrames >= 10 && isSpeech) void transcribe(inputId);
+    }
+  }
 }
 
-const playgroundGroqVoiceService = { start };
-export default playgroundGroqVoiceService;
+const playgroundWhisperVoiceService = { start };
+export default playgroundWhisperVoiceService;

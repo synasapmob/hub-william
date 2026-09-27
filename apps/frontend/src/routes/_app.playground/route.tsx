@@ -7,7 +7,10 @@ import { useSearchParams } from "react-router";
 import { useWorkspaceSession } from "@/components/workspace-shell/workspace-shell-session-context";
 
 import type { PlaygroundAttachment } from "@/services/playground";
-import playgroundMedia from "@/utils/utils.playground-media";
+import { playgroundModes } from "@/services/provider-catalogue";
+import playgroundMedia, {
+  type SavedPlaygroundMode,
+} from "@/utils/utils.playground-media";
 
 import PlaygroundWorkspace from "./playground-workspace";
 
@@ -17,7 +20,7 @@ export interface PlaygroundFormValues {
   organizationId: string;
   provider: string;
   model: string;
-  mode: "chat" | "voice";
+  mode: SavedPlaygroundMode;
   prompt: string;
 }
 
@@ -32,7 +35,7 @@ export default function PlaygroundRoute() {
     organizationId: z.string(),
     provider: z.string(),
     model: z.string(),
-    mode: z.enum(["chat", "voice"]),
+    mode: z.enum([...playgroundModes, "voice"]),
     prompt: z.string().trim(),
     attachments: z
       .array(
@@ -96,7 +99,8 @@ export default function PlaygroundRoute() {
         </h1>
 
         <p className="text-sm text-muted-foreground">
-          Choose Chat or Call, then select an account and model.
+          Choose Chat, Call Live or Call Whisper, then select an account and
+          model.
         </p>
       </header>
 

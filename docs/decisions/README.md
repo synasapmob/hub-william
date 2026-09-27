@@ -47,3 +47,6 @@ record and mark the old one superseded rather than rewriting its history.
 - [ADR-0037: Browser-local speech recognition](0037-browser-local-speech-recognition.md)
 - [ADR-0038: Shared provider and model catalogue](0038-shared-provider-model-catalogue.md)
 - [ADR-0039: Local language detection and buffered speech](0039-local-language-detection-and-buffered-speech.md)
+- [ADR-0040: Browser speech activity detection before Whisper](0040-browser-speech-activity-detection.md)
+- [ADR-0041: Uniform local Whisper calls and speech preparation](0041-uniform-local-whisper-calls.md)
+- [ADR-0042: Piper local speech output](0042-piper-local-speech-output.md)

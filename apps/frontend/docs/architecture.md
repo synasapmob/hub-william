@@ -42,14 +42,17 @@ and [ADR-0027](../../../docs/decisions/0027-organizations-and-session-agent-acce
   explicit retries and account-management invalidation still fetch current
   data. The backend/provider remains authoritative for request access and
   availability errors; stale selections do not bypass those checks.
-  Setup orders Organization, Mode, Provider, Account and Model, with Chat/Call
-  filtering model options by their supported
-  mode. Both modes list providers with at least one accessible account; Call
-  narrows that list to implemented call providers, currently ChatGPT and Groq. Account selection keeps its
+  Setup orders Organization, Mode, Provider, Account and Model. Modes are Chat,
+  Call Live and Call Whisper. Chat lists chat-capable models; Call Live filters
+  catalogue profiles with `native_realtime` (currently ChatGPT/Codex), while
+  Call Whisper uses every provider with chat capability and the selected account's
+  API-advertised chat models. Each mode lists only providers with at least one
+  accessible account. Call Live models must also be advertised as `voice` by
+  that account's API discovery; catalogue metadata alone does not grant access. Account selection keeps its
   existing access rules; Account and Model display "Sign in to continue"
   when no account is available. Call displays exact model IDs, renders "Ready to
   talk" before account selection, and waits for account/model readiness before
-  allowing Start. The API's mode remains `voice`. `gpt-live-1-codex`
+  allowing Start. Call Live uses the API's `voice` mode; Call Whisper sends text through Chat. `gpt-live-1-codex`
   exchanges a session-authorized audio SDP through the API and then uses native
   WebRTC for speech and two-sided transcripts. The video-style layout contains
   a local-only camera preview. See [ADR-0032](../../../docs/decisions/0032-playground-native-voice.md).
@@ -156,27 +159,52 @@ Railway is the deployment target for the frontend, API and Telegram adapter.
 GitHub Pages and Vercel publishing are retired. `main` remains protected by the
 repository's branch and CI policies; see [ADR-0026](../../../docs/decisions/0026-railway-only-deployment.md).
 
-Groq connects with a personal API key and appears in both Playground modes.
-Chat models are the current free-tier Qwen 3.8 27B (Preview) and GPT-OSS 20B/120B
-intersected with live account discovery. Call lists GPT-OSS 20B when its chat
-and Orpheus TTS models are advertised. `playground-groq-voice.ts` owns the
-AudioWorklet lifecycle, bounded audio capture, turn-taking, English playback
-and cancellation; `playground-voice-audio.ts` owns VAD. `playground-local-stt.ts`
-owns a dedicated worker running pinned multilingual Whisper base through Transformers.js:
-WebGPU preferred, quantized WASM fallback, local language-token detection before
-transcription, cached public model downloads and no remote inference fallback. Cumulative local snapshots
-and decoded token callbacks update YOU; after the two-second pause, final local
-text goes to the API. Microphone audio is never uploaded for Groq Call.
-The route supplies the per-turn TanStack mutation and renders both transcripts.
-Groq captures continuously, interrupts pending replies/playback on renewed
-speech, and sends a turn after two seconds of silence. `playground-groq-stream.ts`
-validates SSE records and delivers text deltas before audio completion.
-`playground-groq-playback.ts` predecodes a bounded queue and schedules consecutive
-audio sources against the audio clock. It buffers two chunks, flushes the last
-single chunk, and caps initial buffer waiting at 1.2 seconds. All scheduled nodes
-feed the local recording mix and stop on interruption or End.
+All six existing Playground providers support Call Whisper through their
+account-scoped chat API. Groq connects with a personal API key as before and no
+longer requires Orpheus for this UI. Native Call Live remains separate.
+`playground-whisper-voice.ts` owns microphone/camera capture, VAD-gated Whisper
+recognition, provisional YOU rows, two-second silence and interruption.
+`playground-whisper-turn.ts` sends only finalized text and paired conversation
+history through the selected provider/account/organization, streams BOT text,
+and queues bounded text segments for local TTS. Chat behavior and authorization
+stay in the existing API; no remote speech endpoint is called.
+
+`playground-speech-preload.ts` prepares Whisper, Silero and Piper when Playground
+mounts, without requesting devices or starting any provider generation. Start
+call claims those same workers; page navigation releases unclaimed preparation,
+and End releases all workers/media owned by the call. Cached public assets are
+reused by subsequent calls. Background failure does not break Chat; explicit
+Start retries initialization and exposes persistent errors.
+
+`playground-local-stt.ts` retains pinned multilingual Whisper base with local
+language-token detection, WebGPU or quantized WASM and no audio upload.
+`playground-local-vad.ts` retains Silero classification, 300 ms pre-roll and
+separate browser echo/noise processing. `playground-local-tts.ts` runs pinned
+Piper `en_US-ljspeech-medium` in a worker using the existing ONNX Runtime and
+single-thread CPU/WASM. Both phonemization and inference stay off the main thread;
+TTS requires neither WebGPU nor cross-origin isolation. Model and phonemizer
+assets are size-bounded and SHA-256 verified on download and cache reads.
+Corrupt cache entries are replaced; unavailable storage does not block calls.
+The verified model session and phonemizer bytes are reused within the call.
+Piper returns native mono 22,050 Hz PCM for playback and recording.
+Vietnamese input transcription is supported; Vietnamese BOT speech is not claimed.
+
+`playground-voice-playback.ts` accepts local PCM, buffers consecutive chunks and
+connects every source to both speakers and the local recording mix. Text remains
+immediate while speech is generated. Barge-in cancels provider generation,
+queued synthesis and playback; obsolete inference results are discarded. End
+terminates the workers. See [ADR-0040](../../../docs/decisions/0040-browser-speech-activity-detection.md)
+and [ADR-0041](../../../docs/decisions/0041-uniform-local-whisper-calls.md), with
+the current TTS choice in [ADR-0042](../../../docs/decisions/0042-piper-local-speech-output.md).
+
 Mode and Voice/Camera preferences persist in localStorage independently of device
-cleanup. First use defaults to Chat; restoring Call never starts media automatically.
+cleanup. First use defaults to Chat; restoring either call mode never starts media
+automatically. Legacy saved `voice` is migrated after account discovery to the
+call mode of its previously eligible provider (requested provider, then first
+accessible call provider). Until an eligible account is known, it displays Call
+Live with Start disabled and retains the legacy preference for later sign-in or
+successful discovery. Changing call modes ends the previous call before a new explicit
+Start; supported account selections and the Chat draft are retained.
 Native ChatGPT keeps its provider-controlled turn boundaries and incremental
 transcripts. See [ADR-0033](../../../docs/decisions/0033-groq-api-key-chat-and-call.md)
 and [ADR-0039](../../../docs/decisions/0039-local-language-detection-and-buffered-speech.md).

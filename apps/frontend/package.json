@@ -16,6 +16,7 @@
     "typecheck": "react-router typegen && tsc -b"
   },
   "dependencies": {
+    "@diffusionstudio/piper-wasm": "1.0.0",
     "@fontsource-variable/jetbrains-mono": "5.3.0",
     "@fontsource-variable/plus-jakarta-sans": "5.3.0",
     "@hookform/resolvers": "^5.9.1",
@@ -27,6 +28,7 @@
     "dompurify": "^3.4.15",
     "isbot": "^5",
     "lucide-react": "^1.28.0",
+    "onnxruntime-web": "1.31.0-dev.20260914-8d85527a0",
     "openapi-fetch": "^0.17.0",
     "pdfjs-dist": "^6.3.289",
     "radix-ui": "^1.6.7",
