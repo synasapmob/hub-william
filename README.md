@@ -9,6 +9,7 @@ have joined or an agent shared with your organization.
 
 [Architecture](apps/frontend/docs/architecture.md) ·
 [Frontend conventions](apps/frontend/docs/frontend-conventions.md) ·
+[Provider catalogue](docs/provider-catalogue.md) ·
 [Decisions](docs/decisions/README.md) ·
 [Contributing](.github/CONTRIBUTING.md) ·
 [Security](.github/SECURITY.md) · [MIT License](LICENSE)
@@ -23,9 +24,11 @@ have joined or an agent shared with your organization.
   usage, pool membership, owner management and gateway keys.
 - **[Playground](https://hub-william.site/playground):** streaming text
   conversations using your connected accounts and approved pools. You can attach
-  supported images, text files and PDFs as input. Conversations stay in the open
-  page rather than a saved history; voice and native image generation are not
-  available yet.
+  supported images, text files and PDFs as input. Call mode offers native voice
+  with `gpt-live-1-codex`, a local camera preview and transcripts from both
+  speakers. Each mode lists only its supported models. Conversations stay in
+  the open page rather than a saved history; native camera understanding and
+  image generation are not available yet.
 - **Organization** (`/organization`): create or join multiple teams, invite
   members, share connected agents, and view organization requests and reported
   token usage in Overview, Agents, Members and Usage.
@@ -133,3 +136,10 @@ opening a pull request.
 
 React · TypeScript · Vite · React Router · Tailwind CSS · TanStack Query ·
 Rust · Axum · PostgreSQL · Utoipa/OpenAPI · Vitest · Python
+
+Groq is also available through **Connect Agent → Groq** with your own API key.
+Playground Chat offers current Qwen/GPT-OSS models advertised by that key.
+Call recognizes English speech locally in the browser, then uses Groq for
+GPT-OSS replies and Orpheus speech. The model downloads on first use; microphone
+audio and camera remain local. Only text generation and speech output consume
+Groq quota. See [browser-local STT](docs/decisions/0037-browser-local-speech-recognition.md).

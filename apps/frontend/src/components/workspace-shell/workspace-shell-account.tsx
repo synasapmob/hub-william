@@ -1,7 +1,7 @@
 import { LogIn, LogOut } from "lucide-react";
 
 import Flex from "@/components/ui/flex";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import WorkspaceShellAvatar from "./workspace-shell-avatar";
 import { Button } from "@/components/ui/button";
 
 import { useWorkspaceSession } from "./workspace-shell-session-context";
@@ -24,11 +24,7 @@ export default function WorkspaceShellAccount({
     return (
       <Flex className="mt-6 justify-between rounded-xl border border-zinc-200 bg-zinc-50 p-2.5">
         <Flex className="min-w-0 gap-2">
-          <Avatar size="sm">
-            <AvatarFallback className="bg-zinc-900 text-[10px] text-white">
-              {session.user.username.slice(0, 3)}
-            </AvatarFallback>
-          </Avatar>
+          <WorkspaceShellAvatar user={session.user} />
 
           <div className="min-w-0">
             <p className="truncate text-xs font-semibold">

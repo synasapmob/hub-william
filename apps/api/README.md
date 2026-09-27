@@ -62,6 +62,12 @@ tests.
 - `POST /playground/chat`: session-authorized, account-pinned text streaming;
   accepts supported image and file inputs but does not generate native images.
   `organization_id` selects an accepted organization's shared account.
+- `POST /playground/voice`: session-authorized, account-pinned Codex Voice
+  session setup. Accepts an audio-only SDP offer up to 64 KiB and returns the
+  SDP answer without exposing provider credentials. Audio and native transcripts
+  flow over browser WebRTC; the camera remains a local preview. No automatic
+  session replay. Organization usage counts successful session setups with
+  unknown tokens. See [ADR-0032](../../docs/decisions/0032-playground-native-voice.md).
 - `/gateway/openai/v1/responses`: Codex/OpenAI Responses streaming gateway.
 - `/gateway/claude/v1/messages`: Claude Messages streaming gateway.
 - `/gateway/gemini/v1beta/models`: the current public AGY model set intersected
@@ -152,3 +158,24 @@ email when a subject is absent), never by the shared ChatGPT workspace ID alone.
 Legacy cached workspace identities are recomputed when matching connections.
 Distinct logins in the same workspace keep separate pools; reconnecting the same
 login refreshes its existing pool and transfers ownership to the connecting user.
+
+### Groq Chat and Call
+
+Connect with `POST /agent-connections/groq` and a user-supplied `api_key`.
+`GROQ_API_URL` defaults to `https://api.groq.com/openai/v1`. Credentials follow
+DeepSeek's encryption, sharing and static-key refresh rules. Groq is separate
+from Grok. Gateway Chat endpoints are `/gateway/groq/v1/models`,
+`/gateway/groq/v1/responses`, and `/gateway/groq/v1/chat/completions`.
+
+`POST /playground/groq/voice/turn` accepts session-authenticated, account-pinned
+`transcript` text plus bounded conversation history. Speech recognition runs in
+the browser; the API composes GPT-OSS 20B and Orpheus English only. Current text
+is limited to 8,000 UTF-8 bytes with at least one letter or number, and the body
+is limited to 64 KiB. Audio input and the former `/voice/transcription` route
+are removed. See [ADR-0037](../../docs/decisions/0037-browser-local-speech-recognition.md).
+
+With `stream: true`, the turn returns SSE `transcript`, `delta`, `audio`, `done`
+or sanitized `error` records. Groq reply deltas arrive before TTS completes;
+disconnect cancels upstream work while retaining bounded account cleanup.
+Omitting `stream` retains the JSON response. See
+[ADR-0034](../../docs/decisions/0034-playground-call-streaming-and-interruption.md).

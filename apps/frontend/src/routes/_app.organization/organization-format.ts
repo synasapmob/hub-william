@@ -16,6 +16,7 @@ export function providerLabel(value: string) {
     deepseek: "DeepSeek",
     gemini: "Gemini",
     grok: "Grok",
+    groq: "Groq",
   };
   return labels[value.toLowerCase()] ?? value;
 }

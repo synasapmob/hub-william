@@ -1,3 +1,4 @@
+import providerCatalogue from "@/services/provider-catalogue";
 import type {
   AgentPool,
   AgentPoolAvailabilityStatus,
@@ -5,16 +6,12 @@ import type {
   AgentProvider,
 } from "@/services/agent-pools";
 
-export const AGENT_PROVIDERS: AgentProvider[] = [
-  "ChatGPT",
-  "Claude",
-  "Gemini",
-  "Grok",
-  "DeepSeek",
-];
+export const AGENT_PROVIDERS: AgentProvider[] = providerCatalogue
+  .list("agents")
+  .map((provider) => provider.label);
 
 export function agentProviderShowsUsage(provider: AgentProvider) {
-  return provider === "ChatGPT" || provider === "Claude";
+  return providerCatalogue.byLabel(provider).usage_metrics;
 }
 
 const quotaLabels = [

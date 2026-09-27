@@ -1,5 +1,9 @@
 packages:
   - "apps/frontend"
 
+allowBuilds:
+  onnxruntime-node: false # Browser-only inference; no native Node runtime needed.
+  protobufjs: true # Inspected: dependency-version warning only.
+
 minimumReleaseAgeExclude:
   - "@rolldown/binding-android-arm64@1.2.2"

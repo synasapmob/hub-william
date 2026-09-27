@@ -34,7 +34,8 @@ describe("OrganizationUsageChart", () => {
     await user.click(disclosure);
     expect(details).toHaveAttribute("open");
     expect(within(details!).getByText("7 requests")).toBeVisible();
-    expect(within(details!).getByText("0 requests")).toBeVisible();
+    expect(within(details!).queryByText("0 requests")).not.toBeInTheDocument();
+    expect(within(details!).queryByText("2026-09-24")).not.toBeInTheDocument();
 
     await user.click(disclosure);
     expect(details).not.toHaveAttribute("open");

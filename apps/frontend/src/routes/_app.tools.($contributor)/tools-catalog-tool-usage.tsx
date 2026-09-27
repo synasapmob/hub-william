@@ -57,6 +57,51 @@ export default function ToolsCatalogToolUsage({
   const { container, section, label, description } = toolUsage();
   const siteOrigin = useSiteOrigin();
 
+  if (collection.id === "download-reel") {
+    return (
+      <div className={container()}>
+        <div className={section()}>
+          <p className={label()}>Run with your reel URL</p>
+
+          <p className={description()}>
+            Use Bash and Python 3 on macOS, Linux or WSL. TikTok also requires
+            yt-dlp. On macOS, install it with <code>brew install yt-dlp</code>.
+          </p>
+
+          <p className={description()}>
+            Replace <code>REEL_URL</code> with your reel link, keep the quotes,
+            then run the command in your terminal. No script file to save first.
+          </p>
+        </div>
+
+        {["tiktok", "facebook"].map((platform) => (
+          <div className={section()} key={platform}>
+            <p className={label()}>
+              {platform === "tiktok" ? "TikTok" : "Facebook"}
+            </p>
+
+            <CopyCommand
+              command={`curl -fsSL ${catalogService.downloadReelScriptUrl(siteOrigin)} | bash -s -- --platform=${platform} --url='REEL_URL'`}
+            />
+          </div>
+        ))}
+
+        <div className={section()}>
+          <p className={description()}>
+            Videos with sound go to <code>~/Downloads</code>; existing files are
+            kept. Add <code>--output-dir='./videos'</code> to choose another
+            folder.
+          </p>
+
+          <p className={description()}>
+            Downloads run on your computer. Private videos or platform
+            restrictions can prevent a download. Keep yt-dlp up to date.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (collection.id === "gateway") {
     const configs = gatewayAgentConfigs(resolveGatewayOrigin(siteOrigin));
 

@@ -2,6 +2,9 @@ import createClient from "openapi-fetch";
 
 import type { components, paths } from "./api.generated";
 
+import providerCatalogue from "./provider-catalogue";
+import type { ApiKeyProviderId } from "./provider-catalogue.generated";
+
 export type AgentProvider = components["schemas"]["AgentProvider"];
 export type AgentConnectionStatus =
   components["schemas"]["AgentConnectionStatus"];
@@ -95,15 +98,16 @@ async function start(provider: AgentProvider) {
   }
 }
 
-async function connectDeepseek(apiKey: string) {
+async function connectApiKey(provider: ApiKeyProviderId, apiKey: string) {
+  const path = providerCatalogue.byId(provider).auth.connect_path;
+  if (!path)
+    throw new AgentConnectionServiceError(
+      "This provider does not accept API keys.",
+    );
   try {
-    let result = await client.POST("/agent-connections/deepseek", {
-      body: { api_key: apiKey },
-    });
+    let result = await client.POST(path, { body: { api_key: apiKey } });
     if (result.response.status === 401 && (await refreshHubSession())) {
-      result = await client.POST("/agent-connections/deepseek", {
-        body: { api_key: apiKey },
-      });
+      result = await client.POST(path, { body: { api_key: apiKey } });
     }
     if (!result.data) throw serviceError(result.error);
     return connectionFromApi(result.data);
@@ -223,7 +227,7 @@ async function disconnect(connectionId: string) {
 
 const agentConnectionsService = {
   complete,
-  connectDeepseek,
+  connectApiKey,
   disconnect,
   get,
   list,

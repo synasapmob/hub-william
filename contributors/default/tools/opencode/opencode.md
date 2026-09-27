@@ -13,7 +13,7 @@ curl -fsSL https://hub.example/opencode.py | python3 - --url=https://api.hub.exa
 
 Enter the key in the hidden prompt to keep it out of shell history. OpenCode
 needs the Hub key in `~/.config/opencode/opencode.json` for
-unattended requests; upstream Claude, Codex, Gemini/AGY, Grok, and DeepSeek
+unattended requests; upstream Claude, Codex, Gemini/AGY, Grok, DeepSeek, and Groq
 credentials remain encrypted on Hub William and are never written to the
 machine.
 
@@ -33,7 +33,7 @@ the provider supports effort. AGY exposes some effort levels as separate model
 IDs, so those remain separately selectable in `/models`.
 
 Re-run the command whenever provider catalogues change. Claude, Codex, Grok,
-and DeepSeek model IDs are fetched through the live Hub pools; Grok uses its
+DeepSeek, and Groq model IDs are fetched through the live Hub pools; Grok uses its
 authenticated Build catalogue, and Grok and DeepSeek use the Responses
 protocol. Codex model names and reasoning levels come from the installed
 `codex app-server` where available, with supported fallback metadata for known
@@ -54,7 +54,7 @@ only when you want a smaller budget.
 Grok connections created before the current Build scopes were introduced must
 be reconnected once in `/agents`, then this installer must be run again. If the
 live Grok catalogue is temporarily unavailable while another provider remains
-reachable, the installer still writes the `hub-grok/grok-build` entry. If no
+reachable, that provider is omitted until live discovery succeeds. If no
 models can be discovered, it stops without changing the config. It never falls
 back from subscription quota to a paid xAI API key.
 
@@ -64,3 +64,18 @@ The OpenCode file contains one revocable Hub gateway key, never a DeepSeek API
 key or provider OAuth token. Treat the Hub key as a password: keep the config
 private, prefer hidden input on shared machines, and revoke the key from Hub
 William if the machine is lost or compromised.
+
+## Shared provider catalogue
+
+<!-- provider-catalogue: begin (generated) -->
+| Provider     | Chat models in the reviewed catalogue                                                                                                                                                                                                                                                                                                                   | Call                               | Client protocol     |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | ------------------- |
+| ChatGPT      | `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`                                                                                                                                                                                                                                                                | Playground: native realtime        | `@ai-sdk/openai`    |
+| Claude       | `claude-fable-5-1`, `claude-opus-5-5`, `claude-sonnet-5`, `claude-haiku-4-5-20251001`                                                                                                                                                                                                                                                                   | —                                  | `@ai-sdk/anthropic` |
+| Gemini / AGY | `gemini-3.8-flash-high`, `gemini-3.8-flash-medium`, `gemini-3.8-flash-low`, `gemini-3.7-flash-high`, `gemini-3.7-flash-medium`, `gemini-3.7-flash-low`, `gemini-3.6-flash-high`, `gemini-3.6-flash-medium`, `gemini-3.6-flash-low`, `gemini-3.1-pro-high`, `gemini-3.1-pro-low`, `claude-sonnet-4-6`, `claude-opus-4-6-thinking`, `gpt-oss-120b-medium` | —                                  | `@ai-sdk/google`    |
+| Grok         | `grok-4.7`                                                                                                                                                                                                                                                                                                                                              | —                                  | `@ai-sdk/openai`    |
+| DeepSeek     | `deepseek-flash`, `deepseek-v4-pro`                                                                                                                                                                                                                                                                                                                     | —                                  | `@ai-sdk/openai`    |
+| Groq         | `qwen/qwen3.8-27b` (preview), `openai/gpt-oss-20b`, `openai/gpt-oss-120b`                                                                                                                                                                                                                                                                               | Playground: Local STT → Chat → TTS | `@ai-sdk/openai`    |
+
+Generated from `apps/api/src/provider_catalogue.json`. Model availability is checked live through Hub; this reviewed snapshot is not proof of account access. Call profiles are Playground-only; coding-client lists contain only chat-capable model IDs.
+<!-- provider-catalogue: end -->

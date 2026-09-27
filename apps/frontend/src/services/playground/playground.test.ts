@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import playgroundService from "./index";
+import providerCatalogue from "@/services/provider-catalogue";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -15,6 +16,52 @@ function streamResponse() {
 }
 
 describe("session-backed Playground requests", () => {
+  it("retains model capabilities and Call metadata from account discovery", async () => {
+    const profile = providerCatalogue.callProfile(
+      "groq",
+      "openai/gpt-oss-20b",
+    )!;
+    const call = {
+      ...profile,
+      models: { ...profile.models, future_role: "future-model" },
+    };
+    const models = [
+      {
+        id: "openai/gpt-oss-20b",
+        name: "Groq Chat and Call",
+        modes: ["chat", "voice"],
+        capabilities: ["chat"],
+        call,
+      },
+    ];
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(models)));
+    expect(
+      await playgroundService.models(
+        "groq",
+        "selected-account",
+        new AbortController().signal,
+      ),
+    ).toEqual(models);
+  });
+
+  it("keeps the earlier Chat response contract during deployment", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          Response.json([{ id: "chat-model", name: "Chat model" }]),
+        ),
+    );
+    expect(
+      await playgroundService.models(
+        "chatgpt",
+        "selected-account",
+        new AbortController().signal,
+      ),
+    ).toEqual([{ id: "chat-model", name: "Chat model", modes: ["chat"] }]);
+  });
+
   it("reports a missing Playground API as an availability error", async () => {
     vi.stubGlobal(
       "fetch",

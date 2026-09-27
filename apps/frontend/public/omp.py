@@ -19,13 +19,68 @@ from urllib.request import Request, urlopen
 
 BEGIN = "  # hub-william: providers begin"
 END = "  # hub-william: providers end"
-PROVIDER_IDS = (
-    "hub-codex",
-    "hub-claude",
-    "hub-gemini",
-    "hub-grok",
-    "hub-deepseek",
-)
+# provider-catalogue: begin (generated)
+PROVIDER_CATALOGUE = json.loads(r'''
+{
+  "codex": {
+    "id": "chatgpt",
+    "hub_id": "hub-codex",
+    "name": "Hub William · ChatGPT",
+    "base_path": "/gateway/openai/v1",
+    "models_path": "/gateway/openai/v1/models",
+    "owned_by": "openai",
+    "api": "openai-responses"
+  },
+  "claude": {
+    "id": "claude",
+    "hub_id": "hub-claude",
+    "name": "Hub William · Claude",
+    "base_path": "/gateway/claude",
+    "models_path": "/gateway/claude/v1/models?limit=1000",
+    "owned_by": "anthropic",
+    "api": "anthropic-messages"
+  },
+  "gemini": {
+    "id": "gemini",
+    "hub_id": "hub-gemini",
+    "name": "Hub William · Gemini / AGY",
+    "base_path": "/gateway/gemini/v1beta",
+    "models_path": "/gateway/gemini/v1beta/models",
+    "owned_by": "google",
+    "api": "google-generative-ai"
+  },
+  "grok": {
+    "id": "grok",
+    "hub_id": "hub-grok",
+    "name": "Hub William · Grok",
+    "base_path": "/gateway/grok/v1",
+    "models_path": "/gateway/grok/v1/models",
+    "owned_by": "xai",
+    "api": "openai-responses"
+  },
+  "deepseek": {
+    "id": "deepseek",
+    "hub_id": "hub-deepseek",
+    "name": "Hub William · DeepSeek",
+    "base_path": "/gateway/deepseek",
+    "models_path": "/gateway/deepseek/models",
+    "owned_by": "deepseek",
+    "api": "openai-responses"
+  },
+  "groq": {
+    "id": "groq",
+    "hub_id": "hub-groq",
+    "name": "Hub William · Groq",
+    "base_path": "/gateway/groq/v1",
+    "models_path": "/gateway/groq/v1/models",
+    "owned_by": "groq",
+    "api": "openai-responses"
+  }
+}
+''')
+MANAGED_PROVIDER_IDS = ('hub-codex', 'hub-claude', 'hub-gemini', 'hub-grok', 'hub-deepseek', 'hub-groq')
+# provider-catalogue: end
+PROVIDER_IDS = MANAGED_PROVIDER_IDS
 
 def _validated_gateway_url(value):
     value = (value or "").strip().rstrip("/")
@@ -98,15 +153,8 @@ def _atomic_write(path, text):
 
 
 def _gateway_models(gateway_url, key, provider):
-    paths = {
-        "codex": "/gateway/openai/v1/models",
-        "claude": "/gateway/claude/v1/models?limit=1000",
-        "gemini": "/gateway/gemini/v1beta/models",
-        "deepseek": "/gateway/deepseek/models",
-        "grok": "/gateway/grok/v1/models",
-    }
     request = Request(
-        gateway_url + paths[provider],
+        gateway_url + PROVIDER_CATALOGUE[provider]["models_path"],
         headers={"Authorization": "Bearer " + key, "Accept": "application/json"},
     )
     try:
@@ -169,36 +217,8 @@ def _render_provider(provider_id, base_url, api, key, models):
 
 def _render_managed_providers(gateway_url, key, catalogues):
     specs = (
-        (
-            "hub-codex",
-            gateway_url + "/gateway/openai/v1",
-            "openai-responses",
-            catalogues.get("codex", []),
-        ),
-        (
-            "hub-claude",
-            gateway_url + "/gateway/claude",
-            "anthropic-messages",
-            catalogues.get("claude", []),
-        ),
-        (
-            "hub-gemini",
-            gateway_url + "/gateway/gemini/v1beta",
-            "google-generative-ai",
-            catalogues.get("gemini", []),
-        ),
-        (
-            "hub-grok",
-            gateway_url + "/gateway/grok/v1",
-            "openai-responses",
-            catalogues.get("grok", []),
-        ),
-        (
-            "hub-deepseek",
-            gateway_url + "/gateway/deepseek",
-            "openai-responses",
-            catalogues.get("deepseek", []),
-        ),
+        (spec["hub_id"], gateway_url + spec["base_path"], spec["api"], catalogues.get(provider, []))
+        for provider, spec in PROVIDER_CATALOGUE.items()
     )
     lines = [BEGIN + "\n"]
     installed = []
@@ -320,11 +340,8 @@ def install(terminal, args, home=None):
     terminal.write("Discovering models from connected Hub pools…\n")
     terminal.flush()
     catalogues = {
-        "codex": _gateway_models(gateway_url, key, "codex"),
-        "claude": _gateway_models(gateway_url, key, "claude"),
-        "gemini": _gateway_models(gateway_url, key, "gemini"),
-        "grok": _gateway_models(gateway_url, key, "grok"),
-        "deepseek": _gateway_models(gateway_url, key, "deepseek"),
+        provider: _gateway_models(gateway_url, key, provider)
+        for provider in PROVIDER_CATALOGUE
     }
     if not any(catalogues.values()):
         raise ValueError("no provider models could be discovered; check the key and gateway")

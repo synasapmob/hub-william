@@ -36,6 +36,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/agent-connections/groq": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["connect_groq"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/agent-connections/start": {
     parameters: {
       query?: never;
@@ -484,6 +500,38 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/playground/groq/voice/turn": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["create_groq_voice_turn"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/playground/voice": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/playground/{provider}/accounts/{connection_id}/models": {
     parameters: {
       query?: never;
@@ -612,17 +660,37 @@ export interface components {
       value: string;
     };
     /** @enum {string} */
-    AgentProvider: "chatgpt" | "claude" | "gemini" | "deepseek" | "grok";
+    AgentProvider:
+      "chatgpt" | "claude" | "gemini" | "grok" | "deepseek" | "groq";
     AuthenticatedUser: {
       /** Format: uuid */
       id: string;
       recovery_email?: string | null;
       username: string;
     };
+    /** @enum {string} */
+    CallKind: "native_realtime" | "local_stt_llm_tts";
+    CallProfile: {
+      availability: string;
+      id: string;
+      kind: components["schemas"]["CallKind"];
+      models: {
+        [key: string]: string;
+      };
+      name: string;
+      provider: components["schemas"]["AgentProvider"];
+      selector_model: string;
+      transport: components["schemas"]["CallTransport"];
+    };
+    /** @enum {string} */
+    CallTransport: "codex_v3_webrtc" | "groq_sse";
     CompleteAuthorizationRequest: {
       callback_url: string;
     };
     ConnectDeepseekRequest: {
+      api_key: string;
+    };
+    ConnectGroqRequest: {
       api_key: string;
     };
     CreateAgentPoolJoinRequest: {
@@ -652,6 +720,30 @@ export interface components {
       /** Format: date-time */
       last_used_at?: string | null;
     };
+    GroqVoiceMessage: {
+      content: string;
+      role: components["schemas"]["PlaygroundRole"];
+    };
+    GroqVoiceTurnRequest: {
+      /** Format: uuid */
+      connection_id: string;
+      messages: components["schemas"]["GroqVoiceMessage"][];
+      model: string;
+      /** Format: uuid */
+      organization_id?: string | null;
+      /** @description Stream accepted transcript, reply deltas and audio clips as SSE. */
+      stream?: boolean;
+      /** @description With stream=true, allow sentence audio to interleave with reply deltas. */
+      stream_audio?: boolean;
+      /** @description Final transcript recognized locally in the browser, at most 8000 UTF-8 bytes. */
+      transcript: string;
+    };
+    GroqVoiceTurnResponse: {
+      /** @description Ordered base64 WAV clips. Each TTS input is at most 200 characters. */
+      audio: string[];
+      reply: string;
+      transcript: string;
+    };
     HealthResponse: {
       service: string;
       status: string;
@@ -666,6 +758,13 @@ export interface components {
       password: string;
       username: string;
     };
+    /** @enum {string} */
+    ModelCapability:
+      | "chat"
+      | "image_input"
+      | "realtime_audio"
+      | "transcription"
+      | "speech_output";
     Organization: {
       /** Format: date-time */
       created_at: string;
@@ -835,12 +934,29 @@ export interface components {
       content: string;
       role: components["schemas"]["PlaygroundRole"];
     };
+    /** @enum {string} */
+    PlaygroundMode: "chat" | "voice";
     PlaygroundModel: {
+      call?: null | components["schemas"]["CallProfile"];
+      capabilities: components["schemas"]["ModelCapability"][];
       id: string;
+      modes: components["schemas"]["PlaygroundMode"][];
       name: string;
     };
     /** @enum {string} */
     PlaygroundRole: "user" | "assistant";
+    PlaygroundVoiceRequest: {
+      /** Format: uuid */
+      connection_id: string;
+      model: string;
+      /** Format: uuid */
+      organization_id?: string | null;
+      provider: components["schemas"]["AgentProvider"];
+      sdp: string;
+    };
+    PlaygroundVoiceSession: {
+      sdp: string;
+    };
     RegisterRequest: {
       password: string;
       recovery_email?: string | null;
@@ -935,6 +1051,53 @@ export interface operations {
         };
       };
       /** @description DeepSeek validation unavailable */
+      502: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  connect_groq: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ConnectGroqRequest"];
+      };
+    };
+    responses: {
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AgentConnection"];
+        };
+      };
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
       502: {
         headers: {
           [name: string]: unknown;
@@ -1950,6 +2113,134 @@ export interface operations {
         };
         content: {
           "text/event-stream": string;
+        };
+      };
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      502: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  create_groq_voice_turn: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["GroqVoiceTurnRequest"];
+      };
+    };
+    responses: {
+      /** @description JSON by default; stream=true returns SSE transcript, delta, audio, done or error events. stream_audio=true allows delta and audio to interleave */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GroqVoiceTurnResponse"];
+          "text/event-stream": string;
+        };
+      };
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      502: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["PlaygroundVoiceRequest"];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PlaygroundVoiceSession"];
         };
       };
       401: {

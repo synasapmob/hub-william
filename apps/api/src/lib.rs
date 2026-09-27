@@ -8,6 +8,10 @@ mod health;
 mod openapi;
 mod organizations;
 mod playground;
+mod playground_groq_voice;
+mod playground_voice;
+mod provider_catalogue;
+mod provider_catalogue_generated;
 mod telegram;
 mod telegram_catalogue;
 mod usage;
@@ -43,14 +47,14 @@ use auth::{login, logout, refresh, register, session};
 pub use config::AppConfig;
 pub use connections::{
     AgentConnection, AgentConnectionStatus, AgentProvider, CompleteAuthorizationRequest,
-    ConnectDeepseekRequest, ProviderCredentialRefreshResult, ProviderCredentialRefreshStatus,
-    ProviderCredentialRefreshSummary, StartAgentConnectionRequest,
+    ConnectDeepseekRequest, ConnectGroqRequest, ProviderCredentialRefreshResult,
+    ProviderCredentialRefreshStatus, ProviderCredentialRefreshSummary, StartAgentConnectionRequest,
     refresh_all_provider_credentials, refresh_due_provider_credentials,
     refresh_nightly_provider_credentials, refresh_stored_connection_metadata,
 };
 use connections::{
-    complete_authorization, connect_deepseek, disconnect, get_connection, list_connections,
-    refresh_connection, start,
+    complete_authorization, connect_deepseek, connect_groq, disconnect, get_connection,
+    list_connections, refresh_connection, start,
 };
 pub use error::ErrorResponse;
 pub use gateway::{CreatedGatewayKey, GatewayKey};
@@ -145,6 +149,12 @@ pub fn app(state: AppState) -> Router {
         .route("/gateway/deepseek/chat/completions", post(deepseek_chat))
         .route("/gateway/deepseek/responses", post(deepseek_responses))
         .route("/gateway/deepseek/models", get(deepseek_models))
+        .route("/gateway/groq/v1/models", get(gateway::groq_models))
+        .route("/gateway/groq/v1/responses", post(gateway::groq_responses))
+        .route(
+            "/gateway/groq/v1/chat/completions",
+            post(gateway::groq_chat),
+        )
         .layer(DefaultBodyLimit::disable());
 
     Router::new()
@@ -245,6 +255,7 @@ pub fn app(state: AppState) -> Router {
         )
         .route("/agent-connections", get(list_connections))
         .route("/agent-connections/deepseek", post(connect_deepseek))
+        .route("/agent-connections/groq", post(connect_groq))
         .route("/agent-connections/start", post(start))
         .route(
             "/agent-connections/{connection_id}",
@@ -267,6 +278,14 @@ pub fn app(state: AppState) -> Router {
         .merge(
             Router::new()
                 .route("/playground/chat", post(playground::chat))
+                .route(
+                    "/playground/groq/voice/turn",
+                    post(playground_groq_voice::create).layer(DefaultBodyLimit::max(64 * 1024)),
+                )
+                .route(
+                    "/playground/voice",
+                    post(playground_voice::create).layer(DefaultBodyLimit::max(96 * 1024)),
+                )
                 .layer(DefaultBodyLimit::max(32 * 1024 * 1024))
                 .layer(axum::middleware::from_fn_with_state(
                     state.clone(),

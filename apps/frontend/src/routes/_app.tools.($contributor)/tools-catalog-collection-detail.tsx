@@ -49,6 +49,7 @@ interface ToolsCatalogCollectionDetailProps {
 }
 
 function usageSectionLabel(collection: CatalogCollection) {
+  if (collection.id === "download-reel") return "How to download";
   if (collection.id === "gateway") return "How to install and use";
   return "How to install";
 }
@@ -106,7 +107,9 @@ export default function ToolsCatalogCollectionDetail({
             <ToolsCatalogCollectionFiles files={files} />
           </CollectionSection>
 
-          {["gateway", "opencode", "omp"].includes(shown.id) ? (
+          {["gateway", "opencode", "omp", "download-reel"].includes(
+            shown.id,
+          ) ? (
             <CollectionSection label={usageSectionLabel(shown)}>
               <ToolsCatalogToolUsage collection={shown} />
             </CollectionSection>

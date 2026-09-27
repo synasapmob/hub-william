@@ -15,9 +15,10 @@ import {
 } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
+import { toast } from "sonner";
 
+import AgentsProviderIcon from "@/components/agents-provider-icon";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import Center from "@/components/ui/center";
 import {
@@ -31,6 +32,13 @@ import {
 import Flex from "@/components/ui/flex";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useWorkspaceSession } from "@/components/workspace-shell/workspace-shell-session-context";
 import agentConnectionsService, {
   AgentConnectionServiceError,
@@ -41,6 +49,9 @@ import agentPoolsService from "@/services/agent-pools";
 import organizationsService from "@/services/organizations";
 import playgroundService from "@/services/playground";
 import { agentAvailabilityStatusLabel } from "@/utils/utils.agent-pools";
+
+import providerCatalogue from "@/services/provider-catalogue";
+import type { ApiKeyProviderId } from "@/services/provider-catalogue.generated";
 
 interface ConnectionFormValues {
   apiKey: string;
@@ -54,8 +65,6 @@ interface AgentsConnectDialogProps {
 }
 
 interface AgentProviderOptionProps {
-  connectedCount: number;
-  reconnectCount: number;
   disabled: boolean;
   label: string;
   onConnect: (provider: AgentProvider) => void;
@@ -67,22 +76,18 @@ interface CompleteConnectionVariables {
   connectionId: string;
 }
 
-interface ProviderOption {
-  label: string;
-  provider: AgentProvider;
-}
+const providers = providerCatalogue.list("connect").map((provider) => ({
+  label: provider.connect_label,
+  provider: provider.id,
+}));
 
-const providers: ProviderOption[] = [
-  { label: "ChatGPT", provider: "chatgpt" },
-  { label: "Claude", provider: "claude" },
-  { label: "Gemini / AGY", provider: "gemini" },
-  { label: "DeepSeek", provider: "deepseek" },
-  { label: "Grok", provider: "grok" },
-];
+const apiKeyProviders = new Intl.ListFormat("en-GB").format(
+  providers
+    .filter((option) => providerCatalogue.isApiKeyProvider(option.provider))
+    .map((option) => option.label),
+);
 
 function AgentProviderOption({
-  connectedCount,
-  reconnectCount,
   disabled,
   label,
   onConnect,
@@ -91,7 +96,7 @@ function AgentProviderOption({
   return (
     <li>
       <Button
-        className="h-auto w-full flex-wrap justify-between p-3"
+        className="h-auto w-full flex-wrap justify-between gap-3 p-3"
         disabled={disabled}
         onClick={() => onConnect(provider)}
         type="button"
@@ -99,28 +104,16 @@ function AgentProviderOption({
       >
         <Flex className="items-center gap-3">
           <Center className="size-8 rounded-lg bg-slate-100 text-slate-700">
-            <Bot aria-hidden="true" className="size-4" />
+            <AgentsProviderIcon provider={provider} />
           </Center>
           <span>{label}</span>
         </Flex>
 
-        <Flex className="items-center gap-2">
-          {connectedCount > 0 ? (
-            <Badge variant="secondary">
-              {connectedCount} {connectedCount === 1 ? "account" : "accounts"}
-            </Badge>
-          ) : null}
-          {reconnectCount > 0 ? (
-            <Badge variant="destructive">
-              {reconnectCount} reconnect required
-            </Badge>
-          ) : null}
-          {provider === "deepseek" ? (
-            <KeyRound aria-hidden="true" className="size-3.5" />
-          ) : (
-            <ExternalLink aria-hidden="true" className="size-3.5" />
-          )}
-        </Flex>
+        {providerCatalogue.isApiKeyProvider(provider) ? (
+          <KeyRound aria-hidden="true" className="size-3.5" />
+        ) : (
+          <ExternalLink aria-hidden="true" className="size-3.5" />
+        )}
       </Button>
     </li>
   );
@@ -136,14 +129,33 @@ export default function AgentsConnectDialog({
   const [open, setOpen] = useState(false);
   const [activeConnection, setActiveConnection] =
     useState<AgentConnection | null>(null);
-  const [showDeepseekKey, setShowDeepseekKey] = useState(false);
+  const [keyProvider, setKeyProvider] = useState<ApiKeyProviderId | null>(null);
+  const keyProviderLabel = keyProvider
+    ? providerCatalogue.byId(keyProvider).label
+    : "";
   const [popupError, setPopupError] = useState<string | null>(null);
   const [addingExistingId, setAddingExistingId] = useState<string | null>(null);
+  const [shareProvider, setShareProvider] = useState<AgentProvider>("chatgpt");
   const notifiedConnectionIds = useRef(new Set<string>());
-  const connectionSchema = z.object({
-    apiKey: z.string(),
-    callbackUrl: z.string(),
-  });
+  const connectionSchema = z
+    .object({
+      apiKey: z.string().trim(),
+      callbackUrl: z.string(),
+    })
+    .superRefine((values, context) => {
+      if (
+        keyProvider &&
+        (values.apiKey.length < 20 ||
+          values.apiKey.length > 512 ||
+          !/^[A-Za-z0-9_-]+$/.test(values.apiKey))
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["apiKey"],
+          message: `Enter a valid ${keyProviderLabel} API key.`,
+        });
+      }
+    });
   const form = useForm<ConnectionFormValues>({
     defaultValues: { apiKey: "", callbackUrl: "" },
     resolver: zodResolver(connectionSchema),
@@ -164,8 +176,9 @@ export default function AgentsConnectDialog({
     mutationFn: ({ callbackUrl, connectionId }: CompleteConnectionVariables) =>
       agentConnectionsService.complete(connectionId, callbackUrl),
   });
-  const deepseekMutation = useMutation({
-    mutationFn: agentConnectionsService.connectDeepseek,
+  const keyMutation = useMutation({
+    mutationFn: (apiKey: string) =>
+      agentConnectionsService.connectApiKey(keyProvider!, apiKey),
   });
   const pollConnectionId =
     activeConnection?.status === "pending" &&
@@ -188,12 +201,25 @@ export default function AgentsConnectDialog({
       connection.status === "connected" &&
       !sharedConnectionIds.includes(connection.id),
   );
+  const shareProviders = providers.filter((option) =>
+    connections.some(
+      (connection) =>
+        connection.status === "connected" &&
+        connection.provider === option.provider,
+    ),
+  );
+  const selectedShareProvider =
+    shareProviders.find((option) => option.provider === shareProvider) ??
+    shareProviders[0];
+  const filteredConnections = availableConnections.filter(
+    (connection) => connection.provider === selectedShareProvider?.provider,
+  );
   const currentConnection = connectionStatusQuery.data ?? activeConnection;
   const requestError =
     connectionsQuery.error ??
     startMutation.error ??
     completeMutation.error ??
-    deepseekMutation.error ??
+    keyMutation.error ??
     connectionStatusQuery.error;
   const errorMessage =
     popupError ??
@@ -257,10 +283,10 @@ export default function AgentsConnectDialog({
       notifiedConnectionIds.current.clear();
       setActiveConnection(null);
       setPopupError(null);
-      setShowDeepseekKey(false);
+      setKeyProvider(null);
       startMutation.reset();
       completeMutation.reset();
-      deepseekMutation.reset();
+      keyMutation.reset();
       form.reset();
     }
   }
@@ -271,7 +297,9 @@ export default function AgentsConnectDialog({
     setPopupError(null);
     try {
       await onAddExisting(connection);
-      changeOpen(false);
+      toast.success(
+        `${connection.accountLabel ?? "Agent"} shared with the organization.`,
+      );
     } catch (error) {
       setPopupError(
         error instanceof Error
@@ -284,14 +312,15 @@ export default function AgentsConnectDialog({
   }
 
   async function connect(provider: AgentProvider) {
-    if (provider === "deepseek") {
+    if (providerCatalogue.isApiKeyProvider(provider)) {
       setActiveConnection(null);
       setPopupError(null);
-      setShowDeepseekKey(true);
-      form.clearErrors();
+      setKeyProvider(provider);
+      form.reset();
+      keyMutation.reset();
       return;
     }
-    setShowDeepseekKey(false);
+    setKeyProvider(null);
     const popup = window.open(
       "about:blank",
       "hub-william-agent-connect",
@@ -364,16 +393,12 @@ export default function AgentsConnectDialog({
     }
   }
 
-  async function connectDeepseek(values: ConnectionFormValues) {
+  async function connectApiKey(values: ConnectionFormValues) {
     const apiKey = values.apiKey.trim();
-    if (apiKey.length < 20 || /\s/.test(apiKey)) {
-      form.setError("apiKey", { message: "Enter a valid DeepSeek API key." });
-      return;
-    }
     try {
-      const connection = await deepseekMutation.mutateAsync(apiKey);
+      const connection = await keyMutation.mutateAsync(apiKey);
       setActiveConnection(connection);
-      setShowDeepseekKey(false);
+      setKeyProvider(null);
       queryClient.setQueryData<AgentConnection[]>(
         connectionQueryKey,
         (items) => [
@@ -388,7 +413,7 @@ export default function AgentsConnectDialog({
         message:
           error instanceof AgentConnectionServiceError
             ? error.message
-            : "The DeepSeek API key could not be connected.",
+            : `The ${keyProviderLabel} API key could not be connected.`,
       });
     }
   }
@@ -408,77 +433,94 @@ export default function AgentsConnectDialog({
           </Center>
           <DialogTitle>Connect an agent account</DialogTitle>
           <DialogDescription>
-            {onAddExisting
-              ? "Add an account already connected in Workspace, or connect a new account below."
-              : "Subscription accounts open their official authorization page. DeepSeek API keys are verified once and encrypted server-side."}
+            Subscription accounts open their official authorization page.
+            {apiKeyProviders} connect with your API key.
           </DialogDescription>
         </DialogHeader>
 
-        {onAddExisting && availableConnections.length > 0 ? (
+        {onAddExisting && shareProviders.length > 0 ? (
           <section className="space-y-2 border-b border-zinc-200 pb-4">
-            <h3 className="text-sm font-semibold">Share a connected agent</h3>
+            <Flex className="flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold">Share a connected agent</h3>
+
+              <Select
+                value={selectedShareProvider?.provider}
+                onValueChange={(value: AgentProvider) =>
+                  setShareProvider(value)
+                }
+                disabled={addingExistingId !== null}
+              >
+                <SelectTrigger
+                  aria-label="Filter connected agents by provider"
+                  className="h-10! w-auto min-w-28"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {shareProviders.map((option) => (
+                    <SelectItem key={option.provider} value={option.provider}>
+                      <AgentsProviderIcon provider={option.provider} />
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Flex>
+
             <p className="text-xs text-muted-foreground">
               Add your existing account without signing in again. Its current
               provider status applies in both Workspace and this organization.
             </p>
-            <ul className="max-h-40 space-y-1.5 overflow-y-auto">
-              {availableConnections.map((connection) => (
-                <li key={connection.id}>
-                  <Button
-                    aria-label={`Add ${providers.find((item) => item.provider === connection.provider)?.label ?? connection.provider} ${connection.accountLabel ?? "Connected account"} to organization`}
-                    className="h-auto w-full justify-between gap-2 px-3 py-2 text-left"
-                    disabled={addingExistingId !== null}
-                    onClick={() => void addExisting(connection)}
-                    type="button"
-                    variant="outline"
-                  >
-                    <div className="min-w-0 space-y-1">
-                      <p className="truncate">
-                        {providers.find(
-                          (item) => item.provider === connection.provider,
-                        )?.label ?? connection.provider}{" "}
-                        · {connection.accountLabel ?? "Connected account"}
+
+            {!filteredConnections.length ? (
+              <p className="py-2 text-sm text-muted-foreground">
+                All your {selectedShareProvider?.label} accounts are already
+                shared.
+              </p>
+            ) : (
+              <ul className="max-h-40 space-y-1.5 overflow-y-auto">
+                {filteredConnections.map((connection) => (
+                  <li key={connection.id}>
+                    <Button
+                      aria-label={`Add ${selectedShareProvider?.label} ${connection.accountLabel ?? "Connected account"} to organization`}
+                      className="h-auto w-full justify-between gap-2 px-3 py-2 text-left"
+                      disabled={addingExistingId !== null}
+                      onClick={() => void addExisting(connection)}
+                      type="button"
+                      variant="outline"
+                    >
+                      <Flex className="min-w-0 gap-2">
+                        <AgentsProviderIcon provider={connection.provider} />
+
+                        <div className="min-w-0 space-y-1">
+                          <p className="truncate">
+                            {connection.accountLabel ?? "Connected account"}
+                          </p>
+
+                          <p className="text-xs text-muted-foreground">
+                            {agentAvailabilityStatusLabel(
+                              connection.availabilityStatus,
+                            )}
+                          </p>
+                        </div>
+                      </Flex>
+
+                      <p className="shrink-0 text-xs">
+                        {addingExistingId === connection.id ? "Adding…" : "Add"}
                       </p>
-                      <p className="text-xs text-muted-foreground">
-                        {agentAvailabilityStatusLabel(
-                          connection.availabilityStatus,
-                        )}
-                      </p>
-                    </div>
-                    <span className="shrink-0 text-xs">
-                      {addingExistingId === connection.id ? "Adding…" : "Add"}
-                    </span>
-                  </Button>
-                </li>
-              ))}
-            </ul>
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
         ) : null}
 
-        {onAddExisting ? (
-          <h3 className="text-sm font-semibold">Connect a new account</h3>
-        ) : null}
-
-        <ul className="grid gap-2">
+        <ul className="grid grid-cols-1 gap-2">
           {providers.map(({ label, provider }) => (
             <AgentProviderOption
               key={provider}
-              connectedCount={
-                connections.filter(
-                  (connection) =>
-                    connection.provider === provider &&
-                    connection.status === "connected",
-                ).length
-              }
-              reconnectCount={
-                connections.filter(
-                  (connection) =>
-                    connection.provider === provider &&
-                    connection.status === "connected" &&
-                    connection.availabilityStatus === "reauth_required",
-                ).length
-              }
-              disabled={startMutation.isPending || deepseekMutation.isPending}
+              disabled={startMutation.isPending || keyMutation.isPending}
               label={label}
               onConnect={connect}
               provider={provider}
@@ -496,24 +538,30 @@ export default function AgentsConnectDialog({
           </Flex>
         ) : null}
 
-        {showDeepseekKey ? (
+        {keyProvider ? (
           <form
             className="space-y-3"
-            onSubmit={(event) => void form.handleSubmit(connectDeepseek)(event)}
+            onSubmit={(event) => void form.handleSubmit(connectApiKey)(event)}
           >
             <div className="space-y-1.5">
-              <Label htmlFor="deepseek-api-key">DeepSeek API key</Label>
+              <Label htmlFor="provider-api-key">
+                {keyProviderLabel} API key
+              </Label>
               <Input
-                id="deepseek-api-key"
+                id="provider-api-key"
                 aria-invalid={Boolean(form.formState.errors.apiKey)}
                 autoComplete="off"
-                placeholder="sk-…"
+                placeholder={
+                  keyProvider
+                    ? providerCatalogue.byId(keyProvider).auth.key_placeholder
+                    : undefined
+                }
                 type="password"
                 {...form.register("apiKey")}
               />
               <p className="text-xs text-muted-foreground">
-                Hub validates the key with DeepSeek, then stores only encrypted
-                credential bytes. It is never returned to the browser.
+                Your key is verified with {keyProviderLabel} and stored
+                securely.
               </p>
               {form.formState.errors.apiKey ? (
                 <p className="text-xs text-destructive">
@@ -526,8 +574,10 @@ export default function AgentsConnectDialog({
                 {form.formState.errors.root.message}
               </p>
             ) : null}
-            <Button disabled={deepseekMutation.isPending} type="submit">
-              {deepseekMutation.isPending ? "Verifying…" : "Connect DeepSeek"}
+            <Button disabled={keyMutation.isPending} type="submit">
+              {keyMutation.isPending
+                ? "Verifying…"
+                : `Connect ${keyProviderLabel}`}
             </Button>
           </form>
         ) : null}

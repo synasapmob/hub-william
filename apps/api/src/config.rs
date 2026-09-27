@@ -27,6 +27,7 @@ pub struct AppConfig {
     pub grok_client_id: String,
     pub grok_client_version: String,
     pub deepseek_api_url: String,
+    pub groq_api_url: String,
 }
 
 #[derive(Debug)]
@@ -119,6 +120,10 @@ impl AppConfig {
                 .unwrap_or_else(|_| "b1a00492-073a-47ea-816f-4c329264a828".to_owned()),
             grok_client_version: env::var("GROK_CLIENT_VERSION")
                 .unwrap_or_else(|_| "1.0.30".to_owned()),
+            groq_api_url: env::var("GROQ_API_URL")
+                .unwrap_or_else(|_| "https://api.groq.com/openai/v1".to_owned())
+                .trim_end_matches('/')
+                .to_owned(),
             deepseek_api_url: env::var("DEEPSEEK_API_URL")
                 .unwrap_or_else(|_| "https://api.deepseek.com".to_owned())
                 .trim_end_matches('/')
@@ -155,6 +160,7 @@ impl Default for AppConfig {
             grok_client_id: "b1a00492-073a-47ea-816f-4c329264a828".to_owned(),
             grok_client_version: "1.0.30".to_owned(),
             deepseek_api_url: "https://api.deepseek.com".to_owned(),
+            groq_api_url: "https://api.groq.com/openai/v1".to_owned(),
         }
     }
 }

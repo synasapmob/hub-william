@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link, NavLink, type NavLinkRenderProps } from "react-router";
+import { Link, NavLink, useMatch, type NavLinkRenderProps } from "react-router";
 import { tv } from "tailwind-variants";
 
 import Center from "@/components/ui/center";
@@ -116,10 +116,14 @@ interface OrganizationNavigationProps {
 function OrganizationNavigation({ onNavigate }: OrganizationNavigationProps) {
   const session = useWorkspaceSession();
   const userId = session.user?.id;
+  const inPlayground = Boolean(useMatch("/playground"));
   const organizationsQuery = useQuery({
     enabled: Boolean(userId),
     queryFn: organizationsService.list,
     queryKey: [...organizationsService.queryKey, userId ?? "guest"],
+    // This observer shares Playground's organization choices.
+    refetchOnWindowFocus: !inPlayground,
+    refetchOnReconnect: !inPlayground,
   });
   const canOpenSections = Boolean(organizationsQuery.data?.length);
 
