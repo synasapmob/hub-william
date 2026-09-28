@@ -8,11 +8,12 @@ import {
 } from "./catalog-collections";
 
 describe("supported tool catalogue", () => {
-  it("publishes the current shared Gateway, OpenCode and OMP tools", () => {
+  it("publishes the current shared tools including DOWNLOAD REEL", () => {
     expect(catalogService.collections().map((tool) => tool.id)).toEqual([
       "gateway",
       "opencode",
       "omp",
+      "download-reel",
     ]);
     for (const retired of ["documents", "mcp", "skills", "tags", "github"]) {
       expect(catalogService.findCollection(retired)).toBeNull();
@@ -120,6 +121,9 @@ describe("installer URLs", () => {
     );
     expect(catalogService.ompInstallerUrl("https://hub.example")).toBe(
       "https://hub.example/omp.py",
+    );
+    expect(catalogService.downloadReelScriptUrl("https://hub.example")).toBe(
+      "https://hub.example/download-reel.sh",
     );
   });
 });

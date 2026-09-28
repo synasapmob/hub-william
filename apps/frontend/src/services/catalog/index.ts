@@ -167,12 +167,17 @@ function ompInstallerUrl(origin?: string) {
   return siteAssetUrl("omp.py", origin);
 }
 
+function downloadReelScriptUrl(origin?: string) {
+  return siteAssetUrl("download-reel.sh", origin);
+}
+
 const catalogService = {
   collections,
   collectionArchive,
   collectionFiles,
   contributors,
   documentCount,
+  downloadReelScriptUrl,
   findCollection,
   gatewayInstallerUrl,
   matchesCollectionQuery,

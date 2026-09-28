@@ -373,9 +373,8 @@ describe("AgentsRoute", () => {
       const account = await screen.findByRole("button", {
         name: "Open ChatGPT account du**y@exa**.com",
       });
-      expect(account).toHaveTextContent(
-        status === "authenticated" ? "Owner" : "Open to join",
-      );
+      expect(account).toHaveTextContent("ChatGPT K12");
+      expect(account).not.toHaveTextContent(/Owner|Open to join/);
       expect(poolRequests()).toHaveLength(1);
     },
   );
@@ -435,10 +434,37 @@ describe("AgentsRoute", () => {
     expect(screen.queryByText("du**y@exa**.com")).not.toBeInTheDocument();
   });
 
-  it("shows no fixture cards when the API has no connected accounts", async () => {
+  it("keeps all providers with zero counts and empty accounts when no accounts are connected", async () => {
+    const user = userEvent.setup();
     renderRoute(undefined, []);
 
-    expect(await screen.findByText("No connected accounts yet.")).toBeVisible();
+    await screen.findByRole("button", { name: "ChatGPT, 0 accounts" });
+    for (const provider of [
+      "ChatGPT",
+      "Claude",
+      "Gemini",
+      "Grok",
+      "DeepSeek",
+    ]) {
+      expect(
+        screen.getByRole("button", { name: `${provider}, 0 accounts` }),
+      ).toBeVisible();
+    }
+    await user.click(
+      screen.getByRole("button", { name: "Gemini, 0 accounts" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Gemini, 0 accounts" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      within(
+        screen.getByRole("region", { name: "Gemini accounts" }),
+      ).queryAllByRole("listitem"),
+    ).toHaveLength(0);
+    expect(
+      screen.queryByText("No connected accounts yet."),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/No accounts match/)).not.toBeInTheDocument();
     expect(screen.queryByText("du**y@exa**.com")).not.toBeInTheDocument();
   });
 
@@ -671,47 +697,166 @@ describe("AgentsRoute", () => {
     ).toBeVisible();
   });
 
-  it("filters owned and joined accounts while keeping header actions available", async () => {
+  it("keeps All, Me and Joined provider counts aligned with account access", async () => {
     const user = userEvent.setup();
+    const owned = { ...poolFixture(), agent: "Gemini" };
+    const other = {
+      ...poolFixture(),
+      id: "other",
+      account_label: "ot**@exa**.com",
+      owner: apiPerson("alice"),
+      members: [apiPerson("alice")],
+    };
     renderRoute({ id: "owner", username: "synasapmob" }, [
-      poolFixture(),
+      owned,
+      other,
+      { ...other, id: "other-gemini", agent: "Gemini" },
       {
-        ...poolFixture(),
+        ...other,
         id: "joined",
         account_label: "jo**@exa**.com",
-        owner: apiPerson("alice"),
-        members: [apiPerson("alice"), apiPerson("synasapmob")],
+        members: [...other.members, apiPerson("synasapmob")],
       },
+      ...["accepted", "pending", "rejected"].map((status) => ({
+        ...other,
+        id: status,
+        account_label: `${status}@exa**.com`,
+        requests: [{ ...pendingRequest, username: "synasapmob", status }],
+      })),
     ]);
-    await screen.findByRole("button", {
-      name: "Open ChatGPT account du**y@exa**.com",
-    });
+    await screen.findByRole("button", { name: "ChatGPT, 5 accounts" });
+    expect(
+      screen.getByRole("button", { name: "Gemini, 2 accounts" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("combobox", { name: "Filter accounts" }),
+    ).toHaveTextContent("All");
+    expect(
+      screen.getAllByRole("button", { name: /^Open ChatGPT account / }),
+    ).toHaveLength(5);
+
     await user.click(screen.getByRole("combobox", { name: "Filter accounts" }));
-    await user.click(screen.getByRole("option", { name: "Mine" }));
+    await user.click(screen.getByRole("option", { name: "Me" }));
+    expect(
+      screen.getByRole("button", { name: "ChatGPT, 0 accounts" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Gemini, 1 account" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: /^Open .* account / }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText("No accounts match. Try another provider or filter."),
+    ).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Gemini, 1 account" }));
     expect(
       screen.getByRole("button", {
-        name: "Open ChatGPT account du**y@exa**.com",
+        name: "Open Gemini account du**y@exa**.com",
       }),
     ).toBeVisible();
     expect(
       screen.queryByRole("button", {
-        name: "Open ChatGPT account jo**@exa**.com",
+        name: "Open Gemini account ot**@exa**.com",
       }),
     ).not.toBeInTheDocument();
+
     await user.click(screen.getByRole("combobox", { name: "Filter accounts" }));
     await user.click(screen.getByRole("option", { name: "Joined" }));
     expect(
+      screen.getByRole("button", { name: "ChatGPT, 2 accounts" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Gemini, 0 accounts" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: /^Open .* account / }),
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "ChatGPT, 2 accounts" }),
+    );
+    expect(
+      screen.getAllByRole("button", { name: /^Open ChatGPT account / }),
+    ).toHaveLength(2);
+    expect(
       screen.getByRole("button", {
         name: "Open ChatGPT account jo**@exa**.com",
       }),
     ).toBeVisible();
     expect(
+      screen.getByRole("button", {
+        name: "Open ChatGPT account accepted@exa**.com",
+      }),
+    ).toBeVisible();
+    expect(
       screen.queryByRole("button", {
-        name: "Open ChatGPT account du**y@exa**.com",
+        name: /Open ChatGPT account (pending|rejected|ot)/,
       }),
     ).not.toBeInTheDocument();
+
+    const search = screen.getByRole("textbox", { name: "Search accounts" });
+    await user.type(search, "jo**");
+    expect(
+      screen.getAllByRole("button", { name: /^Open ChatGPT account / }),
+    ).toHaveLength(1);
+    expect(
+      screen.getByRole("button", { name: "ChatGPT, 2 accounts" }),
+    ).toBeVisible();
+    await user.clear(search);
+
+    await user.click(screen.getByRole("combobox", { name: "Filter accounts" }));
+    await user.click(screen.getByRole("option", { name: "All" }));
+    expect(
+      screen.getByRole("button", { name: "ChatGPT, 5 accounts" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Gemini, 2 accounts" }),
+    ).toBeVisible();
+    expect(
+      screen.getAllByRole("button", { name: /^Open ChatGPT account / }),
+    ).toHaveLength(5);
     expect(screen.getByRole("button", { name: "Connect Agent" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Gateway Key" })).toBeVisible();
+  });
+
+  it("shows zero Me and Joined counts for guests without hiding public accounts from All", async () => {
+    const user = userEvent.setup();
+    renderRoute();
+    await screen.findByRole("button", { name: "ChatGPT, 1 account" });
+
+    for (const filter of ["Me", "Joined"]) {
+      await user.click(
+        screen.getByRole("combobox", { name: "Filter accounts" }),
+      );
+      await user.click(screen.getByRole("option", { name: filter }));
+      for (const provider of [
+        "ChatGPT",
+        "Claude",
+        "Gemini",
+        "Grok",
+        "DeepSeek",
+      ]) {
+        expect(
+          screen.getByRole("button", { name: `${provider}, 0 accounts` }),
+        ).toBeVisible();
+      }
+      expect(
+        screen.queryByRole("button", { name: /^Open .* account / }),
+      ).not.toBeInTheDocument();
+    }
+
+    await user.click(screen.getByRole("combobox", { name: "Filter accounts" }));
+    await user.click(screen.getByRole("option", { name: "All" }));
+    expect(
+      screen.getByRole("button", { name: "ChatGPT, 1 account" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", {
+        name: "Open ChatGPT account du**y@exa**.com",
+      }),
+    ).toBeVisible();
   });
 
   it("marks exhausted accounts without exposing warning reasons outside management", async () => {
@@ -1140,7 +1285,12 @@ describe("AgentsRoute", () => {
     await user.click(screen.getByRole("button", { name: "Manage" }));
     await user.click(screen.getByRole("button", { name: "Delete" }));
 
-    expect(await screen.findByText("No connected accounts yet.")).toBeVisible();
+    expect(
+      await screen.findByRole("button", { name: "ChatGPT, 0 accounts" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByText("No connected accounts yet."),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText("Manage pool access")).not.toBeInTheDocument();
   });
 

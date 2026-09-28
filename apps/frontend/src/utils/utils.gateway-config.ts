@@ -1,3 +1,5 @@
+import providerCatalogue from "@/services/provider-catalogue";
+
 /**
  * Agent config the gateway installer writes, as copyable snippets.
  *
@@ -51,78 +53,81 @@ export function gatewayAgentConfigs(
 ): GatewayAgentConfig[] {
   const origin = gatewayOrigin.replace(/\/$/, "");
   const key = options.key ?? GATEWAY_KEY_PLACEHOLDER;
-  const openaiBaseUrl = `${origin}/gateway/openai/v1`;
-  const claudeBaseUrl = `${origin}/gateway/claude`;
-  const grokBaseUrl = `${origin}/gateway/grok/v1`;
-  const geminiBaseUrl = `${origin}/gateway/gemini`;
-
-  return [
-    {
-      agent: "codex",
-      label: "Codex",
-      path: "~/.codex/config.toml",
-      protocol: "OpenAI Responses",
-      source: [
-        `model_provider = "hub-william"`,
-        "",
-        "[model_providers.hub-william]",
-        `name = "Hub William"`,
-        `base_url = "${openaiBaseUrl}"`,
-        `experimental_bearer_token = "${key}"`,
-        `wire_api = "responses"`,
-        "",
-      ].join("\n"),
-    },
-    {
-      agent: "claude",
-      label: "Claude Code",
-      path: "~/.claude/settings.json",
-      protocol: "Anthropic Messages",
-      source: `${JSON.stringify(
-        {
-          env: {
-            ANTHROPIC_BASE_URL: claudeBaseUrl,
-            ANTHROPIC_AUTH_TOKEN: key,
-          },
-        },
-        null,
-        2,
-      )}\n`,
-    },
-    {
-      agent: "agy-settings",
-      label: "Antigravity (AGY) settings",
-      path: "~/.gemini/antigravity-cli/settings.json",
-      protocol: "Gemini native API via Google OAuth",
-      source: `${JSON.stringify({ modelProvider: "gemini" }, null, 2)}\n`,
-    },
-    {
-      agent: "agy-shell",
-      label: "Antigravity (AGY) environment",
-      path: "~/.zshrc, ~/.bashrc, or ~/.profile",
-      protocol: "Gemini native API via Google OAuth",
-      source: [
-        "# >>> hub-william agy >>>",
-        `export GOOGLE_GEMINI_BASE_URL='${geminiBaseUrl}'`,
-        `export GEMINI_API_KEY='${key}'`,
-        "# <<< hub-william agy <<<",
-        "",
-      ].join("\n"),
-    },
-    {
-      agent: "grok",
-      label: "Grok",
-      path: "~/.grok/config.toml",
-      protocol: "OpenAI-compatible chat",
-      source: [
-        "[endpoints]",
-        `models_base_url = "${grokBaseUrl}"`,
-        "",
-        "[model.grok-build]",
-        `base_url = "${grokBaseUrl}"`,
-        `api_key = "${key}"`,
-        "",
-      ].join("\n"),
-    },
-  ];
+  return providerCatalogue
+    .list("installers")
+    .flatMap((provider): GatewayAgentConfig[] => {
+      const client = provider.native_cli;
+      if (!client) return [];
+      const baseUrl = origin + client.base_path;
+      const common = {
+        label: client.label,
+        path: "~/" + client.path,
+        protocol: client.protocol,
+      };
+      switch (client.id) {
+        case "codex":
+          return [
+            {
+              ...common,
+              agent: "codex",
+              source: [
+                `model_provider = "hub-william"`,
+                "",
+                "[model_providers.hub-william]",
+                `name = "Hub William"`,
+                `base_url = "${baseUrl}"`,
+                `experimental_bearer_token = "${key}"`,
+                `wire_api = "${client.wire_api}"`,
+                "",
+              ].join("\n"),
+            },
+          ];
+        case "claude":
+          return [
+            {
+              ...common,
+              agent: "claude",
+              source: `${JSON.stringify({ env: { ANTHROPIC_BASE_URL: baseUrl, ANTHROPIC_AUTH_TOKEN: key } }, null, 2)}\n`,
+            },
+          ];
+        case "agy":
+          return [
+            {
+              ...common,
+              agent: "agy-settings",
+              label: `${client.label} settings`,
+              source: `${JSON.stringify({ modelProvider: client.model_provider }, null, 2)}\n`,
+            },
+            {
+              ...common,
+              agent: "agy-shell",
+              label: `${client.label} environment`,
+              path: "~/.zshrc, ~/.bashrc, or ~/.profile",
+              source: [
+                "# >>> hub-william agy >>>",
+                `export GOOGLE_GEMINI_BASE_URL='${baseUrl}'`,
+                `export GEMINI_API_KEY='${key}'`,
+                "# <<< hub-william agy <<<",
+                "",
+              ].join("\n"),
+            },
+          ];
+        case "grok":
+          return [
+            {
+              ...common,
+              agent: "grok",
+              source: [
+                "[endpoints]",
+                `models_base_url = "${baseUrl}"`,
+                "",
+                `[model.${client.model_key}]`,
+                `base_url = "${baseUrl}"`,
+                `api_key = "${key}"`,
+                "",
+              ].join("\n"),
+            },
+          ];
+      }
+    });
 }

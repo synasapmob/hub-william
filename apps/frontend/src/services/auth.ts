@@ -102,6 +102,21 @@ async function logout() {
   }
 }
 
-const authService = { login, logout, register, session };
+function githubAvatarUrl(username: string): string | null {
+  if (
+    !/^[a-z\d](?:[a-z\d-]{0,37}[a-z\d])?$/i.test(username) ||
+    username.includes("--")
+  )
+    return null;
+  return `https://github.com/${encodeURIComponent(username)}.png?size=64`;
+}
+
+const authService = {
+  login,
+  logout,
+  register,
+  session,
+  githubAvatarUrl,
+};
 
 export default authService;

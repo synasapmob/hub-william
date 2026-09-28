@@ -72,16 +72,18 @@ export default function OrganizationUsageChart({
             Daily values
           </summary>
           <dl className="max-h-44 space-y-1 overflow-y-auto rounded-lg border border-zinc-200 bg-zinc-50 p-2">
-            {days.map((day) => (
-              <Flex key={day.date} className="justify-between gap-4">
-                <dt>
-                  <time dateTime={day.date}>{day.date}</time>
-                </dt>
-                <dd className="font-mono text-zinc-700">
-                  {day.requests} requests
-                </dd>
-              </Flex>
-            ))}
+            {days
+              .filter((day) => day.requests > 0)
+              .map((day) => (
+                <Flex key={day.date} className="justify-between gap-4">
+                  <dt>
+                    <time dateTime={day.date}>{day.date}</time>
+                  </dt>
+                  <dd className="font-mono text-zinc-700">
+                    {day.requests} requests
+                  </dd>
+                </Flex>
+              ))}
           </dl>
         </details>
       </figcaption>

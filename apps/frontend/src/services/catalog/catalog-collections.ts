@@ -1,4 +1,9 @@
-export const TOOL_IDS = ["gateway", "opencode", "omp"] as const;
+export const TOOL_IDS = [
+  "gateway",
+  "opencode",
+  "omp",
+  "download-reel",
+] as const;
 
 interface CatalogCollectionPresentation {
   label: string;
@@ -20,6 +25,11 @@ const COLLECTION_PRESENTATION: Record<string, CatalogCollectionPresentation> = {
     label: "OMP",
     summary:
       "Install every live Hub provider and model into OMP with one revocable gateway key.",
+  },
+  "download-reel": {
+    label: "DOWNLOAD REEL",
+    summary:
+      "Download TikTok videos and Facebook reels with sound using one local script.",
   },
 };
 

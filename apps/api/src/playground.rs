@@ -19,6 +19,17 @@ use crate::{AgentProvider, AppState, auth::authenticated_user_id, error::ApiErro
 pub struct PlaygroundModel {
     pub id: String,
     pub name: String,
+    pub modes: Vec<PlaygroundMode>,
+    pub capabilities: Vec<crate::provider_catalogue::ModelCapability>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub call: Option<crate::provider_catalogue::CallProfile>,
+}
+
+#[derive(Serialize, ToSchema, Debug, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum PlaygroundMode {
+    Chat,
+    Voice,
 }
 
 #[derive(Clone, Copy, Deserialize, Serialize, ToSchema, PartialEq)]
@@ -52,7 +63,7 @@ pub enum PlaygroundAttachment {
 }
 
 #[derive(Clone, Copy)]
-pub struct PlaygroundSession(Uuid);
+pub struct PlaygroundSession(pub(crate) Uuid);
 
 /// Authenticate before Axum buffers or deserializes potentially large uploads.
 pub async fn authorize_chat(
@@ -133,11 +144,29 @@ pub async fn models(
         AgentProvider::Claude => Some(gateway::fetch_or_cached_claude_catalogue(&state.http).await),
         _ => None,
     };
-    Ok(Json(normalize_models(
-        provider,
-        &value,
-        current_catalogue.as_ref(),
-    )?))
+    let mut models = normalize_models(provider, &value, current_catalogue.as_ref())?;
+    let has_chat_models = !models.is_empty();
+    for call in crate::provider_catalogue::call_profiles(provider) {
+        if crate::provider_catalogue::call_available(call, &value, has_chat_models) {
+            if let Some(model) = models
+                .iter_mut()
+                .find(|model| model.id == call.selector_model)
+            {
+                model.modes.push(PlaygroundMode::Voice);
+                model.call = Some(call.clone());
+                continue;
+            }
+            models.push(PlaygroundModel {
+                id: call.selector_model.clone(),
+                name: call.name.clone(),
+                modes: vec![PlaygroundMode::Voice],
+                capabilities: crate::provider_catalogue::provider(provider)
+                    .capabilities(&call.selector_model),
+                call: Some(call.clone()),
+            });
+        }
+    }
+    Ok(Json(models))
 }
 
 // The picker intersects the chosen account's live models with the same current
@@ -148,15 +177,16 @@ fn current_playground_model(
     id: &str,
     current_catalogue: Option<&Value>,
 ) -> bool {
-    match provider {
-        AgentProvider::Chatgpt | AgentProvider::Claude => current_catalogue
+    match crate::provider_catalogue::provider(provider)
+        .discovery
+        .strategy
+        .as_str()
+    {
+        "official_docs" => current_catalogue
             .and_then(|catalogue| catalogue.get("data"))
             .and_then(Value::as_array)
             .is_some_and(|models| models.iter().any(|model| model["id"] == id)),
-        AgentProvider::Gemini => true,
-        AgentProvider::Deepseek | AgentProvider::Grok => {
-            gateway::current_live_model_id(provider, id)
-        }
+        _ => crate::provider_catalogue::current_chat_model(provider, id),
     }
 }
 
@@ -182,7 +212,9 @@ fn normalize_models(
         else {
             continue;
         };
-        if !current_playground_model(provider, id, current_catalogue) {
+        if entry.get("active") == Some(&Value::Bool(false))
+            || !current_playground_model(provider, id, current_catalogue)
+        {
             continue;
         }
         if entry
@@ -206,6 +238,9 @@ fn normalize_models(
         models.push(PlaygroundModel {
             id: id.to_owned(),
             name: name.to_owned(),
+            modes: vec![PlaygroundMode::Chat],
+            capabilities: crate::provider_catalogue::provider(provider).capabilities(id),
+            call: None,
         });
     }
     Ok(models)
@@ -224,6 +259,13 @@ pub async fn chat(
     Extension(session): Extension<PlaygroundSession>,
     Json(request): Json<PlaygroundChatRequest>,
 ) -> Result<Response, ApiError> {
+    if crate::provider_catalogue::call_profile(request.provider, &request.model).is_some()
+        && !crate::provider_catalogue::provider(request.provider)
+            .capabilities(&request.model)
+            .contains(&crate::provider_catalogue::ModelCapability::Chat)
+    {
+        return Err(ApiError::Validation("Select Call to use this voice model."));
+    }
     let body = request_body(&request)?;
     let bytes = serde_json::to_vec(&body)
         .map(Bytes::from)
@@ -281,7 +323,10 @@ fn validate_attachment(
             media_type,
             data,
         } => {
-            if matches!(provider, AgentProvider::Grok | AgentProvider::Deepseek) {
+            if !crate::provider_catalogue::provider(provider)
+                .chat_capabilities
+                .contains(&crate::provider_catalogue::ModelCapability::ImageInput)
+            {
                 return Err(ApiError::Validation(
                     "This Playground provider supports text files, but image input is not supported yet.",
                 ));
@@ -310,7 +355,12 @@ fn validate_attachment(
 }
 
 fn request_body(request: &PlaygroundChatRequest) -> Result<Value, ApiError> {
-    if request.model.trim().is_empty() || request.model.contains(['/', ':']) {
+    let valid_model = if request.provider == AgentProvider::Groq {
+        gateway::current_live_model_id(request.provider, &request.model)
+    } else {
+        !request.model.trim().is_empty() && !request.model.contains(['/', ':'])
+    };
+    if !valid_model {
         return Err(ApiError::Validation("Choose a valid model."));
     }
     if request.messages.is_empty()
@@ -366,6 +416,9 @@ fn request_body(request: &PlaygroundChatRequest) -> Result<Value, ApiError> {
             }
             json!({"role": if message.role == PlaygroundRole::User {"user"} else {"model"}, "parts":parts})
         }).collect::<Vec<_>>() }),
+        AgentProvider::Groq => {
+            json!({ "model": request.model, "input": messages, "stream": true, "instructions": "Answer the user's questions helpfully." })
+        }
         AgentProvider::Chatgpt | AgentProvider::Grok | AgentProvider::Deepseek => {
             json!({ "model": request.model, "input": messages, "stream": true, "store": false, "instructions": "Answer the user's questions helpfully." })
         }
@@ -425,6 +478,38 @@ mod tests {
             gemini["contents"][1],
             json!({"role":"model", "parts":[{"text":"Hi"}]})
         );
+    }
+
+    #[test]
+    fn groq_chat_preserves_namespaced_model_ids_and_rejects_other_models() {
+        let mut input = request(AgentProvider::Groq);
+        for model in [
+            "qwen/qwen3.8-27b",
+            "openai/gpt-oss-20b",
+            "openai/gpt-oss-120b",
+        ] {
+            input.model = model.into();
+            let body = request_body(&input).unwrap();
+            assert_eq!(body["model"], model);
+            assert_eq!(body["input"][2]["content"][0]["text"], "Continue");
+            assert_eq!(body["stream"], true);
+            assert!(body.get("store").is_none());
+        }
+        for model in [
+            "",
+            "qwen/qwen3.8-27b ",
+            "Qwen/Qwen3.8-27B",
+            "qwen/qwen3.6-27b",
+            "whisper-large-v3-turbo",
+            "canopylabs/orpheus-v1-english",
+            "https://example.com/model",
+        ] {
+            input.model = model.into();
+            assert!(request_body(&input).is_err(), "accepted {model}");
+        }
+        let mut gemini = request(AgentProvider::Gemini);
+        gemini.model = "models/example:generateContent".into();
+        assert!(request_body(&gemini).is_err());
     }
 
     #[test]
@@ -511,10 +596,10 @@ mod tests {
 
     #[test]
     fn catalogue_uses_existing_names_and_deduplicates_ids() {
-        let models = normalize_models(AgentProvider::Gemini, &json!({"data":[{"id":"one", "display_name":"One"},{"id":"one"},{"id":"two", "name":"Two"},{"id":"three"},{"name":"invalid"}]}), None).unwrap();
+        let models = normalize_models(AgentProvider::Gemini, &json!({"data":[{"id":"gemini-3.8-flash-high", "display_name":"One"},{"id":"gemini-3.8-flash-high"},{"id":"gemini-3.8-flash-medium", "name":"Two"},{"id":"gemini-3.8-flash-low"},{"id":"unreviewed-model"},{"name":"invalid"}]}), None).unwrap();
         assert_eq!(models.len(), 3);
         assert_eq!(models[0].name, "One");
-        assert_eq!(models[2].name, "three");
+        assert_eq!(models[2].name, "gemini-3.8-flash-low");
         assert!(normalize_models(AgentProvider::Gemini, &json!({"unknown":[]}), None).is_err());
         let codex = normalize_models(
             AgentProvider::Chatgpt,

@@ -17,7 +17,7 @@ describe("ToolsCatalog", () => {
   it("renders one flat node per functional collection", () => {
     renderTools();
 
-    for (const name of ["GATEWAY", "OPENCODE", "OMP"]) {
+    for (const name of ["GATEWAY", "OPENCODE", "OMP", "DOWNLOAD REEL"]) {
       expect(
         screen.getByRole("button", { name: new RegExp(name) }),
       ).toBeVisible();
@@ -109,5 +109,34 @@ describe("ToolsCatalog", () => {
     expect(screen.getByText(/omp\.py.*--key=YOUR_GATEWAY_KEY/)).toBeVisible();
     expect(screen.getByText("models.yml", { exact: true })).toBeVisible();
     expect(screen.getByText("/model", { exact: true })).toBeVisible();
+  });
+
+  it("finds DOWNLOAD REEL and copies a curl command with platform and URL options", async () => {
+    const user = userEvent.setup();
+    renderTools();
+
+    await user.type(
+      screen.getByRole("searchbox", { name: "Search the catalogue" }),
+      "tiktok",
+    );
+    await user.click(screen.getByRole("button", { name: /DOWNLOAD REEL/ }));
+
+    expect(
+      screen.getByRole("heading", { name: "How to download" }),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        `curl -fsSL ${window.location.origin}/download-reel.sh | bash -s -- --platform=facebook --url='REEL_URL'`,
+      ),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/with your reel link, keep the quotes/),
+    ).toBeVisible();
+
+    await user.click(screen.getAllByRole("button", { name: "Copy" })[0]);
+    expect(await navigator.clipboard.readText()).toBe(
+      `curl -fsSL ${window.location.origin}/download-reel.sh | bash -s -- --platform=tiktok --url='REEL_URL'`,
+    );
+    expect(screen.getByRole("button", { name: "Copied" })).toBeVisible();
   });
 });

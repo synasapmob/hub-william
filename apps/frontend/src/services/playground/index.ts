@@ -3,12 +3,30 @@ import { z } from "zod";
 
 import type { components, paths } from "@/services/api.generated";
 
+import readGroqStream, {
+  type PlaygroundGroqEvent,
+} from "./playground-groq-stream";
 import readPlaygroundStream from "./playground-stream";
+
+import providerCatalogue from "@/services/provider-catalogue";
+import {
+  callAvailabilityRules,
+  callKinds,
+  callTransports,
+  modelCapabilities,
+} from "@/services/provider-catalogue.generated";
+import type {
+  CatalogueCallProfile,
+  ModelCapability,
+} from "@/services/provider-catalogue.generated";
 
 export type PlaygroundProviderId = components["schemas"]["AgentProvider"];
 export interface PlaygroundModel {
   id: string;
   name: string;
+  modes: ("chat" | "voice")[];
+  capabilities?: ModelCapability[];
+  call?: CatalogueCallProfile;
 }
 export type PlaygroundAttachment =
   components["schemas"]["PlaygroundAttachment"];
@@ -26,6 +44,36 @@ export interface PlaygroundChatOptions {
   messages: PlaygroundMessage[];
   signal: AbortSignal;
   onDelta: (text: string) => void;
+}
+
+export interface PlaygroundVoiceSessionOptions {
+  connectionId: string;
+  organizationId?: string;
+  provider: PlaygroundProviderId;
+  model: string;
+  sdp: string;
+  signal: AbortSignal;
+}
+
+export interface PlaygroundGroqTurnMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface PlaygroundGroqTurnOptions {
+  onEvent?: (event: PlaygroundGroqEvent) => void;
+  connectionId: string;
+  organizationId?: string;
+  model: string;
+  transcript: string;
+  messages: PlaygroundGroqTurnMessage[];
+  signal: AbortSignal;
+}
+
+export interface PlaygroundGroqTurnResult {
+  transcript: string;
+  reply: string;
+  audio: string[];
 }
 
 const apiBaseUrl = (
@@ -95,7 +143,34 @@ async function models(
             "Models could not be loaded. Please retry or choose another account."),
       result.response.status,
     );
-  return result.data;
+  // A previously deployed API only offered chat and omitted modes. Preserve
+  // that known contract while frontend/backend deployments roll forward.
+  return z
+    .array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        modes: z.array(z.enum(["chat", "voice"])).default(["chat"]),
+        capabilities: z.array(z.enum(modelCapabilities)).optional(),
+        call: z
+          .object({
+            id: z.string(),
+            provider: z.enum(
+              providerCatalogue
+                .list("playground")
+                .map((provider) => provider.id),
+            ),
+            name: z.string(),
+            kind: z.enum(callKinds),
+            transport: z.enum(callTransports),
+            selector_model: z.string(),
+            availability: z.enum(callAvailabilityRules),
+            models: z.record(z.string(), z.string()),
+          })
+          .optional(),
+      }),
+    )
+    .parse(result.data);
 }
 
 async function chat({
@@ -148,6 +223,74 @@ async function chat({
 const playgroundService = {
   models,
   chat,
+  voiceSession,
+  groqTurn,
   queryKey: ["playground"] as const,
 };
 export default playgroundService;
+
+async function groqTurn({
+  connectionId,
+  organizationId,
+  signal,
+  onEvent,
+  ...input
+}: PlaygroundGroqTurnOptions): Promise<PlaygroundGroqTurnResult | null> {
+  const options = {
+    signal,
+    parseAs: "stream" as const,
+    body: {
+      ...input,
+      stream: true,
+      stream_audio: true,
+      connection_id: connectionId,
+      organization_id: organizationId,
+    },
+  };
+  let result = await client.POST("/playground/groq/voice/turn", options);
+  if (
+    result.response.status === 401 &&
+    result.error?.code === "unauthorized" &&
+    (await refreshSession(signal))
+  )
+    result = await client.POST("/playground/groq/voice/turn", options);
+  if (!result.data)
+    throw new PlaygroundServiceError(
+      result.response.status === 429
+        ? "Groq's rate limit was reached. Try again after the account cooldown."
+        : (providerErrorMessage(result.error) ??
+            "Groq could not complete this turn. Start a new call to retry."),
+      result.response.status,
+    );
+  return readGroqStream({ stream: result.data, signal, onEvent });
+}
+
+async function voiceSession({
+  connectionId,
+  organizationId,
+  signal,
+  ...input
+}: PlaygroundVoiceSessionOptions): Promise<string> {
+  const options = {
+    body: {
+      ...input,
+      connection_id: connectionId,
+      organization_id: organizationId,
+    },
+    signal,
+  };
+  let result = await client.POST("/playground/voice", options);
+  if (
+    result.response.status === 401 &&
+    result.error?.code === "unauthorized" &&
+    (await refreshSession(signal))
+  )
+    result = await client.POST("/playground/voice", options);
+  if (!result.data)
+    throw new PlaygroundServiceError(
+      providerErrorMessage(result.error) ??
+        "The voice call could not start. Please try again.",
+      result.response.status,
+    );
+  return result.data.sdp;
+}

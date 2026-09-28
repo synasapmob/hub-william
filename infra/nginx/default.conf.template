@@ -7,6 +7,12 @@ server {
 
     root /usr/share/nginx/html;
 
+    # ONNX Runtime loads this ES module from the emitted Vite assets.
+    location ~ ^/assets/.*\.mjs$ {
+        types { application/javascript mjs; }
+        try_files $uri =404;
+    }
+
     location = /healthz {
         access_log off;
         add_header Content-Type text/plain;

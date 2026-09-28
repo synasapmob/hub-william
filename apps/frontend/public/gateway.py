@@ -19,12 +19,44 @@ import tty
 from urllib.parse import urlparse
 
 
-AGENTS = (
-    ("codex", "Codex", ".codex/config.toml"),
-    ("claude", "Claude Code", ".claude/settings.json"),
-    ("agy", "Antigravity (AGY)", ".gemini/antigravity-cli/settings.json"),
-    ("grok", "Grok", ".grok/config.toml"),
-)
+# provider-catalogue: begin (generated)
+NATIVE_CLIENTS = json.loads(r'''
+{
+  "codex": {
+    "id": "codex",
+    "label": "Codex",
+    "path": ".codex/config.toml",
+    "base_path": "/gateway/openai/v1",
+    "protocol": "OpenAI Responses",
+    "wire_api": "responses"
+  },
+  "claude": {
+    "id": "claude",
+    "label": "Claude Code",
+    "path": ".claude/settings.json",
+    "base_path": "/gateway/claude",
+    "protocol": "Anthropic Messages"
+  },
+  "agy": {
+    "id": "agy",
+    "label": "Antigravity (AGY)",
+    "path": ".gemini/antigravity-cli/settings.json",
+    "base_path": "/gateway/gemini",
+    "protocol": "Gemini native API via Google OAuth",
+    "model_provider": "gemini"
+  },
+  "grok": {
+    "id": "grok",
+    "label": "Grok",
+    "path": ".grok/config.toml",
+    "base_path": "/gateway/grok/v1",
+    "protocol": "OpenAI-compatible chat",
+    "model_key": "grok-build"
+  }
+}
+''')
+# provider-catalogue: end
+AGENTS = tuple((client["id"], client["label"], client["path"]) for client in NATIVE_CLIENTS.values())
 ESCAPE_GRACE = 0.06
 
 
@@ -203,38 +235,38 @@ def _shell_profile(home):
 def build_changes(home, key, gateway_url, agents):
     changes = {}
     if "codex" in agents:
-        path = os.path.join(home, ".codex", "config.toml")
+        path = os.path.join(home, NATIVE_CLIENTS["codex"]["path"])
         text = _upsert_top_level(_read_text(path), {"model_provider": "hub-william"})
         changes[path] = _upsert_toml_table(
             text,
             "model_providers.hub-william",
             {
                 "name": "Hub William",
-                "base_url": gateway_url + "/gateway/openai/v1",
+                "base_url": gateway_url + NATIVE_CLIENTS["codex"]["base_path"],
                 "experimental_bearer_token": key,
-                "wire_api": "responses",
+                "wire_api": NATIVE_CLIENTS["codex"]["wire_api"],
             },
         )
     if "claude" in agents:
-        path = os.path.join(home, ".claude", "settings.json")
+        path = os.path.join(home, NATIVE_CLIENTS["claude"]["path"])
         document = _read_json(path)
         environment = document.setdefault("env", {})
         if not isinstance(environment, dict):
             raise ValueError("cannot update %s: env must be a JSON object" % path)
-        environment["ANTHROPIC_BASE_URL"] = gateway_url + "/gateway/claude"
+        environment["ANTHROPIC_BASE_URL"] = gateway_url + NATIVE_CLIENTS["claude"]["base_path"]
         environment["ANTHROPIC_AUTH_TOKEN"] = key
         changes[path] = json.dumps(document, indent=2, sort_keys=True) + "\n"
     if "agy" in agents:
-        path = os.path.join(home, ".gemini", "antigravity-cli", "settings.json")
+        path = os.path.join(home, NATIVE_CLIENTS["agy"]["path"])
         document = _read_json(path)
-        document["modelProvider"] = "gemini"
+        document["modelProvider"] = NATIVE_CLIENTS["agy"]["model_provider"]
         changes[path] = json.dumps(document, indent=2, sort_keys=True) + "\n"
 
         profile = _shell_profile(home)
         environment = "\n".join(
             [
                 "export GOOGLE_GEMINI_BASE_URL=%s"
-                % shlex.quote(gateway_url + "/gateway/gemini"),
+                % shlex.quote(gateway_url + NATIVE_CLIENTS["agy"]["base_path"]),
                 "export GEMINI_API_KEY=%s" % shlex.quote(key),
             ]
         )
@@ -245,13 +277,13 @@ def build_changes(home, key, gateway_url, agents):
             environment,
         )
     if "grok" in agents:
-        path = os.path.join(home, ".grok", "config.toml")
+        path = os.path.join(home, NATIVE_CLIENTS["grok"]["path"])
         text = _read_text(path)
-        base_url = gateway_url + "/gateway/grok/v1"
+        base_url = gateway_url + NATIVE_CLIENTS["grok"]["base_path"]
         text = _upsert_toml_table(text, "endpoints", {"models_base_url": base_url})
         changes[path] = _upsert_toml_table(
             text,
-            "model.grok-build",
+            "model." + NATIVE_CLIENTS["grok"]["model_key"],
             {"base_url": base_url, "api_key": key},
         )
     return changes

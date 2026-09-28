@@ -43,11 +43,14 @@ class OmpInstallerTest(unittest.TestCase):
                 "gemini": [{"id": "gemini-live", "name": "Gemini Live"}],
                 "grok": [{"id": "grok-live"}],
                 "deepseek": [{"id": "deepseek-live"}],
+                "groq": [{"id": "openai/gpt-oss-20b"}],
             },
         )
 
         self.assertIn(existing, document)
         self.assertEqual(installed, list(omp.PROVIDER_IDS))
+        self.assertIn('baseUrl: "https://api.hub.example/gateway/groq/v1"', document)
+        self.assertIn('id: "openai/gpt-oss-20b"', document)
         self.assertIn('api: "openai-responses"', document)
         self.assertIn('api: "anthropic-messages"', document)
         self.assertIn('api: "google-generative-ai"', document)

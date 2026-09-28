@@ -1,0 +1,526 @@
+{
+  "schema_version": 1,
+  "retired_hub_ids": [],
+  "providers": [
+    {
+      "id": "chatgpt",
+      "label": "ChatGPT",
+      "connect_label": "ChatGPT",
+      "icon": "assets/chatgpt-icon.png",
+      "catalogue_key": "codex",
+      "hub_id": "hub-codex",
+      "auth": {
+        "kind": "oauth"
+      },
+      "usage_metrics": true,
+      "chat_capabilities": ["chat", "image_input"],
+      "discovery": {
+        "strategy": "official_docs",
+        "docs_url": "https://learn.chatgpt.com/docs/models.md"
+      },
+      "gateway": {
+        "base_path": "/gateway/openai/v1",
+        "models_path": "/gateway/openai/v1/models",
+        "owned_by": "openai"
+      },
+      "clients": {
+        "opencode": {
+          "npm": "@ai-sdk/openai",
+          "auth": "api_key",
+          "effort_option": "reasoningEffort",
+          "metadata_adapter": "codex_app_server",
+          "preferred_models": ["gpt-6-sol"]
+        },
+        "omp": {
+          "api": "openai-responses"
+        }
+      },
+      "models": [
+        {
+          "id": "gpt-6-astra",
+          "name": "GPT-6 Astra",
+          "status": "current",
+          "capabilities": ["chat", "image_input"],
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ]
+        },
+        {
+          "id": "gpt-6-sol",
+          "name": "GPT-6 Sol",
+          "status": "current",
+          "capabilities": ["chat", "image_input"],
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ]
+        },
+        {
+          "id": "gpt-6-luna",
+          "name": "GPT-6 Luna",
+          "status": "current",
+          "capabilities": ["chat", "image_input"],
+          "reasoning_efforts": ["low", "medium", "high", "xhigh", "max"]
+        },
+        {
+          "id": "gpt-5.6-sol",
+          "name": "GPT-5.6 Sol",
+          "status": "current",
+          "capabilities": ["chat", "image_input"],
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ]
+        },
+        {
+          "id": "gpt-5.6-terra",
+          "name": "GPT-5.6 Terra",
+          "status": "current",
+          "capabilities": ["chat", "image_input"],
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ]
+        },
+        {
+          "id": "gpt-5.6-luna",
+          "name": "GPT-5.6 Luna",
+          "status": "current",
+          "capabilities": ["chat", "image_input"],
+          "reasoning_efforts": ["low", "medium", "high", "xhigh", "max"]
+        },
+        {
+          "id": "gpt-live-1-codex",
+          "name": "Codex Voice",
+          "status": "current",
+          "capabilities": ["realtime_audio"]
+        }
+      ],
+      "native_cli": {
+        "id": "codex",
+        "label": "Codex",
+        "path": ".codex/config.toml",
+        "base_path": "/gateway/openai/v1",
+        "protocol": "OpenAI Responses",
+        "wire_api": "responses"
+      }
+    },
+    {
+      "id": "claude",
+      "label": "Claude",
+      "connect_label": "Claude",
+      "icon": "assets/claude-icon.png",
+      "catalogue_key": "claude",
+      "hub_id": "hub-claude",
+      "auth": {
+        "kind": "oauth"
+      },
+      "usage_metrics": true,
+      "chat_capabilities": ["chat", "image_input"],
+      "discovery": {
+        "strategy": "official_docs",
+        "docs_url": "https://platform.claude.com/docs/en/models/overview.md"
+      },
+      "gateway": {
+        "base_path": "/gateway/claude",
+        "models_path": "/gateway/claude/v1/models?limit=1000",
+        "owned_by": "anthropic"
+      },
+      "clients": {
+        "opencode": {
+          "npm": "@ai-sdk/anthropic",
+          "auth": "auth_token",
+          "effort_option": "effort",
+          "metadata_adapter": null,
+          "preferred_models": ["claude-opus-5-5", "claude-sonnet-5"]
+        },
+        "omp": {
+          "api": "anthropic-messages"
+        }
+      },
+      "models": [
+        {
+          "id": "claude-fable-5-1",
+          "name": "Claude Fable 5.1",
+          "status": "current",
+          "capabilities": ["chat", "image_input"],
+          "reasoning_efforts": ["low", "medium", "high", "xhigh", "max"]
+        },
+        {
+          "id": "claude-opus-5-5",
+          "name": "Claude Opus 5.5",
+          "status": "current",
+          "capabilities": ["chat", "image_input"],
+          "reasoning_efforts": ["low", "medium", "high", "xhigh", "max"]
+        },
+        {
+          "id": "claude-sonnet-5",
+          "name": "Claude Sonnet 5",
+          "status": "current",
+          "capabilities": ["chat", "image_input"],
+          "reasoning_efforts": ["low", "medium", "high", "xhigh", "max"]
+        },
+        {
+          "id": "claude-haiku-4-5-20251001",
+          "name": "Claude Haiku 4.5",
+          "status": "current",
+          "capabilities": ["chat", "image_input"]
+        }
+      ],
+      "native_cli": {
+        "id": "claude",
+        "label": "Claude Code",
+        "path": ".claude/settings.json",
+        "base_path": "/gateway/claude",
+        "protocol": "Anthropic Messages"
+      }
+    },
+    {
+      "id": "gemini",
+      "label": "Gemini",
+      "connect_label": "Gemini / AGY",
+      "icon": "assets/gemini-icon.svg",
+      "catalogue_key": "gemini",
+      "hub_id": "hub-gemini",
+      "auth": {
+        "kind": "oauth"
+      },
+      "usage_metrics": false,
+      "chat_capabilities": ["chat", "image_input"],
+      "discovery": {
+        "strategy": "live_intersection",
+        "docs_url": "https://www.antigravity.google/docs/models/"
+      },
+      "gateway": {
+        "base_path": "/gateway/gemini/v1beta",
+        "models_path": "/gateway/gemini/v1beta/models",
+        "owned_by": "google"
+      },
+      "clients": {
+        "opencode": {
+          "npm": "@ai-sdk/google",
+          "auth": "bearer_header",
+          "effort_option": null,
+          "metadata_adapter": null,
+          "preferred_models": []
+        },
+        "omp": {
+          "api": "google-generative-ai"
+        }
+      },
+      "models": [
+        {
+          "id": "gemini-3.8-flash-high",
+          "name": "gemini-3.8-flash-high",
+          "status": "current",
+          "capabilities": ["chat", "image_input"]
+        },
+        {
+          "id": "gemini-3.8-flash-medium",
+          "name": "gemini-3.8-flash-medium",
+          "status": "current",
+          "capabilities": ["chat", "image_input"]
+        },
+        {
+          "id": "gemini-3.8-flash-low",
+          "name": "gemini-3.8-flash-low",
+          "status": "current",
+          "capabilities": ["chat", "image_input"]
+        },
+        {
+          "id": "gemini-3.7-flash-high",
+          "name": "gemini-3.7-flash-high",
+          "status": "current",
+          "capabilities": ["chat", "image_input"]
+        },
+        {
+          "id": "gemini-3.7-flash-medium",
+          "name": "gemini-3.7-flash-medium",
+          "status": "current",
+          "capabilities": ["chat", "image_input"]
+        },
+        {
+          "id": "gemini-3.7-flash-low",
+          "name": "gemini-3.7-flash-low",
+          "status": "current",
+          "capabilities": ["chat", "image_input"]
+        },
+        {
+          "id": "gemini-3.6-flash-high",
+          "name": "gemini-3.6-flash-high",
+          "status": "current",
+          "capabilities": ["chat", "image_input"]
+        },
+        {
+          "id": "gemini-3.6-flash-medium",
+          "name": "gemini-3.6-flash-medium",
+          "status": "current",
+          "capabilities": ["chat", "image_input"]
+        },
+        {
+          "id": "gemini-3.6-flash-low",
+          "name": "gemini-3.6-flash-low",
+          "status": "current",
+          "capabilities": ["chat", "image_input"]
+        },
+        {
+          "id": "gemini-3.1-pro-high",
+          "name": "gemini-3.1-pro-high",
+          "status": "current",
+          "capabilities": ["chat", "image_input"]
+        },
+        {
+          "id": "gemini-3.1-pro-low",
+          "name": "gemini-3.1-pro-low",
+          "status": "current",
+          "capabilities": ["chat", "image_input"]
+        },
+        {
+          "id": "claude-sonnet-4-6",
+          "name": "claude-sonnet-4-6",
+          "status": "current",
+          "capabilities": ["chat", "image_input"]
+        },
+        {
+          "id": "claude-opus-4-6-thinking",
+          "name": "claude-opus-4-6-thinking",
+          "status": "current",
+          "capabilities": ["chat", "image_input"]
+        },
+        {
+          "id": "gpt-oss-120b-medium",
+          "name": "gpt-oss-120b-medium",
+          "status": "current",
+          "capabilities": ["chat", "image_input"]
+        }
+      ],
+      "native_cli": {
+        "id": "agy",
+        "label": "Antigravity (AGY)",
+        "path": ".gemini/antigravity-cli/settings.json",
+        "base_path": "/gateway/gemini",
+        "protocol": "Gemini native API via Google OAuth",
+        "model_provider": "gemini"
+      }
+    },
+    {
+      "id": "grok",
+      "label": "Grok",
+      "connect_label": "Grok",
+      "icon": "assets/grok-icon.png",
+      "catalogue_key": "grok",
+      "hub_id": "hub-grok",
+      "auth": {
+        "kind": "oauth"
+      },
+      "usage_metrics": false,
+      "chat_capabilities": ["chat"],
+      "discovery": {
+        "strategy": "live_intersection",
+        "docs_url": "https://docs.x.ai/developers/models"
+      },
+      "gateway": {
+        "base_path": "/gateway/grok/v1",
+        "models_path": "/gateway/grok/v1/models",
+        "owned_by": "xai"
+      },
+      "clients": {
+        "opencode": {
+          "npm": "@ai-sdk/openai",
+          "auth": "api_key",
+          "effort_option": null,
+          "metadata_adapter": null,
+          "preferred_models": []
+        },
+        "omp": {
+          "api": "openai-responses"
+        }
+      },
+      "models": [
+        {
+          "id": "grok-4.7",
+          "name": "Grok 4.7",
+          "status": "current",
+          "capabilities": ["chat"]
+        }
+      ],
+      "native_cli": {
+        "id": "grok",
+        "label": "Grok",
+        "path": ".grok/config.toml",
+        "base_path": "/gateway/grok/v1",
+        "protocol": "OpenAI-compatible chat",
+        "model_key": "grok-build"
+      }
+    },
+    {
+      "id": "deepseek",
+      "label": "DeepSeek",
+      "connect_label": "DeepSeek",
+      "icon": "assets/deepseek-icon.png",
+      "catalogue_key": "deepseek",
+      "hub_id": "hub-deepseek",
+      "auth": {
+        "kind": "api_key",
+        "connect_path": "/agent-connections/deepseek",
+        "key_placeholder": "sk-\u2026"
+      },
+      "usage_metrics": false,
+      "chat_capabilities": ["chat"],
+      "discovery": {
+        "strategy": "live_intersection",
+        "docs_url": "https://api-docs.deepseek.com/quick_start/pricing/"
+      },
+      "gateway": {
+        "base_path": "/gateway/deepseek",
+        "models_path": "/gateway/deepseek/models",
+        "owned_by": "deepseek"
+      },
+      "clients": {
+        "opencode": {
+          "npm": "@ai-sdk/openai",
+          "auth": "api_key",
+          "effort_option": null,
+          "metadata_adapter": null,
+          "preferred_models": []
+        },
+        "omp": {
+          "api": "openai-responses"
+        }
+      },
+      "models": [
+        {
+          "id": "deepseek-flash",
+          "name": "DeepSeek Flash",
+          "status": "current",
+          "capabilities": ["chat"]
+        },
+        {
+          "id": "deepseek-v4-pro",
+          "name": "DeepSeek V4 Pro",
+          "status": "current",
+          "capabilities": ["chat"]
+        }
+      ]
+    },
+    {
+      "id": "groq",
+      "label": "Groq",
+      "connect_label": "Groq",
+      "icon": "assets/groq-icon.png",
+      "catalogue_key": "groq",
+      "hub_id": "hub-groq",
+      "auth": {
+        "kind": "api_key",
+        "connect_path": "/agent-connections/groq",
+        "key_placeholder": "gsk_\u2026"
+      },
+      "usage_metrics": false,
+      "chat_capabilities": ["chat"],
+      "discovery": {
+        "strategy": "live_intersection",
+        "docs_url": "https://console.groq.com/docs/models"
+      },
+      "gateway": {
+        "base_path": "/gateway/groq/v1",
+        "models_path": "/gateway/groq/v1/models",
+        "owned_by": "groq"
+      },
+      "clients": {
+        "opencode": {
+          "npm": "@ai-sdk/openai",
+          "auth": "api_key",
+          "effort_option": null,
+          "metadata_adapter": null,
+          "preferred_models": []
+        },
+        "omp": {
+          "api": "openai-responses"
+        }
+      },
+      "models": [
+        {
+          "id": "qwen/qwen3.8-27b",
+          "name": "Qwen 3.8 27B",
+          "status": "preview",
+          "capabilities": ["chat"]
+        },
+        {
+          "id": "openai/gpt-oss-20b",
+          "name": "GPT OSS 20B",
+          "status": "current",
+          "capabilities": ["chat"]
+        },
+        {
+          "id": "openai/gpt-oss-120b",
+          "name": "GPT OSS 120B",
+          "status": "current",
+          "capabilities": ["chat"]
+        },
+        {
+          "id": "whisper-large-v3-turbo",
+          "name": "Whisper Large V3 Turbo",
+          "status": "current",
+          "capabilities": ["transcription"]
+        },
+        {
+          "id": "canopylabs/orpheus-v1-english",
+          "name": "Orpheus V1 English",
+          "status": "preview",
+          "capabilities": ["speech_output"]
+        }
+      ]
+    }
+  ],
+  "call_profiles": [
+    {
+      "id": "codex",
+      "provider": "chatgpt",
+      "name": "Codex Voice",
+      "kind": "native_realtime",
+      "transport": "codex_v3_webrtc",
+      "selector_model": "gpt-live-1-codex",
+      "availability": "chat_catalogue",
+      "models": {
+        "realtime": "gpt-live-1-codex"
+      }
+    },
+    {
+      "id": "groq",
+      "provider": "groq",
+      "name": "openai/gpt-oss-20b",
+      "kind": "local_stt_llm_tts",
+      "transport": "groq_sse",
+      "selector_model": "openai/gpt-oss-20b",
+      "availability": "all_dependencies",
+      "models": {
+        "chat": "openai/gpt-oss-20b",
+        "tts": "canopylabs/orpheus-v1-english"
+      }
+    }
+  ],
+  "surfaces": {
+    "agents": ["chatgpt", "claude", "gemini", "grok", "deepseek", "groq"],
+    "connect": ["chatgpt", "claude", "gemini", "deepseek", "groq", "grok"],
+    "playground": ["chatgpt", "claude", "gemini", "grok", "deepseek", "groq"],
+    "installers": ["chatgpt", "claude", "gemini", "grok", "deepseek", "groq"]
+  },
+  "opencode_default_providers": ["chatgpt", "claude"]
+}

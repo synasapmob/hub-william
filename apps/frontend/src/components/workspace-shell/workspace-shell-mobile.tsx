@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LogIn, Menu, UserRound } from "lucide-react";
+import { LogIn, Menu } from "lucide-react";
 import { Link } from "react-router";
 
 import Center from "@/components/ui/center";
@@ -16,6 +16,7 @@ import {
 
 import WorkspaceShellSidebar from "./workspace-shell-sidebar";
 import { useWorkspaceSession } from "./workspace-shell-session-context";
+import WorkspaceShellAvatar from "./workspace-shell-avatar";
 
 /**
  * The header below `md`, and the drawer it opens.
@@ -90,7 +91,7 @@ export default function WorkspaceShellMobile() {
       >
         {session.user ? (
           <>
-            <UserRound aria-hidden="true" data-icon="inline-start" />
+            <WorkspaceShellAvatar user={session.user} />
             <span className="truncate">{session.user.username}</span>
           </>
         ) : (

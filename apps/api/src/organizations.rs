@@ -492,7 +492,7 @@ pub async fn list_agents(
             usage: Vec::new(),
         });
         if query.include_usage.unwrap_or(false)
-            && matches!(provider, AgentProvider::Chatgpt | AgentProvider::Claude)
+            && crate::provider_catalogue::provider(provider).usage_metrics
         {
             let state = state.clone();
             usage_tasks.spawn(async move {

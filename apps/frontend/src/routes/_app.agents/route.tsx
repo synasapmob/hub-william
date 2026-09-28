@@ -253,19 +253,13 @@ export default function AgentsRoute() {
           </Alert>
         ) : null}
 
-        {poolsQuery.isPending || pools.length > 0 ? (
-          <AgentsExplorer
-            loading={poolsQuery.isPending}
-            currentUsername={session.user?.username ?? null}
-            onCheckRequests={(selectedPool) => setReviewPoolId(selectedPool.id)}
-            onRequestJoin={requestJoin}
-            pools={pools}
-          />
-        ) : (
-          <p className="mt-5 rounded-xl border border-dashed border-zinc-300 p-8 text-center text-sm text-muted-foreground">
-            No connected accounts yet.
-          </p>
-        )}
+        <AgentsExplorer
+          loading={poolsQuery.isPending}
+          currentUsername={session.user?.username ?? null}
+          onCheckRequests={(selectedPool) => setReviewPoolId(selectedPool.id)}
+          onRequestJoin={requestJoin}
+          pools={pools}
+        />
       </Flex>
 
       <AgentsRequestDialog

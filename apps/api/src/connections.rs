@@ -44,35 +44,11 @@ const ACCOUNT_VERIFICATION_REQUIRED_MESSAGE: &str =
 #[cfg(all(test, feature = "database-tests"))]
 mod database_tests;
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum AgentProvider {
-    Chatgpt,
-    Claude,
-    Gemini,
-    Deepseek,
-    Grok,
-}
+pub use crate::provider_catalogue::AgentProvider;
 
 impl AgentProvider {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Chatgpt => "chatgpt",
-            Self::Claude => "claude",
-            Self::Gemini => "gemini",
-            Self::Deepseek => "deepseek",
-            Self::Grok => "grok",
-        }
-    }
-
     pub(crate) fn label(self) -> &'static str {
-        match self {
-            Self::Chatgpt => "ChatGPT",
-            Self::Claude => "Claude",
-            Self::Gemini => "Gemini",
-            Self::Deepseek => "DeepSeek",
-            Self::Grok => "Grok",
-        }
+        &crate::provider_catalogue::provider(self).label
     }
 }
 
@@ -80,14 +56,10 @@ impl FromStr for AgentProvider {
     type Err = ApiError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "chatgpt" => Ok(Self::Chatgpt),
-            "claude" => Ok(Self::Claude),
-            "gemini" => Ok(Self::Gemini),
-            "deepseek" => Ok(Self::Deepseek),
-            "grok" => Ok(Self::Grok),
-            _ => Err(ApiError::Internal),
-        }
+        Self::ALL
+            .into_iter()
+            .find(|id| id.as_str() == value)
+            .ok_or(ApiError::Internal)
     }
 }
 
@@ -132,6 +104,11 @@ pub struct CompleteAuthorizationRequest {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ConnectDeepseekRequest {
+    pub api_key: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ConnectGroqRequest {
     pub api_key: String,
 }
 
@@ -391,9 +368,30 @@ pub async fn connect_deepseek(
     jar: CookieJar,
     Json(payload): Json<ConnectDeepseekRequest>,
 ) -> Result<(StatusCode, Json<AgentConnection>), ApiError> {
-    let user_id = authenticated_user_id(&state, &jar).await?;
-    let api_key = validate_api_key_input(&payload.api_key)?;
-    validate_deepseek_key(&state, api_key).await?;
+    connect_api_key(&state, &jar, AgentProvider::Deepseek, &payload.api_key).await
+}
+
+#[utoipa::path(post, path = "/agent-connections/groq", request_body = ConnectGroqRequest,
+    responses((status = 201, body = AgentConnection), (status = 401, body = crate::ErrorResponse),
+        (status = 422, body = crate::ErrorResponse), (status = 502, body = crate::ErrorResponse)),
+    tag = "agent connections")]
+pub async fn connect_groq(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Json(payload): Json<ConnectGroqRequest>,
+) -> Result<(StatusCode, Json<AgentConnection>), ApiError> {
+    connect_api_key(&state, &jar, AgentProvider::Groq, &payload.api_key).await
+}
+
+async fn connect_api_key(
+    state: &AppState,
+    jar: &CookieJar,
+    provider: AgentProvider,
+    value: &str,
+) -> Result<(StatusCode, Json<AgentConnection>), ApiError> {
+    let user_id = authenticated_user_id(state, jar).await?;
+    let api_key = validate_api_key_input(value)?;
+    validate_static_key(state, provider, api_key).await?;
 
     let last_four = api_key
         .chars()
@@ -412,15 +410,16 @@ pub async fn connect_deepseek(
     let row = sqlx::query_as::<_, ConnectionRow>(
         "INSERT INTO agent_connections
             (id, user_id, provider, status, account_label, plan, failure_message)
-         VALUES ($1, $2, 'deepseek', 'pending', NULL, NULL, NULL)
+         VALUES ($1, $2, $3, 'pending', NULL, NULL, NULL)
          RETURNING id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at",
     )
     .bind(Uuid::new_v4())
     .bind(user_id)
+    .bind(provider.as_str())
     .fetch_one(&state.pool)
     .await
     .map_err(database_error)?;
-    let connection = finish_connection(&state, row, token).await?;
+    let connection = finish_connection(state, row, token).await?;
 
     Ok((StatusCode::CREATED, Json(connection)))
 }
@@ -702,8 +701,8 @@ async fn start_provider_authorization(
         AgentProvider::Chatgpt => start_codex_authorization(state),
         AgentProvider::Claude => start_claude_authorization(state),
         AgentProvider::Gemini => start_gemini_authorization(state),
-        AgentProvider::Deepseek => Err(ApiError::Validation(
-            "Connect DeepSeek with an API key instead of browser authorization.",
+        AgentProvider::Deepseek | AgentProvider::Groq => Err(ApiError::Validation(
+            "Connect this provider with an API key instead of browser authorization.",
         )),
         AgentProvider::Grok => start_grok_authorization(state).await,
     }
@@ -712,34 +711,44 @@ async fn start_provider_authorization(
 fn validate_api_key_input(value: &str) -> Result<&str, ApiError> {
     let value = value.trim();
     if value.len() < 20
+        || value.len() > 512
         || !value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
     {
-        return Err(ApiError::Validation("Enter a valid DeepSeek API key."));
+        return Err(ApiError::Validation("Enter a valid API key."));
     }
     Ok(value)
 }
 
-async fn validate_deepseek_key(state: &AppState, api_key: &str) -> Result<(), ApiError> {
+async fn validate_static_key(
+    state: &AppState,
+    provider: AgentProvider,
+    api_key: &str,
+) -> Result<(), ApiError> {
+    let base_url = match provider {
+        AgentProvider::Deepseek => &state.config.deepseek_api_url,
+        AgentProvider::Groq => &state.config.groq_api_url,
+        _ => return Err(ApiError::Internal),
+    };
     let response = state
         .http
-        .get(format!("{}/models", state.config.deepseek_api_url))
+        .get(format!("{}/models", base_url))
         .bearer_auth(api_key)
         .send()
         .await
-        .map_err(|error| upstream_network_error(AgentProvider::Deepseek, error))?;
+        .map_err(|error| upstream_network_error(provider, error))?;
     if matches!(
         response.status(),
         reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN
     ) {
-        return Err(ApiError::Validation("DeepSeek rejected this API key."));
+        return Err(ApiError::Validation(match provider {
+            AgentProvider::Groq => "Groq rejected this API key.",
+            _ => "DeepSeek rejected this API key.",
+        }));
     }
     if !response.status().is_success() {
-        return Err(upstream_status_error(
-            AgentProvider::Deepseek,
-            response.status(),
-        ));
+        return Err(upstream_status_error(provider, response.status()));
     }
     Ok(())
 }
@@ -1426,7 +1435,7 @@ fn provider_account_identity(
         return Some(format!("id:{provider_id}"));
     }
 
-    if provider == AgentProvider::Deepseek {
+    if matches!(provider, AgentProvider::Deepseek | AgentProvider::Groq) {
         let access_token = token.get("access_token").and_then(Value::as_str)?;
         let digest = Sha256::digest(access_token.as_bytes());
         return Some(format!("key:{digest:x}"));
@@ -1508,7 +1517,9 @@ fn connection_metadata(
         AgentProvider::Claude => provider_profile
             .and_then(claude_plan_from_profile)
             .or_else(|| token_plan().map(normalize_plan_label)),
-        AgentProvider::Gemini | AgentProvider::Deepseek => token_plan().map(normalize_plan_label),
+        AgentProvider::Gemini | AgentProvider::Deepseek | AgentProvider::Groq => {
+            token_plan().map(normalize_plan_label)
+        }
         AgentProvider::Grok => token_plan().and_then(grok_plan_label).or_else(|| {
             token_claim(token, "tier")
                 .as_ref()
@@ -1667,7 +1678,7 @@ pub async fn refresh_due_provider_credentials(
          JOIN agent_connection_credentials AS credentials
            ON credentials.connection_id = connections.id
          WHERE connections.status = 'connected'
-           AND connections.provider <> 'deepseek'
+           AND connections.provider NOT IN ('deepseek', 'groq')
            AND connections.availability_status <> 'reauth_required'
            AND GREATEST(
                  credentials.updated_at,
@@ -1953,11 +1964,11 @@ async fn refresh_connected_connection(
         }
     };
     let provider = AgentProvider::from_str(&row.provider)?;
-    if provider == AgentProvider::Deepseek {
+    if matches!(provider, AgentProvider::Deepseek | AgentProvider::Groq) {
         let Some(api_key) = stored_token.get("access_token").and_then(Value::as_str) else {
             return finish_refresh_reauthorization(transaction, row).await;
         };
-        match validate_deepseek_key(state, api_key).await {
+        match validate_static_key(state, provider, api_key).await {
             Ok(()) => {}
             Err(ApiError::Validation(_)) => {
                 return finish_refresh_reauthorization(transaction, row).await;
@@ -2265,7 +2276,9 @@ async fn refresh_provider_token(
                 .send()
                 .await
         }
-        AgentProvider::Deepseek => return Err(ProviderRefreshError::ReauthorizationRequired),
+        AgentProvider::Deepseek | AgentProvider::Groq => {
+            return Err(ProviderRefreshError::ReauthorizationRequired);
+        }
         AgentProvider::Grok => {
             grok_oauth_request(state, "/oauth2/token")
                 .form(&[
@@ -2658,7 +2671,7 @@ mod tests {
         provider_account_identity, reauthorization_identity_matches, refresh_provider_token,
         refresh_requires_reauthorization, should_refresh_credential, start_claude_authorization,
         start_codex_authorization, start_gemini_authorization, start_grok_authorization,
-        token_claims, validate_api_key_input, validate_deepseek_key, validate_prompt_url,
+        token_claims, validate_api_key_input, validate_prompt_url, validate_static_key,
     };
     use crate::AppConfig;
 
@@ -3130,7 +3143,7 @@ mod tests {
                 .unwrap(),
         };
 
-        validate_deepseek_key(&state, "sk-deepseek-secret-123456")
+        validate_static_key(&state, AgentProvider::Deepseek, "sk-deepseek-secret-123456")
             .await
             .unwrap();
         server_task.abort();
