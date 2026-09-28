@@ -1,6 +1,8 @@
 # ADR-0042: Piper local speech output
 
 - Status: Accepted
+- English-only output and fixed voice session superseded by [ADR-0043](0043-vietnamese-piper-speech.md).
+- Fixed English output/session restored by [ADR-0044](0044-english-only-local-call-speech.md), which also makes Whisper input English-only.
 - Date: 2026-09-28
 - Authority: operator approved replacing local TTS with Piper after comparing Piper and Kokoro WebGPU, with Windows/Android/mobile compatibility as a requirement.
 - Partially supersedes: the Kokoro implementation and phonemizer choice in [ADR-0041](0041-uniform-local-whisper-calls.md). Its provider routing, preload ownership, bounded streaming, cancellation and recording contracts remain current.

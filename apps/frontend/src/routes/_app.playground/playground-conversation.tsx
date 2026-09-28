@@ -15,9 +15,10 @@ interface PlaygroundZoomButtonProps {
 }
 
 const conversation = tv({
+  base: "space-y-5",
   variants: {
     zoomed: {
-      true: "fixed inset-0 z-40 overflow-y-auto overscroll-contain bg-white m-0! [&>section]:min-h-full [&>section]:overflow-visible [&>section]:rounded-none [&>section]:border-0 [&>section>header]:sticky [&>section>header]:top-0 [&>section>header]:z-10 [&>section>header]:bg-white",
+      true: "fixed inset-0 z-40 grid grid-rows-[auto_1fr] space-y-0 overflow-y-auto overscroll-contain bg-white [&>section]:overflow-visible [&>section]:rounded-none [&>section]:border-0 [&>section>header]:sticky [&>section>header]:top-0 [&>section>header]:z-10 [&>section>header]:bg-white",
     },
   },
 });
@@ -70,7 +71,7 @@ export default function PlaygroundConversation({
         event.key === "Escape" &&
         !event.defaultPrevented &&
         !document.querySelector(
-          '[role="dialog"][data-state="open"], [data-radix-popper-content-wrapper]',
+          '[role="dialog"][data-state="open"], [role="listbox"][data-state="open"], [data-radix-popper-content-wrapper]',
         )
       ) {
         event.preventDefault();

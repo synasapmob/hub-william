@@ -312,12 +312,24 @@ describe("Playground conversation flow", () => {
     await user.click(screen.getByRole("button", { name: "Send message" }));
     const answer = await screen.findByText("A real-service-shaped answer");
     const composer = screen.getByLabelText("Message");
+    const setup = screen.getByRole("heading", { name: "Setup" });
+    const model = screen.getByLabelText("Model");
     await user.type(composer, "Keep this draft");
     await user.click(screen.getByRole("button", { name: "Zoom Screen" }));
     expect(screen.getByLabelText("Message")).toBe(composer);
     expect(screen.getByText("A real-service-shaped answer")).toBe(answer);
     expect(composer).toHaveValue("Keep this draft");
     expect(document.body.style.overflow).toBe("hidden");
+    expect(screen.getByRole("heading", { name: "Setup" })).toBe(setup);
+    expect(screen.getByLabelText("Model")).toBe(model);
+    expect(model.closest("[inert]")).toBeNull();
+    await user.click(model);
+    expect(
+      screen.getByRole("option", { name: "Provider model" }),
+    ).toBeVisible();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Exit Zoom" })).toBeVisible();
     await user.keyboard("{Escape}");
     expect(screen.getByRole("button", { name: "Zoom Screen" })).toHaveFocus();
     expect(document.body.style.overflow).not.toBe("hidden");
@@ -491,13 +503,17 @@ describe("Playground conversation flow", () => {
     );
     expect(start).toHaveBeenCalledOnce();
     expect(end).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Account")).toBeDisabled();
+    expect(screen.getByLabelText("Mode").closest("[inert]")).toBeNull();
     await user.keyboard("{Escape}");
     expect(screen.getByRole("log", { name: "Call transcript" })).toBe(
       transcript,
     );
     expect(start.mock.calls[0][0].signal.aborted).toBe(false);
     expect(end).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Zoom Screen" }));
     await chooseOption(user, "Mode", "Chat");
+    expect(screen.getByRole("button", { name: "Exit Zoom" })).toBeVisible();
     expect(start.mock.calls[0][0].signal.aborted).toBe(true);
     expect(end).toHaveBeenCalled();
     expect(screen.getByLabelText("Account")).toHaveTextContent(

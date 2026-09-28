@@ -1,6 +1,7 @@
 # ADR-0039: Local language detection and buffered speech
 
 - Status: Accepted
+- Language detection and multilingual transcription superseded by [ADR-0044](0044-english-only-local-call-speech.md); buffering remains current.
 - Date: 2026-09-27
 - Authority: operator requested Vietnamese/English transcription and approved buffering one or two BOT speech chunks while text continues streaming.
 - Partially supersedes: the model and English-only recognition choice in [ADR-0037](0037-browser-local-speech-recognition.md), and immediate per-chunk playback in [ADR-0034](0034-playground-call-streaming-and-interruption.md).
