@@ -176,18 +176,19 @@ and End releases all workers/media owned by the call. Cached public assets are
 reused by subsequent calls. Background failure does not break Chat; explicit
 Start retries initialization and exposes persistent errors.
 
-`playground-local-stt.ts` retains pinned multilingual Whisper base with local
-language-token detection, WebGPU or quantized WASM and no audio upload.
+`playground-local-stt.ts` retains the pinned Whisper base model with
+`language: "en"` for every transcription, WebGPU or quantized WASM and no audio
+upload. Automatic language detection is removed; local speech is English-only.
 `playground-local-vad.ts` retains Silero classification, 300 ms pre-roll and
 separate browser echo/noise processing. `playground-local-tts.ts` runs pinned
-Piper `en_US-ljspeech-medium` in a worker using the existing ONNX Runtime and
-single-thread CPU/WASM. Both phonemization and inference stay off the main thread;
+Piper `en_US-ljspeech-medium` with eSpeak `en` in one worker using
+the existing ONNX Runtime and single-thread CPU/WASM. There are no text-language
+heuristics or secondary voices. Both phonemization and inference stay off the main thread;
 TTS requires neither WebGPU nor cross-origin isolation. Model and phonemizer
 assets are size-bounded and SHA-256 verified on download and cache reads.
 Corrupt cache entries are replaced; unavailable storage does not block calls.
-The verified model session and phonemizer bytes are reused within the call.
+The English model session and verified phonemizer bytes are reused within the call.
 Piper returns native mono 22,050 Hz PCM for playback and recording.
-Vietnamese input transcription is supported; Vietnamese BOT speech is not claimed.
 
 `playground-voice-playback.ts` accepts local PCM, buffers consecutive chunks and
 connects every source to both speakers and the local recording mix. Text remains
@@ -195,7 +196,8 @@ immediate while speech is generated. Barge-in cancels provider generation,
 queued synthesis and playback; obsolete inference results are discarded. End
 terminates the workers. See [ADR-0040](../../../docs/decisions/0040-browser-speech-activity-detection.md)
 and [ADR-0041](../../../docs/decisions/0041-uniform-local-whisper-calls.md), with
-the current TTS choice in [ADR-0042](../../../docs/decisions/0042-piper-local-speech-output.md).
+the current TTS choice in [ADR-0042](../../../docs/decisions/0042-piper-local-speech-output.md)
+and the current English-only speech policy in [ADR-0044](../../../docs/decisions/0044-english-only-local-call-speech.md).
 
 Mode and Voice/Camera preferences persist in localStorage independently of device
 cleanup. First use defaults to Chat; restoring either call mode never starts media
@@ -209,9 +211,11 @@ Native ChatGPT keeps its provider-controlled turn boundaries and incremental
 transcripts. See [ADR-0033](../../../docs/decisions/0033-groq-api-key-chat-and-call.md)
 and [ADR-0039](../../../docs/decisions/0039-local-language-detection-and-buffered-speech.md).
 
-Zoom Screen expands the existing Chat or Call conversation over the viewport
-without remounting it. Setup and shell controls are covered and inert while
-zoomed; Exit Zoom or Escape restores them. An open recording menu/dialog handles
-Escape first. Zoom uses component state only and resets on reload. Call setup
+Zoom Screen expands Setup above the existing Chat or Call conversation over the
+viewport without remounting either. Setup remains available with its usual
+in-call restrictions; shell controls are covered and inert until Exit Zoom or
+Escape restores them. Open Setup dropdowns and recording menus/dialogs handle
+Escape first. On short screens the zoomed workspace scrolls to keep both Setup
+and the conversation accessible. Zoom uses component state only and resets on reload. Call setup
 eligibility is reflected by the disabled Start call button; model dropdown
 states and actual errors remain in Setup.

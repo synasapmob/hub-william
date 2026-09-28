@@ -81,7 +81,7 @@ const chatConversation = tv({
   base: "flex min-w-0 flex-col overflow-hidden border border-border bg-white",
   variants: {
     zoomed: {
-      true: "h-svh min-h-0",
+      true: "min-h-112",
       false: "h-[calc(100svh-18rem)] min-h-112 max-h-192 rounded-xl",
     },
   },
@@ -468,310 +468,310 @@ export default function PlaygroundWorkspace({
   }
 
   return (
-    <form
-      className="space-y-5"
-      onSubmit={(event) => void form.handleSubmit(submit)(event)}
-    >
-      <section className="space-y-4 rounded-xl border border-border bg-white p-5">
-        <header>
-          <h2 className="text-sm font-semibold">Setup</h2>
-        </header>
+    <form onSubmit={(event) => void form.handleSubmit(submit)(event)}>
+      <PlaygroundConversation zoomed={zoomed} onExitZoom={exitZoom}>
+        <div className="space-y-5">
+          <section className="space-y-4 rounded-xl border border-border bg-white p-5">
+            <header>
+              <h2 className="text-sm font-semibold">Setup</h2>
+            </header>
 
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-          <div className="space-y-2">
-            <Label htmlFor="playground-organization">Organization</Label>
-            <Select
-              disabled={busy || voiceActive || readingFiles || !userId}
-              onValueChange={(value) => {
-                form.setValue(
-                  "organizationId",
-                  value === "personal" ? "" : value,
-                );
-                form.setValue("connectionId", "");
-                form.setValue("model", "");
-                form.clearErrors("root");
-                setTurns([]);
-              }}
-              value={organizationId || "personal"}
-            >
-              <SelectTrigger
-                className="h-11! w-full min-w-0 bg-white"
-                id="playground-organization"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="personal">Personal</SelectItem>
-                {(organizationsQuery.data ?? []).map((organization) => (
-                  <SelectItem key={organization.id} value={organization.id}>
-                    {organization.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {!organizationRequested && organizationsQuery.error ? (
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
               <div className="space-y-2">
-                <p className="text-xs text-destructive">
-                  Organizations could not be loaded.
+                <Label htmlFor="playground-organization">Organization</Label>
+                <Select
+                  disabled={busy || voiceActive || readingFiles || !userId}
+                  onValueChange={(value) => {
+                    form.setValue(
+                      "organizationId",
+                      value === "personal" ? "" : value,
+                    );
+                    form.setValue("connectionId", "");
+                    form.setValue("model", "");
+                    form.clearErrors("root");
+                    setTurns([]);
+                  }}
+                  value={organizationId || "personal"}
+                >
+                  <SelectTrigger
+                    className="h-11! w-full min-w-0 bg-white"
+                    id="playground-organization"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="personal">Personal</SelectItem>
+                    {(organizationsQuery.data ?? []).map((organization) => (
+                      <SelectItem key={organization.id} value={organization.id}>
+                        {organization.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {!organizationRequested && organizationsQuery.error ? (
+                  <div className="space-y-2">
+                    <p className="text-xs text-destructive">
+                      Organizations could not be loaded.
+                    </p>
+                    <Button
+                      className="min-h-11"
+                      onClick={() => void organizationsQuery.refetch()}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      Retry organizations
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="playground-mode">Mode</Label>
+                <Select
+                  value={mode}
+                  disabled={busy || readingFiles}
+                  onValueChange={(value) => {
+                    if (
+                      value !== "chat" &&
+                      value !== "call-live" &&
+                      value !== "call-whisper"
+                    )
+                      return;
+                    form.setValue("mode", value);
+                    playgroundMedia.writeMode(value);
+                    form.setValue("model", "");
+                    const nextProvider =
+                      providerCatalogue.supportsMode(provider, value) &&
+                      visibleProviderIds.includes(provider)
+                        ? provider
+                        : (providerIds.find(
+                            (id) =>
+                              providerCatalogue.supportsMode(id, value) &&
+                              accessibleAccounts.some(
+                                (account) => account.provider === id,
+                              ),
+                          ) ?? "");
+                    form.setValue("provider", nextProvider);
+                    if (nextProvider !== provider) {
+                      form.setValue("connectionId", "");
+                    }
+                    form.clearErrors("root");
+                  }}
+                >
+                  <SelectTrigger
+                    id="playground-mode"
+                    className="h-11! w-full min-w-0 bg-white"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="chat">Chat</SelectItem>
+                    <SelectItem value="call-live">Call Live</SelectItem>
+                    <SelectItem value="call-whisper">Call Whisper</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="playground-provider">Provider</Label>
+                <Select
+                  disabled={
+                    busy ||
+                    voiceActive ||
+                    readingFiles ||
+                    accountLoading ||
+                    !visibleProviderIds.length
+                  }
+                  onValueChange={(value) => {
+                    if (!visibleProviderIds.some((id) => id === value)) return;
+                    form.setValue("provider", value);
+                    form.setValue("connectionId", "");
+                    form.setValue("model", "");
+                    form.clearErrors("root");
+                  }}
+                  value={visibleProviderIds.length ? provider : ""}
+                >
+                  <SelectTrigger
+                    className="h-11! w-full min-w-0 bg-white"
+                    id="playground-provider"
+                  >
+                    <SelectValue
+                      placeholder={
+                        accountLoading
+                          ? "Loading providers…"
+                          : "No providers available"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {visibleProviderIds.map((id) => (
+                      <SelectItem key={id} value={id}>
+                        <AgentsProviderIcon provider={id} />
+                        <span>
+                          {providers[id].label} (
+                          {
+                            accessibleAccounts.filter(
+                              (account) => account.provider === id,
+                            ).length
+                          }
+                          )
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="playground-account">Account</Label>
+                <Select
+                  disabled={
+                    busy ||
+                    voiceActive ||
+                    readingFiles ||
+                    !userId ||
+                    accountLoading ||
+                    !accounts.length
+                  }
+                  onValueChange={(value) => {
+                    form.setValue("connectionId", value);
+                    form.setValue("model", "");
+                    form.clearErrors("root");
+                  }}
+                  value={selectedAccount?.id ?? ""}
+                >
+                  <SelectTrigger
+                    className="h-11! w-full min-w-0 bg-white"
+                    id="playground-account"
+                  >
+                    <SelectValue
+                      placeholder={
+                        userId && accountLoading
+                          ? "Loading accounts…"
+                          : "Sign in to continue"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {accounts.map((account) => (
+                      <SelectItem key={account.id} value={account.id}>
+                        {account.accountLabel}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="playground-model">Model</Label>
+                <Select
+                  disabled={
+                    busy ||
+                    voiceActive ||
+                    readingFiles ||
+                    modelQuery.isFetching ||
+                    !models.length
+                  }
+                  onValueChange={(value) => {
+                    form.setValue("model", value);
+                    form.clearErrors("root");
+                  }}
+                  value={selectedModel?.id ?? ""}
+                >
+                  <SelectTrigger
+                    className="h-11! w-full min-w-0 bg-white"
+                    id="playground-model"
+                  >
+                    <SelectValue
+                      placeholder={
+                        !connectionId
+                          ? "Sign in to continue"
+                          : modelQuery.isFetching
+                            ? "Loading models…"
+                            : mode !== "chat"
+                              ? "No call models available"
+                              : currentLineupOnly
+                                ? "No current models available"
+                                : "No models available"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {models.map((entry) => (
+                      <SelectItem key={entry.id} value={entry.id}>
+                        {mode === "chat" ? entry.name : entry.id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {needsReconnect ? (
+              <div className="space-y-2">
+                <p className="text-sm text-destructive">
+                  This account needs provider reauthorization or verification.
+                  Its owner must reconnect it in Agents. You can choose another
+                  account.
                 </p>
+
                 <Button
-                  className="min-h-11"
-                  onClick={() => void organizationsQuery.refetch()}
+                  disabled={
+                    organizationRequested
+                      ? organizationAgentsQuery.isFetching
+                      : poolQuery.isFetching
+                  }
+                  onClick={() =>
+                    void (organizationRequested
+                      ? organizationAgentsQuery.refetch()
+                      : poolQuery.refetch())
+                  }
                   size="sm"
                   type="button"
                   variant="outline"
                 >
-                  Retry organizations
+                  Refresh account status
                 </Button>
               </div>
             ) : null}
-          </div>
+          </section>
 
-          <div className="space-y-2">
-            <Label htmlFor="playground-mode">Mode</Label>
-            <Select
-              value={mode}
-              disabled={busy || readingFiles}
-              onValueChange={(value) => {
-                if (
-                  value !== "chat" &&
-                  value !== "call-live" &&
-                  value !== "call-whisper"
-                )
-                  return;
-                form.setValue("mode", value);
-                playgroundMedia.writeMode(value);
-                form.setValue("model", "");
-                const nextProvider =
-                  providerCatalogue.supportsMode(provider, value) &&
-                  visibleProviderIds.includes(provider)
-                    ? provider
-                    : (providerIds.find(
-                        (id) =>
-                          providerCatalogue.supportsMode(id, value) &&
-                          accessibleAccounts.some(
-                            (account) => account.provider === id,
-                          ),
-                      ) ?? "");
-                form.setValue("provider", nextProvider);
-                if (nextProvider !== provider) {
-                  form.setValue("connectionId", "");
-                }
-                form.clearErrors("root");
-              }}
-            >
-              <SelectTrigger
-                id="playground-mode"
-                className="h-11! w-full min-w-0 bg-white"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="chat">Chat</SelectItem>
-                <SelectItem value="call-live">Call Live</SelectItem>
-                <SelectItem value="call-whisper">Call Whisper</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          {conversationError ? (
+            <div className="space-y-3">
+              <p role="alert" className="text-sm/relaxed text-destructive">
+                {conversationError}
+              </p>
 
-          <div className="space-y-2">
-            <Label htmlFor="playground-provider">Provider</Label>
-            <Select
-              disabled={
-                busy ||
-                voiceActive ||
-                readingFiles ||
-                accountLoading ||
-                !visibleProviderIds.length
-              }
-              onValueChange={(value) => {
-                if (!visibleProviderIds.some((id) => id === value)) return;
-                form.setValue("provider", value);
-                form.setValue("connectionId", "");
-                form.setValue("model", "");
-                form.clearErrors("root");
-              }}
-              value={visibleProviderIds.length ? provider : ""}
-            >
-              <SelectTrigger
-                className="h-11! w-full min-w-0 bg-white"
-                id="playground-provider"
-              >
-                <SelectValue
-                  placeholder={
-                    accountLoading
-                      ? "Loading providers…"
-                      : "No providers available"
+              {queryError ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={
+                    (organizationRequested
+                      ? organizationsQuery.isFetching ||
+                        organizationAgentsQuery.isFetching
+                      : poolQuery.isFetching) || modelQuery.isFetching
                   }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {visibleProviderIds.map((id) => (
-                  <SelectItem key={id} value={id}>
-                    <AgentsProviderIcon provider={id} />
-                    <span>
-                      {providers[id].label} (
-                      {
-                        accessibleAccounts.filter(
-                          (account) => account.provider === id,
-                        ).length
-                      }
-                      )
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="playground-account">Account</Label>
-            <Select
-              disabled={
-                busy ||
-                voiceActive ||
-                readingFiles ||
-                !userId ||
-                accountLoading ||
-                !accounts.length
-              }
-              onValueChange={(value) => {
-                form.setValue("connectionId", value);
-                form.setValue("model", "");
-                form.clearErrors("root");
-              }}
-              value={selectedAccount?.id ?? ""}
-            >
-              <SelectTrigger
-                className="h-11! w-full min-w-0 bg-white"
-                id="playground-account"
-              >
-                <SelectValue
-                  placeholder={
-                    userId && accountLoading
-                      ? "Loading accounts…"
-                      : "Sign in to continue"
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {accounts.map((account) => (
-                  <SelectItem key={account.id} value={account.id}>
-                    {account.accountLabel}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="playground-model">Model</Label>
-            <Select
-              disabled={
-                busy ||
-                voiceActive ||
-                readingFiles ||
-                modelQuery.isFetching ||
-                !models.length
-              }
-              onValueChange={(value) => {
-                form.setValue("model", value);
-                form.clearErrors("root");
-              }}
-              value={selectedModel?.id ?? ""}
-            >
-              <SelectTrigger
-                className="h-11! w-full min-w-0 bg-white"
-                id="playground-model"
-              >
-                <SelectValue
-                  placeholder={
-                    !connectionId
-                      ? "Sign in to continue"
-                      : modelQuery.isFetching
-                        ? "Loading models…"
-                        : mode !== "chat"
-                          ? "No call models available"
-                          : currentLineupOnly
-                            ? "No current models available"
-                            : "No models available"
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {models.map((entry) => (
-                  <SelectItem key={entry.id} value={entry.id}>
-                    {mode === "chat" ? entry.name : entry.id}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        {needsReconnect ? (
-          <div className="space-y-2">
-            <p className="text-sm text-destructive">
-              This account needs provider reauthorization or verification. Its
-              owner must reconnect it in Agents. You can choose another account.
-            </p>
-
-            <Button
-              disabled={
-                organizationRequested
-                  ? organizationAgentsQuery.isFetching
-                  : poolQuery.isFetching
-              }
-              onClick={() =>
-                void (organizationRequested
-                  ? organizationAgentsQuery.refetch()
-                  : poolQuery.refetch())
-              }
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              Refresh account status
-            </Button>
-          </div>
-        ) : null}
-      </section>
-
-      {conversationError ? (
-        <div className="space-y-3">
-          <p role="alert" className="text-sm/relaxed text-destructive">
-            {conversationError}
-          </p>
-
-          {queryError ? (
-            <Button
-              type="button"
-              variant="outline"
-              disabled={
-                (organizationRequested
-                  ? organizationsQuery.isFetching ||
-                    organizationAgentsQuery.isFetching
-                  : poolQuery.isFetching) || modelQuery.isFetching
-              }
-              onClick={() => {
-                if (organizationRequested) {
-                  if (organizationsQuery.error)
-                    void organizationsQuery.refetch();
-                  if (organizationAgentsQuery.error)
-                    void organizationAgentsQuery.refetch();
-                } else if (poolQuery.error) {
-                  void poolQuery.refetch();
-                }
-                if (modelQuery.error) void modelQuery.refetch();
-              }}
-            >
-              Retry loading
-            </Button>
+                  onClick={() => {
+                    if (organizationRequested) {
+                      if (organizationsQuery.error)
+                        void organizationsQuery.refetch();
+                      if (organizationAgentsQuery.error)
+                        void organizationAgentsQuery.refetch();
+                    } else if (poolQuery.error) {
+                      void poolQuery.refetch();
+                    }
+                    if (modelQuery.error) void modelQuery.refetch();
+                  }}
+                >
+                  Retry loading
+                </Button>
+              ) : null}
+            </div>
           ) : null}
         </div>
-      ) : null}
 
-      <PlaygroundConversation zoomed={zoomed} onExitZoom={exitZoom}>
         {mode !== "chat" ? (
           <PlaygroundVoice
             key={`${mode}:${connectionId}:${selectedModel?.id}`}

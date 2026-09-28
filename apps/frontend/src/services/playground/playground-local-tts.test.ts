@@ -91,4 +91,20 @@ describe("local TTS worker ownership", () => {
     );
     controller.abort();
   });
+
+  it("keeps the fixed English synthesis deadline at 60 seconds", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const starting = playgroundLocalTts.start({ signal: controller.signal });
+    const worker = TestWorker.latest;
+    worker.emit({ id: 1, type: "ready" });
+    const speech = await starting;
+    const pending = speech.synthesize("Hello world.", controller.signal);
+    const rejected = expect(pending).rejects.toThrow("timed out");
+    await vi.advanceTimersByTimeAsync(59999);
+    expect(worker.terminate).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await rejected;
+    expect(worker.terminate).toHaveBeenCalledOnce();
+  });
 });

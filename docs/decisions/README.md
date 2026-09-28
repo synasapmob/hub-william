@@ -50,3 +50,5 @@ record and mark the old one superseded rather than rewriting its history.
 - [ADR-0040: Browser speech activity detection before Whisper](0040-browser-speech-activity-detection.md)
 - [ADR-0041: Uniform local Whisper calls and speech preparation](0041-uniform-local-whisper-calls.md)
 - [ADR-0042: Piper local speech output](0042-piper-local-speech-output.md)
+- [ADR-0043: Vietnamese Piper speech](0043-vietnamese-piper-speech.md)
+- [ADR-0044: English-only local call speech](0044-english-only-local-call-speech.md)

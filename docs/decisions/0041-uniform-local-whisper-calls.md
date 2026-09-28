@@ -1,6 +1,7 @@
 # ADR-0041: Uniform local Whisper calls and speech preparation
 
 - Status: Accepted
+- Multilingual input support superseded by [ADR-0044](0044-english-only-local-call-speech.md); provider routing and lifecycle remain current.
 - Date: 2026-09-27
 - Authority: operator approved the same local STT and TTS flow for Groq, AGY/Gemini, DeepSeek, Grok, Claude and ChatGPT, then requested model preparation on entering Playground.
 - TTS implementation partially superseded by [ADR-0042](0042-piper-local-speech-output.md); provider routing and lifecycle decisions below remain current.

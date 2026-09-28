@@ -10,7 +10,6 @@ import type {
   PlaygroundLocalSttRequest,
   PlaygroundLocalSttResponse,
 } from "./playground-local-stt-protocol";
-import playgroundLocalSttLanguage from "./playground-local-stt-language";
 
 interface PlaygroundLocalSttWorker {
   onmessage: ((event: MessageEvent<PlaygroundLocalSttRequest>) => void) | null;
@@ -83,8 +82,6 @@ async function processNext() {
     const audio = request.audio;
     if (!audio || audio.length < 160 || audio.length > 320000)
       throw new Error("Invalid local audio.");
-    const language = await playgroundLocalSttLanguage(recognizer, audio);
-    if (interrupted.interrupted) return;
     const stopping = new StoppingCriteriaList();
     stopping.push(interrupted);
     let text = "";
@@ -102,7 +99,7 @@ async function processNext() {
     });
     const result = await recognizer(audio, {
       task: "transcribe",
-      language,
+      language: "en",
       max_new_tokens: 256,
       return_timestamps: false,
       streamer,
