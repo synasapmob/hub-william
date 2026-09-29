@@ -35,6 +35,8 @@ use crate::{
         crate::agent_pools::remove_member,
         crate::organizations::list_organizations,
         crate::organizations::create_organization,
+        crate::organizations::delete_organization,
+        crate::organizations::leave_organization,
         crate::organizations::list_invitations,
         crate::organizations::accept_invitation,
         crate::organizations::decline_invitation,

@@ -259,6 +259,22 @@ async function create(input: CreateOrganizationInput): Promise<Organization> {
   return organizationFromApi(result.data);
 }
 
+async function deleteOrganization(id: string): Promise<void> {
+  const options = { params: { path: { id } } };
+  let result = await client.DELETE("/organizations/{id}", options);
+  if (result.response.status === 401 && (await refreshHubSession()))
+    result = await client.DELETE("/organizations/{id}", options);
+  if (!result.response.ok) throw serviceError(result.error);
+}
+
+async function leave(id: string): Promise<void> {
+  const options = { params: { path: { id } } };
+  let result = await client.DELETE("/organizations/{id}/membership", options);
+  if (result.response.status === 401 && (await refreshHubSession()))
+    result = await client.DELETE("/organizations/{id}/membership", options);
+  if (!result.response.ok) throw serviceError(result.error);
+}
+
 async function invitations(): Promise<OrganizationInvitation[]> {
   let result = await client.GET("/organization-invitations");
   if (result.response.status === 401 && (await refreshHubSession()))
@@ -416,8 +432,10 @@ const organizationsService = {
   agents,
   create,
   declineInvitation,
+  deleteOrganization,
   invitations,
   inviteMember,
+  leave,
   list,
   members,
   overview,

@@ -25,3 +25,11 @@ export function availabilityLabel(value: string) {
   return agentAvailabilityStatusLabel(value);
 }
 import { agentAvailabilityStatusLabel } from "@/utils/utils.agent-pools";
+
+export function formatDate(value: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(value));
+}

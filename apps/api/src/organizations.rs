@@ -784,6 +784,94 @@ pub async fn remove_member(
 }
 
 #[utoipa::path(
+    delete,
+    path = "/organizations/{id}",
+    operation_id = "delete_organization",
+    params(("id" = Uuid, Path, description = "Organization ID")),
+    responses((status = 204, description = "Organization deleted with its memberships, invitations, agent links and recorded usage")),
+    tag = "organizations"
+)]
+/// Delete an organization as its owner. Every member leaves with it and its
+/// invitations, shared-agent links and recorded usage are removed. The
+/// Workspace connections behind the shared agents are not touched.
+pub async fn delete_organization(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path(org_id): Path<Uuid>,
+) -> Result<StatusCode, ApiError> {
+    let owner_id = authenticated_user_id(&state, &jar).await?;
+    let mut transaction = state.pool.begin().await.map_err(database_error)?;
+    let role = sqlx::query_scalar::<_, String>(
+        "SELECT role FROM organization_memberships
+         WHERE org_id = $1 AND user_id = $2 AND status = 'accepted' FOR UPDATE",
+    )
+    .bind(org_id)
+    .bind(owner_id)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(database_error)?;
+    if role.as_deref() != Some("owner") {
+        return Err(ApiError::Forbidden);
+    }
+    sqlx::query("DELETE FROM organizations WHERE id = $1")
+        .bind(org_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(database_error)?;
+    transaction.commit().await.map_err(database_error)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    delete,
+    path = "/organizations/{id}/membership",
+    operation_id = "leave_organization",
+    params(("id" = Uuid, Path, description = "Organization ID")),
+    responses((status = 204, description = "The viewer left the organization")),
+    tag = "organizations"
+)]
+/// Leave an organization as one of its accepted members. Agents the member
+/// shared are unlinked from it; their Workspace connections stay connected.
+/// The owner cannot leave and deletes the organization instead.
+pub async fn leave_organization(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path(org_id): Path<Uuid>,
+) -> Result<StatusCode, ApiError> {
+    let user_id = authenticated_user_id(&state, &jar).await?;
+    let mut transaction = state.pool.begin().await.map_err(database_error)?;
+    let role = sqlx::query_scalar::<_, String>(
+        "SELECT role FROM organization_memberships
+         WHERE org_id = $1 AND user_id = $2 AND status = 'accepted' FOR UPDATE",
+    )
+    .bind(org_id)
+    .bind(user_id)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(database_error)?;
+    match role.as_deref() {
+        Some("member") => {}
+        Some(_) => {
+            return Err(ApiError::Validation(
+                "Owners delete the organization instead of leaving it.",
+            ));
+        }
+        None => return Err(ApiError::Forbidden),
+    }
+    sqlx::query(
+        "DELETE FROM organization_memberships
+         WHERE org_id = $1 AND user_id = $2 AND role = 'member'",
+    )
+    .bind(org_id)
+    .bind(user_id)
+    .execute(&mut *transaction)
+    .await
+    .map_err(database_error)?;
+    transaction.commit().await.map_err(database_error)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
     get,
     path = "/organizations/{id}/usage",
     params(
