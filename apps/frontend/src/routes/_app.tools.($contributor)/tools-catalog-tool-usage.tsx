@@ -34,19 +34,19 @@ function gatewayCommand(origin: string) {
   });
 }
 
-function openCodeCommand(origin: string, includeKey = false) {
+function openCodeCommand(origin: string) {
   return openCodeInstallCommand({
     gatewayOrigin: resolveGatewayOrigin(origin),
     installerUrl: catalogService.openCodeInstallerUrl(origin),
-    includeKey,
+    includeKey: true,
   });
 }
 
-function ompCommand(origin: string, includeKey = false) {
+function ompCommand(origin: string) {
   return ompInstallCommand({
     gatewayOrigin: resolveGatewayOrigin(origin),
     installerUrl: catalogService.ompInstallerUrl(origin),
-    includeKey,
+    includeKey: true,
   });
 }
 
@@ -149,18 +149,6 @@ export default function ToolsCatalogToolUsage({
     return (
       <div className={container()}>
         <div className={section()}>
-          <p className={label()}>Install all live providers</p>
-
-          <p className={description()}>
-            Enter an active Hub key in the hidden prompt. The installer uses it
-            to fetch reachable models and saves it in the OpenCode provider
-            settings. If the key is invalid, it leaves your config untouched.
-          </p>
-
-          <CopyCommand command={openCodeCommand(siteOrigin)} />
-        </div>
-
-        <div className={section()}>
           <p className={label()}>Pass a key explicitly</p>
 
           <p className={description()}>
@@ -169,7 +157,7 @@ export default function ToolsCatalogToolUsage({
             history.
           </p>
 
-          <CopyCommand command={openCodeCommand(siteOrigin, true)} />
+          <CopyCommand command={openCodeCommand(siteOrigin)} />
         </div>
 
         <div className={section()}>
@@ -197,19 +185,6 @@ export default function ToolsCatalogToolUsage({
     return (
       <div className={container()}>
         <div className={section()}>
-          <p className={label()}>Install all live providers</p>
-
-          <p className={description()}>
-            Enter an active Hub key in the hidden prompt. The installer uses it
-            to fetch reachable models and saves it in OMP&rsquo;s{" "}
-            <code>models.yml</code> provider settings. If the key is invalid, it
-            leaves your config untouched.
-          </p>
-
-          <CopyCommand command={ompCommand(siteOrigin)} />
-        </div>
-
-        <div className={section()}>
           <p className={label()}>Pass a key explicitly</p>
 
           <p className={description()}>
@@ -218,7 +193,7 @@ export default function ToolsCatalogToolUsage({
             history.
           </p>
 
-          <CopyCommand command={ompCommand(siteOrigin, true)} />
+          <CopyCommand command={ompCommand(siteOrigin)} />
         </div>
 
         <div className={section()}>

@@ -388,6 +388,27 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/organizations/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /**
+     * Delete an organization as its owner. Every member leaves with it and its
+     *     invitations, shared-agent links and recorded usage are removed. The
+     *     Workspace connections behind the shared agents are not touched.
+     */
+    delete: operations["delete_organization"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/organizations/{id}/agents": {
     parameters: {
       query?: never;
@@ -452,6 +473,27 @@ export interface paths {
     put?: never;
     post?: never;
     delete: operations["organization_remove_member"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/organizations/{id}/membership": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /**
+     * Leave an organization as one of its accepted members. Agents the member
+     *     shared are unlinked from it; their Workspace connections stay connected.
+     *     The owner cannot leave and deletes the organization instead.
+     */
+    delete: operations["leave_organization"];
     options?: never;
     head?: never;
     patch?: never;
@@ -1891,6 +1933,27 @@ export interface operations {
       };
     };
   };
+  delete_organization: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Organization ID */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Organization deleted with its memberships, invitations, agent links and recorded usage */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
   list_agents: {
     parameters: {
       query?: {
@@ -2041,6 +2104,27 @@ export interface operations {
     requestBody?: never;
     responses: {
       /** @description Member removed or invitation canceled */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  leave_organization: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Organization ID */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The viewer left the organization */
       204: {
         headers: {
           [name: string]: unknown;

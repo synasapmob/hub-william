@@ -93,10 +93,15 @@ describe("ToolsCatalog", () => {
     renderTools("/tools?node=opencode");
 
     expect(screen.getByRole("heading", { name: "OpenCode" })).toBeVisible();
-    expect(screen.getAllByText(/opencode\.py.*--url=/)).toHaveLength(2);
+    // One suggested command, with the key passed explicitly.
+    expect(screen.getAllByText(/opencode\.py.*--url=/)).toHaveLength(1);
     expect(
-      screen.getByText(/opencode\.py.*--key=YOUR_GATEWAY_KEY/),
+      screen.getByText(/opencode\.py.*--url=.*--key=YOUR_GATEWAY_KEY/),
     ).toBeVisible();
+    expect(screen.getByText("Pass a key explicitly")).toBeVisible();
+    expect(
+      screen.queryByText("Install all live providers"),
+    ).not.toBeInTheDocument();
     expect(screen.getAllByText("/models", { exact: true })).not.toHaveLength(0);
     expect(screen.getByText("/variants", { exact: true })).toBeVisible();
   });
@@ -105,9 +110,15 @@ describe("ToolsCatalog", () => {
     renderTools("/tools?node=omp");
 
     expect(screen.getByRole("heading", { name: "OMP" })).toBeVisible();
-    expect(screen.getAllByText(/omp\.py.*--url=/)).toHaveLength(2);
-    expect(screen.getByText(/omp\.py.*--key=YOUR_GATEWAY_KEY/)).toBeVisible();
-    expect(screen.getByText("models.yml", { exact: true })).toBeVisible();
+    // One suggested command, with the key passed explicitly.
+    expect(screen.getAllByText(/omp\.py.*--url=/)).toHaveLength(1);
+    expect(
+      screen.getByText(/omp\.py.*--url=.*--key=YOUR_GATEWAY_KEY/),
+    ).toBeVisible();
+    expect(screen.getByText("Pass a key explicitly")).toBeVisible();
+    expect(
+      screen.queryByText("Install all live providers"),
+    ).not.toBeInTheDocument();
     expect(screen.getByText("/model", { exact: true })).toBeVisible();
   });
 

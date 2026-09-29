@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { tv } from "tailwind-variants";
 
+import { Skeleton } from "@/components/ui/skeleton";
+
 const metricGrid = tv({
   base: "grid gap-px bg-zinc-200",
   variants: {
@@ -20,12 +22,15 @@ interface OrganizationMetric {
 interface OrganizationMetricStripProps {
   columns: 3 | 4;
   footer?: ReactNode;
+  // Labels and notes are static, so only the values become placeholders.
+  loading?: boolean;
   metrics: OrganizationMetric[];
 }
 
 export default function OrganizationMetricStrip({
   columns,
   footer,
+  loading = false,
   metrics,
 }: OrganizationMetricStripProps) {
   return (
@@ -36,9 +41,15 @@ export default function OrganizationMetricStrip({
             <h2 className="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
               {metric.label}
             </h2>
-            <p className="mt-1.5 font-heading text-[1.65rem] leading-none font-semibold tracking-tight text-zinc-900">
-              {metric.value}
-            </p>
+
+            {loading ? (
+              <Skeleton className="mt-1.5 h-[1.65rem] w-16 bg-zinc-200" />
+            ) : (
+              <p className="mt-1.5 font-heading text-[1.65rem] leading-none font-semibold tracking-tight text-zinc-900">
+                {metric.value}
+              </p>
+            )}
+
             {metric.note ? (
               <p className="mt-2 text-[11px] leading-snug text-zinc-400">
                 {metric.note}

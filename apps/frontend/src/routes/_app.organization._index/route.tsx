@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { skipToken, useQuery } from "@tanstack/react-query";
 import { ArrowRight } from "lucide-react";
 import { Link } from "react-router";
 import { tv } from "tailwind-variants";
@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import organizationsService from "@/services/organizations";
 import { useOrganizationContext } from "@/routes/_app.organization/organization-context";
 import {
@@ -23,6 +24,7 @@ import {
 } from "@/routes/_app.organization/organization-format";
 import OrganizationMetricStrip from "@/routes/_app.organization/organization-metric-strip";
 import OrganizationUsageChart from "@/routes/_app.organization/organization-usage-chart";
+import OrganizationUsageChartSkeleton from "@/routes/_app.organization/organization-usage-chart-skeleton";
 
 const agentStatusDot = tv({
   base: "size-1.5 rounded-full",
@@ -34,34 +36,50 @@ const agentStatusDot = tv({
   },
 });
 
+const skeletonAgents = [0, 1, 2];
+
 export default function OrganizationOverviewRoute() {
   const { organization } = useOrganizationContext();
   const [days, setDays] = useState(30);
   const overviewQuery = useQuery({
-    queryFn: () => organizationsService.overview(organization.id, days),
+    queryFn: organization
+      ? () => organizationsService.overview(organization.id, days)
+      : skipToken,
     queryKey: [
       ...organizationsService.queryKey,
-      organization.id,
+      organization?.id ?? null,
       "overview",
       days,
     ],
   });
   const overview = overviewQuery.data;
+  const pending = overviewQuery.isPending;
   const knownTokens = overview
     ? overview.knownInputTokens + overview.knownOutputTokens
     : 0;
 
   return (
     <div className="space-y-5">
+      {pending ? (
+        <p role="status" className="sr-only">
+          Loading overview
+        </p>
+      ) : null}
+
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-heading text-2xl font-semibold tracking-tight">
             Overview
           </h1>
-          <p className="mt-1 text-xs text-zinc-500">
-            {organization.description ||
-              `A quick view of activity across ${organization.name}.`}
-          </p>
+
+          {organization ? (
+            <p className="mt-1 text-xs text-zinc-500">
+              {organization.description ||
+                `A quick view of activity across ${organization.name}.`}
+            </p>
+          ) : (
+            <Skeleton className="mt-1.5 mb-0.5 h-3 w-72 max-w-full bg-zinc-200" />
+          )}
         </div>
         <Select
           onValueChange={(value) => setDays(Number(value))}
@@ -91,6 +109,7 @@ export default function OrganizationOverviewRoute() {
 
       <OrganizationMetricStrip
         columns={4}
+        loading={pending}
         metrics={[
           {
             label: "Agents",
@@ -131,13 +150,11 @@ export default function OrganizationOverviewRoute() {
             </p>
           </div>
 
-          {overviewQuery.isPending ? (
-            <Center className="min-h-32">
-              <p className="text-xs text-zinc-500">Loading usage…</p>
-            </Center>
-          ) : (
-            <OrganizationUsageChart days={overview?.dailyUsage ?? []} />
-          )}
+          {pending ? (
+            <OrganizationUsageChartSkeleton />
+          ) : overview ? (
+            <OrganizationUsageChart days={overview.dailyUsage} />
+          ) : null}
         </section>
 
         <section className="min-w-0 rounded-xl border border-zinc-200 bg-white p-4 shadow-xs sm:p-5">
@@ -153,7 +170,23 @@ export default function OrganizationOverviewRoute() {
             </Link>
           </Flex>
 
-          {overview?.agents.length ? (
+          {pending ? (
+            <ul aria-hidden="true" className="mt-3 divide-y divide-zinc-100">
+              {skeletonAgents.map((key) => (
+                <li key={key} className="flex items-center gap-3 py-2.5">
+                  <Skeleton className="size-8 shrink-0 rounded-lg bg-zinc-200" />
+
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <Skeleton className="h-3 w-20 bg-zinc-200" />
+
+                    <Skeleton className="h-2.5 w-40 max-w-full bg-zinc-100" />
+                  </div>
+
+                  <Skeleton className="h-3 w-14 shrink-0 bg-zinc-200" />
+                </li>
+              ))}
+            </ul>
+          ) : overview?.agents.length ? (
             <ul className="mt-3 divide-y divide-zinc-100">
               {overview.agents.map((agent) => (
                 <li key={agent.id} className="flex items-center gap-3 py-2.5">
@@ -182,11 +215,11 @@ export default function OrganizationOverviewRoute() {
                 </li>
               ))}
             </ul>
-          ) : (
+          ) : overview ? (
             <p className="mt-4 rounded-lg border border-dashed border-zinc-200 bg-zinc-50/50 p-4 text-xs text-zinc-500">
               No agents shared with this organization yet.
             </p>
-          )}
+          ) : null}
         </section>
       </div>
     </div>

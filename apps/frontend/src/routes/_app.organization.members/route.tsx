@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  skipToken,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { UserPlus } from "lucide-react";
 import { useForm } from "react-hook-form";
@@ -11,8 +16,12 @@ import Center from "@/components/ui/center";
 import Flex from "@/components/ui/flex";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import organizationsService from "@/services/organizations";
-import { useOrganizationContext } from "@/routes/_app.organization/organization-context";
+import {
+  requireOrganization,
+  useOrganizationContext,
+} from "@/routes/_app.organization/organization-context";
 import { formatCount } from "@/routes/_app.organization/organization-format";
 
 interface InviteValues {
@@ -29,6 +38,8 @@ const memberLayout = tv({
   },
 });
 
+const skeletonMembers = [0, 1, 2];
+
 function joinedLabel(value: string | null) {
   if (!value) return "Invitation pending";
   return `Joined ${new Intl.DateTimeFormat("en-US", {
@@ -38,16 +49,85 @@ function joinedLabel(value: string | null) {
   }).format(new Date(value))}`;
 }
 
+function MembersListSkeleton() {
+  return (
+    <ul aria-hidden="true" className="divide-y divide-zinc-100 px-4 sm:px-5">
+      {skeletonMembers.map((key) => (
+        <li
+          key={key}
+          className="grid grid-cols-[2rem_minmax(0,1fr)] items-center gap-x-3 gap-y-2 py-3 sm:grid-cols-[2rem_minmax(0,1fr)_auto]"
+        >
+          <Skeleton className="size-8 rounded-lg bg-zinc-200" />
+
+          <div className="min-w-0 space-y-1">
+            <Flex className="h-4 items-center">
+              <Skeleton className="h-3 w-28 bg-zinc-200" />
+            </Flex>
+
+            <Flex className="h-4 items-center">
+              <Skeleton className="h-2.5 w-48 max-w-full bg-zinc-100" />
+            </Flex>
+          </div>
+
+          <Skeleton className="col-start-2 h-7 w-24 rounded-lg bg-zinc-200 sm:col-start-3 sm:row-start-1" />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// Stands in for the invite form while the viewer's role is still unknown.
+function MembersAsideSkeleton() {
+  return (
+    <aside aria-hidden="true" className="space-y-4">
+      <div className="space-y-3 rounded-xl border border-indigo-100 bg-indigo-50/40 p-4 sm:p-5">
+        <div>
+          <Flex className="h-5 items-center">
+            <Skeleton className="h-3.5 w-28 bg-zinc-200" />
+          </Flex>
+
+          <Flex className="mt-1 h-5 items-center">
+            <Skeleton className="h-3 w-52 max-w-full bg-zinc-200" />
+          </Flex>
+        </div>
+
+        <div className="space-y-1.5">
+          <Flex className="h-4 items-center">
+            <Skeleton className="h-3 w-20 bg-zinc-200" />
+          </Flex>
+
+          <Skeleton className="h-9 w-full rounded-lg bg-white" />
+        </div>
+
+        <Skeleton className="h-7 w-full rounded-lg bg-zinc-200" />
+      </div>
+    </aside>
+  );
+}
+
 export default function OrganizationMembersRoute() {
   const { organization } = useOrganizationContext();
   const queryClient = useQueryClient();
   const membersQuery = useQuery({
-    queryFn: () => organizationsService.members(organization.id),
-    queryKey: [...organizationsService.queryKey, organization.id, "members"],
+    queryFn: organization
+      ? () => organizationsService.members(organization.id)
+      : skipToken,
+    queryKey: [
+      ...organizationsService.queryKey,
+      organization?.id ?? null,
+      "members",
+    ],
   });
   const usageQuery = useQuery({
-    queryFn: () => organizationsService.usage(organization.id, { days: 30 }),
-    queryKey: [...organizationsService.queryKey, organization.id, "usage", 30],
+    queryFn: organization
+      ? () => organizationsService.usage(organization.id, { days: 30 })
+      : skipToken,
+    queryKey: [
+      ...organizationsService.queryKey,
+      organization?.id ?? null,
+      "usage",
+      30,
+    ],
   });
   const schema = z.object({
     username: z
@@ -61,20 +141,37 @@ export default function OrganizationMembersRoute() {
   });
   const inviteMutation = useMutation({
     mutationFn: (username: string) =>
-      organizationsService.inviteMember(organization.id, username),
+      organizationsService.inviteMember(
+        requireOrganization(organization).id,
+        username,
+      ),
     onSuccess: () =>
       queryClient.invalidateQueries({
-        queryKey: [...organizationsService.queryKey, organization.id],
+        queryKey: [
+          ...organizationsService.queryKey,
+          requireOrganization(organization).id,
+        ],
       }),
   });
   const removeMutation = useMutation({
     mutationFn: (username: string) =>
-      organizationsService.removeMember(organization.id, username),
+      organizationsService.removeMember(
+        requireOrganization(organization).id,
+        username,
+      ),
     onSuccess: () =>
       queryClient.invalidateQueries({
-        queryKey: [...organizationsService.queryKey, organization.id],
+        queryKey: [
+          ...organizationsService.queryKey,
+          requireOrganization(organization).id,
+        ],
       }),
   });
+  const membersLoading = membersQuery.isPending;
+  // The viewer's role decides whether the invite column exists, so it is
+  // unknown until the organization is. Reserving the column meanwhile keeps
+  // an owner's list from shrinking when the page finishes loading.
+  const isOwner = organization?.role === "owner";
   const members = membersQuery.data ?? [];
   const active = members.filter((member) => member.status === "accepted");
   const pending = members.filter((member) => member.status === "pending");
@@ -102,13 +199,26 @@ export default function OrganizationMembersRoute() {
 
   return (
     <div className="space-y-5">
+      {membersLoading ? (
+        <p role="status" className="sr-only">
+          Loading members
+        </p>
+      ) : null}
+
       <header>
         <h1 className="font-heading text-2xl font-semibold tracking-tight">
           Members
         </h1>
-        <p className="mt-1 text-xs text-zinc-500">
-          People with access to {organization.name}.
-        </p>
+
+        {organization ? (
+          <p className="mt-1 text-xs text-zinc-500">
+            People with access to {organization.name}.
+          </p>
+        ) : (
+          <Flex className="mt-1 h-4 items-center">
+            <Skeleton className="h-3 w-56 max-w-full bg-zinc-200" />
+          </Flex>
+        )}
       </header>
 
       {membersQuery.error || usageQuery.error || removeMutation.error ? (
@@ -122,7 +232,7 @@ export default function OrganizationMembersRoute() {
 
       <div
         className={memberLayout({
-          withAside: organization.role === "owner" || pending.length > 0,
+          withAside: organization === null || isOwner || pending.length > 0,
         })}
       >
         <section className="min-w-0 rounded-xl border border-zinc-200 bg-white shadow-xs">
@@ -135,13 +245,17 @@ export default function OrganizationMembersRoute() {
                 Everyone currently in this organization
               </p>
             </div>
-            <p className="rounded-full bg-zinc-100 px-2.5 py-1 font-mono text-[11px] text-zinc-600">
-              {formatCount(active.length)} active
-            </p>
+            {membersLoading ? (
+              <Skeleton className="h-6 w-16 rounded-full bg-zinc-200" />
+            ) : (
+              <p className="rounded-full bg-zinc-100 px-2.5 py-1 font-mono text-[11px] text-zinc-600">
+                {formatCount(active.length)} active
+              </p>
+            )}
           </header>
 
-          {membersQuery.isPending ? (
-            <p className="p-5 text-xs text-zinc-500">Loading members…</p>
+          {membersLoading ? (
+            <MembersListSkeleton />
           ) : active.length ? (
             <ul className="divide-y divide-zinc-100 px-4 sm:px-5">
               {active.map((member) => (
@@ -164,9 +278,18 @@ export default function OrganizationMembersRoute() {
                     </Flex>
                     <p className="mt-1 text-[11px] text-zinc-500">
                       {joinedLabel(member.joinedAt)} ·{" "}
-                      <strong className="font-medium text-zinc-700">
-                        {formatCount(requestsByMember.get(member.id) ?? 0)}
-                      </strong>{" "}
+                      {usageQuery.isPending ? (
+                        <span
+                          aria-hidden="true"
+                          className="inline-block h-2.5 w-5 animate-pulse rounded bg-zinc-200 align-middle"
+                        />
+                      ) : usageQuery.error ? (
+                        "—"
+                      ) : (
+                        <strong className="font-medium text-zinc-700">
+                          {formatCount(requestsByMember.get(member.id) ?? 0)}
+                        </strong>
+                      )}{" "}
                       requests in 30 days
                     </p>
                   </div>
@@ -179,8 +302,7 @@ export default function OrganizationMembersRoute() {
                         View usage
                       </Link>
                     </Button>
-                    {organization.role === "owner" &&
-                    member.role !== "owner" ? (
+                    {isOwner && member.role !== "owner" ? (
                       <Button
                         className="text-destructive hover:text-destructive"
                         disabled={removeMutation.isPending}
@@ -196,16 +318,18 @@ export default function OrganizationMembersRoute() {
                 </li>
               ))}
             </ul>
-          ) : (
+          ) : membersQuery.data ? (
             <p className="p-5 text-xs text-zinc-500">
               No active members are available yet.
             </p>
-          )}
+          ) : null}
         </section>
 
-        {organization.role === "owner" || pending.length > 0 ? (
+        {organization === null ? (
+          <MembersAsideSkeleton />
+        ) : isOwner || pending.length > 0 ? (
           <aside className="space-y-4">
-            {organization.role === "owner" ? (
+            {isOwner ? (
               <form
                 className="space-y-3 rounded-xl border border-indigo-100 bg-indigo-50/40 p-4 sm:p-5"
                 onSubmit={form.handleSubmit(invite)}
@@ -281,7 +405,7 @@ export default function OrganizationMembersRoute() {
                       <p className="text-xs font-medium text-zinc-700">
                         @{member.username}
                       </p>
-                      {organization.role === "owner" ? (
+                      {isOwner ? (
                         <Button
                           disabled={removeMutation.isPending}
                           onClick={() => removeMutation.mutate(member.username)}
