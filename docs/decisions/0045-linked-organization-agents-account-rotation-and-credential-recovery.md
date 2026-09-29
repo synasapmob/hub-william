@@ -80,13 +80,17 @@ The scopes never mix. Key clients keep the same scoped candidate set. Each
 account gets at least one attempt, so the budget is `max(4, accounts)`. The
 request fails only once every account in scope is rate limited, needs
 reconnect, or refused. Accounts are rotated on `429`, `401` after recovery, a
-non-Gemini `403`, and transient `5xx`, `408` or network failures. `400`-class
+non-Gemini `403`, a `402` (for example a DeepSeek account without balance), and
+transient `5xx`, `408` or network failures. `400`-class
 request errors are returned without rotation. A successful browser response
 names the serving account in `x-hub-connection-id` (exposed through CORS for
 development). Failover still happens only before streaming starts; partial
 streams are never replayed. ChatGPT voice rotates only on explicit refusals,
-because a lost session answer is never replayed. Groq voice starts on the first
-usable account and does not switch accounts mid-turn.
+because a lost session answer is never replayed; an account whose credential
+cannot be read or refreshed is skipped before any session request. Groq voice
+starts on the first usable account and does not switch accounts mid-turn; a
+rejected voice call revalidates the key and marks the account only if the key
+itself is rejected.
 
 **Refresh cadence and recovery.** Every minute, the API rotates each connected
 OAuth credential once it has gone 30 minutes plus a stable per-account offset of
@@ -108,8 +112,12 @@ reconnects are never auto-restored.
   behind a background refresh.
 - Every refresh runs in its own task, so cancelling the caller cannot roll back
   a rotated token.
-- On SIGTERM, the API stops accepting requests and lets an in-progress sweep
-  commit (up to 25 seconds) before exiting.
+- On SIGTERM, the API immediately stops scheduled sweeps from starting another
+  account, drains open requests, and then waits up to 25 seconds for refreshes
+  already talking to a provider to commit before exiting.
+- Deleting a Workspace connection takes the credential lock first, the same
+  order refreshes use, so a delete waits for an in-flight refresh instead of
+  deadlocking with it.
 
 ## Consequences
 

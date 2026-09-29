@@ -1,4 +1,8 @@
-use std::{fmt, str::FromStr};
+use std::{
+    fmt,
+    str::FromStr,
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+};
 
 use aes_gcm::{
     Aes256Gcm, Nonce,
@@ -18,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::{FromRow, Postgres, Transaction};
+use tokio::sync::Notify;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -738,12 +743,21 @@ pub async fn disconnect(
 ) -> Result<StatusCode, ApiError> {
     let user_id = authenticated_user_id(&state, &jar).await?;
     owned_connection(&state, user_id, connection_id).await?;
+    // Take the credential lock first, as refreshes and reconnect marks do, so
+    // a delete waits for an in-flight refresh instead of deadlocking with it.
+    let mut transaction = state.pool.begin().await.map_err(database_error)?;
+    sqlx::query("SELECT 1 FROM agent_connection_credentials WHERE connection_id = $1 FOR UPDATE")
+        .bind(connection_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(database_error)?;
     sqlx::query("DELETE FROM agent_connections WHERE id = $1 AND user_id = $2")
         .bind(connection_id)
         .bind(user_id)
-        .execute(&state.pool)
+        .execute(&mut *transaction)
         .await
         .map_err(database_error)?;
+    transaction.commit().await.map_err(database_error)?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1822,6 +1836,9 @@ async fn refresh_scheduled_provider_credentials(
 ) -> Result<ProviderCredentialRefreshSummary, sqlx::Error> {
     let mut summary = ProviderCredentialRefreshSummary::default();
     for (row, mode) in rows {
+        if SWEEPS_STOPPING.load(Ordering::SeqCst) {
+            break;
+        }
         let connection_id = row.id;
         let provider = row.provider.clone();
         match refresh_detached(state, row, mode).await {
@@ -2324,12 +2341,64 @@ async fn refresh_detached(
     mode: CredentialRefreshMode,
 ) -> Result<RefreshConnectionOutcome, ApiError> {
     let state = state.clone();
-    tokio::spawn(async move { refresh_connected_connection(&state, row, mode).await })
-        .await
-        .map_err(|error| {
-            eprintln!("credential refresh task failed: {error}");
-            ApiError::Internal
-        })?
+    let in_flight = InFlightRefresh::start();
+    tokio::spawn(async move {
+        let _in_flight = in_flight;
+        refresh_connected_connection(&state, row, mode).await
+    })
+    .await
+    .map_err(|error| {
+        eprintln!("credential refresh task failed: {error}");
+        ApiError::Internal
+    })?
+}
+
+static SWEEPS_STOPPING: AtomicBool = AtomicBool::new(false);
+static IN_FLIGHT_REFRESHES: AtomicUsize = AtomicUsize::new(0);
+static REFRESHES_SETTLED: Notify = Notify::const_new();
+
+/// Counts a detached refresh until its task finishes, even if it panics.
+struct InFlightRefresh;
+
+impl InFlightRefresh {
+    fn start() -> Self {
+        IN_FLIGHT_REFRESHES.fetch_add(1, Ordering::SeqCst);
+        Self
+    }
+}
+
+impl Drop for InFlightRefresh {
+    fn drop(&mut self) {
+        if IN_FLIGHT_REFRESHES.fetch_sub(1, Ordering::SeqCst) == 1 {
+            REFRESHES_SETTLED.notify_waiters();
+        }
+    }
+}
+
+/// Stop scheduled sweeps from starting another account. Called as soon as the
+/// process is asked to shut down; a refresh already talking to its provider
+/// still finishes and commits.
+pub fn stop_credential_sweeps() {
+    SWEEPS_STOPPING.store(true, Ordering::SeqCst);
+}
+
+/// Wait until no detached credential refresh is running, or `limit` passes.
+/// Returns whether every refresh settled. A provider may already have rotated
+/// a refresh token, so shutdown waits for the commit instead of dropping it.
+pub async fn wait_for_credential_refreshes(limit: std::time::Duration) -> bool {
+    tokio::time::timeout(limit, async {
+        loop {
+            let settled = REFRESHES_SETTLED.notified();
+            tokio::pin!(settled);
+            settled.as_mut().enable();
+            if IN_FLIGHT_REFRESHES.load(Ordering::SeqCst) == 0 {
+                return;
+            }
+            settled.await;
+        }
+    })
+    .await
+    .is_ok()
 }
 
 pub(crate) async fn provider_credential(

@@ -92,6 +92,9 @@ export default function AgentsCredentialRefresh({
   }, [connectionStatusQuery.data, onRefreshComplete]);
 
   async function refreshCredential() {
+    // A new attempt replaces the previous outcome, so an earlier success
+    // cannot stay on screen next to this attempt's failure.
+    setRefreshConnection(null);
     const popup = window.open(
       "about:blank",
       "hub-william-agent-refresh",

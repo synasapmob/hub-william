@@ -1064,6 +1064,40 @@ async fn generic_gateway_moves_past_a_403_and_returns_the_last_403_when_every_ac
 }
 
 #[sqlx::test]
+async fn generic_gateway_moves_past_an_account_without_balance(pool: PgPool) {
+    let Harness { state, fake, .. } = &Harness::start(pool).await;
+    // DeepSeek answers 402 when one account has no balance left.
+    fake.answer("ds-empty-key", StatusCode::PAYMENT_REQUIRED);
+    let owner = user(state).await;
+    let funded = deepseek_account(state, owner, "ds-funded-key", 10).await;
+    let empty = deepseek_account(state, owner, "ds-empty-key", 0).await;
+
+    let response = deepseek_request(state, browser(owner, empty))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(served_connection(&response), Some(funded.to_string()));
+    assert_eq!(
+        fake.take_generation_tokens(),
+        ["ds-empty-key", "ds-funded-key"]
+    );
+
+    fake.answer("ds-funded-key", StatusCode::PAYMENT_REQUIRED);
+    let response = deepseek_request(state, GatewaySelection::from(owner))
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::PAYMENT_REQUIRED,
+        "the last account's answer is returned once every account is out of balance"
+    );
+    assert_eq!(fake.take_generation_tokens().len(), 2);
+    assert!(fake.key_checks().is_empty());
+    assert_eq!(availability(state, empty).await, active());
+    assert_eq!(availability(state, funded).await, active());
+}
+
+#[sqlx::test]
 async fn generic_gateway_budget_grows_with_the_pool_so_a_fifth_account_can_serve(pool: PgPool) {
     let Harness { state, fake, .. } = &Harness::start(pool).await;
     let owner = user(state).await;

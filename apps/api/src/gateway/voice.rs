@@ -99,20 +99,27 @@ async fn start_session(
     body: &Value,
     url: &str,
 ) -> Result<VoiceAttempt, ApiError> {
-    let mut token = match gateway_credential(state, connection_id).await? {
-        CredentialLookup::Ready(AgentProvider::Chatgpt, token) => token,
-        CredentialLookup::Ready(..) => return Err(ApiError::Forbidden),
-        CredentialLookup::ReauthorizationRequired => {
+    // Nothing has been sent for this account yet, so a credential problem
+    // moves on to the next account instead of ending the call.
+    let mut token = match gateway_credential(state, connection_id).await {
+        Ok(CredentialLookup::Ready(AgentProvider::Chatgpt, token)) => token,
+        Ok(CredentialLookup::Ready(..)) => {
+            return Ok(VoiceAttempt::NextAccount(ApiError::Forbidden));
+        }
+        Ok(CredentialLookup::ReauthorizationRequired) => {
             return Ok(VoiceAttempt::ReauthorizationRequired);
         }
+        Err(error) => return Ok(VoiceAttempt::NextAccount(error)),
     };
     let mut credential_retried = false;
     loop {
-        let access_token = token
+        let Some(access_token) = token
             .get("access_token")
             .and_then(Value::as_str)
-            .ok_or(ApiError::Forbidden)?
-            .to_owned();
+            .map(str::to_owned)
+        else {
+            return Ok(VoiceAttempt::NextAccount(ApiError::Forbidden));
+        };
         let mut request = state
             .gateway_http
             .post(url)
@@ -376,6 +383,124 @@ mod tests {
             Err(ApiError::RateLimited)
         ));
         assert_eq!(take(), ["Bearer other-voice-token"]);
+        task.abort();
+    }
+}
+
+#[cfg(all(test, feature = "database-tests"))]
+mod credential_failover_tests {
+    use super::*;
+    use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::Aead};
+    use axum::{
+        Router,
+        http::{HeaderMap, StatusCode},
+        routing::post,
+    };
+    use serde_json::json;
+    use sqlx::PgPool;
+    use std::sync::{Arc, Mutex};
+
+    #[sqlx::test]
+    async fn voice_moves_on_when_the_preferred_account_cannot_refresh_its_credential(pool: PgPool) {
+        let calls: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let seen = calls.clone();
+        let token_calls = Arc::new(Mutex::new(0_usize));
+        let token_seen = token_calls.clone();
+        let server = Router::new()
+            .route(
+                "/oauth/token",
+                post(move || {
+                    let token_seen = token_seen.clone();
+                    async move {
+                        *token_seen.lock().unwrap() += 1;
+                        // The provider's token endpoint is briefly unavailable.
+                        (StatusCode::SERVICE_UNAVAILABLE, "try later")
+                    }
+                }),
+            )
+            .route(
+                "/voice",
+                post(move |headers: HeaderMap| {
+                    let seen = seen.clone();
+                    async move {
+                        seen.lock()
+                            .unwrap()
+                            .push(headers["authorization"].to_str().unwrap().to_owned());
+                        (
+                            StatusCode::CREATED,
+                            "v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n",
+                        )
+                    }
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move {
+            axum::serve(listener, server).await.unwrap();
+        });
+        let state = AppState {
+            config: crate::AppConfig {
+                codex_issuer: base.clone(),
+                ..crate::AppConfig::default()
+            },
+            http: reqwest::Client::new(),
+            gateway_http: reqwest::Client::new(),
+            pool,
+        };
+        let owner = Uuid::new_v4();
+        sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'test-only')")
+            .bind(owner)
+            .bind(owner.simple().to_string())
+            .execute(&state.pool)
+            .await
+            .unwrap();
+        let cipher = Aes256Gcm::new_from_slice(&state.config.credential_encryption_key).unwrap();
+        let expiring = Uuid::new_v4();
+        let healthy = Uuid::new_v4();
+        // The preferred account's token expires within the refresh window, so
+        // the request must refresh it first; the other account is current.
+        for (id, token, expires_in) in [
+            (expiring, "expiring-voice-token", "1 minute"),
+            (healthy, "healthy-voice-token", "1 day"),
+        ] {
+            sqlx::query("INSERT INTO agent_connections (id,user_id,provider,status) VALUES ($1,$2,'chatgpt','connected')")
+                .bind(id).bind(owner).execute(&state.pool).await.unwrap();
+            let nonce = [7_u8; 12];
+            let payload =
+                json!({"access_token": token, "refresh_token": "voice-refresh"}).to_string();
+            let ciphertext = cipher
+                .encrypt(Nonce::from_slice(&nonce), payload.as_bytes())
+                .unwrap();
+            sqlx::query(&format!("INSERT INTO agent_connection_credentials (connection_id,credential_ciphertext,credential_nonce,access_token_expires_at) VALUES ($1,$2,$3,NOW()+INTERVAL '{expires_in}')"))
+                .bind(id).bind(ciphertext).bind(nonce.to_vec()).execute(&state.pool).await.unwrap();
+        }
+        let selection = GatewaySelection {
+            user_id: owner,
+            connection_id: Some(expiring),
+            organization_id: None,
+        };
+        let body = json!({"sdp":"v=0\r\nm=audio 9 RTP/SAVPF 111\r\n", "session":{"model":"gpt-live-1-codex"}});
+
+        let sdp = create_session(&state, selection, body, &format!("{base}/voice"))
+            .await
+            .expect("another account in scope starts the call");
+        assert!(sdp.starts_with("v=0"));
+        assert_eq!(*token_calls.lock().unwrap(), 1);
+        assert_eq!(
+            *calls.lock().unwrap(),
+            ["Bearer healthy-voice-token"],
+            "no session request was made with the account that could not refresh"
+        );
+        let status: String =
+            sqlx::query_scalar("SELECT availability_status FROM agent_connections WHERE id = $1")
+                .bind(expiring)
+                .fetch_one(&state.pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            status, "active",
+            "a transient refresh failure is not a reconnect"
+        );
         task.abort();
     }
 }

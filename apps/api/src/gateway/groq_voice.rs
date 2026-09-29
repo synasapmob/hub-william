@@ -20,11 +20,12 @@ use uuid::Uuid;
 
 use super::{
     GatewaySelection, ProviderCandidate, TokenUsage, claim_candidate, mark_active,
-    mark_rate_limited, mark_reauth_required, nonnegative_i64, organization_usage_event,
-    provider_credential, record_organization_usage, release_probe, selected_provider_candidates,
+    mark_rate_limited, nonnegative_i64, organization_usage_event, provider_credential,
+    record_organization_usage, release_probe, selected_provider_candidates,
 };
 use crate::{
     AgentProvider, AppState,
+    connections::{CredentialLookup, recover_rejected_credential},
     error::ApiError,
     playground_groq_voice::{
         GROQ_CHAT_MODEL, GROQ_TTS_MODEL, GroqVoiceTurnRequest, GroqVoiceTurnResponse,
@@ -400,10 +401,19 @@ async fn checked_request(
             return Err(ApiError::RateLimited);
         }
         reqwest::StatusCode::UNAUTHORIZED => {
-            mark_reauth_required(state, connection_id, key).await?;
-            return Err(ApiError::Provider(
-                "Reconnect this Groq account with a valid API key.".into(),
-            ));
+            // Revalidate the key before marking: one rejected call is not proof
+            // the key is dead, and a mark would block this account everywhere.
+            // A turn in progress is never replayed, so this call still fails.
+            return Err(
+                match recover_rejected_credential(state, connection_id, key).await {
+                    Ok(CredentialLookup::ReauthorizationRequired) => ApiError::Provider(
+                        "Reconnect this Groq account with a valid API key.".into(),
+                    ),
+                    Ok(CredentialLookup::Ready(..)) | Err(_) => ApiError::Provider(format!(
+                        "Groq rejected this {stage} request. Start a new call to retry."
+                    )),
+                },
+            );
         }
         status if !status.is_success() => {
             let body = to_bytes(Body::from_stream(response.bytes_stream()), 64 * 1024)
@@ -546,5 +556,143 @@ mod tests {
                 .iter()
                 .all(|s| s.chars().count() <= 200)
         );
+    }
+}
+
+#[cfg(all(test, feature = "database-tests"))]
+mod rejected_key_tests {
+    use super::*;
+    use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::Aead};
+    use axum::{
+        Router,
+        http::StatusCode,
+        routing::{get, post},
+    };
+    use sqlx::PgPool;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicU16, Ordering},
+    };
+
+    const GROQ_KEY: &str = "gsk-voice-test-key-000000000001";
+
+    async fn groq_account(state: &AppState) -> Uuid {
+        let owner = Uuid::new_v4();
+        sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'test-only')")
+            .bind(owner)
+            .bind(owner.simple().to_string())
+            .execute(&state.pool)
+            .await
+            .unwrap();
+        let id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO agent_connections (id,user_id,provider,status) VALUES ($1,$2,'groq','connected')",
+        )
+        .bind(id)
+        .bind(owner)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+        let cipher = Aes256Gcm::new_from_slice(&state.config.credential_encryption_key).unwrap();
+        let nonce = [9_u8; 12];
+        let payload = json!({"access_token": GROQ_KEY}).to_string();
+        let ciphertext = cipher
+            .encrypt(Nonce::from_slice(&nonce), payload.as_bytes())
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO agent_connection_credentials (connection_id,credential_ciphertext,credential_nonce) VALUES ($1,$2,$3)",
+        )
+        .bind(id)
+        .bind(ciphertext)
+        .bind(nonce.to_vec())
+        .execute(&state.pool)
+        .await
+        .unwrap();
+        id
+    }
+
+    async fn availability(state: &AppState, id: Uuid) -> (String, Option<String>) {
+        sqlx::query_as(
+            "SELECT availability_status, failure_message FROM agent_connections WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap()
+    }
+
+    #[sqlx::test]
+    async fn a_rejected_voice_call_marks_the_account_only_when_its_key_is_no_longer_valid(
+        pool: PgPool,
+    ) {
+        // Chat always rejects the call; the key check answers with `models_status`.
+        let models_status = Arc::new(AtomicU16::new(200));
+        let models = models_status.clone();
+        let server = Router::new()
+            .route(
+                "/chat/completions",
+                post(|| async { (StatusCode::UNAUTHORIZED, "rejected") }),
+            )
+            .route(
+                "/models",
+                get(move || {
+                    let models = models.clone();
+                    async move {
+                        (
+                            StatusCode::from_u16(models.load(Ordering::SeqCst)).unwrap(),
+                            axum::Json(json!({"data": []})),
+                        )
+                    }
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move {
+            axum::serve(listener, server).await.unwrap();
+        });
+        let state = AppState {
+            config: crate::AppConfig {
+                groq_api_url: base.clone(),
+                ..crate::AppConfig::default()
+            },
+            http: reqwest::Client::new(),
+            gateway_http: reqwest::Client::new(),
+            pool,
+        };
+        let id = groq_account(&state).await;
+        let call = || {
+            checked_request(
+                &state,
+                id,
+                GROQ_KEY,
+                state
+                    .gateway_http
+                    .post(format!("{base}/chat/completions"))
+                    .bearer_auth(GROQ_KEY),
+                "reply",
+            )
+        };
+
+        // One rejected call while the key still validates: the call fails,
+        // but the account is not blocked for everyone else.
+        assert!(matches!(
+            call().await,
+            Err(ApiError::Provider(message)) if message.contains("Start a new call")
+        ));
+        assert_eq!(availability(&state, id).await, ("active".to_owned(), None));
+
+        // Once the key itself is rejected, the account needs its owner.
+        models_status.store(401, Ordering::SeqCst);
+        assert!(matches!(
+            call().await,
+            Err(ApiError::Provider(message)) if message.contains("valid API key")
+        ));
+        let (status, message) = availability(&state, id).await;
+        assert_eq!(status, "reauth_required");
+        assert_eq!(
+            message.as_deref(),
+            Some("Provider authorization expired. Refresh this pool to reconnect.")
+        );
+        task.abort();
     }
 }

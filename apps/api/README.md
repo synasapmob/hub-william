@@ -105,7 +105,8 @@ refreshes the credential, or picks up the token another request already
 rotated in, and retries the same account once. The account is marked for
 reconnect only when the provider rejects its refresh credential or also rejects
 the fresh token; that mark is compare-and-set against the rejected token and
-logged. Other `403` responses advance to the next same-provider account; an
+logged. Other `403` responses and a `402` (such as a DeepSeek account without
+balance) advance to the next same-provider account; an
 AGY/Code Assist `403` does so without assuming that reconnecting fixes an
 account, project or model permission failure. An explicit `Verify your account
 to continue.` response instead marks only that AGY pool for reconnection before
@@ -134,8 +135,9 @@ every connected credential not already checked that local day: OAuth credentials
 are rotated, while static DeepSeek and Groq keys are validated. A restart catches
 up missed nightly checks. Request traffic reads credentials without a row lock
 unless they are about to expire, every refresh runs in its own task so a dropped
-request cannot lose a rotated token, and SIGTERM lets an in-progress sweep
-commit before the process exits. Accounts whose refresh credential is rejected
+request cannot lose a rotated token, and SIGTERM stops the sweep from starting
+another account while refreshes already talking to a provider commit (up to 25
+seconds after open requests drain) before the process exits. Accounts whose refresh credential is rejected
 need manual reconnection; the background sweeps cannot log in for them.
 Provider credential payloads are AES-256-GCM encrypted. Do not log request
 authorization headers, API keys, OAuth codes, device codes, callback URLs, or

@@ -1294,3 +1294,55 @@ async fn removing_a_member_drops_only_their_links_in_that_organization_and_keeps
     assert_eq!(workspace[0].status, AgentConnectionStatus::Connected);
     assert_eq!(workspace[0].availability_status, "active");
 }
+
+#[sqlx::test]
+async fn deleting_a_workspace_connection_waits_for_a_refresh_that_holds_its_credential(
+    pool: PgPool,
+) {
+    let (state, _fake) = state_with_fake_deepseek(pool).await;
+    let owner = test_user(&state.pool).await;
+    let root_id = connect_workspace_deepseek(&state, &owner, WORKSPACE_KEY).await;
+
+    // A refresh (or reconnect mark) locks the credential first, then updates the
+    // connection row. Hold that first lock while the owner deletes the account.
+    let mut refresh = state.pool.begin().await.unwrap();
+    sqlx::query("SELECT 1 FROM agent_connection_credentials WHERE connection_id = $1 FOR UPDATE")
+        .bind(root_id)
+        .fetch_one(&mut *refresh)
+        .await
+        .unwrap();
+    let delete = tokio::spawn({
+        let state = state.clone();
+        let jar = owner.jar.clone();
+        async move { crate::connections::disconnect(State(state), jar, Path(root_id)).await }
+    });
+    // Give the delete time to queue behind the credential lock.
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(!delete.is_finished(), "the delete waits for the refresh");
+
+    // The refresh finishes its connection-row update and commits. With the old
+    // lock order the delete held the connection row here and Postgres aborted
+    // one side as a deadlock.
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        sqlx::query("UPDATE agent_connections SET updated_at = NOW() WHERE id = $1")
+            .bind(root_id)
+            .execute(&mut *refresh),
+    )
+    .await
+    .expect("the refresh's connection update must not wait on the delete")
+    .unwrap();
+    refresh.commit().await.unwrap();
+
+    let deleted = tokio::time::timeout(std::time::Duration::from_secs(5), delete)
+        .await
+        .expect("the delete completes after the refresh commits")
+        .unwrap();
+    assert_eq!(deleted.unwrap(), StatusCode::NO_CONTENT);
+    assert!(
+        workspace_connection_row(&state.pool, root_id)
+            .await
+            .is_none()
+    );
+    assert!(stored_credentials(&state.pool, root_id).await.is_empty());
+}

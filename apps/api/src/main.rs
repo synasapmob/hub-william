@@ -12,10 +12,10 @@ use tokio::{
 
 const DEFAULT_PORT: u16 = 8080;
 const PROVIDER_CREDENTIAL_SWEEP_SECONDS: u64 = 60;
-/// How long shutdown waits for an in-progress credential sweep. A provider may
-/// already have rotated a refresh token; killing the sweep before its commit
-/// would lose the new token and force the owner to reconnect.
-const CREDENTIAL_SWEEP_SHUTDOWN_GRACE_SECONDS: u64 = 25;
+/// How long shutdown waits for credential refreshes that are already talking to
+/// a provider. The provider may have rotated the refresh token; exiting before
+/// the commit would lose the new token and force the owner to reconnect.
+const CREDENTIAL_REFRESH_SHUTDOWN_GRACE_SECONDS: u64 = 25;
 const VIETNAM_UTC_OFFSET_HOURS: i64 = 7;
 
 fn vietnam_day_start(now: DateTime<Utc>) -> (NaiveDate, DateTime<Utc>) {
@@ -77,8 +77,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut last_nightly_sweep: Option<NaiveDate> = None;
         loop {
             tokio::select! {
-                _ = sweep.tick() => {}
+                biased;
                 _ = sweeps_stopped.changed() => return,
+                _ = sweep.tick() => {}
+            }
+            if *sweeps_stopped.borrow() {
+                return;
             }
             let (local_day, day_start_utc) = vietnam_day_start(Utc::now());
             if last_nightly_sweep != Some(local_day) {
@@ -120,21 +124,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    // Stop scheduled refreshes as soon as shutdown is requested, while open
+    // streams drain. A refresh already talking to its provider still commits.
+    let shutdown = async move {
+        shutdown_signal().await;
+        println!("shutdown requested; stopping credential sweeps and draining requests");
+        hub_william_backend::stop_credential_sweeps();
+        let _ = stop_sweeps.send(true);
+    };
     axum::serve(listener, hub_william_backend::app(state))
-        .with_graceful_shutdown(shutdown_signal())
+        .with_graceful_shutdown(shutdown)
         .await?;
-    // Let a sweep that is already refreshing finish and commit its rotated
-    // tokens before the process exits; stop before the next one starts.
-    let _ = stop_sweeps.send(true);
-    if tokio::time::timeout(
-        Duration::from_secs(CREDENTIAL_SWEEP_SHUTDOWN_GRACE_SECONDS),
-        &mut credential_refresh_task,
-    )
-    .await
-    .is_err()
+    let grace = Duration::from_secs(CREDENTIAL_REFRESH_SHUTDOWN_GRACE_SECONDS);
+    if tokio::time::timeout(grace, &mut credential_refresh_task)
+        .await
+        .is_err()
     {
-        eprintln!("credential sweep did not finish before shutdown");
+        eprintln!("credential sweep did not stop before shutdown");
         credential_refresh_task.abort();
+    }
+    if !hub_william_backend::wait_for_credential_refreshes(grace).await {
+        eprintln!("credential refreshes were still running at shutdown");
     }
 
     Ok(())

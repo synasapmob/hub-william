@@ -2492,16 +2492,16 @@ async fn proxy_request_for_user(
                     continue;
                 }
             };
-            let disposition = if upstream.status() == StatusCode::FORBIDDEN {
-                if expected_provider == AgentProvider::Grok {
+            let disposition = match upstream.status() {
+                StatusCode::FORBIDDEN if expected_provider == AgentProvider::Grok => {
                     UpstreamDisposition::Reauthorize
-                } else {
-                    // A 403 is account-specific (plan, entitlement or policy);
-                    // another account in the pool may still serve the request.
+                }
+                // A 403 (plan, entitlement or policy) or 402 (no balance left)
+                // is about this account; another account may still serve.
+                StatusCode::FORBIDDEN | StatusCode::PAYMENT_REQUIRED => {
                     UpstreamDisposition::NextPool
                 }
-            } else {
-                upstream_disposition(upstream.status())
+                status => upstream_disposition(status),
             };
             match disposition {
                 UpstreamDisposition::RateLimit => {
@@ -3282,14 +3282,7 @@ async fn handle_rejected_credential(
             },
         );
     }
-    if mark_reauthorization_required_if_current(
-        state,
-        connection_id,
-        observed_access_token,
-        PROVIDER_LOGIN_REQUIRED_MESSAGE,
-    )
-    .await?
-    {
+    if mark_reauth_required(state, connection_id, observed_access_token).await? {
         Ok(RejectedCredential::ReauthorizationRequired)
     } else {
         Ok(RejectedCredential::NextAccount(ApiError::Provider(
