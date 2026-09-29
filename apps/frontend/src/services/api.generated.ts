@@ -372,6 +372,27 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/organization-summaries": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * The My organizations table: every organization the viewer belongs to with its
+     *     owner, agent and member counts and its recorded usage. Aggregating the usage
+     *     costs more than the plain list, so only that table asks for it.
+     */
+    get: operations["list_organization_summaries"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/organizations": {
     parameters: {
       query?: never;
@@ -441,6 +462,27 @@ export interface paths {
     put?: never;
     post?: never;
     delete: operations["unshare_agent"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/organizations/{id}/default": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Make an organization the viewer's default, the one their Organization pages
+     *     open with. Only an accepted member can, and the previous default stops being
+     *     one. Repeating the request changes nothing.
+     */
+    put: operations["set_default_organization"];
+    post?: never;
+    delete?: never;
     options?: never;
     head?: never;
     patch?: never;
@@ -818,6 +860,12 @@ export interface components {
       description?: string | null;
       /** Format: uuid */
       id: string;
+      /**
+       * @description The organization the viewer's Organization pages open with. At most one
+       *     organization is the default; creating or joining one, or choosing it,
+       *     makes it the default, and leaving it or its deletion clears that.
+       */
+      is_default: boolean;
       name: string;
       role: string;
     };
@@ -899,6 +947,39 @@ export interface components {
     OrganizationPeriodQuery: {
       /** Format: int64 */
       days?: number | null;
+    };
+    /**
+     * @description An organization the viewer belongs to, with what the My organizations table
+     *     shows: the owner, the agent and member counts, and recorded usage over the
+     *     last `period_days` UTC days (the same figures its Overview reports).
+     */
+    OrganizationSummary: {
+      /** Format: int64 */
+      agent_count: number;
+      /** Format: date-time */
+      created_at: string;
+      description?: string | null;
+      /** Format: uuid */
+      id: string;
+      /** @description Whether this is the organization the viewer's Organization pages open with. */
+      is_default: boolean;
+      /** Format: int64 */
+      known_cached_tokens: number;
+      /** Format: int64 */
+      known_input_tokens: number;
+      /** Format: int64 */
+      known_output_tokens: number;
+      /** Format: int64 */
+      member_count: number;
+      name: string;
+      owner_username: string;
+      /** Format: int64 */
+      period_days: number;
+      /** Format: int64 */
+      requests: number;
+      role: string;
+      /** Format: int64 */
+      token_known_requests: number;
     };
     OrganizationUsage: {
       breakdown: components["schemas"]["OrganizationUsageBreakdown"][];
@@ -1878,13 +1959,36 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Invitation accepted */
+      /** @description Invitation accepted and the organization made the member's default */
       200: {
         headers: {
           [name: string]: unknown;
         };
         content: {
           "application/json": components["schemas"]["Organization"];
+        };
+      };
+    };
+  };
+  list_organization_summaries: {
+    parameters: {
+      query?: {
+        /** @description UTC calendar days of usage to summarize, 1 through 365; defaults to 30 */
+        days?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Organizations where the viewer is an accepted member, with their owner, counts and recent usage */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["OrganizationSummary"][];
         };
       };
     };
@@ -1922,7 +2026,7 @@ export interface operations {
       };
     };
     responses: {
-      /** @description Organization created */
+      /** @description Organization created and made the creator's default */
       201: {
         headers: {
           [name: string]: unknown;
@@ -2031,6 +2135,27 @@ export interface operations {
     requestBody?: never;
     responses: {
       /** @description Agent unshared */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  set_default_organization: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Organization ID */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The organization is now the viewer's default */
       204: {
         headers: {
           [name: string]: unknown;

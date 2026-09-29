@@ -18,6 +18,7 @@ import organizationsService, {
   type OrganizationInvitation,
   type OrganizationMember,
   type OrganizationOverview,
+  type OrganizationSummary,
   type OrganizationUsage,
 } from "@/services/organizations";
 import createQueryClient from "@/utils/utils.query-client";
@@ -32,6 +33,7 @@ const first: Organization = {
   createdAt: "2026-09-20T12:00:00Z",
   description: null,
   id: "11111111-1111-4111-8111-111111111111",
+  isDefault: false,
   name: "Team Mây",
   role: "owner",
 };
@@ -39,9 +41,31 @@ const second: Organization = {
   createdAt: "2026-09-21T12:00:00Z",
   description: null,
   id: "22222222-2222-4222-8222-222222222222",
+  isDefault: false,
   name: "Team Nắng",
   role: "member",
 };
+
+// The row My organizations shows for an organization, as the API summarizes it.
+function summaryFor(organization: Organization): OrganizationSummary {
+  const mine = organization.id === first.id;
+  return {
+    ...organization,
+    agentCount: mine ? 3 : 1,
+    knownCachedTokens: 0,
+    knownInputTokens: 900,
+    knownOutputTokens: 100,
+    memberCount: mine ? 5 : 2,
+    ownerUsername: organization.role === "owner" ? "ban" : "minh",
+    periodDays: 30,
+    requests: mine ? 12 : 2,
+    tokenKnownRequests: mine ? 8 : 1,
+  };
+}
+
+function asDefault(organization: Organization): Organization {
+  return { ...organization, isDefault: true };
+}
 
 function overviewFor(organization: Organization): OrganizationOverview {
   return {
@@ -183,10 +207,14 @@ describe("Organization overview", () => {
   it("makes the organization picked in My organizations the default and shows only its real aggregate", async () => {
     signIn();
     vi.spyOn(organizationsService, "list").mockResolvedValue([first, second]);
+    vi.spyOn(organizationsService, "summaries").mockResolvedValue([
+      summaryFor(first),
+      summaryFor(second),
+    ]);
     vi.spyOn(organizationsService, "invitations").mockResolvedValue([]);
-    vi.spyOn(organizationsService, "members").mockImplementation(async (id) =>
-      membersFor(id),
-    );
+    const setDefault = vi
+      .spyOn(organizationsService, "setDefault")
+      .mockResolvedValue();
     const overview = vi
       .spyOn(organizationsService, "overview")
       .mockImplementation(async (id) =>
@@ -206,7 +234,9 @@ describe("Organization overview", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "My organizations" }));
     const dialog = screen.getByRole("dialog", { name: "My organizations" });
-    await user.click(within(dialog).getByRole("button", { name: "Team Nắng" }));
+    await user.click(
+      await within(dialog).findByRole("button", { name: "Team Nắng" }),
+    );
 
     await waitFor(() =>
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
@@ -216,9 +246,106 @@ describe("Organization overview", () => {
     ).toBeVisible();
     expect(screen.getByText("Team Nắng")).toBeVisible();
     expect(overview).toHaveBeenCalledWith(second.id, 30);
+    expect(setDefault).toHaveBeenCalledTimes(1);
+    expect(setDefault).toHaveBeenCalledWith(second.id);
+  });
+
+  it("opens with the organization the server marks as the default, whatever the browser remembers", async () => {
+    signIn();
+    window.localStorage.setItem(`hub-william:organization:${userId}`, first.id);
+    const list = vi
+      .spyOn(organizationsService, "list")
+      .mockResolvedValue([first, asDefault(second)]);
+    vi.spyOn(organizationsService, "invitations").mockResolvedValue([]);
+    const overview = vi
+      .spyOn(organizationsService, "overview")
+      .mockImplementation(async (id) =>
+        overviewFor(id === first.id ? first : second),
+      );
+
+    renderRoute();
+
+    expect(await screen.findByText("Team Nắng")).toBeVisible();
     expect(
-      window.localStorage.getItem(`hub-william:organization:${userId}`),
-    ).toBe(second.id);
+      await screen.findByText("Reported by 1 of 2 requests"),
+    ).toBeVisible();
+    expect(screen.queryByText("Team Mây")).not.toBeInTheDocument();
+    expect(overview).not.toHaveBeenCalledWith(first.id, expect.anything());
+    expect(list).toHaveBeenCalledTimes(1);
+  });
+
+  it("stands in the oldest organization until a default exists, and choosing it makes it one", async () => {
+    const { setDefault, summaries } = arrange();
+
+    renderRoute();
+    const user = userEvent.setup();
+    expect(await screen.findByText("Team Mây")).toBeVisible();
+    expect(summaries).not.toHaveBeenCalled();
+    const dialog = await openManageDialog(user);
+    const mine = await within(dialog).findByRole("row", { name: /Team Mây/ });
+    expect(within(mine).getByText("Default")).toBeVisible();
+
+    await user.click(within(mine).getByRole("button", { name: "Team Mây" }));
+
+    await waitFor(() => expect(setDefault).toHaveBeenCalledWith(first.id));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("Team Mây")).toBeVisible();
+  });
+
+  it("does not ask the server again to make the current default the default", async () => {
+    const { setDefault } = arrange({
+      organizations: [asDefault(first), second],
+    });
+
+    renderRoute();
+    const user = userEvent.setup();
+    const dialog = await openManageDialog(user);
+    await user.click(
+      await within(dialog).findByRole("button", { name: "Team Mây" }),
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    expect(setDefault).not.toHaveBeenCalled();
+    expect(screen.getByText("Team Mây")).toBeVisible();
+  });
+
+  it("keeps the dialog open and the page unchanged when the choice cannot be saved", async () => {
+    const { setDefault } = arrange();
+    setDefault.mockRejectedValueOnce(
+      new Error("You do not have permission to perform this action."),
+    );
+
+    renderRoute();
+    const user = userEvent.setup();
+    expect(await screen.findByText("Team Mây")).toBeVisible();
+    const dialog = await openManageDialog(user);
+    await user.click(
+      await within(dialog).findByRole("button", { name: "Team Nắng" }),
+    );
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "You do not have permission to perform this action.",
+    );
+    expect(dialog).toBeVisible();
+    expect(
+      within(within(dialog).getByRole("row", { name: /Team Mây/ })).getByText(
+        "Default",
+      ),
+    ).toBeVisible();
+    expect(
+      within(dialog).queryByRole("row", { name: /Team Nắng.*Default/ }),
+    ).not.toBeInTheDocument();
+    // The next attempt goes through and clears the message.
+    await user.click(within(dialog).getByRole("button", { name: "Team Nắng" }));
+    await waitFor(() => expect(setDefault).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("Team Nắng")).toBeVisible();
   });
 
   it("opens New organization in a dialog and selects the created team", async () => {
@@ -226,6 +353,7 @@ describe("Organization overview", () => {
       createdAt: "2026-09-24T00:00:00Z",
       description: null,
       id: "55555555-5555-4555-8555-555555555555",
+      isDefault: true,
       name: "Team Sông",
       role: "owner",
     };
@@ -237,6 +365,7 @@ describe("Organization overview", () => {
     vi.spyOn(organizationsService, "list")
       .mockResolvedValueOnce([first])
       .mockResolvedValue([first, created]);
+    // (The server made the new organization the default, so `created` says so.)
     vi.spyOn(organizationsService, "invitations").mockResolvedValue([]);
     vi.spyOn(organizationsService, "overview").mockImplementation(async (id) =>
       overviewFor(id === created.id ? created : first),
@@ -287,10 +416,12 @@ describe("Organization overview", () => {
   });
 });
 
+// Accepting an invitation makes the joined organization the default.
 const joined: Organization = {
   createdAt: "2026-09-26T12:00:00Z",
   description: null,
   id: invitation.organizationId,
+  isDefault: true,
   name: "Team Gió",
   role: "member",
 };
@@ -320,7 +451,26 @@ function arrange({
       .mockImplementation(async (id) =>
         overviewFor(id === first.id ? first : second),
       ),
+    setDefault: vi
+      .spyOn(organizationsService, "setDefault")
+      .mockResolvedValue(),
+    summaries: vi
+      .spyOn(organizationsService, "summaries")
+      .mockResolvedValue(organizations.map(summaryFor)),
   };
+}
+
+// What the server reports: `before` the first time it is asked, `after` every
+// time since, once something has changed.
+function serverReports(
+  spies: Pick<ReturnType<typeof arrange>, "list" | "summaries">,
+  before: Organization[],
+  after: Organization[],
+) {
+  spies.list.mockResolvedValueOnce(before).mockResolvedValue(after);
+  spies.summaries
+    .mockResolvedValueOnce(before.map(summaryFor))
+    .mockResolvedValue(after.map(summaryFor));
 }
 
 async function openManageDialog(user: UserEvent) {
@@ -339,8 +489,8 @@ async function removeFrom(user: UserEvent, dialog: HTMLElement, name: RegExp) {
 }
 
 describe("My organizations", () => {
-  it("lists each organization with its owner, agents, members, tokens and created date", async () => {
-    arrange();
+  it("lists each organization with its owner, agents, members, tokens and created date from one summary request", async () => {
+    const { members, overview, summaries } = arrange();
 
     renderRoute();
     const user = userEvent.setup();
@@ -349,8 +499,11 @@ describe("My organizations", () => {
     expect(
       within(dialog).getByRole("columnheader", { name: /Tokens/ }),
     ).toBeVisible();
-    const mine = within(dialog).getByRole("row", { name: /Team Mây/ });
-    await waitFor(() => expect(within(mine).getByText("@ban")).toBeVisible());
+    expect(
+      within(dialog).getByRole("columnheader", { name: /Tokens.*30d/ }),
+    ).toBeVisible();
+    const mine = await within(dialog).findByRole("row", { name: /Team Mây/ });
+    expect(within(mine).getByText("@ban")).toBeVisible();
     expect(within(mine).getByText("(you)")).toBeVisible();
     expect(within(mine).getByText("3")).toBeVisible();
     expect(within(mine).getByText("5")).toBeVisible();
@@ -359,17 +512,52 @@ describe("My organizations", () => {
     expect(within(mine).getByText("Default")).toBeVisible();
 
     const other = within(dialog).getByRole("row", { name: /Team Nắng/ });
-    await waitFor(() => expect(within(other).getByText("@minh")).toBeVisible());
+    expect(within(other).getByText("@minh")).toBeVisible();
     expect(within(other).queryByText("(you)")).not.toBeInTheDocument();
     expect(within(other).getByText("1")).toBeVisible();
     expect(within(other).getByText("2")).toBeVisible();
     expect(within(other).getByText("Sep 21, 2026")).toBeVisible();
     expect(within(other).queryByText("Default")).not.toBeInTheDocument();
+
+    // One request feeds every row. Nothing is asked per organization.
+    expect(summaries).toHaveBeenCalledTimes(1);
+    expect(members).not.toHaveBeenCalled();
+    expect(overview.mock.calls.every(([id]) => id === first.id)).toBe(true);
+  });
+
+  it("shows why the organizations could not be loaded and loads them on retry", async () => {
+    const { summaries } = arrange();
+    summaries
+      .mockRejectedValueOnce(new Error("Organizations are unavailable."))
+      .mockResolvedValue([summaryFor(first), summaryFor(second)]);
+
+    renderRoute();
+    const user = userEvent.setup();
+    expect(await screen.findByText("Team Mây")).toBeVisible();
+    const dialog = await openManageDialog(user);
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "Organizations are unavailable.",
+    );
+    expect(
+      within(dialog).queryByText(/You have not joined an organization yet/),
+    ).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("row", { name: /Team/ })).toBeNull();
+    await user.click(
+      within(dialog).getByRole("button", { name: "Retry organizations" }),
+    );
+
+    expect(
+      await within(dialog).findByRole("row", { name: /Team Nắng/ }),
+    ).toBeVisible();
+    expect(
+      within(dialog).queryByRole("button", { name: "Retry organizations" }),
+    ).not.toBeInTheDocument();
   });
 
   it("asks an owner to confirm, then deletes the organization for everyone", async () => {
-    const { list, members, overview } = arrange();
-    list.mockResolvedValueOnce([first, second]).mockResolvedValue([second]);
+    const { list, members, overview, summaries } = arrange();
+    serverReports({ list, summaries }, [first, second], [second]);
     const deleteOrganization = vi
       .spyOn(organizationsService, "deleteOrganization")
       .mockResolvedValue();
@@ -426,8 +614,8 @@ describe("My organizations", () => {
   });
 
   it("asks a member to confirm, then only leaves that organization", async () => {
-    const { list } = arrange();
-    list.mockResolvedValueOnce([first, second]).mockResolvedValue([first]);
+    const { list, summaries } = arrange();
+    serverReports({ list, summaries }, [first, second], [first]);
     const deleteOrganization = vi
       .spyOn(organizationsService, "deleteOrganization")
       .mockResolvedValue();
@@ -472,8 +660,8 @@ describe("My organizations", () => {
   });
 
   it("falls back to the create form when the last organization is removed", async () => {
-    const { list } = arrange({ organizations: [first] });
-    list.mockResolvedValueOnce([first]).mockResolvedValue([]);
+    const { list, summaries } = arrange({ organizations: [first] });
+    serverReports({ list, summaries }, [first], []);
     const deleteOrganization = vi
       .spyOn(organizationsService, "deleteOrganization")
       .mockResolvedValue();
@@ -542,11 +730,15 @@ describe("My organizations", () => {
   });
 
   it("keeps invitations inside the dialog and accepting one makes it the default", async () => {
-    const { invitations, list } = arrange({ invitations: [invitation] });
+    const { invitations, list, summaries } = arrange({
+      invitations: [invitation],
+    });
     invitations.mockResolvedValueOnce([invitation]).mockResolvedValue([]);
-    list
-      .mockResolvedValueOnce([first, second])
-      .mockResolvedValue([first, second, joined]);
+    serverReports(
+      { list, summaries },
+      [first, second],
+      [first, second, joined],
+    );
     const acceptInvitation = vi
       .spyOn(organizationsService, "acceptInvitation")
       .mockResolvedValue(joined);
@@ -577,6 +769,13 @@ describe("My organizations", () => {
     await waitFor(() =>
       expect(within(dialog).getByText("No pending invitations.")).toBeVisible(),
     );
+    // The server made it the default, so the pages behind the dialog show it.
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("Team Gió")).toBeVisible();
+    expect(screen.queryByText("Team Mây")).not.toBeInTheDocument();
   });
 
   it("declines an invitation from the dialog", async () => {
@@ -630,12 +829,12 @@ describe("My organizations", () => {
   });
 
   it("lets someone without an organization open their invitations", async () => {
-    const { invitations, list } = arrange({
+    const { invitations, list, summaries } = arrange({
       invitations: [invitation],
       organizations: [],
     });
     invitations.mockResolvedValueOnce([invitation]).mockResolvedValue([]);
-    list.mockResolvedValueOnce([]).mockResolvedValue([joined]);
+    serverReports({ list, summaries }, [], [joined]);
     vi.spyOn(organizationsService, "acceptInvitation").mockResolvedValue(
       joined,
     );
@@ -899,16 +1098,16 @@ describe("Organization header", () => {
 });
 
 describe("My organizations in the URL", () => {
-  it("opens from ?tab=my-organization, with skeleton rows until the list loads", async () => {
+  it("opens from ?tab=my-organization, with skeleton rows until the summaries load", async () => {
     signIn();
-    const list = deferred<Organization[]>();
-    vi.spyOn(organizationsService, "list").mockReturnValue(list.promise);
+    vi.spyOn(organizationsService, "list").mockResolvedValue([first, second]);
+    const summaries = deferred<OrganizationSummary[]>();
+    vi.spyOn(organizationsService, "summaries").mockReturnValue(
+      summaries.promise,
+    );
     vi.spyOn(organizationsService, "invitations").mockResolvedValue([
       invitation,
     ]);
-    vi.spyOn(organizationsService, "members").mockImplementation(async (id) =>
-      membersFor(id),
-    );
     vi.spyOn(organizationsService, "overview").mockImplementation(async (id) =>
       overviewFor(id === first.id ? first : second),
     );
@@ -923,7 +1122,9 @@ describe("My organizations in the URL", () => {
       within(dialog).queryByText(/You have not joined an organization yet/),
     ).not.toBeInTheDocument();
 
-    await act(async () => list.resolve([first, second]));
+    await act(async () =>
+      summaries.resolve([summaryFor(first), summaryFor(second)]),
+    );
 
     expect(
       await within(dialog).findByRole("row", { name: /Team Mây/ }),
@@ -951,7 +1152,9 @@ describe("My organizations in the URL", () => {
       "Query: ?member=id-minh&tab=my-organization",
     );
 
-    await user.click(within(dialog).getByRole("button", { name: "Team Nắng" }));
+    await user.click(
+      await within(dialog).findByRole("button", { name: "Team Nắng" }),
+    );
 
     await waitFor(() =>
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
