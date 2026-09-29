@@ -29,7 +29,8 @@ use super::{
     OrganizationAgentListQuery, OrganizationPeriodQuery, OrganizationUsageQuery,
     ShareOrganizationAgent, accept_invitation, create_organization, delete_organization,
     invite_member, leave_organization, list_agents, list_invitations, list_members,
-    list_organizations, overview, remove_member, share_agent, unshare_agent, usage,
+    list_organization_summaries, list_organizations, overview, remove_member,
+    set_default_organization, share_agent, unshare_agent, usage,
 };
 use crate::{
     AgentConnection, AgentConnectionStatus, AgentProvider, AppConfig, AppState,
@@ -1349,6 +1350,21 @@ async fn invite(state: &AppState, owner: &TestUser, org_id: Uuid, invitee: &Test
     assert_eq!(status, StatusCode::CREATED);
 }
 
+async fn organization_summaries(
+    state: &AppState,
+    viewer: &TestUser,
+    days: Option<i64>,
+) -> Vec<super::OrganizationSummary> {
+    let Json(organizations) = list_organization_summaries(
+        State(state.clone()),
+        viewer.jar.clone(),
+        Query(OrganizationPeriodQuery { days }),
+    )
+    .await
+    .unwrap();
+    organizations
+}
+
 async fn organization_ids(state: &AppState, viewer: &TestUser) -> Vec<Uuid> {
     let Json(organizations) = list_organizations(State(state.clone()), viewer.jar.clone())
         .await
@@ -1357,6 +1373,36 @@ async fn organization_ids(state: &AppState, viewer: &TestUser) -> Vec<Uuid> {
         .into_iter()
         .map(|organization| organization.id)
         .collect()
+}
+
+/// The organizations the viewer's list marks as their default.
+async fn default_ids(state: &AppState, viewer: &TestUser) -> Vec<Uuid> {
+    let Json(organizations) = list_organizations(State(state.clone()), viewer.jar.clone())
+        .await
+        .unwrap();
+    organizations
+        .into_iter()
+        .filter(|organization| organization.is_default)
+        .map(|organization| organization.id)
+        .collect()
+}
+
+async fn default_rows(pool: &PgPool, user: &TestUser) -> i64 {
+    sqlx::query_scalar(
+        "SELECT COUNT(*) FROM organization_memberships WHERE user_id = $1 AND is_default",
+    )
+    .bind(user.id)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+async fn choose_default(
+    state: &AppState,
+    user: &TestUser,
+    org_id: Uuid,
+) -> Result<StatusCode, ApiError> {
+    set_default_organization(State(state.clone()), user.jar.clone(), Path(org_id)).await
 }
 
 #[sqlx::test]
@@ -1581,6 +1627,509 @@ async fn a_member_leaving_drops_only_their_membership_and_links_and_an_owner_can
             .any(|invitation| invitation.organization_id == left),
         "a member who left can be invited again"
     );
+}
+
+/// The id of the pending invitation `invitee` has to `org_id`.
+async fn invitation_id(state: &AppState, invitee: &TestUser, org_id: Uuid) -> Uuid {
+    let Json(invitations) = list_invitations(State(state.clone()), invitee.jar.clone())
+        .await
+        .unwrap();
+    invitations
+        .iter()
+        .find(|invitation| invitation.organization_id == org_id)
+        .unwrap()
+        .id
+}
+
+async fn accept(
+    state: &AppState,
+    invitee: &TestUser,
+    invitation_id: Uuid,
+) -> Result<super::Organization, ApiError> {
+    accept_invitation(
+        State(state.clone()),
+        invitee.jar.clone(),
+        Path(invitation_id),
+    )
+    .await
+    .map(|Json(accepted)| accepted)
+}
+
+#[sqlx::test]
+async fn creating_or_accepting_an_organization_makes_it_the_default(pool: PgPool) {
+    let (state, _) = state_with_fake_deepseek(pool).await;
+    let owner = test_user(&state.pool).await;
+    let member = test_user(&state.pool).await;
+    let invitee = test_user(&state.pool).await;
+    let outsider = test_user(&state.pool).await;
+
+    assert!(default_ids(&state, &owner).await.is_empty());
+    let first = organization_with_members(&state, &owner, "First", &[&member]).await;
+    assert_eq!(
+        default_ids(&state, &owner).await,
+        vec![first],
+        "the organization someone creates is their default"
+    );
+    let (_, Json(created)) = create_organization(
+        State(state.clone()),
+        outsider.jar.clone(),
+        Json(CreateOrganization {
+            name: "Outsider's".to_owned(),
+            description: None,
+        }),
+    )
+    .await
+    .unwrap();
+    assert!(
+        created.is_default,
+        "the created organization says so itself"
+    );
+    assert_eq!(default_ids(&state, &outsider).await, vec![created.id]);
+    assert_eq!(
+        default_ids(&state, &owner).await,
+        vec![first],
+        "someone else's default is not touched"
+    );
+    assert_eq!(
+        default_ids(&state, &member).await,
+        vec![first],
+        "and so is the one they have just joined"
+    );
+
+    let second = organization_with_members(&state, &owner, "Second", &[&member]).await;
+    for (user, who) in [(&owner, "the creator"), (&member, "the member")] {
+        assert_eq!(
+            default_ids(&state, user).await,
+            vec![second],
+            "the newest organization replaces the default of {who}"
+        );
+        assert_eq!(default_rows(&state.pool, user).await, 1);
+    }
+
+    // Being invited changes nothing until the invitation is accepted.
+    invite(&state, &owner, first, &invitee).await;
+    assert!(default_ids(&state, &invitee).await.is_empty());
+    let invitation = invitation_id(&state, &invitee, first).await;
+    let accepted = accept(&state, &invitee, invitation).await.unwrap();
+    assert_eq!(
+        (accepted.id, accepted.is_default),
+        (first, true),
+        "accepting returns the organization that was joined, now the default"
+    );
+    assert_eq!(default_ids(&state, &invitee).await, vec![first]);
+
+    // Everyone else keeps their own default.
+    assert_eq!(default_ids(&state, &owner).await, vec![second]);
+    assert_eq!(default_ids(&state, &member).await, vec![second]);
+
+    // An invitation that was already accepted, or is someone else's, is not
+    // found and does not take the default back from the newer organization.
+    let own = organization_with_members(&state, &invitee, "Own", &[]).await;
+    assert_eq!(default_ids(&state, &invitee).await, vec![own]);
+    assert!(matches!(
+        accept(&state, &invitee, invitation).await,
+        Err(ApiError::NotFound)
+    ));
+    assert!(matches!(
+        accept(&state, &outsider, invitation).await,
+        Err(ApiError::NotFound)
+    ));
+    assert_eq!(default_ids(&state, &invitee).await, vec![own]);
+    assert_eq!(default_ids(&state, &outsider).await, vec![created.id]);
+}
+
+#[sqlx::test]
+async fn a_default_organization_is_single_per_member_and_cleared_when_the_membership_ends(
+    pool: PgPool,
+) {
+    let (state, _) = state_with_fake_deepseek(pool).await;
+    let owner = test_user(&state.pool).await;
+    let member = test_user(&state.pool).await;
+    let invitee = test_user(&state.pool).await;
+    let outsider = test_user(&state.pool).await;
+    let first = organization_with_members(&state, &owner, "First", &[&member]).await;
+    let second = organization_with_members(&state, &owner, "Second", &[&member]).await;
+    invite(&state, &owner, first, &invitee).await;
+
+    for (user, who) in [
+        (&invitee, "a pending invitee"),
+        (&outsider, "someone outside the organization"),
+    ] {
+        assert!(
+            matches!(
+                choose_default(&state, user, first).await,
+                Err(ApiError::Forbidden)
+            ),
+            "{who} cannot make an organization their default"
+        );
+    }
+    assert_eq!(default_rows(&state.pool, &invitee).await, 0);
+    assert_eq!(default_rows(&state.pool, &outsider).await, 0);
+
+    // Both organizations were joined; the newest one is the default until the
+    // member picks another.
+    assert_eq!(default_ids(&state, &member).await, vec![second]);
+    assert_eq!(
+        choose_default(&state, &member, first).await.unwrap(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(default_ids(&state, &member).await, vec![first]);
+    assert_eq!(
+        default_ids(&state, &owner).await,
+        vec![second],
+        "a default belongs to one member only"
+    );
+
+    choose_default(&state, &member, second).await.unwrap();
+    assert_eq!(
+        default_ids(&state, &member).await,
+        vec![second],
+        "choosing another organization replaces the default"
+    );
+    choose_default(&state, &member, second).await.unwrap();
+    assert_eq!(default_ids(&state, &member).await, vec![second]);
+    assert_eq!(default_rows(&state.pool, &member).await, 1);
+
+    choose_default(&state, &owner, first).await.unwrap();
+    assert_eq!(default_ids(&state, &owner).await, vec![first]);
+    assert_eq!(default_ids(&state, &member).await, vec![second]);
+
+    // Two defaults for one member, or a default nobody accepted, cannot exist.
+    assert!(
+        sqlx::query(
+            "UPDATE organization_memberships SET is_default = TRUE WHERE user_id = $1 AND org_id = $2"
+        )
+        .bind(member.id)
+        .bind(first)
+        .execute(&state.pool)
+        .await
+        .is_err(),
+        "the unique index allows one default per member"
+    );
+    assert!(
+        sqlx::query("UPDATE organization_memberships SET is_default = TRUE WHERE user_id = $1")
+            .bind(invitee.id)
+            .execute(&state.pool)
+            .await
+            .is_err(),
+        "a pending membership cannot be a default"
+    );
+
+    // Leaving the default organization clears it; nothing replaces it silently.
+    assert_eq!(
+        leave_organization(State(state.clone()), member.jar.clone(), Path(second))
+            .await
+            .unwrap(),
+        StatusCode::NO_CONTENT
+    );
+    assert!(default_ids(&state, &member).await.is_empty());
+    assert_eq!(default_rows(&state.pool, &member).await, 0);
+    assert_eq!(default_ids(&state, &owner).await, vec![first]);
+
+    // Being removed from an organization clears it too.
+    choose_default(&state, &member, first).await.unwrap();
+    assert_eq!(default_ids(&state, &member).await, vec![first]);
+    remove_member(
+        State(state.clone()),
+        owner.jar.clone(),
+        Path((first, member.username.clone())),
+    )
+    .await
+    .unwrap();
+    assert_eq!(default_rows(&state.pool, &member).await, 0);
+
+    // Deleting the organization someone made their default clears it as well.
+    assert_eq!(
+        delete_organization(State(state.clone()), owner.jar.clone(), Path(first))
+            .await
+            .unwrap(),
+        StatusCode::NO_CONTENT
+    );
+    assert!(default_ids(&state, &owner).await.is_empty());
+    assert_eq!(default_rows(&state.pool, &owner).await, 0);
+    assert!(matches!(
+        choose_default(&state, &member, first).await,
+        Err(ApiError::Forbidden)
+    ));
+}
+
+#[sqlx::test]
+async fn concurrent_default_changes_by_one_user_leave_exactly_one_default(pool: PgPool) {
+    let (state, _) = state_with_fake_deepseek(pool).await;
+    let owner = test_user(&state.pool).await;
+    let member = test_user(&state.pool).await;
+    let newcomer = test_user(&state.pool).await;
+    let mut organizations = Vec::new();
+    for name in ["One", "Two", "Three"] {
+        organizations.push(organization_with_members(&state, &owner, name, &[&member]).await);
+    }
+
+    // The same member choosing between their organizations at once.
+    let mut requests = tokio::task::JoinSet::new();
+    for round in 0..15 {
+        let org_id = organizations[round % organizations.len()];
+        let state = state.clone();
+        let jar = member.jar.clone();
+        requests
+            .spawn(async move { set_default_organization(State(state), jar, Path(org_id)).await });
+    }
+    while let Some(result) = requests.join_next().await {
+        assert_eq!(result.unwrap().unwrap(), StatusCode::NO_CONTENT);
+    }
+    assert_eq!(default_rows(&state.pool, &member).await, 1);
+    let defaults = default_ids(&state, &member).await;
+    assert_eq!(defaults.len(), 1);
+    assert!(organizations.contains(&defaults[0]));
+
+    // Someone with no organization yet accepting three invitations at once,
+    // while also choosing between the ones they already have.
+    for org_id in &organizations {
+        invite(&state, &owner, *org_id, &newcomer).await;
+    }
+    let mut requests = tokio::task::JoinSet::new();
+    for org_id in organizations.clone() {
+        let state = state.clone();
+        let newcomer_jar = newcomer.jar.clone();
+        requests.spawn(async move {
+            let Json(invitations) = list_invitations(State(state.clone()), newcomer_jar.clone())
+                .await
+                .unwrap();
+            let invitation = invitations
+                .iter()
+                .find(|invitation| invitation.organization_id == org_id)
+                .unwrap()
+                .id;
+            accept_invitation(State(state), newcomer_jar, Path(invitation))
+                .await
+                .map(|Json(accepted)| accepted.id)
+        });
+    }
+    while let Some(result) = requests.join_next().await {
+        assert!(organizations.contains(&result.unwrap().unwrap()));
+    }
+    assert_eq!(default_rows(&state.pool, &newcomer).await, 1);
+    assert_eq!(organization_ids(&state, &newcomer).await.len(), 3);
+}
+
+#[sqlx::test]
+async fn organizations_created_at_once_by_one_user_leave_exactly_one_default(pool: PgPool) {
+    let (state, _) = state_with_fake_deepseek(pool).await;
+    let creator = test_user(&state.pool).await;
+
+    let mut requests = tokio::task::JoinSet::new();
+    for round in 0..6 {
+        let state = state.clone();
+        let jar = creator.jar.clone();
+        requests.spawn(async move {
+            create_organization(
+                State(state),
+                jar,
+                Json(CreateOrganization {
+                    name: format!("Concurrent {round}"),
+                    description: None,
+                }),
+            )
+            .await
+            .map(|(_, Json(organization))| organization.id)
+        });
+    }
+    let mut created = Vec::new();
+    while let Some(result) = requests.join_next().await {
+        created.push(result.unwrap().unwrap());
+    }
+
+    assert_eq!(created.len(), 6);
+    assert_eq!(organization_ids(&state, &creator).await.len(), 6);
+    assert_eq!(default_rows(&state.pool, &creator).await, 1);
+    assert!(created.contains(&default_ids(&state, &creator).await[0]));
+}
+
+#[sqlx::test]
+async fn the_organization_list_summarizes_each_organization_like_its_overview(pool: PgPool) {
+    let (state, _) = state_with_fake_deepseek(pool).await;
+    let owner = test_user(&state.pool).await;
+    let member = test_user(&state.pool).await;
+    let invitee = test_user(&state.pool).await;
+    let outsider = test_user(&state.pool).await;
+    let org = organization_with_members(&state, &owner, "Summarized", &[&member]).await;
+    let owned_by_member = organization_with_members(&state, &member, "Member's own", &[]).await;
+    invite(&state, &owner, org, &invitee).await;
+
+    let owner_connection = connect_workspace_deepseek(&state, &owner, PEER_KEY).await;
+    let member_connection = connect_workspace_deepseek(&state, &member, WORKSPACE_KEY).await;
+    let retired_connection =
+        connect_workspace_deepseek(&state, &owner, ROTATED_WORKSPACE_KEY).await;
+    link(&state, &owner, org, owner_connection).await;
+    link(&state, &member, org, member_connection).await;
+    link(&state, &owner, org, retired_connection).await;
+    sqlx::query("UPDATE agent_connections SET status = 'disconnected' WHERE id = $1")
+        .bind(retired_connection)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+    record_usage(&state.pool, org, &member, member_connection).await;
+    record_usage(&state.pool, org, &owner, owner_connection).await;
+    // A request whose provider reported no tokens still counts as a request.
+    sqlx::query(
+        "INSERT INTO organization_usage_events (id, org_id, user_id, connection_id, provider, model)
+         VALUES ($1, $2, $3, $4, 'deepseek', 'deepseek-chat')",
+    )
+    .bind(Uuid::new_v4())
+    .bind(org)
+    .bind(member.id)
+    .bind(member_connection)
+    .execute(&state.pool)
+    .await
+    .unwrap();
+    // A request from 45 days ago is outside the default 30 days only.
+    sqlx::query(
+        "INSERT INTO organization_usage_events
+            (id, org_id, user_id, connection_id, provider, model, input_tokens, output_tokens, created_at)
+         VALUES ($1, $2, $3, $4, 'deepseek', 'deepseek-chat', 700, 300, NOW() - INTERVAL '45 days')",
+    )
+    .bind(Uuid::new_v4())
+    .bind(org)
+    .bind(owner.id)
+    .bind(owner_connection)
+    .execute(&state.pool)
+    .await
+    .unwrap();
+
+    for (viewer, role) in [(&owner, "owner"), (&member, "member")] {
+        for days in [None, Some(1), Some(30), Some(90)] {
+            let summaries = organization_summaries(&state, viewer, days).await;
+            let summary = summaries.iter().find(|item| item.id == org).unwrap();
+            let Json(page) = overview(
+                State(state.clone()),
+                viewer.jar.clone(),
+                Path(org),
+                Query(OrganizationPeriodQuery { days }),
+            )
+            .await
+            .unwrap();
+            let who = format!("{role} with days {days:?}");
+            assert_eq!(summary.period_days, page.period_days, "{who}");
+            assert_eq!(summary.agent_count, page.agent_count, "{who}");
+            assert_eq!(summary.member_count, page.member_count, "{who}");
+            assert_eq!(summary.requests, page.requests, "{who}");
+            assert_eq!(summary.known_input_tokens, page.known_input_tokens, "{who}");
+            assert_eq!(
+                summary.known_output_tokens, page.known_output_tokens,
+                "{who}"
+            );
+            assert_eq!(
+                summary.known_cached_tokens, page.known_cached_tokens,
+                "{who}"
+            );
+            assert_eq!(
+                summary.token_known_requests, page.token_known_requests,
+                "{who}"
+            );
+            assert_eq!(summary.role, role);
+            assert_eq!(summary.is_default, page.organization.is_default, "{who}");
+            assert_eq!(summary.name, "Summarized");
+            assert_eq!(summary.owner_username, owner.username);
+            // The owner created this organization, so it is their default;
+            // the member created another one afterwards, so theirs is that one.
+            assert_eq!(summary.is_default, role == "owner", "{who}");
+        }
+    }
+
+    let summary = organization_summaries(&state, &member, None).await;
+    let summarized = summary.iter().find(|item| item.id == org).unwrap();
+    assert_eq!(
+        summarized.member_count, 2,
+        "the owner and the member, not the pending invitee"
+    );
+    assert_eq!(
+        summarized.agent_count, 2,
+        "a disconnected account is not an agent"
+    );
+    assert_eq!(summarized.period_days, 30);
+    assert_eq!(summarized.requests, 3);
+    assert_eq!(summarized.token_known_requests, 2);
+    assert_eq!(summarized.known_input_tokens, 20);
+    assert_eq!(summarized.known_output_tokens, 10);
+    let ninety_days = organization_summaries(&state, &member, Some(90)).await;
+    assert_eq!(
+        ninety_days
+            .iter()
+            .find(|item| item.id == org)
+            .unwrap()
+            .requests,
+        4
+    );
+
+    let own = summary
+        .iter()
+        .find(|item| item.id == owned_by_member)
+        .unwrap();
+    assert_eq!(own.role, "owner");
+    assert_eq!(own.owner_username, member.username);
+    assert_eq!((own.member_count, own.agent_count, own.requests), (1, 0, 0));
+    assert_eq!(
+        summary.iter().map(|item| item.id).collect::<Vec<_>>(),
+        vec![org, owned_by_member],
+        "oldest organization first"
+    );
+
+    // A default shows on the viewer's own rows only, and follows their choice.
+    let flags = |summaries: &[super::OrganizationSummary]| {
+        summaries
+            .iter()
+            .map(|item| (item.id, item.is_default))
+            .collect::<Vec<_>>()
+    };
+    let listed = |organizations: Vec<super::Organization>| {
+        organizations
+            .iter()
+            .map(|item| (item.id, item.is_default))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(flags(&summary), vec![(org, false), (owned_by_member, true)]);
+    choose_default(&state, &member, org).await.unwrap();
+    assert_eq!(
+        flags(&organization_summaries(&state, &member, None).await),
+        vec![(org, true), (owned_by_member, false)]
+    );
+    let Json(plain_list) = list_organizations(State(state.clone()), member.jar.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        listed(plain_list),
+        vec![(org, true), (owned_by_member, false)],
+        "the plain list carries the same flags"
+    );
+    assert_eq!(
+        flags(&organization_summaries(&state, &owner, None).await),
+        vec![(org, true)],
+        "the owner's own default is not the member's"
+    );
+
+    assert!(
+        organization_summaries(&state, &outsider, None)
+            .await
+            .is_empty()
+    );
+    assert!(matches!(
+        list_organization_summaries(
+            State(state.clone()),
+            member.jar.clone(),
+            Query(OrganizationPeriodQuery { days: Some(0) }),
+        )
+        .await,
+        Err(ApiError::Validation(_))
+    ));
+    assert!(matches!(
+        list_organization_summaries(
+            State(state.clone()),
+            CookieJar::new(),
+            Query(OrganizationPeriodQuery { days: None }),
+        )
+        .await,
+        Err(ApiError::Unauthorized)
+    ));
 }
 
 #[sqlx::test]

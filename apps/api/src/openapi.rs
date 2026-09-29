@@ -9,9 +9,9 @@ use crate::{
     ErrorResponse, GatewayKey, HealthResponse, InviteAgentPoolMember, InviteOrganizationMember,
     LoginRequest, Organization, OrganizationAgent, OrganizationAgentDetails,
     OrganizationAgentListQuery, OrganizationInvitation, OrganizationMember, OrganizationOverview,
-    OrganizationPeriodQuery, OrganizationUsage, OrganizationUsageBreakdown, OrganizationUsageDay,
-    OrganizationUsageQuery, RegisterRequest, SessionResponse, ShareOrganizationAgent,
-    StartAgentConnectionRequest,
+    OrganizationPeriodQuery, OrganizationSummary, OrganizationUsage, OrganizationUsageBreakdown,
+    OrganizationUsageDay, OrganizationUsageQuery, RegisterRequest, SessionResponse,
+    ShareOrganizationAgent, StartAgentConnectionRequest,
 };
 
 #[derive(OpenApi)]
@@ -34,8 +34,10 @@ use crate::{
         crate::agent_pools::invite_member,
         crate::agent_pools::remove_member,
         crate::organizations::list_organizations,
+        crate::organizations::list_organization_summaries,
         crate::organizations::create_organization,
         crate::organizations::delete_organization,
+        crate::organizations::set_default_organization,
         crate::organizations::leave_organization,
         crate::organizations::list_invitations,
         crate::organizations::accept_invitation,
@@ -112,6 +114,7 @@ use crate::{
         OrganizationMember,
         OrganizationOverview,
         OrganizationPeriodQuery,
+        OrganizationSummary,
         OrganizationUsage,
         OrganizationUsageBreakdown,
         OrganizationUsageDay,

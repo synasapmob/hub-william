@@ -26,6 +26,33 @@ pub struct Organization {
     pub description: Option<String>,
     pub role: String,
     pub created_at: DateTime<Utc>,
+    /// The organization the viewer's Organization pages open with. At most one
+    /// organization is the default; creating or joining one, or choosing it,
+    /// makes it the default, and leaving it or its deletion clears that.
+    pub is_default: bool,
+}
+
+/// An organization the viewer belongs to, with what the My organizations table
+/// shows: the owner, the agent and member counts, and recorded usage over the
+/// last `period_days` UTC days (the same figures its Overview reports).
+#[derive(Debug, Serialize, ToSchema)]
+pub struct OrganizationSummary {
+    pub id: Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    pub role: String,
+    pub created_at: DateTime<Utc>,
+    /// Whether this is the organization the viewer's Organization pages open with.
+    pub is_default: bool,
+    pub owner_username: String,
+    pub agent_count: i64,
+    pub member_count: i64,
+    pub period_days: i64,
+    pub requests: i64,
+    pub known_input_tokens: i64,
+    pub known_output_tokens: i64,
+    pub known_cached_tokens: i64,
+    pub token_known_requests: i64,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -163,6 +190,25 @@ struct OrganizationRow {
     description: Option<String>,
     role: String,
     created_at: DateTime<Utc>,
+    is_default: bool,
+}
+
+#[derive(FromRow)]
+struct OrganizationSummaryRow {
+    id: Uuid,
+    name: String,
+    description: Option<String>,
+    role: String,
+    created_at: DateTime<Utc>,
+    is_default: bool,
+    owner_username: String,
+    agent_count: i64,
+    member_count: i64,
+    requests: i64,
+    known_input_tokens: i64,
+    known_output_tokens: i64,
+    known_cached_tokens: i64,
+    token_known_requests: i64,
 }
 
 #[derive(FromRow)]
@@ -247,7 +293,8 @@ pub async fn list_organizations(
 ) -> Result<Json<Vec<Organization>>, ApiError> {
     let user_id = authenticated_user_id(&state, &jar).await?;
     let rows = sqlx::query_as::<_, OrganizationRow>(
-        "SELECT organizations.id, organizations.name, organizations.description, memberships.role, organizations.created_at
+        "SELECT organizations.id, organizations.name, organizations.description, memberships.role,
+                organizations.created_at, memberships.is_default
          FROM organizations
          JOIN organization_memberships AS memberships ON memberships.org_id = organizations.id
          WHERE memberships.user_id = $1 AND memberships.status = 'accepted'
@@ -261,10 +308,83 @@ pub async fn list_organizations(
 }
 
 #[utoipa::path(
+    get,
+    path = "/organization-summaries",
+    operation_id = "list_organization_summaries",
+    params(("days" = Option<i64>, Query, description = "UTC calendar days of usage to summarize, 1 through 365; defaults to 30")),
+    responses((status = 200, description = "Organizations where the viewer is an accepted member, with their owner, counts and recent usage", body = [OrganizationSummary])),
+    tag = "organizations"
+)]
+/// The My organizations table: every organization the viewer belongs to with its
+/// owner, agent and member counts and its recorded usage. Aggregating the usage
+/// costs more than the plain list, so only that table asks for it.
+pub async fn list_organization_summaries(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Query(query): Query<OrganizationPeriodQuery>,
+) -> Result<Json<Vec<OrganizationSummary>>, ApiError> {
+    let user_id = authenticated_user_id(&state, &jar).await?;
+    let period = period(query.days)?;
+    // The agent and member counts and the usage sums use the same rules as the
+    // Overview, so a row here always matches that organization's own page.
+    let rows = sqlx::query_as::<_, OrganizationSummaryRow>(
+        "SELECT organizations.id, organizations.name, organizations.description,
+                memberships.role, organizations.created_at, memberships.is_default,
+                owners.username AS owner_username,
+                (SELECT COUNT(*)
+                 FROM organization_agents AS shares
+                 JOIN agent_connections AS connections ON connections.id = shares.connection_id
+                 JOIN organization_memberships AS sharers
+                   ON sharers.org_id = shares.org_id
+                  AND sharers.user_id = shares.owner_user_id
+                  AND sharers.status = 'accepted'
+                 WHERE shares.org_id = organizations.id
+                   AND connections.status = 'connected'
+                   AND connections.user_id = shares.owner_user_id) AS agent_count,
+                (SELECT COUNT(*)
+                 FROM organization_memberships AS accepted
+                 WHERE accepted.org_id = organizations.id
+                   AND accepted.status = 'accepted') AS member_count,
+                period_usage.requests, period_usage.known_input_tokens,
+                period_usage.known_output_tokens, period_usage.known_cached_tokens,
+                period_usage.token_known_requests
+         FROM organizations
+         JOIN organization_memberships AS memberships ON memberships.org_id = organizations.id
+         JOIN organization_memberships AS owner_memberships
+           ON owner_memberships.org_id = organizations.id AND owner_memberships.role = 'owner'
+         JOIN users AS owners ON owners.id = owner_memberships.user_id
+         CROSS JOIN LATERAL (
+             SELECT COUNT(*) AS requests,
+                    COALESCE(SUM(events.input_tokens), 0)::bigint AS known_input_tokens,
+                    COALESCE(SUM(events.output_tokens), 0)::bigint AS known_output_tokens,
+                    COALESCE(SUM(events.cached_tokens), 0)::bigint AS known_cached_tokens,
+                    COUNT(*) FILTER (WHERE events.input_tokens IS NOT NULL
+                                     AND events.output_tokens IS NOT NULL) AS token_known_requests
+             FROM organization_usage_events AS events
+             WHERE events.org_id = organizations.id
+               AND events.created_at >= $2 AND events.created_at < $3
+         ) AS period_usage
+         WHERE memberships.user_id = $1 AND memberships.status = 'accepted'
+         ORDER BY organizations.created_at, organizations.id",
+    )
+    .bind(user_id)
+    .bind(period.start)
+    .bind(period.end)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(database_error)?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|row| OrganizationSummary::from_row(row, period.days))
+            .collect(),
+    ))
+}
+
+#[utoipa::path(
     post,
     path = "/organizations",
     request_body = CreateOrganization,
-    responses((status = 201, description = "Organization created", body = Organization)),
+    responses((status = 201, description = "Organization created and made the creator's default", body = Organization)),
     tag = "organizations"
 )]
 pub async fn create_organization(
@@ -312,6 +432,7 @@ pub async fn create_organization(
     .execute(&mut *transaction)
     .await
     .map_err(database_error)?;
+    make_default_organization(&mut transaction, user_id, id).await?;
     transaction.commit().await.map_err(database_error)?;
     Ok((
         StatusCode::CREATED,
@@ -321,6 +442,7 @@ pub async fn create_organization(
             description: description.map(str::to_owned),
             role: "owner".to_owned(),
             created_at,
+            is_default: true,
         }),
     ))
 }
@@ -359,7 +481,7 @@ pub async fn list_invitations(
     post,
     path = "/organization-invitations/{invitation_id}/accept",
     params(("invitation_id" = Uuid, Path, description = "Pending membership ID")),
-    responses((status = 200, description = "Invitation accepted", body = Organization)),
+    responses((status = 200, description = "Invitation accepted and the organization made the member's default", body = Organization)),
     tag = "organizations"
 )]
 pub async fn accept_invitation(
@@ -368,6 +490,7 @@ pub async fn accept_invitation(
     Path(invitation_id): Path<Uuid>,
 ) -> Result<Json<Organization>, ApiError> {
     let user_id = authenticated_user_id(&state, &jar).await?;
+    let mut transaction = state.pool.begin().await.map_err(database_error)?;
     let org_id = sqlx::query_scalar::<_, Uuid>(
         "UPDATE organization_memberships
          SET status = 'accepted', joined_at = NOW()
@@ -376,10 +499,12 @@ pub async fn accept_invitation(
     )
     .bind(invitation_id)
     .bind(user_id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&mut *transaction)
     .await
     .map_err(database_error)?
     .ok_or(ApiError::NotFound)?;
+    make_default_organization(&mut transaction, user_id, org_id).await?;
+    transaction.commit().await.map_err(database_error)?;
     Ok(Json(organization_for_user(&state, org_id, user_id).await?))
 }
 
@@ -784,6 +909,31 @@ pub async fn remove_member(
 }
 
 #[utoipa::path(
+    put,
+    path = "/organizations/{id}/default",
+    operation_id = "set_default_organization",
+    params(("id" = Uuid, Path, description = "Organization ID")),
+    responses((status = 204, description = "The organization is now the viewer's default")),
+    tag = "organizations"
+)]
+/// Make an organization the viewer's default, the one their Organization pages
+/// open with. Only an accepted member can, and the previous default stops being
+/// one. Repeating the request changes nothing.
+pub async fn set_default_organization(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path(org_id): Path<Uuid>,
+) -> Result<StatusCode, ApiError> {
+    let user_id = authenticated_user_id(&state, &jar).await?;
+    let mut transaction = state.pool.begin().await.map_err(database_error)?;
+    if !make_default_organization(&mut transaction, user_id, org_id).await? {
+        return Err(ApiError::Forbidden);
+    }
+    transaction.commit().await.map_err(database_error)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
     delete,
     path = "/organizations/{id}",
     operation_id = "delete_organization",
@@ -960,7 +1110,8 @@ async fn organization_for_user(
     user_id: Uuid,
 ) -> Result<Organization, ApiError> {
     let row = sqlx::query_as::<_, OrganizationRow>(
-        "SELECT organizations.id, organizations.name, organizations.description, memberships.role, organizations.created_at
+        "SELECT organizations.id, organizations.name, organizations.description, memberships.role,
+                organizations.created_at, memberships.is_default
          FROM organizations
          JOIN organization_memberships AS memberships ON memberships.org_id = organizations.id
          WHERE organizations.id = $1 AND memberships.user_id = $2
@@ -1138,6 +1289,60 @@ fn period(days: Option<i64>) -> Result<Period, ApiError> {
     })
 }
 
+/// Makes the organization the user's only default one, inside the caller's
+/// transaction, and reports whether the user is an accepted member of it. When
+/// they are not, nothing changes.
+///
+/// Every change of a user's default takes the same per-user advisory lock first,
+/// including the ones that add the membership (creating an organization,
+/// accepting an invitation), so two requests from one user queue instead of
+/// tripping the one-default-per-user index. Each statement after the lock sees
+/// whatever the request ahead of it committed.
+async fn make_default_organization(
+    connection: &mut sqlx::PgConnection,
+    user_id: Uuid,
+    org_id: Uuid,
+) -> Result<bool, ApiError> {
+    sqlx::query(
+        "SELECT pg_advisory_xact_lock(hashtextextended('organization-default:' || $1::text, 0))",
+    )
+    .bind(user_id)
+    .execute(&mut *connection)
+    .await
+    .map_err(database_error)?;
+    let is_member = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM organization_memberships
+                        WHERE user_id = $1 AND org_id = $2 AND status = 'accepted')",
+    )
+    .bind(user_id)
+    .bind(org_id)
+    .fetch_one(&mut *connection)
+    .await
+    .map_err(database_error)?;
+    if !is_member {
+        return Ok(false);
+    }
+    sqlx::query(
+        "UPDATE organization_memberships SET is_default = FALSE
+         WHERE user_id = $1 AND is_default AND org_id <> $2",
+    )
+    .bind(user_id)
+    .bind(org_id)
+    .execute(&mut *connection)
+    .await
+    .map_err(database_error)?;
+    sqlx::query(
+        "UPDATE organization_memberships SET is_default = TRUE
+         WHERE user_id = $1 AND org_id = $2 AND status = 'accepted' AND NOT is_default",
+    )
+    .bind(user_id)
+    .bind(org_id)
+    .execute(&mut *connection)
+    .await
+    .map_err(database_error)?;
+    Ok(true)
+}
+
 fn is_unique_violation(error: &sqlx::Error) -> bool {
     error
         .as_database_error()
@@ -1159,6 +1364,29 @@ impl From<OrganizationRow> for Organization {
             description: row.description,
             role: row.role,
             created_at: row.created_at,
+            is_default: row.is_default,
+        }
+    }
+}
+
+impl OrganizationSummary {
+    fn from_row(row: OrganizationSummaryRow, period_days: i64) -> Self {
+        Self {
+            id: row.id,
+            name: row.name,
+            description: row.description,
+            role: row.role,
+            created_at: row.created_at,
+            is_default: row.is_default,
+            owner_username: row.owner_username,
+            agent_count: row.agent_count,
+            member_count: row.member_count,
+            period_days,
+            requests: row.requests,
+            known_input_tokens: row.known_input_tokens,
+            known_output_tokens: row.known_output_tokens,
+            known_cached_tokens: row.known_cached_tokens,
+            token_known_requests: row.token_known_requests,
         }
     }
 }
