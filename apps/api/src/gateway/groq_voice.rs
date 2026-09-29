@@ -19,9 +19,9 @@ use std::{
 use uuid::Uuid;
 
 use super::{
-    GatewaySelection, TokenUsage, claim_candidate, mark_active, mark_rate_limited,
-    mark_reauth_required, nonnegative_i64, organization_usage_event, provider_credential,
-    record_organization_usage, release_probe, selected_provider_candidates,
+    GatewaySelection, ProviderCandidate, TokenUsage, claim_candidate, mark_active,
+    mark_rate_limited, mark_reauth_required, nonnegative_i64, organization_usage_event,
+    provider_credential, record_organization_usage, release_probe, selected_provider_candidates,
 };
 use crate::{
     AgentProvider, AppState,
@@ -88,23 +88,57 @@ pub(crate) async fn groq_voice_turn_for_user(
         connection_id: Some(request.connection_id),
         organization_id: request.organization_id,
     };
-    let candidate = selected_provider_candidates(state, selection, AgentProvider::Groq)
-        .await?
-        .pop()
-        .ok_or(ApiError::Forbidden)?;
-    let permit = TurnPermit::wait(candidate.id).await?;
-    // Another turn may have cooled down or revoked the account while we waited.
-    let candidate = selected_provider_candidates(state, selection, AgentProvider::Groq)
-        .await?
-        .pop()
-        .ok_or(ApiError::Forbidden)?;
-    let claimed = claim_candidate(state, &candidate).await?.ok_or_else(|| {
-        if candidate.availability_status == "reauth_required" {
+    // Start the turn on the chosen account, or on the next usable Groq account
+    // in the same scope when it is cooling down, needs reconnect or is busy. A
+    // turn that has started is never replayed on another account.
+    let mut saw_rate_limit = false;
+    let mut saw_reauthorization = false;
+    let mut last_error = None;
+    let mut started = None;
+    for listed in selected_provider_candidates(state, selection, AgentProvider::Groq).await? {
+        if !candidate_may_be_claimed(&listed) {
+            if listed.availability_status == "reauth_required" {
+                saw_reauthorization = true;
+            } else {
+                saw_rate_limit = true;
+            }
+            continue;
+        }
+        let permit = match TurnPermit::wait(listed.id).await {
+            Ok(permit) => permit,
+            Err(error) => {
+                last_error = Some(error);
+                continue;
+            }
+        };
+        // Another turn may have cooled down or revoked the account while we waited.
+        let Some(candidate) = selected_provider_candidates(state, selection, AgentProvider::Groq)
+            .await?
+            .into_iter()
+            .find(|candidate| candidate.id == listed.id)
+        else {
+            continue;
+        };
+        match claim_candidate(state, &candidate).await? {
+            Some(claimed) => {
+                started = Some((candidate, claimed, permit));
+                break;
+            }
+            None if candidate.availability_status == "reauth_required" => {
+                saw_reauthorization = true;
+            }
+            None => saw_rate_limit = true,
+        }
+    }
+    let Some((candidate, claimed, permit)) = started else {
+        return Err(if saw_rate_limit {
+            ApiError::RateLimited
+        } else if saw_reauthorization {
             ApiError::Provider("Reconnect this Groq account before calling.".into())
         } else {
-            ApiError::RateLimited
-        }
-    })?;
+            last_error.unwrap_or(ApiError::Forbidden)
+        });
+    };
     let streaming = request.stream;
     let early_audio = streaming && request.stream_audio;
     let (tx, mut rx) = mpsc::channel::<Result<Value, ApiError>>(4);
@@ -137,7 +171,7 @@ pub(crate) async fn groq_voice_turn_for_user(
             let request = state.gateway_http.post(format!("{base}/chat/completions"))
             .bearer_auth(key).json(&json!({"model":GROQ_CHAT_MODEL, "messages":messages, "max_completion_tokens":1024, "reasoning_effort":"low", "include_reasoning":false, "stream":streaming}));
             let completion: Value = if streaming {
-                let response = checked_request(state, candidate.id, request, "reply").await?;
+                let response = checked_request(state, candidate.id, key, request, "reply").await?;
                 if early_audio {
                     let (sentences, mut queue) = mpsc::channel::<String>(8);
                     let speech = async {
@@ -154,7 +188,8 @@ pub(crate) async fn groq_voice_turn_for_user(
                 }
             } else {
                 let bytes =
-                    checked_response(state, candidate.id, request, "reply", 128 * 1024).await?;
+                    checked_response(state, candidate.id, key, request, "reply", 128 * 1024)
+                        .await?;
                 serde_json::from_slice(&bytes).map_err(|_| invalid_response())?
             };
             let reply = completion
@@ -295,7 +330,7 @@ async fn speak(
     tx: &mpsc::Sender<Result<Value, ApiError>>,
     audio_bytes: &mut usize,
 ) -> Result<(), ApiError> {
-    let wav = checked_response(state, connection_id, state.gateway_http.post(format!("{}/audio/speech", state.config.groq_api_url))
+    let wav = checked_response(state, connection_id, key, state.gateway_http.post(format!("{}/audio/speech", state.config.groq_api_url))
         .bearer_auth(key).json(&json!({"model":GROQ_TTS_MODEL, "voice":"hannah", "input":text, "response_format":"wav"})),
         "speech", 2 * 1024 * 1024).await?;
     if !wav.starts_with(b"RIFF") || wav.get(8..12) != Some(b"WAVE") {
@@ -312,6 +347,18 @@ async fn emit(tx: &mpsc::Sender<Result<Value, ApiError>>, event: Value) -> Resul
     tx.send(Ok(event)).await.map_err(|_| ApiError::Internal)
 }
 
+/// Whether `claim_candidate` could hand this account to a new turn, checked
+/// before waiting for its turn permit.
+fn candidate_may_be_claimed(candidate: &ProviderCandidate) -> bool {
+    match candidate.availability_status.as_str() {
+        "reauth_required" => false,
+        "rate_limited" => candidate
+            .rate_limited_until
+            .is_some_and(|until| until <= chrono::Utc::now()),
+        _ => true,
+    }
+}
+
 fn invalid_response() -> ApiError {
     ApiError::Provider("Groq returned an invalid voice response. Start a new call to retry.".into())
 }
@@ -319,11 +366,12 @@ fn invalid_response() -> ApiError {
 async fn checked_response(
     state: &AppState,
     connection_id: Uuid,
+    key: &str,
     request: reqwest::RequestBuilder,
     stage: &str,
     limit: usize,
 ) -> Result<Vec<u8>, ApiError> {
-    let response = checked_request(state, connection_id, request, stage).await?;
+    let response = checked_request(state, connection_id, key, request, stage).await?;
     to_bytes(Body::from_stream(response.bytes_stream()), limit)
         .await
         .map(|b| b.to_vec())
@@ -333,6 +381,7 @@ async fn checked_response(
 async fn checked_request(
     state: &AppState,
     connection_id: Uuid,
+    key: &str,
     request: reqwest::RequestBuilder,
     stage: &str,
 ) -> Result<reqwest::Response, ApiError> {
@@ -351,7 +400,7 @@ async fn checked_request(
             return Err(ApiError::RateLimited);
         }
         reqwest::StatusCode::UNAUTHORIZED => {
-            mark_reauth_required(state, connection_id).await?;
+            mark_reauth_required(state, connection_id, key).await?;
             return Err(ApiError::Provider(
                 "Reconnect this Groq account with a valid API key.".into(),
             ));

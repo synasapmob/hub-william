@@ -127,6 +127,9 @@ pub fn app(state: AppState) -> Router {
         .allow_origin(AllowOrigin::list(browser_origins(&state.config)))
         .allow_methods([Method::GET, Method::POST, Method::DELETE])
         .allow_headers([AUTHORIZATION, CONTENT_TYPE])
+        .expose_headers([axum::http::HeaderName::from_static(
+            gateway::SERVED_CONNECTION_HEADER,
+        )])
         .allow_credentials(true);
 
     let gateway_routes = Router::new()

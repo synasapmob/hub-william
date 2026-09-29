@@ -6,11 +6,16 @@ use sqlx::postgres::PgPoolOptions;
 use tokio::{
     net::TcpListener,
     signal,
+    sync::watch,
     time::{MissedTickBehavior, interval},
 };
 
 const DEFAULT_PORT: u16 = 8080;
 const PROVIDER_CREDENTIAL_SWEEP_SECONDS: u64 = 60;
+/// How long shutdown waits for an in-progress credential sweep. A provider may
+/// already have rotated a refresh token; killing the sweep before its commit
+/// would lose the new token and force the owner to reconnect.
+const CREDENTIAL_SWEEP_SHUTDOWN_GRACE_SECONDS: u64 = 25;
 const VIETNAM_UTC_OFFSET_HOURS: i64 = 7;
 
 fn vietnam_day_start(now: DateTime<Utc>) -> (NaiveDate, DateTime<Utc>) {
@@ -65,12 +70,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let credential_refresh_state = state.clone();
-    let credential_refresh_task = tokio::spawn(async move {
+    let (stop_sweeps, mut sweeps_stopped) = watch::channel(false);
+    let mut credential_refresh_task = tokio::spawn(async move {
         let mut sweep = interval(Duration::from_secs(PROVIDER_CREDENTIAL_SWEEP_SECONDS));
         sweep.set_missed_tick_behavior(MissedTickBehavior::Skip);
         let mut last_nightly_sweep: Option<NaiveDate> = None;
         loop {
-            sweep.tick().await;
+            tokio::select! {
+                _ = sweep.tick() => {}
+                _ = sweeps_stopped.changed() => return,
+            }
             let (local_day, day_start_utc) = vietnam_day_start(Utc::now());
             if last_nightly_sweep != Some(local_day) {
                 match hub_william_backend::refresh_nightly_provider_credentials(
@@ -98,8 +107,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         || summary.failed > 0 =>
                 {
                     println!(
-                        "provider credential sweep: {} refreshed, {} need reauthorization, {} failed",
-                        summary.refreshed, summary.reauthorization_required, summary.failed
+                        "provider credential sweep: {} refreshed ({} recovered), {} need reauthorization, {} failed",
+                        summary.refreshed,
+                        summary.recovered,
+                        summary.reauthorization_required,
+                        summary.failed
                     );
                 }
                 Ok(_) => {}
@@ -111,12 +123,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     axum::serve(listener, hub_william_backend::app(state))
         .with_graceful_shutdown(shutdown_signal())
         .await?;
-    credential_refresh_task.abort();
+    // Let a sweep that is already refreshing finish and commit its rotated
+    // tokens before the process exits; stop before the next one starts.
+    let _ = stop_sweeps.send(true);
+    if tokio::time::timeout(
+        Duration::from_secs(CREDENTIAL_SWEEP_SHUTDOWN_GRACE_SECONDS),
+        &mut credential_refresh_task,
+    )
+    .await
+    .is_err()
+    {
+        eprintln!("credential sweep did not finish before shutdown");
+        credential_refresh_task.abort();
+    }
 
     Ok(())
 }
 
+/// Railway stops a deployment with SIGTERM; local runs use Ctrl-C.
 async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        let terminate = async {
+            match signal::unix::signal(signal::unix::SignalKind::terminate()) {
+                Ok(mut terminate) => {
+                    terminate.recv().await;
+                }
+                Err(error) => {
+                    eprintln!("SIGTERM handler could not be installed: {error}");
+                    std::future::pending::<()>().await;
+                }
+            }
+        };
+        tokio::select! {
+            _ = signal::ctrl_c() => {}
+            _ = terminate => {}
+        }
+    }
+    #[cfg(not(unix))]
     let _ = signal::ctrl_c().await;
 }
 

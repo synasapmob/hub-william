@@ -1086,6 +1086,7 @@
       },
       "post": {
         "tags": ["organizations"],
+        "summary": "Link an owned Workspace connection into an organization. The organization\nagent is the same connection and credential, not a copy. Repeating the\nrequest, including concurrently, returns the existing link.",
         "operationId": "share_agent",
         "parameters": [
           {
@@ -1110,8 +1111,18 @@
           "required": true
         },
         "responses": {
+          "200": {
+            "description": "Owned agent was already linked; the existing link is returned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationAgent"
+                }
+              }
+            }
+          },
           "201": {
-            "description": "Owned agent shared with organization",
+            "description": "Owned agent linked to the organization",
             "content": {
               "application/json": {
                 "schema": {
