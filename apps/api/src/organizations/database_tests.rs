@@ -27,8 +27,9 @@ use uuid::Uuid;
 use super::{
     CreateOrganization, InviteOrganizationMember, OrganizationAgentDetails,
     OrganizationAgentListQuery, OrganizationPeriodQuery, OrganizationUsageQuery,
-    ShareOrganizationAgent, accept_invitation, create_organization, invite_member, list_agents,
-    list_invitations, list_members, overview, remove_member, share_agent, unshare_agent, usage,
+    ShareOrganizationAgent, accept_invitation, create_organization, delete_organization,
+    invite_member, leave_organization, list_agents, list_invitations, list_members,
+    list_organizations, overview, remove_member, share_agent, unshare_agent, usage,
 };
 use crate::{
     AgentConnection, AgentConnectionStatus, AgentProvider, AppConfig, AppState,
@@ -1293,6 +1294,293 @@ async fn removing_a_member_drops_only_their_links_in_that_organization_and_keeps
     assert_eq!(workspace[0].id, member_connection);
     assert_eq!(workspace[0].status, AgentConnectionStatus::Connected);
     assert_eq!(workspace[0].availability_status, "active");
+}
+
+async fn membership_rows(pool: &PgPool, org_id: Uuid) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM organization_memberships WHERE org_id = $1")
+        .bind(org_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn usage_event_rows(pool: &PgPool, org_id: Uuid) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM organization_usage_events WHERE org_id = $1")
+        .bind(org_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn organization_rows(pool: &PgPool, org_id: Uuid) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM organizations WHERE id = $1")
+        .bind(org_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn record_usage(pool: &PgPool, org_id: Uuid, user: &TestUser, connection_id: Uuid) {
+    sqlx::query(
+        "INSERT INTO organization_usage_events
+            (id, org_id, user_id, connection_id, provider, model, input_tokens, output_tokens)
+         VALUES ($1, $2, $3, $4, 'deepseek', 'deepseek-chat', 10, 5)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(org_id)
+    .bind(user.id)
+    .bind(connection_id)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+async fn invite(state: &AppState, owner: &TestUser, org_id: Uuid, invitee: &TestUser) {
+    let (status, _) = invite_member(
+        State(state.clone()),
+        owner.jar.clone(),
+        Path(org_id),
+        Json(InviteOrganizationMember {
+            username: invitee.username.clone(),
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::CREATED);
+}
+
+async fn organization_ids(state: &AppState, viewer: &TestUser) -> Vec<Uuid> {
+    let Json(organizations) = list_organizations(State(state.clone()), viewer.jar.clone())
+        .await
+        .unwrap();
+    organizations
+        .into_iter()
+        .map(|organization| organization.id)
+        .collect()
+}
+
+#[sqlx::test]
+async fn deleting_an_organization_removes_its_members_links_and_usage_but_not_workspaces(
+    pool: PgPool,
+) {
+    let (state, _) = state_with_fake_deepseek(pool).await;
+    let owner = test_user(&state.pool).await;
+    let member = test_user(&state.pool).await;
+    let invitee = test_user(&state.pool).await;
+    let outsider = test_user(&state.pool).await;
+    let doomed = organization_with_members(&state, &owner, "Doomed", &[&member]).await;
+    let survivor = organization_with_members(&state, &owner, "Survivor", &[&member]).await;
+    invite(&state, &owner, doomed, &invitee).await;
+    let owner_connection = connect_workspace_deepseek(&state, &owner, PEER_KEY).await;
+    let member_connection = connect_workspace_deepseek(&state, &member, WORKSPACE_KEY).await;
+    link(&state, &owner, doomed, owner_connection).await;
+    link(&state, &member, doomed, member_connection).await;
+    link(&state, &member, survivor, member_connection).await;
+    record_usage(&state.pool, doomed, &member, member_connection).await;
+    record_usage(&state.pool, survivor, &member, member_connection).await;
+    let workspace_before = workspace_connection_row(&state.pool, member_connection)
+        .await
+        .unwrap();
+    let credential_before = stored_credentials(&state.pool, member_connection).await;
+    assert_eq!(membership_rows(&state.pool, doomed).await, 3);
+
+    for (user, who) in [
+        (&member, "a member"),
+        (&invitee, "a pending invitee"),
+        (&outsider, "someone outside the organization"),
+    ] {
+        assert!(
+            matches!(
+                delete_organization(State(state.clone()), user.jar.clone(), Path(doomed)).await,
+                Err(ApiError::Forbidden)
+            ),
+            "{who} must not delete an organization"
+        );
+    }
+    assert_eq!(organization_rows(&state.pool, doomed).await, 1);
+    assert_eq!(membership_rows(&state.pool, doomed).await, 3);
+
+    assert_eq!(
+        delete_organization(State(state.clone()), owner.jar.clone(), Path(doomed))
+            .await
+            .unwrap(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(organization_rows(&state.pool, doomed).await, 0);
+    assert_eq!(
+        membership_rows(&state.pool, doomed).await,
+        0,
+        "members and the pending invitation leave with the organization"
+    );
+    assert_eq!(usage_event_rows(&state.pool, doomed).await, 0);
+    assert_eq!(
+        linked_organizations(&state.pool, member_connection).await,
+        vec![survivor],
+        "only the deleted organization's links are removed"
+    );
+    assert!(
+        linked_organizations(&state.pool, owner_connection)
+            .await
+            .is_empty()
+    );
+    assert_eq!(organization_ids(&state, &owner).await, vec![survivor]);
+    assert_eq!(organization_ids(&state, &member).await, vec![survivor]);
+    assert!(organization_ids(&state, &invitee).await.is_empty());
+    let Json(invitations) = list_invitations(State(state.clone()), invitee.jar.clone())
+        .await
+        .unwrap();
+    assert!(invitations.is_empty());
+    assert!(matches!(
+        list_members(State(state.clone()), member.jar.clone(), Path(doomed)).await,
+        Err(ApiError::Forbidden)
+    ));
+
+    assert_eq!(membership_rows(&state.pool, survivor).await, 2);
+    assert_eq!(usage_event_rows(&state.pool, survivor).await, 1);
+    let survivors = organization_agents(&state, &owner, survivor).await;
+    assert_eq!(
+        survivors.iter().map(|agent| agent.id).collect::<Vec<_>>(),
+        vec![member_connection]
+    );
+    assert_eq!(
+        workspace_connection_row(&state.pool, member_connection)
+            .await
+            .unwrap(),
+        workspace_before,
+        "deleting an organization must not touch a Workspace connection"
+    );
+    assert_eq!(
+        stored_credentials(&state.pool, member_connection).await,
+        credential_before
+    );
+    assert_eq!(workspace_connections(&state, &owner).await.len(), 1);
+    assert_eq!(workspace_connections(&state, &member).await.len(), 1);
+
+    assert!(
+        matches!(
+            delete_organization(State(state.clone()), owner.jar.clone(), Path(doomed)).await,
+            Err(ApiError::Forbidden)
+        ),
+        "a deleted organization has no owner left to delete it again"
+    );
+}
+
+#[sqlx::test]
+async fn a_member_leaving_drops_only_their_membership_and_links_and_an_owner_cannot_leave(
+    pool: PgPool,
+) {
+    let (state, _) = state_with_fake_deepseek(pool).await;
+    let owner = test_user(&state.pool).await;
+    let leaver = test_user(&state.pool).await;
+    let stayer = test_user(&state.pool).await;
+    let invitee = test_user(&state.pool).await;
+    let outsider = test_user(&state.pool).await;
+    let left = organization_with_members(&state, &owner, "Left", &[&leaver, &stayer]).await;
+    let kept = organization_with_members(&state, &owner, "Kept", &[&leaver]).await;
+    invite(&state, &owner, left, &invitee).await;
+    let leaver_connection = connect_workspace_deepseek(&state, &leaver, WORKSPACE_KEY).await;
+    let stayer_connection = connect_workspace_deepseek(&state, &stayer, PEER_KEY).await;
+    link(&state, &leaver, left, leaver_connection).await;
+    link(&state, &leaver, kept, leaver_connection).await;
+    link(&state, &stayer, left, stayer_connection).await;
+    record_usage(&state.pool, left, &leaver, leaver_connection).await;
+    let workspace_before = workspace_connection_row(&state.pool, leaver_connection)
+        .await
+        .unwrap();
+    let credential_before = stored_credentials(&state.pool, leaver_connection).await;
+
+    assert!(
+        matches!(
+            leave_organization(State(state.clone()), owner.jar.clone(), Path(left)).await,
+            Err(ApiError::Validation(_))
+        ),
+        "an owner deletes the organization instead of leaving it"
+    );
+    for (user, who) in [
+        (&invitee, "a pending invitee"),
+        (&outsider, "someone outside the organization"),
+    ] {
+        assert!(
+            matches!(
+                leave_organization(State(state.clone()), user.jar.clone(), Path(left)).await,
+                Err(ApiError::Forbidden)
+            ),
+            "{who} has no membership to leave"
+        );
+    }
+    assert_eq!(membership_rows(&state.pool, left).await, 4);
+
+    assert_eq!(
+        leave_organization(State(state.clone()), leaver.jar.clone(), Path(left))
+            .await
+            .unwrap(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        membership_rows(&state.pool, left).await,
+        3,
+        "only the leaving member's membership is removed"
+    );
+    assert_eq!(organization_ids(&state, &leaver).await, vec![kept]);
+    assert_eq!(organization_ids(&state, &owner).await, vec![left, kept]);
+    assert_eq!(organization_ids(&state, &stayer).await, vec![left]);
+    assert_eq!(
+        linked_organizations(&state.pool, leaver_connection).await,
+        vec![kept],
+        "the links from the organization they left are removed"
+    );
+    assert_eq!(
+        linked_organizations(&state.pool, stayer_connection).await,
+        vec![left]
+    );
+    let remaining = organization_agents(&state, &owner, left).await;
+    assert_eq!(
+        remaining.iter().map(|agent| agent.id).collect::<Vec<_>>(),
+        vec![stayer_connection]
+    );
+    assert!(matches!(
+        organization_generation(&state, &owner, left, leaver_connection).await,
+        Err(ApiError::Forbidden)
+    ));
+    assert!(matches!(
+        list_members(State(state.clone()), leaver.jar.clone(), Path(left)).await,
+        Err(ApiError::Forbidden)
+    ));
+    assert_eq!(
+        usage_event_rows(&state.pool, left).await,
+        1,
+        "recorded usage stays attributed to the organization"
+    );
+    assert_eq!(
+        workspace_connection_row(&state.pool, leaver_connection)
+            .await
+            .unwrap(),
+        workspace_before,
+        "leaving an organization must not touch the Workspace connection"
+    );
+    assert_eq!(
+        stored_credentials(&state.pool, leaver_connection).await,
+        credential_before
+    );
+    assert_eq!(workspace_connections(&state, &leaver).await.len(), 1);
+
+    assert!(
+        matches!(
+            leave_organization(State(state.clone()), leaver.jar.clone(), Path(left)).await,
+            Err(ApiError::Forbidden)
+        ),
+        "a member who already left has nothing left to leave"
+    );
+    invite(&state, &owner, left, &leaver).await;
+    let Json(invitations) = list_invitations(State(state.clone()), leaver.jar.clone())
+        .await
+        .unwrap();
+    assert!(
+        invitations
+            .iter()
+            .any(|invitation| invitation.organization_id == left),
+        "a member who left can be invited again"
+    );
 }
 
 #[sqlx::test]

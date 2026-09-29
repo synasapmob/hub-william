@@ -226,6 +226,14 @@ pub fn app(state: AppState) -> Router {
             "/organization-invitations/{invitation_id}",
             axum::routing::delete(organizations::decline_invitation),
         )
+        .route(
+            "/organizations/{id}",
+            axum::routing::delete(organizations::delete_organization),
+        )
+        .route(
+            "/organizations/{id}/membership",
+            axum::routing::delete(organizations::leave_organization),
+        )
         .route("/organizations/{id}/overview", get(organizations::overview))
         .route(
             "/organizations/{id}/agents",

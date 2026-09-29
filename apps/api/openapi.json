@@ -1043,6 +1043,30 @@
         }
       }
     },
+    "/organizations/{id}": {
+      "delete": {
+        "tags": ["organizations"],
+        "summary": "Delete an organization as its owner. Every member leaves with it and its\ninvitations, shared-agent links and recorded usage are removed. The\nWorkspace connections behind the shared agents are not touched.",
+        "operationId": "delete_organization",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Organization deleted with its memberships, invitations, agent links and recorded usage"
+          }
+        }
+      }
+    },
     "/organizations/{id}/agents": {
       "get": {
         "tags": ["organizations"],
@@ -1266,6 +1290,30 @@
         "responses": {
           "204": {
             "description": "Member removed or invitation canceled"
+          }
+        }
+      }
+    },
+    "/organizations/{id}/membership": {
+      "delete": {
+        "tags": ["organizations"],
+        "summary": "Leave an organization as one of its accepted members. Agents the member\nshared are unlinked from it; their Workspace connections stay connected.\nThe owner cannot leave and deletes the organization instead.",
+        "operationId": "leave_organization",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The viewer left the organization"
           }
         }
       }
