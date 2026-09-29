@@ -1,6 +1,6 @@
 # ADR-0010: Credential-aware pool recovery
 
-- Status: Accepted
+- Status: Accepted; the single-`401` reauthorization mark is partially superseded by [ADR-0045](0045-linked-organization-agents-account-rotation-and-credential-recovery.md)
 - Date: 2026-09-14
 - Supersedes: ADR-0006 upstream authentication failure handling and ADR-0007 owner refresh behavior only
 

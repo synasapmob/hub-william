@@ -1,6 +1,6 @@
 # ADR-0025: Session-backed model Playground
 
-- Status: Accepted; personal-only account choice partially superseded by ADR-0027; older model-list allowance superseded by ADR-0029; voice scope extended by ADR-0032
+- Status: Accepted; personal-only account choice partially superseded by ADR-0027; older model-list allowance superseded by ADR-0029; voice scope extended by ADR-0032; account pinning superseded by [ADR-0045](0045-linked-organization-agents-account-rotation-and-credential-recovery.md)
 - Date: 2026-09-23
 - Partially supersedes: ADR-0024's demo-only Playground scope
 

@@ -1,6 +1,6 @@
 # ADR-0013: Periodic provider credential refresh
 
-- Status: Accepted
+- Status: Accepted; the 60-minute cadence and permanent exclusion of reconnect-required accounts are partially superseded by [ADR-0045](0045-linked-organization-agents-account-rotation-and-credential-recovery.md)
 - Date: 2026-09-15
 
 ## Context

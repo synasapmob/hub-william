@@ -4,6 +4,7 @@
 
 Accepted — 2026-09-24. Supersedes ADR-0022's return-immediately rule for an
 upstream Gemini Code Assist `403` before response headers reach the client.
+Playground pinning is superseded by [ADR-0045](0045-linked-organization-agents-account-rotation-and-credential-recovery.md).
 
 ## Context
 

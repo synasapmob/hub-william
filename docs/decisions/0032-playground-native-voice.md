@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-09-26
-- Partially superseded by: [ADR-0033](0033-groq-api-key-chat-and-call.md), which adds an explicitly composed Groq Call transport.
+- Partially superseded by: [ADR-0033](0033-groq-api-key-chat-and-call.md), which adds an explicitly composed Groq Call transport, and [ADR-0045](0045-linked-organization-agents-account-rotation-and-credential-recovery.md), which lets voice setup rotate to another account on an explicit refusal.
 - Partially supersedes: ADR-0025's unimplemented voice scope and ADR-0029's text-catalogue-only Playground picker, only for the dedicated voice model below.
 
 ## Context
