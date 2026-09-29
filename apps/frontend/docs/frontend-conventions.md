@@ -34,6 +34,13 @@ code that does it, or in [architecture.md](./architecture.md).
 - ARIA state attributes belong on the element that owns the state. `aria-disabled` is meaningful on a widget, not on a `section`; gate a step by rendering no body rather than by dimming it.
 - Use `interface` for object shapes and component props. Reserve `type` for unions, literal unions, tuples, and utility compositions — anything that cannot be expressed as an interface.
 - Group state that changes together into one cohesive object.
+- Loading is a skeleton shaped like the elements that will render, from the
+  first paint until the page's own data arrives. Titles and labels stay real
+  text; only values, lists and charts become `Skeleton` placeholders at the
+  heights they will have, and the region announces itself with an `sr-only`
+  `role="status"` line. Never show `Loading…` text, `—`, a zero or a "No … yet"
+  message for data that is still pending: those belong to loaded, empty and
+  failed states.
 - Remote schemas are authoritative. Do not silently invent fallback fields when provider or database contracts are unclear.
 - Account quota UI follows the provider capability used by Workspace Agents.
   Show provider quota metrics only when `agentProviderShowsUsage` supports that

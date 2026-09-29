@@ -51,7 +51,10 @@ tests.
   member lists, connected-agent shares, overview and usage. Accepted membership
   is required for organization reads and agent use. Owners manage invitations
   and may remove any shared agent; members may share their own connected
-  agents and remove their own shares. Organization descriptions are optional
+  agents and remove their own shares. `DELETE /organizations/{id}` lets the
+  owner delete the organization with its memberships, agent links and usage;
+  `DELETE /organizations/{id}/membership` lets a member leave, and an owner
+  cannot. Organization descriptions are optional
   and limited to 350 characters. The agent list accepts
   `include_usage=true` to fetch live provider quota metrics for supported
   providers in the Agents explorer; ordinary account choices do not trigger
