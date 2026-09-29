@@ -68,15 +68,19 @@ and [ADR-0027](../../../docs/decisions/0027-organizations-and-session-agent-acce
   daily requests and shared agents. There is no switcher in the header; **My
   organizations**, beside New organization, opens a dialog that lists every
   joined organization with its owner, agents, members, 30-day tokens and
-  creation date. Choosing a row makes it the default (remembered in the
-  browser). Remove asks an owner to delete the organization for everyone and a
-  member to leave it, then calls `DELETE /organizations/{id}` or
-  `DELETE /organizations/{id}/membership`. Pending invitations are accepted or
+  creation date from one `GET /organization-summaries` request, made only while
+  the dialog is open. Choosing a row makes it the user's default with
+  `PUT /organizations/{id}/default`, so it follows them to every browser;
+  creating an organization or accepting an invitation makes it the default too,
+  and until there is one the oldest organization is shown. Remove asks an owner
+  to delete the organization for everyone and a member to leave it, then calls
+  `DELETE /organizations/{id}` or `DELETE /organizations/{id}/membership`. Pending invitations are accepted or
   declined in the same dialog, and its button shows their count. The dialog is
   open while `?tab=my-organization` is in the URL, and an invitation bell beside
   Log out in the sidebar links there. The header names the default organization
   in a Badge beside 36px buttons. See
-  [ADR-0046](../../../docs/decisions/0046-my-organizations-dialog-and-organization-removal.md).
+  [ADR-0046](../../../docs/decisions/0046-my-organizations-dialog-and-organization-removal.md)
+  and [ADR-0047](../../../docs/decisions/0047-server-side-default-organization-and-summaries.md).
   Creation accepts an optional description of up to 350 characters. `/organization/agents` lets any accepted
   member or owner share their own existing or newly connected account through
   Connect Agent; all accepted members can use it, and the sharer or owner can
