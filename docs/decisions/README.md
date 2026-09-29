@@ -54,3 +54,4 @@ record and mark the old one superseded rather than rewriting its history.
 - [ADR-0044: English-only local call speech](0044-english-only-local-call-speech.md)
 - [ADR-0045: Linked organization agents, account rotation and credential recovery](0045-linked-organization-agents-account-rotation-and-credential-recovery.md)
 - [ADR-0046: My organizations dialog and organization removal](0046-my-organizations-dialog-and-organization-removal.md)
+- [ADR-0047: Server-side default organization and organization summaries](0047-server-side-default-organization-and-summaries.md)

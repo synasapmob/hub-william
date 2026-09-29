@@ -984,11 +984,45 @@
         ],
         "responses": {
           "200": {
-            "description": "Invitation accepted",
+            "description": "Invitation accepted and the organization made the member's default",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Organization"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organization-summaries": {
+      "get": {
+        "tags": ["organizations"],
+        "summary": "The My organizations table: every organization the viewer belongs to with its\nowner, agent and member counts and its recorded usage. Aggregating the usage\ncosts more than the plain list, so only that table asks for it.",
+        "operationId": "list_organization_summaries",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "description": "UTC calendar days of usage to summarize, 1 through 365; defaults to 30",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organizations where the viewer is an accepted member, with their owner, counts and recent usage",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OrganizationSummary"
+                  }
                 }
               }
             }
@@ -1031,7 +1065,7 @@
         },
         "responses": {
           "201": {
-            "description": "Organization created",
+            "description": "Organization created and made the creator's default",
             "content": {
               "application/json": {
                 "schema": {
@@ -1187,6 +1221,30 @@
         "responses": {
           "204": {
             "description": "Agent unshared"
+          }
+        }
+      }
+    },
+    "/organizations/{id}/default": {
+      "put": {
+        "tags": ["organizations"],
+        "summary": "Make an organization the viewer's default, the one their Organization pages\nopen with. Only an accepted member can, and the previous default stops being\none. Repeating the request changes nothing.",
+        "operationId": "set_default_organization",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The organization is now the viewer's default"
           }
         }
       }
@@ -2378,7 +2436,7 @@
       },
       "Organization": {
         "type": "object",
-        "required": ["id", "name", "role", "created_at"],
+        "required": ["id", "name", "role", "created_at", "is_default"],
         "properties": {
           "created_at": {
             "type": "string",
@@ -2390,6 +2448,10 @@
           "id": {
             "type": "string",
             "format": "uuid"
+          },
+          "is_default": {
+            "type": "boolean",
+            "description": "The organization the viewer's Organization pages open with. At most one\norganization is the default; creating or joining one, or choosing it,\nmakes it the default, and leaving it or its deletion clears that."
           },
           "name": {
             "type": "string"
@@ -2620,6 +2682,84 @@
         "properties": {
           "days": {
             "type": ["integer", "null"],
+            "format": "int64"
+          }
+        }
+      },
+      "OrganizationSummary": {
+        "type": "object",
+        "description": "An organization the viewer belongs to, with what the My organizations table\nshows: the owner, the agent and member counts, and recorded usage over the\nlast `period_days` UTC days (the same figures its Overview reports).",
+        "required": [
+          "id",
+          "name",
+          "role",
+          "created_at",
+          "is_default",
+          "owner_username",
+          "agent_count",
+          "member_count",
+          "period_days",
+          "requests",
+          "known_input_tokens",
+          "known_output_tokens",
+          "known_cached_tokens",
+          "token_known_requests"
+        ],
+        "properties": {
+          "agent_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "type": ["string", "null"]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_default": {
+            "type": "boolean",
+            "description": "Whether this is the organization the viewer's Organization pages open with."
+          },
+          "known_cached_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "known_input_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "known_output_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "member_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner_username": {
+            "type": "string"
+          },
+          "period_days": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "requests": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "role": {
+            "type": "string"
+          },
+          "token_known_requests": {
+            "type": "integer",
             "format": "int64"
           }
         }

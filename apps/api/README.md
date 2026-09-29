@@ -54,7 +54,12 @@ tests.
   agents and remove their own shares. `DELETE /organizations/{id}` lets the
   owner delete the organization with its memberships, agent links and usage;
   `DELETE /organizations/{id}/membership` lets a member leave, and an owner
-  cannot. Organization descriptions are optional
+  cannot. `PUT /organizations/{id}/default` makes an organization the caller's
+  default (`is_default` on every organization they read); creating or joining
+  one does the same, and leaving or deleting it clears it.
+  `GET /organization-summaries?days=` adds each organization's owner, agent and
+  member counts and recorded usage for the My organizations table.
+  Organization descriptions are optional
   and limited to 350 characters. The agent list accepts
   `include_usage=true` to fetch live provider quota metrics for supported
   providers in the Agents explorer; ordinary account choices do not trigger

@@ -12,6 +12,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import organizationsService from "@/services/organizations";
+import type {
+  Organization,
+  OrganizationSummary,
+} from "@/services/organizations";
 import {
   MY_ORGANIZATION_TAB,
   ORGANIZATION_TAB_PARAM,
@@ -23,26 +27,12 @@ import type { OrganizationContextValue } from "./organization-context";
 import OrganizationHeader from "./organization-header";
 import OrganizationManageDialog from "./organization-manage-dialog";
 
-function storageKey(userId: string) {
-  return `hub-william:organization:${userId}`;
-}
-
-function storedOrganizationId(userId: string | undefined) {
-  if (!userId || typeof window === "undefined") return null;
-  try {
-    return window.localStorage?.getItem(storageKey(userId)) ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function rememberOrganizationId(userId: string | undefined, id: string) {
-  if (!userId || typeof window === "undefined") return;
-  try {
-    window.localStorage?.setItem(storageKey(userId), id);
-  } catch {
-    return;
-  }
+// Marks one organization as the viewer's default, the way the server now does.
+function withDefault<T extends Organization>(
+  organizations: T[] | undefined,
+  id: string,
+) {
+  return organizations?.map((item) => ({ ...item, isDefault: item.id === id }));
 }
 
 export default function OrganizationRoute() {
@@ -50,13 +40,31 @@ export default function OrganizationRoute() {
   const queryClient = useQueryClient();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const userId = session.user?.id;
+  const organizationsKey = [
+    ...organizationsService.queryKey,
+    userId ?? "guest",
+  ];
+  const summariesKey = [
+    ...organizationsService.queryKey,
+    "summaries",
+    userId ?? "guest",
+  ];
+  const managing =
+    Boolean(session.user) &&
+    searchParams.get(ORGANIZATION_TAB_PARAM) === MY_ORGANIZATION_TAB;
   const organizationsQuery = useQuery({
     enabled: Boolean(userId),
     queryFn: organizationsService.list,
-    queryKey: [...organizationsService.queryKey, userId ?? "guest"],
+    queryKey: organizationsKey,
+  });
+  // The table's owner, counts and usage cost more to compute than the plain
+  // list, so they are only fetched while the dialog shows them.
+  const summariesQuery = useQuery({
+    enabled: managing && Boolean(userId),
+    queryFn: organizationsService.summaries,
+    queryKey: summariesKey,
   });
   const invitationsQuery = useQuery({
     enabled: Boolean(userId),
@@ -69,30 +77,27 @@ export default function OrganizationRoute() {
   });
   const createMutation = useMutation({
     mutationFn: organizationsService.create,
-    onSuccess: async (organization) => {
-      selectOrganization(organization.id);
-      setCreating(false);
+    onSuccess: async () => {
+      // The server made the new organization the default. Show it once the
+      // list says so, not before.
       await queryClient.invalidateQueries({
         queryKey: organizationsService.queryKey,
       });
+      showChosenOrganization();
+      setCreating(false);
     },
   });
   const organizations = organizationsQuery.data ?? [];
-  const storedId = storedOrganizationId(userId);
+  // The server remembers the default. Until there is one, the oldest
+  // organization stands in for it.
   const organization =
-    organizations.find((item) => item.id === selectedId) ??
-    organizations.find((item) => item.id === storedId) ??
-    organizations[0] ??
-    null;
+    organizations.find((item) => item.isDefault) ?? organizations[0] ?? null;
   const invitations = invitationsQuery.data ?? [];
   // The session or the organization list is still on its way. Pages render
   // their skeletons meanwhile instead of a text placeholder.
   const loading =
     session.status === "loading" ||
     (Boolean(session.user) && organizationsQuery.isPending);
-  const managing =
-    Boolean(session.user) &&
-    searchParams.get(ORGANIZATION_TAB_PARAM) === MY_ORGANIZATION_TAB;
 
   // One update per user action: successive setSearchParams calls in the same
   // tick each start from the params of the last render and undo one another.
@@ -103,13 +108,22 @@ export default function OrganizationRoute() {
       setSearchParams(next, { replace: true });
   }
 
-  function selectOrganization(id: string, closeManage = false) {
-    setSelectedId(id);
-    rememberOrganizationId(userId, id);
+  // Filters that belonged to the organization on show do not carry over.
+  function showChosenOrganization(closeManage = false) {
     updateSearchParams((params) => {
       params.delete("member");
       if (closeManage) params.delete(ORGANIZATION_TAB_PARAM);
     });
+  }
+
+  function chooseOrganization(chosen: OrganizationSummary) {
+    queryClient.setQueryData<Organization[]>(organizationsKey, (current) =>
+      withDefault(current, chosen.id),
+    );
+    queryClient.setQueryData<OrganizationSummary[]>(summariesKey, (current) =>
+      withDefault(current, chosen.id),
+    );
+    showChosenOrganization(true);
   }
 
   function setManaging(open: boolean) {
@@ -167,13 +181,15 @@ export default function OrganizationRoute() {
             invitations={invitations}
             invitationsError={invitationsQuery.error}
             invitationsLoading={invitationsQuery.isPending}
-            onInvitationAccepted={(accepted) => selectOrganization(accepted.id)}
+            onChosen={chooseOrganization}
+            onInvitationAccepted={() => showChosenOrganization()}
             onOpenChange={setManaging}
             onRetryInvitations={() => void invitationsQuery.refetch()}
-            onSelect={(chosen) => selectOrganization(chosen.id, true)}
+            onRetryOrganizations={() => void summariesQuery.refetch()}
             open={managing}
-            organizations={organizations}
-            organizationsLoading={organizationsQuery.isPending}
+            organizations={summariesQuery.data ?? []}
+            organizationsError={summariesQuery.error}
+            organizationsLoading={summariesQuery.isPending}
             selectedId={organization?.id ?? null}
           />
         </>

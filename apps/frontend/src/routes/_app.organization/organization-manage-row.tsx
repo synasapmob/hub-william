@@ -1,12 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
-
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import Flex from "@/components/ui/flex";
-import { Skeleton } from "@/components/ui/skeleton";
 import { TableCell, TableRow } from "@/components/ui/table";
-import organizationsService from "@/services/organizations";
-import type { Organization } from "@/services/organizations";
+import type { OrganizationSummary } from "@/services/organizations";
 
 import {
   formatCount,
@@ -15,36 +11,21 @@ import {
 } from "./organization-format";
 
 interface OrganizationManageRowProps {
-  onRemove: (organization: Organization) => void;
-  onSelect: (organization: Organization) => void;
-  organization: Organization;
+  // A choice is on its way to the server, so another one has to wait.
+  choosing: boolean;
+  onRemove: (organization: OrganizationSummary) => void;
+  onSelect: (organization: OrganizationSummary) => void;
+  organization: OrganizationSummary;
   selected: boolean;
 }
 
 export default function OrganizationManageRow({
+  choosing,
   onRemove,
   onSelect,
   organization,
   selected,
 }: OrganizationManageRowProps) {
-  // Same keys as the Overview and Members pages, so the cache is shared.
-  const overviewQuery = useQuery({
-    queryFn: () => organizationsService.overview(organization.id, 30),
-    queryKey: [
-      ...organizationsService.queryKey,
-      organization.id,
-      "overview",
-      30,
-    ],
-  });
-  const membersQuery = useQuery({
-    queryFn: () => organizationsService.members(organization.id),
-    queryKey: [...organizationsService.queryKey, organization.id, "members"],
-  });
-  const overview = overviewQuery.data;
-  const owner = membersQuery.data?.find((member) => member.role === "owner");
-  const overviewPending = overviewQuery.isPending;
-
   return (
     <TableRow
       className="relative"
@@ -54,7 +35,8 @@ export default function OrganizationManageRow({
         <div className="max-w-56 min-w-36">
           <Flex className="flex-wrap items-center gap-1.5">
             <button
-              className="cursor-pointer rounded-sm text-left text-xs font-semibold wrap-anywhere whitespace-normal text-zinc-900 outline-hidden after:absolute after:inset-0 hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+              className="cursor-pointer rounded-sm text-left text-xs font-semibold wrap-anywhere whitespace-normal text-zinc-900 outline-hidden after:absolute after:inset-0 hover:underline focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait"
+              disabled={choosing}
               onClick={() => onSelect(organization)}
               type="button"
             >
@@ -77,50 +59,26 @@ export default function OrganizationManageRow({
       </TableCell>
 
       <TableCell className="text-xs text-zinc-700">
-        {membersQuery.isPending ? (
-          <Skeleton className="h-3 w-20 bg-zinc-200" />
-        ) : owner ? (
-          <>
-            @{owner.username}
-            {organization.role === "owner" ? (
-              <span className="text-zinc-400"> (you)</span>
-            ) : null}
-          </>
-        ) : (
-          "—"
-        )}
+        @{organization.ownerUsername}
+        {organization.role === "owner" ? (
+          <span className="text-zinc-400"> (you)</span>
+        ) : null}
       </TableCell>
 
       <TableCell className="text-right font-mono text-xs tabular-nums">
-        {overviewPending ? (
-          <Skeleton className="ml-auto h-3 w-6 bg-zinc-200" />
-        ) : overview ? (
-          formatCount(overview.agentCount)
-        ) : (
-          "—"
-        )}
+        {formatCount(organization.agentCount)}
       </TableCell>
 
       <TableCell className="text-right font-mono text-xs tabular-nums">
-        {overviewPending ? (
-          <Skeleton className="ml-auto h-3 w-6 bg-zinc-200" />
-        ) : overview ? (
-          formatCount(overview.memberCount)
-        ) : (
-          "—"
-        )}
+        {formatCount(organization.memberCount)}
       </TableCell>
 
       <TableCell className="text-right font-mono text-xs tabular-nums">
-        {overviewPending ? (
-          <Skeleton className="ml-auto h-3 w-8 bg-zinc-200" />
-        ) : overview && overview.tokenKnownRequests > 0 ? (
-          formatTokenCount(
-            overview.knownInputTokens + overview.knownOutputTokens,
-          )
-        ) : (
-          "—"
-        )}
+        {organization.tokenKnownRequests > 0
+          ? formatTokenCount(
+              organization.knownInputTokens + organization.knownOutputTokens,
+            )
+          : "—"}
       </TableCell>
 
       <TableCell className="text-xs text-zinc-600">

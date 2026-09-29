@@ -13,11 +13,12 @@ only for accounts with recorded requests. Members and owners can use Connect
 Agent to share an existing account or connect and share a new one with the team.
 Organization creation accepts an optional description of up to 350 characters.
 My organizations, beside New organization, lists your teams with their owner,
-agents, members, tokens and creation date. Choosing one makes it the default,
-Remove deletes a team you own or leaves one you joined after a confirmation, and
-pending invitations are accepted or declined there. The dialog opens from
-`?tab=my-organization`, which is where the sidebar's invitation bell links.
-Remove needs an API that has
+agents, members, tokens and creation date. Choosing one makes it your default,
+saved on your account rather than in the browser, Remove deletes a team you own
+or leaves one you joined after a confirmation, and pending invitations are
+accepted or declined there. The dialog opens from `?tab=my-organization`, which
+is where the sidebar's invitation bell links. It needs an API that has
+`GET /organization-summaries`, `PUT /organizations/{id}/default`,
 `DELETE /organizations/{id}` and `DELETE /organizations/{id}/membership`.
 
 From the repository root:

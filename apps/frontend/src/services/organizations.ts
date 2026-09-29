@@ -4,6 +4,7 @@ import type { components, paths } from "./api.generated";
 import type { AgentPoolUsageMetric } from "./agent-pools";
 
 type ApiOrganization = components["schemas"]["Organization"];
+type ApiOrganizationSummary = components["schemas"]["OrganizationSummary"];
 type ApiInvitation = components["schemas"]["OrganizationInvitation"];
 type ApiAgent = components["schemas"]["OrganizationAgent"];
 type ApiAgentDetails = components["schemas"]["OrganizationAgentDetails"];
@@ -16,8 +17,26 @@ export interface Organization {
   createdAt: string;
   description: string | null;
   id: string;
+  // The organization the viewer's Organization pages open with. Creating or
+  // joining one, or choosing it, makes it the default; none is until then.
+  isDefault: boolean;
   name: string;
   role: "owner" | "member";
+}
+
+// An organization as My organizations lists it: its owner, its agent and member
+// counts and its recorded usage over the last `periodDays` UTC days, the same
+// figures its Overview reports.
+export interface OrganizationSummary extends Organization {
+  agentCount: number;
+  knownCachedTokens: number;
+  knownInputTokens: number;
+  knownOutputTokens: number;
+  memberCount: number;
+  ownerUsername: string;
+  periodDays: number;
+  requests: number;
+  tokenKnownRequests: number;
 }
 
 export interface CreateOrganizationInput {
@@ -110,6 +129,9 @@ export interface OrganizationUsageFilters {
   model?: string;
 }
 
+// Usage window of the My organizations table, in UTC days.
+export const ORGANIZATION_SUMMARY_DAYS = 30;
+
 const apiBaseUrl = (
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080"
 ).replace(/\/$/, "");
@@ -137,8 +159,24 @@ function organizationFromApi(value: ApiOrganization): Organization {
     createdAt: value.created_at,
     description: value.description ?? null,
     id: value.id,
+    isDefault: value.is_default,
     name: value.name,
     role: value.role as Organization["role"],
+  };
+}
+
+function summaryFromApi(value: ApiOrganizationSummary): OrganizationSummary {
+  return {
+    ...organizationFromApi(value),
+    agentCount: value.agent_count,
+    knownCachedTokens: value.known_cached_tokens,
+    knownInputTokens: value.known_input_tokens,
+    knownOutputTokens: value.known_output_tokens,
+    memberCount: value.member_count,
+    ownerUsername: value.owner_username,
+    periodDays: value.period_days,
+    requests: value.requests,
+    tokenKnownRequests: value.token_known_requests,
   };
 }
 
@@ -247,6 +285,15 @@ async function list(): Promise<Organization[]> {
   return result.data.map(organizationFromApi);
 }
 
+async function summaries(): Promise<OrganizationSummary[]> {
+  const options = { params: { query: { days: ORGANIZATION_SUMMARY_DAYS } } };
+  let result = await client.GET("/organization-summaries", options);
+  if (result.response.status === 401 && (await refreshHubSession()))
+    result = await client.GET("/organization-summaries", options);
+  if (!result.data) throw serviceError(result.error);
+  return result.data.map(summaryFromApi);
+}
+
 async function create(input: CreateOrganizationInput): Promise<Organization> {
   const body = {
     description: input.description.trim() || null,
@@ -257,6 +304,14 @@ async function create(input: CreateOrganizationInput): Promise<Organization> {
     result = await client.POST("/organizations", { body });
   if (!result.data) throw serviceError(result.error);
   return organizationFromApi(result.data);
+}
+
+async function setDefault(id: string): Promise<void> {
+  const options = { params: { path: { id } } };
+  let result = await client.PUT("/organizations/{id}/default", options);
+  if (result.response.status === 401 && (await refreshHubSession()))
+    result = await client.PUT("/organizations/{id}/default", options);
+  if (!result.response.ok) throw serviceError(result.error);
 }
 
 async function deleteOrganization(id: string): Promise<void> {
@@ -442,6 +497,8 @@ const organizationsService = {
   queryKey: ["organizations"] as const,
   removeAgent,
   removeMember,
+  setDefault,
+  summaries,
   usage,
 };
 
