@@ -1,9 +1,12 @@
+import { useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useWorkspaceSession } from "@/components/workspace-shell/workspace-shell-session-context";
 import AgentsConnectDialog from "@/components/agents-connect-dialog";
+import agentConnectionsService from "@/services/agent-connections";
 import organizationsService from "@/services/organizations";
 import { useOrganizationContext } from "@/routes/_app.organization/organization-context";
+import { invalidateAgentQueries } from "@/utils/utils.agent-queries";
 
 import OrganizationAgentsExplorer from "./organization-agents-explorer";
 
@@ -29,13 +32,21 @@ export default function OrganizationAgentsRoute() {
       });
     },
   });
+  const refreshAgentData = useCallback(
+    () => invalidateAgentQueries(queryClient),
+    [queryClient],
+  );
   const removeMutation = useMutation({
     mutationFn: (connectionId: string) =>
       organizationsService.removeAgent(organization.id, connectionId),
-    onSuccess: () =>
-      queryClient.invalidateQueries({
-        queryKey: [...organizationsService.queryKey, organization.id],
-      }),
+    onSuccess: refreshAgentData,
+  });
+  // Refresh is owner-only on the API: it renews the Workspace connection this
+  // organization agent links to, so every view of that account updates.
+  const refreshMutation = useMutation({
+    mutationFn: (connectionId: string) =>
+      agentConnectionsService.refresh(connectionId),
+    onSuccess: refreshAgentData,
   });
   const agents = agentsQuery.data ?? [];
 
@@ -78,8 +89,11 @@ export default function OrganizationAgentsRoute() {
           agents={agents}
           currentUsername={session.user?.username ?? null}
           isOrganizationOwner={organization.role === "owner"}
+          onRefresh={(id) => refreshMutation.mutateAsync(id)}
+          onRefreshComplete={refreshAgentData}
           onRemove={(id) => removeMutation.mutate(id)}
           organizationId={organization.id}
+          refreshing={refreshMutation.isPending}
           removeError={removeMutation.error?.message ?? null}
           removeErrorId={removeMutation.variables ?? null}
           removing={removeMutation.isPending}

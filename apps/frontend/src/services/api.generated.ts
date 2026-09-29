@@ -397,6 +397,11 @@ export interface paths {
     };
     get: operations["list_agents"];
     put?: never;
+    /**
+     * Link an owned Workspace connection into an organization. The organization
+     *     agent is the same connection and credential, not a copy. Repeating the
+     *     request, including concurrently, returns the existing link.
+     */
     post: operations["share_agent"];
     delete?: never;
     options?: never;
@@ -1928,7 +1933,16 @@ export interface operations {
       };
     };
     responses: {
-      /** @description Owned agent shared with organization */
+      /** @description Owned agent was already linked; the existing link is returned */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["OrganizationAgent"];
+        };
+      };
+      /** @description Owned agent linked to the organization */
       201: {
         headers: {
           [name: string]: unknown;

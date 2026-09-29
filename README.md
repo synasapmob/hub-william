@@ -31,7 +31,10 @@ have joined or an agent shared with your organization.
   image generation are not available yet.
 - **Organization** (`/organization`): create or join multiple teams, invite
   members, share connected agents, and view organization requests and reported
-  token usage in Overview, Agents, Members and Usage.
+  token usage in Overview, Agents, Members and Usage. A shared agent stays
+  linked to its owner's Workspace account: refreshing it on either side updates
+  both, deleting it in Workspace removes it from every organization, and
+  removing it from an organization keeps the Workspace account.
 
 Libraries, Activities, Documents installation and MCP installation are retired.
 The old machine bootstrap (`install.py` / `install.sh`) is removed.
@@ -57,7 +60,11 @@ The Rust API owns authentication, rotating browser sessions, encrypted provider
 connections, account pools, organization membership and shares, and user-scoped
 gateway keys. An accepted pool member can use their own Hub key through a shared
 pool; an accepted organization member can use a shared agent in Playground.
-Neither flow exposes upstream provider credentials.
+Neither flow exposes upstream provider credentials. When the chosen account is
+rate limited, needs reconnecting or refuses a request, the API rotates to the
+next account of the same provider in the same scope and fails only once that
+pool is exhausted. Connected OAuth accounts refresh in the background every
+30-45 minutes.
 
 ## Development
 

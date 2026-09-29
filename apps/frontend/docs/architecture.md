@@ -33,10 +33,18 @@ and [ADR-0027](../../../docs/decisions/0027-organizations-and-session-agent-acce
   never receives provider credentials or creates a gateway key. Conversation
   text stays in the mounted page; stopped and incomplete answers remain visible
   but do not enter follow-up context. Provider selection is public; account selection
-  requires sign-in and requests are pinned to the chosen account. Images use
+  requires sign-in. Requests prefer the chosen account: when it is cooling
+  down, needs reconnect or is refused before streaming starts, the API uses
+  another account of the same provider in the same scope (Personal, or only
+  that organization's agents). A Chat response names the account that answered
+  in the `x-hub-connection-id` header, which the turn shows when it differs.
+  Model, Send and Start are blocked only when every account of that provider
+  in the scope needs reconnect. Images use
   native provider blocks; text files and extracted PDF text join the prompt. See [ADR-0025](../../../docs/decisions/0025-session-backed-playground.md).
-  Setup queries stay stable during chat/call: completing, failing or stopping a
-  request does not invalidate pools or models. Playground disables tab-focus
+  Setup queries stay stable during chat/call: completing or stopping a request
+  does not invalidate pools or models. A failed Chat turn, or one answered by
+  another account, refetches only the current scope's account list so Setup
+  statuses stay current; the selection does not change. Playground disables tab-focus
   and network-reconnect refetches, including the shared organization navigation
   observer while this page is open. Page entry, changed account/context,
   explicit retries and account-management invalidation still fetch current
@@ -61,7 +69,12 @@ and [ADR-0027](../../../docs/decisions/0027-organizations-and-session-agent-acce
   description of up to 350 characters. `/organization/agents` lets any accepted
   member or owner share their own existing or newly connected account through
   Connect Agent; all accepted members can use it, and the sharer or owner can
-  remove it. The page also shows available agents;
+  remove it. An organization agent is a link to the sharer's Workspace
+  connection, not a copy: refreshing or reconnecting it (in Workspace, or with
+  Refresh by its owner here) updates it everywhere, deleting it in Workspace
+  removes it from every organization, and Remove from organization keeps the
+  Workspace account connected. Sharing an already shared account succeeds
+  without a duplicate. The page also shows available agents;
   `/organization/members` lets the owner invite and remove users;
   `/organization/usage` filters request and reported token totals by period,
   member, agent and model. The API checks accepted membership for every view.

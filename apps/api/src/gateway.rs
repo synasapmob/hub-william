@@ -23,7 +23,11 @@ use uuid::Uuid;
 use crate::{
     AgentProvider, AppState,
     auth::authenticated_user_id,
-    connections::{ANTIGRAVITY_CLIENT_VERSION, load_gemini_code_assist, provider_credential},
+    connections::{
+        ANTIGRAVITY_CLIENT_VERSION, CredentialLookup, PROVIDER_LOGIN_REQUIRED_MESSAGE,
+        gateway_credential, load_gemini_code_assist, mark_reauthorization_required_if_current,
+        provider_credential, recover_rejected_credential,
+    },
     error::ApiError,
 };
 
@@ -43,8 +47,10 @@ const GROK_CHAT_URL: &str = "https://cli-chat-proxy.grok.com/v1/chat/completions
 const GROK_RESPONSES_URL: &str = "https://cli-chat-proxy.grok.com/v1/responses";
 const GROK_MODELS_URL: &str = "https://cli-chat-proxy.grok.com/v1/models-v2";
 
-/// A browser request is pinned to one authorized account; existing key clients
-/// retain the provider-scoped candidate set and failover behavior.
+/// A browser request names the account to try first; key clients do not. Both
+/// fail over across the same provider's accounts in their scope (personal
+/// accounts and joined pools, or one organization's shared agents) and only
+/// fail once every account there is unavailable.
 #[derive(Clone, Copy)]
 struct GatewaySelection {
     user_id: Uuid,
@@ -52,15 +58,33 @@ struct GatewaySelection {
     organization_id: Option<Uuid>,
 }
 
+/// Names the account that served a browser request after automatic failover.
+pub(crate) const SERVED_CONNECTION_HEADER: &str = "x-hub-connection-id";
+
 fn reauthorization_error(selection: GatewaySelection) -> ApiError {
     ApiError::Provider(
-        if selection.connection_id.is_some() {
-            "The selected account needs to reconnect. Its owner must complete provider reauthorization or account verification in Agents, or you can choose another account."
-        } else {
-            "Every accessible pool for this provider needs to reconnect."
+        match (selection.connection_id, selection.organization_id) {
+            (Some(_), Some(_)) => {
+                "Every account for this provider in this organization needs to reconnect. Their owners must complete provider reauthorization or account verification in Agents."
+            }
+            (Some(_), None) => {
+                "Every account for this provider available to you needs to reconnect. Their owners must complete provider reauthorization or account verification in Agents."
+            }
+            (None, _) => "Every accessible pool for this provider needs to reconnect.",
         }
         .to_owned(),
     )
+}
+
+fn served_by(mut response: Response, selection: GatewaySelection, connection_id: Uuid) -> Response {
+    if selection.connection_id.is_some()
+        && let Ok(value) = HeaderValue::from_str(&connection_id.to_string())
+    {
+        response
+            .headers_mut()
+            .insert(HeaderName::from_static(SERVED_CONNECTION_HEADER), value);
+    }
+    response
 }
 
 impl From<Uuid> for GatewaySelection {
@@ -90,7 +114,14 @@ async fn selected_provider_candidates(
 ) -> Result<Vec<ProviderCandidate>, ApiError> {
     let mut candidates = connected_provider_candidates(state, selection, provider).await?;
     if let Some(connection_id) = selection.connection_id {
-        candidates.retain(|candidate| candidate.id == connection_id);
+        // The chosen account must be reachable in this scope. It is tried
+        // first; the rest of the scope remains available for failover.
+        let preferred = candidates
+            .iter()
+            .position(|candidate| candidate.id == connection_id)
+            .ok_or(ApiError::Forbidden)?;
+        let preferred = candidates.remove(preferred);
+        candidates.insert(0, preferred);
     }
     if candidates.is_empty() {
         return Err(ApiError::Forbidden);
@@ -320,6 +351,8 @@ async fn response_for_selection(
     )
     .await
 }
+/// Minimum upstream send budget per request. A larger pool gets one send per
+/// account so failover can reach every account before the request fails.
 const MAX_UPSTREAM_ATTEMPTS: usize = 4;
 const MAX_SAME_CANDIDATE_ATTEMPTS: usize = 2;
 const RETRY_BASE_DELAY_MS: u64 = 500;
@@ -1466,10 +1499,11 @@ async fn gemini_models_for_user(
     let mut saw_reauthorization = false;
     let mut last_error = None;
     let candidate_count = candidates.len();
+    let budget = attempt_budget(candidate_count);
     let mut attempts_used = 0;
 
     'candidates: for (candidate_index, candidate) in candidates.into_iter().enumerate() {
-        if attempts_used >= MAX_UPSTREAM_ATTEMPTS {
+        if attempts_used >= budget {
             break;
         }
         let claimed_probe = match claim_candidate(state, &candidate).await {
@@ -1484,8 +1518,12 @@ async fn gemini_models_for_user(
             }
             Err(error) => return Err(error),
         };
-        let (credential_provider, token) = match provider_credential(state, candidate.id).await {
-            Ok(credential) => credential,
+        let (credential_provider, token) = match gateway_credential(state, candidate.id).await {
+            Ok(CredentialLookup::Ready(provider, token)) => (provider, token),
+            Ok(CredentialLookup::ReauthorizationRequired) => {
+                saw_reauthorization = true;
+                continue;
+            }
             Err(error) => {
                 if claimed_probe {
                     release_probe(state, candidate.id).await?;
@@ -1498,7 +1536,9 @@ async fn gemini_models_for_user(
         let project = token
             .get("cloudaicompanion_project")
             .and_then(Value::as_str);
-        let (Some(access_token), Some(project)) = (access_token, project) else {
+        let (Some(access_token), Some(project)) =
+            (access_token.map(str::to_owned), project.map(str::to_owned))
+        else {
             if claimed_probe {
                 release_probe(state, candidate.id).await?;
             }
@@ -1512,11 +1552,13 @@ async fn gemini_models_for_user(
             last_error = Some(ApiError::Forbidden);
             continue;
         }
-        let project = current_gemini_project(state, access_token, project).await;
+        let mut access_token = access_token;
+        let project = current_gemini_project(state, &access_token, &project).await;
         let upstream_url = format!(
             "{}/v1internal:fetchAvailableModels",
             state.config.gemini_code_assist_url.trim_end_matches('/')
         );
+        let mut credential_retried = false;
         let mut candidate_attempts = 0;
         loop {
             attempts_used += 1;
@@ -1524,7 +1566,7 @@ async fn gemini_models_for_user(
             let mut upstream = match state
                 .gateway_http
                 .post(&upstream_url)
-                .bearer_auth(access_token)
+                .bearer_auth(&access_token)
                 .header("user-agent", ANTIGRAVITY_CLIENT_VERSION)
                 .json(&json!({ "project": project }))
                 .send()
@@ -1533,7 +1575,7 @@ async fn gemini_models_for_user(
                 Ok(upstream) => upstream,
                 Err(error) => {
                     last_error = Some(upstream_network_error(AgentProvider::Gemini, error));
-                    if attempts_used >= MAX_UPSTREAM_ATTEMPTS {
+                    if attempts_used >= budget {
                         if claimed_probe {
                             release_probe(state, candidate.id).await?;
                         }
@@ -1545,15 +1587,14 @@ async fn gemini_models_for_user(
                         candidate_index,
                         candidate_count,
                     );
-                    if !retry_same && claimed_probe {
-                        release_probe(state, candidate.id).await?;
+                    if !retry_same {
+                        if claimed_probe {
+                            release_probe(state, candidate.id).await?;
+                        }
+                        continue 'candidates;
                     }
-                    let delay = retry_delay(attempts_used, None);
-                    tokio::time::sleep(delay).await;
-                    if retry_same {
-                        continue;
-                    }
-                    continue 'candidates;
+                    tokio::time::sleep(retry_delay(attempts_used, None)).await;
+                    continue;
                 }
             };
             match gemini_upstream_disposition(upstream.status()) {
@@ -1563,16 +1604,45 @@ async fn gemini_models_for_user(
                     continue 'candidates;
                 }
                 UpstreamDisposition::Reauthorize => {
-                    mark_reauth_required(state, candidate.id).await?;
-                    saw_reauthorization = true;
-                    continue 'candidates;
+                    match handle_rejected_credential(
+                        state,
+                        candidate.id,
+                        AgentProvider::Gemini,
+                        &access_token,
+                        credential_retried,
+                    )
+                    .await?
+                    {
+                        RejectedCredential::Retry(refreshed) => {
+                            credential_retried = true;
+                            access_token = refreshed
+                                .get("access_token")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default()
+                                .to_owned();
+                            attempts_used -= 1;
+                            candidate_attempts -= 1;
+                            continue;
+                        }
+                        RejectedCredential::ReauthorizationRequired => {
+                            saw_reauthorization = true;
+                            continue 'candidates;
+                        }
+                        RejectedCredential::NextAccount(error) => {
+                            if claimed_probe {
+                                release_probe(state, candidate.id).await?;
+                            }
+                            last_error = Some(error);
+                            continue 'candidates;
+                        }
+                    }
                 }
                 UpstreamDisposition::RetryTransient => {
                     last_error = Some(ApiError::Provider(format!(
                         "Google model discovery returned HTTP {} after {attempts_used} attempts.",
                         upstream.status()
                     )));
-                    if attempts_used >= MAX_UPSTREAM_ATTEMPTS {
+                    if attempts_used >= budget {
                         if claimed_probe {
                             release_probe(state, candidate.id).await?;
                         }
@@ -1584,15 +1654,14 @@ async fn gemini_models_for_user(
                         candidate_index,
                         candidate_count,
                     );
-                    if !retry_same && claimed_probe {
-                        release_probe(state, candidate.id).await?;
+                    if !retry_same {
+                        if claimed_probe {
+                            release_probe(state, candidate.id).await?;
+                        }
+                        continue 'candidates;
                     }
-                    let delay = retry_delay(attempts_used, Some(upstream.headers()));
-                    tokio::time::sleep(delay).await;
-                    if retry_same {
-                        continue;
-                    }
-                    continue 'candidates;
+                    tokio::time::sleep(retry_delay(attempts_used, Some(upstream.headers()))).await;
+                    continue;
                 }
                 UpstreamDisposition::NextPool | UpstreamDisposition::Return => {
                     if !upstream.status().is_success() {
@@ -1602,7 +1671,7 @@ async fn gemini_models_for_user(
                             if crate::connections::mark_gemini_verification_required(
                                 state,
                                 candidate.id,
-                                access_token,
+                                &access_token,
                             )
                             .await?
                             {
@@ -1722,10 +1791,11 @@ async fn gemini_proxy_request_for_user(
     let mut last_error = None;
     let mut last_pool_response = None;
     let candidate_count = candidates.len();
+    let budget = attempt_budget(candidate_count);
     let mut attempts_used = 0;
 
     'candidates: for (candidate_index, candidate) in candidates.into_iter().enumerate() {
-        if attempts_used >= MAX_UPSTREAM_ATTEMPTS {
+        if attempts_used >= budget {
             break;
         }
         let claimed_probe = match claim_candidate(state, &candidate).await {
@@ -1740,8 +1810,12 @@ async fn gemini_proxy_request_for_user(
             }
             Err(error) => return Err(error),
         };
-        let (credential_provider, token) = match provider_credential(state, candidate.id).await {
-            Ok(credential) => credential,
+        let (credential_provider, token) = match gateway_credential(state, candidate.id).await {
+            Ok(CredentialLookup::Ready(provider, token)) => (provider, token),
+            Ok(CredentialLookup::ReauthorizationRequired) => {
+                saw_reauthorization = true;
+                continue;
+            }
             Err(error) => {
                 if claimed_probe {
                     release_probe(state, candidate.id).await?;
@@ -1757,7 +1831,11 @@ async fn gemini_proxy_request_for_user(
             last_error = Some(ApiError::Forbidden);
             continue;
         }
-        let Some(access_token) = token.get("access_token").and_then(Value::as_str) else {
+        let Some(mut access_token) = token
+            .get("access_token")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+        else {
             if claimed_probe {
                 release_probe(state, candidate.id).await?;
             }
@@ -1777,13 +1855,14 @@ async fn gemini_proxy_request_for_user(
             ));
             continue;
         };
-        let project = current_gemini_project(state, access_token, project).await;
+        let project = current_gemini_project(state, &access_token, project).await;
         let upstream_body = gemini_code_assist_request(model, &project, operation, &request_body);
         let upstream_url = format!(
             "{}{}",
             state.config.gemini_code_assist_url.trim_end_matches('/'),
             operation.path()
         );
+        let mut credential_retried = false;
         let mut candidate_attempts = 0;
         loop {
             attempts_used += 1;
@@ -1791,7 +1870,7 @@ async fn gemini_proxy_request_for_user(
             let upstream = match state
                 .gateway_http
                 .post(&upstream_url)
-                .bearer_auth(access_token)
+                .bearer_auth(&access_token)
                 .header("user-agent", ANTIGRAVITY_CLIENT_VERSION)
                 .header("content-type", "application/json")
                 .json(&upstream_body)
@@ -1801,7 +1880,7 @@ async fn gemini_proxy_request_for_user(
                 Ok(upstream) => upstream,
                 Err(error) => {
                     last_error = Some(upstream_network_error(AgentProvider::Gemini, error));
-                    if attempts_used >= MAX_UPSTREAM_ATTEMPTS {
+                    if attempts_used >= budget {
                         if claimed_probe {
                             release_probe(state, candidate.id).await?;
                         }
@@ -1813,19 +1892,22 @@ async fn gemini_proxy_request_for_user(
                         candidate_index,
                         candidate_count,
                     );
-                    if !retry_same && claimed_probe {
-                        release_probe(state, candidate.id).await?;
+                    if !retry_same {
+                        if claimed_probe {
+                            release_probe(state, candidate.id).await?;
+                        }
+                        eprintln!(
+                            "Gemini gateway attempt {attempts_used}/{budget} failed before a response; trying the next account"
+                        );
+                        continue 'candidates;
                     }
                     let delay = retry_delay(attempts_used, None);
                     eprintln!(
-                        "Gemini gateway attempt {attempts_used}/{MAX_UPSTREAM_ATTEMPTS} failed before a response; retrying in {} ms",
+                        "Gemini gateway attempt {attempts_used}/{budget} failed before a response; retrying in {} ms",
                         delay.as_millis()
                     );
                     tokio::time::sleep(delay).await;
-                    if retry_same {
-                        continue;
-                    }
-                    continue 'candidates;
+                    continue;
                 }
             };
             match gemini_upstream_disposition(upstream.status()) {
@@ -1835,9 +1917,38 @@ async fn gemini_proxy_request_for_user(
                     continue 'candidates;
                 }
                 UpstreamDisposition::Reauthorize => {
-                    mark_reauth_required(state, candidate.id).await?;
-                    saw_reauthorization = true;
-                    continue 'candidates;
+                    match handle_rejected_credential(
+                        state,
+                        candidate.id,
+                        AgentProvider::Gemini,
+                        &access_token,
+                        credential_retried,
+                    )
+                    .await?
+                    {
+                        RejectedCredential::Retry(refreshed) => {
+                            credential_retried = true;
+                            access_token = refreshed
+                                .get("access_token")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default()
+                                .to_owned();
+                            attempts_used -= 1;
+                            candidate_attempts -= 1;
+                            continue;
+                        }
+                        RejectedCredential::ReauthorizationRequired => {
+                            saw_reauthorization = true;
+                            continue 'candidates;
+                        }
+                        RejectedCredential::NextAccount(error) => {
+                            if claimed_probe {
+                                release_probe(state, candidate.id).await?;
+                            }
+                            last_error = Some(error);
+                            continue 'candidates;
+                        }
+                    }
                 }
                 UpstreamDisposition::NextPool => {
                     let (verification_required, forwarded) =
@@ -1846,7 +1957,7 @@ async fn gemini_proxy_request_for_user(
                         if crate::connections::mark_gemini_verification_required(
                             state,
                             candidate.id,
-                            access_token,
+                            &access_token,
                         )
                         .await?
                         {
@@ -1864,10 +1975,10 @@ async fn gemini_proxy_request_for_user(
                 }
                 UpstreamDisposition::RetryTransient => {
                     eprintln!(
-                        "Gemini gateway attempt {attempts_used}/{MAX_UPSTREAM_ATTEMPTS} returned HTTP {}",
+                        "Gemini gateway attempt {attempts_used}/{budget} returned HTTP {}",
                         upstream.status()
                     );
-                    if attempts_used >= MAX_UPSTREAM_ATTEMPTS {
+                    if attempts_used >= budget {
                         if claimed_probe {
                             release_probe(state, candidate.id).await?;
                         }
@@ -1884,16 +1995,16 @@ async fn gemini_proxy_request_for_user(
                         candidate_index,
                         candidate_count,
                     );
-                    if !retry_same && claimed_probe {
-                        release_probe(state, candidate.id).await?;
+                    if !retry_same {
+                        if claimed_probe {
+                            release_probe(state, candidate.id).await?;
+                        }
+                        continue 'candidates;
                     }
                     let delay = retry_delay(attempts_used, Some(upstream.headers()));
                     eprintln!("Gemini gateway retry scheduled in {} ms", delay.as_millis());
                     tokio::time::sleep(delay).await;
-                    if retry_same {
-                        continue;
-                    }
-                    continue 'candidates;
+                    continue;
                 }
                 UpstreamDisposition::Return => {}
             }
@@ -1917,7 +2028,8 @@ async fn gemini_proxy_request_for_user(
                 selection.connection_id.is_some(),
                 usage_event,
             )
-            .await;
+            .await
+            .map(|response| served_by(response, selection, candidate.id));
         }
     }
 
@@ -2236,11 +2348,13 @@ async fn proxy_request_for_user(
     let mut saw_rate_limit = false;
     let mut saw_reauthorization = false;
     let mut last_error = None;
+    let mut last_pool_response = None;
     let candidate_count = candidates.len();
+    let budget = attempt_budget(candidate_count);
     let mut attempts_used = 0;
 
     'candidates: for (candidate_index, candidate) in candidates.into_iter().enumerate() {
-        if attempts_used >= MAX_UPSTREAM_ATTEMPTS {
+        if attempts_used >= budget {
             break;
         }
         let claimed_probe = match claim_candidate(state, &candidate).await {
@@ -2255,8 +2369,12 @@ async fn proxy_request_for_user(
             }
             Err(error) => return Err(error),
         };
-        let (credential_provider, token) = match provider_credential(state, candidate.id).await {
-            Ok(credential) => credential,
+        let (credential_provider, token) = match gateway_credential(state, candidate.id).await {
+            Ok(CredentialLookup::Ready(provider, token)) => (provider, token),
+            Ok(CredentialLookup::ReauthorizationRequired) => {
+                saw_reauthorization = true;
+                continue;
+            }
             Err(error) => {
                 if claimed_probe {
                     release_probe(state, candidate.id).await?;
@@ -2272,8 +2390,9 @@ async fn proxy_request_for_user(
             last_error = Some(ApiError::Forbidden);
             continue;
         }
-        let access_token = match token.get("access_token").and_then(Value::as_str) {
-            Some(access_token) => access_token,
+        let mut token = token;
+        let mut access_token = match token.get("access_token").and_then(Value::as_str) {
+            Some(access_token) => access_token.to_owned(),
             None => {
                 if claimed_probe {
                     release_probe(state, candidate.id).await?;
@@ -2282,6 +2401,7 @@ async fn proxy_request_for_user(
                 continue;
             }
         };
+        let mut credential_retried = false;
         let mut candidate_attempts = 0;
         loop {
             attempts_used += 1;
@@ -2289,7 +2409,7 @@ async fn proxy_request_for_user(
             let mut request = state
                 .gateway_http
                 .request(method.clone(), &upstream_url)
-                .bearer_auth(access_token)
+                .bearer_auth(&access_token)
                 .body(body.clone());
 
             for (name, value) in request_headers {
@@ -2342,7 +2462,7 @@ async fn proxy_request_for_user(
                 Ok(upstream) => upstream,
                 Err(error) => {
                     last_error = Some(upstream_network_error(expected_provider, error));
-                    if attempts_used >= MAX_UPSTREAM_ATTEMPTS {
+                    if attempts_used >= budget {
                         if claimed_probe {
                             release_probe(state, candidate.id).await?;
                         }
@@ -2354,27 +2474,34 @@ async fn proxy_request_for_user(
                         candidate_index,
                         candidate_count,
                     );
-                    if !retry_same && claimed_probe {
-                        release_probe(state, candidate.id).await?;
+                    if !retry_same {
+                        if claimed_probe {
+                            release_probe(state, candidate.id).await?;
+                        }
+                        eprintln!(
+                            "{expected_provider} gateway attempt {attempts_used}/{budget} failed before a response; trying the next account"
+                        );
+                        continue 'candidates;
                     }
                     let delay = retry_delay(attempts_used, None);
                     eprintln!(
-                        "{expected_provider} gateway attempt {attempts_used}/{MAX_UPSTREAM_ATTEMPTS} failed before a response; retrying in {} ms",
+                        "{expected_provider} gateway attempt {attempts_used}/{budget} failed before a response; retrying in {} ms",
                         delay.as_millis()
                     );
                     tokio::time::sleep(delay).await;
-                    if retry_same {
-                        continue;
-                    }
-                    continue 'candidates;
+                    continue;
                 }
             };
-            let disposition = if expected_provider == AgentProvider::Grok
-                && upstream.status() == StatusCode::FORBIDDEN
-            {
-                UpstreamDisposition::Reauthorize
-            } else {
-                upstream_disposition(upstream.status())
+            let disposition = match upstream.status() {
+                StatusCode::FORBIDDEN if expected_provider == AgentProvider::Grok => {
+                    UpstreamDisposition::Reauthorize
+                }
+                // A 403 (plan, entitlement or policy) or 402 (no balance left)
+                // is about this account; another account may still serve.
+                StatusCode::FORBIDDEN | StatusCode::PAYMENT_REQUIRED => {
+                    UpstreamDisposition::NextPool
+                }
+                status => upstream_disposition(status),
             };
             match disposition {
                 UpstreamDisposition::RateLimit => {
@@ -2383,16 +2510,48 @@ async fn proxy_request_for_user(
                     continue 'candidates;
                 }
                 UpstreamDisposition::Reauthorize => {
-                    mark_reauth_required(state, candidate.id).await?;
-                    saw_reauthorization = true;
-                    continue 'candidates;
+                    match handle_rejected_credential(
+                        state,
+                        candidate.id,
+                        expected_provider,
+                        &access_token,
+                        credential_retried,
+                    )
+                    .await?
+                    {
+                        RejectedCredential::Retry(refreshed) => {
+                            credential_retried = true;
+                            access_token = refreshed
+                                .get("access_token")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default()
+                                .to_owned();
+                            token = refreshed;
+                            // A rejected login produced no generation, so its
+                            // send does not spend the failover budget.
+                            attempts_used -= 1;
+                            candidate_attempts -= 1;
+                            continue;
+                        }
+                        RejectedCredential::ReauthorizationRequired => {
+                            saw_reauthorization = true;
+                            continue 'candidates;
+                        }
+                        RejectedCredential::NextAccount(error) => {
+                            if claimed_probe {
+                                release_probe(state, candidate.id).await?;
+                            }
+                            last_error = Some(error);
+                            continue 'candidates;
+                        }
+                    }
                 }
                 UpstreamDisposition::RetryTransient => {
                     eprintln!(
-                        "{expected_provider} gateway attempt {attempts_used}/{MAX_UPSTREAM_ATTEMPTS} returned HTTP {}",
+                        "{expected_provider} gateway attempt {attempts_used}/{budget} returned HTTP {}",
                         upstream.status()
                     );
-                    if attempts_used >= MAX_UPSTREAM_ATTEMPTS {
+                    if attempts_used >= budget {
                         if claimed_probe {
                             release_probe(state, candidate.id).await?;
                         }
@@ -2404,8 +2563,11 @@ async fn proxy_request_for_user(
                         candidate_index,
                         candidate_count,
                     );
-                    if !retry_same && claimed_probe {
-                        release_probe(state, candidate.id).await?;
+                    if !retry_same {
+                        if claimed_probe {
+                            release_probe(state, candidate.id).await?;
+                        }
+                        continue 'candidates;
                     }
                     let delay = retry_delay(attempts_used, Some(upstream.headers()));
                     eprintln!(
@@ -2413,13 +2575,14 @@ async fn proxy_request_for_user(
                         delay.as_millis()
                     );
                     tokio::time::sleep(delay).await;
-                    if retry_same {
-                        continue;
-                    }
-                    continue 'candidates;
+                    continue;
                 }
                 UpstreamDisposition::NextPool => {
-                    unreachable!("only Gemini classifies an upstream response as pool-specific")
+                    if claimed_probe {
+                        release_probe(state, candidate.id).await?;
+                    }
+                    last_pool_response = Some(upstream_response(upstream).await?);
+                    continue 'candidates;
                 }
                 UpstreamDisposition::Return => {}
             }
@@ -2439,7 +2602,9 @@ async fn proxy_request_for_user(
             } else {
                 None
             };
-            return upstream_response_with_usage(upstream, usage_event).await;
+            return upstream_response_with_usage(upstream, usage_event)
+                .await
+                .map(|response| served_by(response, selection, candidate.id));
         }
     }
 
@@ -2447,6 +2612,8 @@ async fn proxy_request_for_user(
         Err(ApiError::RateLimited)
     } else if saw_reauthorization {
         Err(reauthorization_error(selection))
+    } else if let Some(response) = last_pool_response {
+        Ok(response)
     } else {
         Err(last_error.unwrap_or(ApiError::Forbidden))
     }
@@ -2791,20 +2958,20 @@ async fn mark_rate_limited(state: &AppState, connection_id: Uuid) -> Result<(), 
     Ok(())
 }
 
-async fn mark_reauth_required(state: &AppState, connection_id: Uuid) -> Result<(), ApiError> {
-    sqlx::query(
-        "UPDATE agent_connections
-         SET availability_status = 'reauth_required', rate_limited_until = NULL,
-             retry_claimed_at = NULL,
-             failure_message = 'Provider login is required. Reconnect this pool.',
-             updated_at = NOW()
-         WHERE id = $1",
+/// Mark an account for reconnect after the provider rejected
+/// `observed_access_token`, unless a newer credential has replaced it.
+async fn mark_reauth_required(
+    state: &AppState,
+    connection_id: Uuid,
+    observed_access_token: &str,
+) -> Result<bool, ApiError> {
+    mark_reauthorization_required_if_current(
+        state,
+        connection_id,
+        observed_access_token,
+        PROVIDER_LOGIN_REQUIRED_MESSAGE,
     )
-    .bind(connection_id)
-    .execute(&state.pool)
     .await
-    .map_err(database_error)?;
-    Ok(())
 }
 
 async fn mark_active(state: &AppState, connection_id: Uuid) -> Result<(), ApiError> {
@@ -3049,19 +3216,79 @@ pub(crate) async fn probe_gemini_account_verification(
     }
 }
 
+fn attempt_budget(candidate_count: usize) -> usize {
+    MAX_UPSTREAM_ATTEMPTS.max(candidate_count)
+}
+
 fn should_retry_same_candidate(
     attempts_used: usize,
     candidate_attempts: usize,
     candidate_index: usize,
     candidate_count: usize,
 ) -> bool {
-    if attempts_used >= MAX_UPSTREAM_ATTEMPTS {
+    let budget = attempt_budget(candidate_count);
+    if attempts_used >= budget {
         return false;
     }
     let remaining_candidates = candidate_count.saturating_sub(candidate_index + 1);
     remaining_candidates == 0
         || (candidate_attempts < MAX_SAME_CANDIDATE_ATTEMPTS
-            && MAX_UPSTREAM_ATTEMPTS - attempts_used > remaining_candidates)
+            && budget - attempts_used > remaining_candidates)
+}
+
+/// What to do after a provider rejected an account's access token.
+enum RejectedCredential {
+    /// Retry the same account once with this refreshed or already rotated credential.
+    Retry(Value),
+    /// The account now needs its owner to reconnect it.
+    ReauthorizationRequired,
+    /// Recovery could not finish; try the next account without marking this one.
+    NextAccount(ApiError),
+}
+
+/// A provider 401 is not proof that the login is gone: the access token may have
+/// expired early or been rotated by another request. Refresh it once (or pick up
+/// the token another request already rotated in) and retry; mark the account
+/// for reconnect only when the refresh credential is rejected or the provider
+/// also rejects the fresh token.
+async fn handle_rejected_credential(
+    state: &AppState,
+    connection_id: Uuid,
+    provider: AgentProvider,
+    observed_access_token: &str,
+    already_retried: bool,
+) -> Result<RejectedCredential, ApiError> {
+    if !already_retried {
+        return Ok(
+            match recover_rejected_credential(state, connection_id, observed_access_token).await {
+                Ok(CredentialLookup::Ready(refreshed_provider, token))
+                    if refreshed_provider == provider
+                        && token.get("access_token").and_then(Value::as_str).is_some() =>
+                {
+                    RejectedCredential::Retry(token)
+                }
+                Ok(CredentialLookup::Ready(..)) => {
+                    RejectedCredential::NextAccount(ApiError::Forbidden)
+                }
+                Ok(CredentialLookup::ReauthorizationRequired) => {
+                    RejectedCredential::ReauthorizationRequired
+                }
+                Err(error) => {
+                    eprintln!(
+                        "{provider} connection {connection_id} was rejected upstream and could not be refreshed: {error:?}"
+                    );
+                    RejectedCredential::NextAccount(error)
+                }
+            },
+        );
+    }
+    if mark_reauth_required(state, connection_id, observed_access_token).await? {
+        Ok(RejectedCredential::ReauthorizationRequired)
+    } else {
+        Ok(RejectedCredential::NextAccount(ApiError::Provider(
+            format!("{} rejected this account's login.", provider.label()),
+        )))
+    }
 }
 
 fn retry_delay(retry_number: usize, headers: Option<&HeaderMap>) -> std::time::Duration {
@@ -3856,6 +4083,9 @@ The `gpt-5.4` and `gpt-5.3-codex` models have retired.
 }
 
 #[cfg(all(test, feature = "database-tests"))]
+mod credential_recovery_tests;
+
+#[cfg(all(test, feature = "database-tests"))]
 mod gemini_gateway_database_tests {
     use std::sync::{Arc, Mutex};
 
@@ -3877,8 +4107,8 @@ mod gemini_gateway_database_tests {
     use uuid::Uuid;
 
     use super::{
-        GatewaySelection, GeminiOperation, gemini_proxy_request_for_user, mark_active,
-        mark_rate_limited,
+        GatewaySelection, GeminiOperation, SERVED_CONNECTION_HEADER, gemini_proxy_request_for_user,
+        mark_active, mark_rate_limited,
     };
     use crate::{AppConfig, AppState};
 
@@ -3891,6 +4121,22 @@ mod gemini_gateway_database_tests {
 
     async fn load_code_assist() -> Json<Value> {
         Json(json!({ "cloudaicompanionProject": "test-project" }))
+    }
+
+    async fn available_models(
+        State(fake): State<FakeCodeAssist>,
+        headers: HeaderMap,
+    ) -> (StatusCode, Json<Value>) {
+        let (status, body) = generate(State(fake), headers).await;
+        if status != StatusCode::OK {
+            return (status, body);
+        }
+        (
+            StatusCode::OK,
+            Json(json!({ "models": {
+                "gemini-3.8-flash-high": { "displayName": "Gemini 3.8 Flash (High)" }
+            } })),
+        )
     }
 
     async fn generate(
@@ -3994,7 +4240,7 @@ mod gemini_gateway_database_tests {
     }
 
     #[sqlx::test]
-    async fn blocked_gemini_pool_rotates_but_invalid_request_and_pinned_account_do_not(
+    async fn blocked_gemini_accounts_fail_over_within_scope_but_invalid_requests_do_not(
         pool: PgPool,
     ) {
         let fake = FakeCodeAssist {
@@ -4005,6 +4251,8 @@ mod gemini_gateway_database_tests {
         let server = Router::new()
             .route("/v1internal:loadCodeAssist", post(load_code_assist))
             .route("/v1internal:generateContent", post(generate))
+            .route("/v1internal:countTokens", post(generate))
+            .route("/v1internal:fetchAvailableModels", post(available_models))
             .with_state(fake.clone());
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let upstream_url = format!("http://{}", listener.local_addr().unwrap());
@@ -4027,7 +4275,7 @@ mod gemini_gateway_database_tests {
         .execute(&state.pool)
         .await
         .unwrap();
-        add_gemini_connection(&state, user_id, "healthy-token", true).await;
+        let healthy_id = add_gemini_connection(&state, user_id, "healthy-token", true).await;
         let blocked_id = add_gemini_connection(&state, user_id, "blocked-token", false).await;
         let selection = GatewaySelection::from(user_id);
 
@@ -4051,18 +4299,22 @@ mod gemini_gateway_database_tests {
                 .unwrap();
         assert_eq!(availability, "active");
 
-        let pinned = GatewaySelection {
+        // A browser request tries its chosen account first, then fails over to
+        // the rest of its scope and names the account that answered.
+        let preferred = GatewaySelection {
             user_id,
             connection_id: Some(blocked_id),
             organization_id: None,
         };
+        let response = generation(&state, preferred).await;
+        assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
-            generation(&state, pinned).await.status(),
-            StatusCode::FORBIDDEN
+            response.headers()[SERVED_CONNECTION_HEADER],
+            healthy_id.to_string().as_str()
         );
         assert_eq!(
             std::mem::take(&mut *fake.generation_tokens.lock().unwrap()),
-            ["Bearer blocked-token"]
+            ["Bearer blocked-token", "Bearer healthy-token"]
         );
 
         *fake.blocked_status.lock().unwrap() = StatusCode::BAD_REQUEST;
@@ -4075,19 +4327,27 @@ mod gemini_gateway_database_tests {
             ["Bearer blocked-token"]
         );
 
+        // A 401 first tries to refresh the credential. This fixture stores no
+        // refresh token, so the account is marked with the refresh reason and
+        // the request continues on the next account.
         *fake.blocked_status.lock().unwrap() = StatusCode::UNAUTHORIZED;
         assert_eq!(generation(&state, selection).await.status(), StatusCode::OK);
         assert_eq!(
             std::mem::take(&mut *fake.generation_tokens.lock().unwrap()),
             ["Bearer blocked-token", "Bearer healthy-token"]
         );
-        let availability: String =
-            sqlx::query_scalar("SELECT availability_status FROM agent_connections WHERE id = $1")
-                .bind(blocked_id)
-                .fetch_one(&state.pool)
-                .await
-                .unwrap();
+        let (availability, failure_message): (String, Option<String>) = sqlx::query_as(
+            "SELECT availability_status, failure_message FROM agent_connections WHERE id = $1",
+        )
+        .bind(blocked_id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
         assert_eq!(availability, "reauth_required");
+        assert_eq!(
+            failure_message.as_deref(),
+            Some("Provider authorization expired. Refresh this pool to reconnect.")
+        );
 
         sqlx::query(
             "UPDATE agent_connections SET availability_status = 'active', updated_at = NOW()
@@ -4130,8 +4390,8 @@ mod gemini_gateway_database_tests {
                 .unwrap();
         assert_eq!(availability, "reauth_required");
 
-        // An organization request stays pinned even when another shared pool
-        // is usable. The error must describe only its selected account.
+        // Personal and organization requests whose chosen account needs to
+        // reconnect fail over only within their own scope.
         let org_id = Uuid::new_v4();
         sqlx::query("INSERT INTO organizations (id, name) VALUES ($1, 'Team')")
             .bind(org_id)
@@ -4158,20 +4418,67 @@ mod gemini_gateway_database_tests {
         .await
         .unwrap();
         for organization_id in [None, Some(org_id)] {
-            let pinned = GatewaySelection {
+            let preferred = GatewaySelection {
                 user_id,
                 connection_id: Some(blocked_id),
                 organization_id,
             };
-            let models = super::gemini_models_for_user(&state, pinned).await;
+            let models = super::gemini_models_for_user(&state, preferred)
+                .await
+                .unwrap();
+            assert_eq!(models.0["data"][0]["id"], "gemini-3.8-flash-high");
+            for operation in [GeminiOperation::Generate, GeminiOperation::CountTokens] {
+                let response = gemini_proxy_request_for_user(
+                    &state,
+                    preferred,
+                    "gemini-3.8-flash-high",
+                    operation,
+                    Bytes::from_static(
+                        br#"{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}"#,
+                    ),
+                )
+                .await
+                .unwrap();
+                assert_eq!(response.status(), StatusCode::OK);
+                assert_eq!(
+                    response.headers()[SERVED_CONNECTION_HEADER],
+                    healthy_id.to_string().as_str()
+                );
+            }
+        }
+        assert_eq!(
+            std::mem::take(&mut *fake.generation_tokens.lock().unwrap()),
+            ["Bearer healthy-token"; 6],
+            "an account waiting for reconnect is never called"
+        );
+
+        // Only when every account in the scope needs to reconnect does the
+        // request fail, with a message about that scope.
+        sqlx::query(
+            "UPDATE agent_connections SET availability_status = 'reauth_required' WHERE id = $1",
+        )
+        .bind(healthy_id)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+        for (organization_id, scope) in [
+            (None, "available to you"),
+            (Some(org_id), "in this organization"),
+        ] {
+            let preferred = GatewaySelection {
+                user_id,
+                connection_id: Some(blocked_id),
+                organization_id,
+            };
+            let models = super::gemini_models_for_user(&state, preferred).await;
             assert!(
-                matches!(models, Err(crate::error::ApiError::Provider(message))
-                if message.starts_with("The selected account needs to reconnect."))
+                matches!(&models, Err(crate::error::ApiError::Provider(message))
+                if message.starts_with("Every account for this provider") && message.contains(scope))
             );
             for operation in [GeminiOperation::Generate, GeminiOperation::CountTokens] {
                 let result = gemini_proxy_request_for_user(
                     &state,
-                    pinned,
+                    preferred,
                     "gemini-3.8-flash-high",
                     operation,
                     Bytes::from_static(
@@ -4180,8 +4487,8 @@ mod gemini_gateway_database_tests {
                 )
                 .await;
                 assert!(
-                    matches!(result, Err(crate::error::ApiError::Provider(message))
-                    if message.starts_with("The selected account needs to reconnect."))
+                    matches!(&result, Err(crate::error::ApiError::Provider(message))
+                    if message.starts_with("Every account for this provider") && message.contains(scope))
                 );
             }
         }

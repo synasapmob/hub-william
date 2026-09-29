@@ -468,8 +468,10 @@ export default function AgentsConnectDialog({
             </Flex>
 
             <p className="text-xs text-muted-foreground">
-              Add your existing account without signing in again. Its current
-              provider status applies in both Workspace and this organization.
+              Add your existing account without signing in again. The
+              organization gets a link to your Workspace account, not a copy, so
+              refreshing, reconnecting or deleting it in Workspace applies here
+              too.
             </p>
 
             {!filteredConnections.length ? (

@@ -19,12 +19,13 @@ use std::{
 use uuid::Uuid;
 
 use super::{
-    GatewaySelection, TokenUsage, claim_candidate, mark_active, mark_rate_limited,
-    mark_reauth_required, nonnegative_i64, organization_usage_event, provider_credential,
+    GatewaySelection, ProviderCandidate, TokenUsage, claim_candidate, mark_active,
+    mark_rate_limited, nonnegative_i64, organization_usage_event, provider_credential,
     record_organization_usage, release_probe, selected_provider_candidates,
 };
 use crate::{
     AgentProvider, AppState,
+    connections::{CredentialLookup, recover_rejected_credential},
     error::ApiError,
     playground_groq_voice::{
         GROQ_CHAT_MODEL, GROQ_TTS_MODEL, GroqVoiceTurnRequest, GroqVoiceTurnResponse,
@@ -88,23 +89,57 @@ pub(crate) async fn groq_voice_turn_for_user(
         connection_id: Some(request.connection_id),
         organization_id: request.organization_id,
     };
-    let candidate = selected_provider_candidates(state, selection, AgentProvider::Groq)
-        .await?
-        .pop()
-        .ok_or(ApiError::Forbidden)?;
-    let permit = TurnPermit::wait(candidate.id).await?;
-    // Another turn may have cooled down or revoked the account while we waited.
-    let candidate = selected_provider_candidates(state, selection, AgentProvider::Groq)
-        .await?
-        .pop()
-        .ok_or(ApiError::Forbidden)?;
-    let claimed = claim_candidate(state, &candidate).await?.ok_or_else(|| {
-        if candidate.availability_status == "reauth_required" {
+    // Start the turn on the chosen account, or on the next usable Groq account
+    // in the same scope when it is cooling down, needs reconnect or is busy. A
+    // turn that has started is never replayed on another account.
+    let mut saw_rate_limit = false;
+    let mut saw_reauthorization = false;
+    let mut last_error = None;
+    let mut started = None;
+    for listed in selected_provider_candidates(state, selection, AgentProvider::Groq).await? {
+        if !candidate_may_be_claimed(&listed) {
+            if listed.availability_status == "reauth_required" {
+                saw_reauthorization = true;
+            } else {
+                saw_rate_limit = true;
+            }
+            continue;
+        }
+        let permit = match TurnPermit::wait(listed.id).await {
+            Ok(permit) => permit,
+            Err(error) => {
+                last_error = Some(error);
+                continue;
+            }
+        };
+        // Another turn may have cooled down or revoked the account while we waited.
+        let Some(candidate) = selected_provider_candidates(state, selection, AgentProvider::Groq)
+            .await?
+            .into_iter()
+            .find(|candidate| candidate.id == listed.id)
+        else {
+            continue;
+        };
+        match claim_candidate(state, &candidate).await? {
+            Some(claimed) => {
+                started = Some((candidate, claimed, permit));
+                break;
+            }
+            None if candidate.availability_status == "reauth_required" => {
+                saw_reauthorization = true;
+            }
+            None => saw_rate_limit = true,
+        }
+    }
+    let Some((candidate, claimed, permit)) = started else {
+        return Err(if saw_rate_limit {
+            ApiError::RateLimited
+        } else if saw_reauthorization {
             ApiError::Provider("Reconnect this Groq account before calling.".into())
         } else {
-            ApiError::RateLimited
-        }
-    })?;
+            last_error.unwrap_or(ApiError::Forbidden)
+        });
+    };
     let streaming = request.stream;
     let early_audio = streaming && request.stream_audio;
     let (tx, mut rx) = mpsc::channel::<Result<Value, ApiError>>(4);
@@ -137,7 +172,7 @@ pub(crate) async fn groq_voice_turn_for_user(
             let request = state.gateway_http.post(format!("{base}/chat/completions"))
             .bearer_auth(key).json(&json!({"model":GROQ_CHAT_MODEL, "messages":messages, "max_completion_tokens":1024, "reasoning_effort":"low", "include_reasoning":false, "stream":streaming}));
             let completion: Value = if streaming {
-                let response = checked_request(state, candidate.id, request, "reply").await?;
+                let response = checked_request(state, candidate.id, key, request, "reply").await?;
                 if early_audio {
                     let (sentences, mut queue) = mpsc::channel::<String>(8);
                     let speech = async {
@@ -154,7 +189,8 @@ pub(crate) async fn groq_voice_turn_for_user(
                 }
             } else {
                 let bytes =
-                    checked_response(state, candidate.id, request, "reply", 128 * 1024).await?;
+                    checked_response(state, candidate.id, key, request, "reply", 128 * 1024)
+                        .await?;
                 serde_json::from_slice(&bytes).map_err(|_| invalid_response())?
             };
             let reply = completion
@@ -295,7 +331,7 @@ async fn speak(
     tx: &mpsc::Sender<Result<Value, ApiError>>,
     audio_bytes: &mut usize,
 ) -> Result<(), ApiError> {
-    let wav = checked_response(state, connection_id, state.gateway_http.post(format!("{}/audio/speech", state.config.groq_api_url))
+    let wav = checked_response(state, connection_id, key, state.gateway_http.post(format!("{}/audio/speech", state.config.groq_api_url))
         .bearer_auth(key).json(&json!({"model":GROQ_TTS_MODEL, "voice":"hannah", "input":text, "response_format":"wav"})),
         "speech", 2 * 1024 * 1024).await?;
     if !wav.starts_with(b"RIFF") || wav.get(8..12) != Some(b"WAVE") {
@@ -312,6 +348,18 @@ async fn emit(tx: &mpsc::Sender<Result<Value, ApiError>>, event: Value) -> Resul
     tx.send(Ok(event)).await.map_err(|_| ApiError::Internal)
 }
 
+/// Whether `claim_candidate` could hand this account to a new turn, checked
+/// before waiting for its turn permit.
+fn candidate_may_be_claimed(candidate: &ProviderCandidate) -> bool {
+    match candidate.availability_status.as_str() {
+        "reauth_required" => false,
+        "rate_limited" => candidate
+            .rate_limited_until
+            .is_some_and(|until| until <= chrono::Utc::now()),
+        _ => true,
+    }
+}
+
 fn invalid_response() -> ApiError {
     ApiError::Provider("Groq returned an invalid voice response. Start a new call to retry.".into())
 }
@@ -319,11 +367,12 @@ fn invalid_response() -> ApiError {
 async fn checked_response(
     state: &AppState,
     connection_id: Uuid,
+    key: &str,
     request: reqwest::RequestBuilder,
     stage: &str,
     limit: usize,
 ) -> Result<Vec<u8>, ApiError> {
-    let response = checked_request(state, connection_id, request, stage).await?;
+    let response = checked_request(state, connection_id, key, request, stage).await?;
     to_bytes(Body::from_stream(response.bytes_stream()), limit)
         .await
         .map(|b| b.to_vec())
@@ -333,6 +382,7 @@ async fn checked_response(
 async fn checked_request(
     state: &AppState,
     connection_id: Uuid,
+    key: &str,
     request: reqwest::RequestBuilder,
     stage: &str,
 ) -> Result<reqwest::Response, ApiError> {
@@ -351,10 +401,19 @@ async fn checked_request(
             return Err(ApiError::RateLimited);
         }
         reqwest::StatusCode::UNAUTHORIZED => {
-            mark_reauth_required(state, connection_id).await?;
-            return Err(ApiError::Provider(
-                "Reconnect this Groq account with a valid API key.".into(),
-            ));
+            // Revalidate the key before marking: one rejected call is not proof
+            // the key is dead, and a mark would block this account everywhere.
+            // A turn in progress is never replayed, so this call still fails.
+            return Err(
+                match recover_rejected_credential(state, connection_id, key).await {
+                    Ok(CredentialLookup::ReauthorizationRequired) => ApiError::Provider(
+                        "Reconnect this Groq account with a valid API key.".into(),
+                    ),
+                    Ok(CredentialLookup::Ready(..)) | Err(_) => ApiError::Provider(format!(
+                        "Groq rejected this {stage} request. Start a new call to retry."
+                    )),
+                },
+            );
         }
         status if !status.is_success() => {
             let body = to_bytes(Body::from_stream(response.bytes_stream()), 64 * 1024)
@@ -497,5 +556,143 @@ mod tests {
                 .iter()
                 .all(|s| s.chars().count() <= 200)
         );
+    }
+}
+
+#[cfg(all(test, feature = "database-tests"))]
+mod rejected_key_tests {
+    use super::*;
+    use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::Aead};
+    use axum::{
+        Router,
+        http::StatusCode,
+        routing::{get, post},
+    };
+    use sqlx::PgPool;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicU16, Ordering},
+    };
+
+    const GROQ_KEY: &str = "gsk-voice-test-key-000000000001";
+
+    async fn groq_account(state: &AppState) -> Uuid {
+        let owner = Uuid::new_v4();
+        sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'test-only')")
+            .bind(owner)
+            .bind(owner.simple().to_string())
+            .execute(&state.pool)
+            .await
+            .unwrap();
+        let id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO agent_connections (id,user_id,provider,status) VALUES ($1,$2,'groq','connected')",
+        )
+        .bind(id)
+        .bind(owner)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+        let cipher = Aes256Gcm::new_from_slice(&state.config.credential_encryption_key).unwrap();
+        let nonce = [9_u8; 12];
+        let payload = json!({"access_token": GROQ_KEY}).to_string();
+        let ciphertext = cipher
+            .encrypt(Nonce::from_slice(&nonce), payload.as_bytes())
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO agent_connection_credentials (connection_id,credential_ciphertext,credential_nonce) VALUES ($1,$2,$3)",
+        )
+        .bind(id)
+        .bind(ciphertext)
+        .bind(nonce.to_vec())
+        .execute(&state.pool)
+        .await
+        .unwrap();
+        id
+    }
+
+    async fn availability(state: &AppState, id: Uuid) -> (String, Option<String>) {
+        sqlx::query_as(
+            "SELECT availability_status, failure_message FROM agent_connections WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap()
+    }
+
+    #[sqlx::test]
+    async fn a_rejected_voice_call_marks_the_account_only_when_its_key_is_no_longer_valid(
+        pool: PgPool,
+    ) {
+        // Chat always rejects the call; the key check answers with `models_status`.
+        let models_status = Arc::new(AtomicU16::new(200));
+        let models = models_status.clone();
+        let server = Router::new()
+            .route(
+                "/chat/completions",
+                post(|| async { (StatusCode::UNAUTHORIZED, "rejected") }),
+            )
+            .route(
+                "/models",
+                get(move || {
+                    let models = models.clone();
+                    async move {
+                        (
+                            StatusCode::from_u16(models.load(Ordering::SeqCst)).unwrap(),
+                            axum::Json(json!({"data": []})),
+                        )
+                    }
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move {
+            axum::serve(listener, server).await.unwrap();
+        });
+        let state = AppState {
+            config: crate::AppConfig {
+                groq_api_url: base.clone(),
+                ..crate::AppConfig::default()
+            },
+            http: reqwest::Client::new(),
+            gateway_http: reqwest::Client::new(),
+            pool,
+        };
+        let id = groq_account(&state).await;
+        let call = || {
+            checked_request(
+                &state,
+                id,
+                GROQ_KEY,
+                state
+                    .gateway_http
+                    .post(format!("{base}/chat/completions"))
+                    .bearer_auth(GROQ_KEY),
+                "reply",
+            )
+        };
+
+        // One rejected call while the key still validates: the call fails,
+        // but the account is not blocked for everyone else.
+        assert!(matches!(
+            call().await,
+            Err(ApiError::Provider(message)) if message.contains("Start a new call")
+        ));
+        assert_eq!(availability(&state, id).await, ("active".to_owned(), None));
+
+        // Once the key itself is rejected, the account needs its owner.
+        models_status.store(401, Ordering::SeqCst);
+        assert!(matches!(
+            call().await,
+            Err(ApiError::Provider(message)) if message.contains("valid API key")
+        ));
+        let (status, message) = availability(&state, id).await;
+        assert_eq!(status, "reauth_required");
+        assert_eq!(
+            message.as_deref(),
+            Some("Provider authorization expired. Refresh this pool to reconnect.")
+        );
+        task.abort();
     }
 }

@@ -1,6 +1,6 @@
 # ADR-0030: Nightly connected-account credential check
 
-- Status: Accepted
+- Status: Accepted; the hourly cadence and reconnect-required exclusion are partially superseded by [ADR-0045](0045-linked-organization-agents-account-rotation-and-credential-recovery.md)
 - Date: 2026-09-25
 - Extends: ADR-0013's hourly OAuth refresh
 - Partially supersedes: ADR-0015's manual-only DeepSeek key validation
