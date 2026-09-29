@@ -70,8 +70,8 @@ pub use openapi::ApiDoc;
 pub use organizations::{
     CreateOrganization, InviteOrganizationMember, Organization, OrganizationAgent,
     OrganizationAgentDetails, OrganizationAgentListQuery, OrganizationInvitation,
-    OrganizationMember, OrganizationOverview, OrganizationPeriodQuery, OrganizationUsage,
-    OrganizationUsageBreakdown, OrganizationUsageDay, OrganizationUsageQuery,
+    OrganizationMember, OrganizationOverview, OrganizationPeriodQuery, OrganizationSummary,
+    OrganizationUsage, OrganizationUsageBreakdown, OrganizationUsageDay, OrganizationUsageQuery,
     ShareOrganizationAgent,
 };
 pub use telegram::{
@@ -126,7 +126,7 @@ fn browser_origins(config: &AppConfig) -> Vec<axum::http::HeaderValue> {
 pub fn app(state: AppState) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::list(browser_origins(&state.config)))
-        .allow_methods([Method::GET, Method::POST, Method::DELETE])
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
         .allow_headers([AUTHORIZATION, CONTENT_TYPE])
         .expose_headers([axum::http::HeaderName::from_static(
             gateway::SERVED_CONNECTION_HEADER,
@@ -215,6 +215,10 @@ pub fn app(state: AppState) -> Router {
             get(organizations::list_organizations).post(organizations::create_organization),
         )
         .route(
+            "/organization-summaries",
+            get(organizations::list_organization_summaries),
+        )
+        .route(
             "/organization-invitations",
             get(organizations::list_invitations),
         )
@@ -229,6 +233,10 @@ pub fn app(state: AppState) -> Router {
         .route(
             "/organizations/{id}",
             axum::routing::delete(organizations::delete_organization),
+        )
+        .route(
+            "/organizations/{id}/default",
+            axum::routing::put(organizations::set_default_organization),
         )
         .route(
             "/organizations/{id}/membership",
@@ -321,7 +329,9 @@ mod tests {
 
     use sqlx::postgres::PgPoolOptions;
 
-    use super::{AppConfig, AppState, app, gateway_http_client};
+    use utoipa::OpenApi;
+
+    use super::{ApiDoc, AppConfig, AppState, app, gateway_http_client};
 
     #[tokio::test]
     async fn health_endpoint_identifies_the_service() {
@@ -492,5 +502,61 @@ mod tests {
                 .get("access-control-allow-origin")
                 .is_none()
         );
+    }
+
+    #[tokio::test]
+    async fn cors_allows_every_method_the_browser_api_documents() {
+        let state = AppState {
+            config: AppConfig {
+                cookie_secure: false,
+                ..AppConfig::default()
+            },
+            http: Client::new(),
+            gateway_http: Client::new(),
+            pool: PgPoolOptions::new()
+                .connect_lazy("postgres://localhost/hub_william_test")
+                .expect("test database URL should parse"),
+        };
+        let mut documented = std::collections::BTreeSet::new();
+        for item in ApiDoc::openapi().paths.paths.values() {
+            for (method, operation) in [
+                ("GET", &item.get),
+                ("POST", &item.post),
+                ("PUT", &item.put),
+                ("PATCH", &item.patch),
+                ("DELETE", &item.delete),
+            ] {
+                if operation.is_some() {
+                    documented.insert(method);
+                }
+            }
+        }
+        // A browser refuses a call whose method the preflight does not list, so
+        // one missing here is a feature that only fails outside the tests.
+        assert!(documented.contains("PUT"), "the API documents a PUT route");
+
+        for method in documented {
+            let response = app(state.clone())
+                .oneshot(
+                    Request::builder()
+                        .method("OPTIONS")
+                        .uri("/organizations")
+                        .header("origin", "http://localhost:5173")
+                        .header("access-control-request-method", method)
+                        .body(Body::empty())
+                        .expect("CORS preflight request should be valid"),
+                )
+                .await
+                .expect("CORS preflight should respond");
+
+            let allowed = response.headers()["access-control-allow-methods"]
+                .to_str()
+                .expect("allowed methods should be text")
+                .to_owned();
+            assert!(
+                allowed.split(',').any(|item| item.trim() == method),
+                "a browser cannot send {method}: the preflight allows only {allowed}"
+            );
+        }
     }
 }

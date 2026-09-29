@@ -1,6 +1,6 @@
 # ADR-0046: My organizations dialog and organization removal
 
-- Status: Accepted
+- Status: Accepted; the browser-remembered default, the per-organization Overview and Members requests behind the table, and the first remaining organization becoming the default after a removal are superseded by [ADR-0047](0047-server-side-default-organization-and-summaries.md)
 - Date: 2026-09-29
 - Authority: operator request of 2026-09-29. The Organization header gets a
   "My organizations" button beside "New organization". Its dialog lists the

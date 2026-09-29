@@ -33,7 +33,7 @@ have joined or an agent shared with your organization.
   members, share connected agents, and view organization requests and reported
   token usage in Overview, Agents, Members and Usage. **My organizations** lists
   your teams with their owner, agents, members, tokens and creation date, sets
-  the default team, handles invitations (a bell beside Log out in the sidebar
+  your default team on your account, handles invitations (a bell beside Log out in the sidebar
   links to them), and lets an owner delete a team or a member leave it. A
   shared agent stays linked to its owner's Workspace account: refreshing it on
   either side updates both, deleting it in Workspace removes it from every

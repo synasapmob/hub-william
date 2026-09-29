@@ -60,19 +60,141 @@ describe("organizationsService.addAgent", () => {
   );
 });
 
+describe("organizationsService.list", () => {
+  it("maps the organizations the viewer belongs to and which is their default", async () => {
+    const requests: Request[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        requests.push(request);
+        return Response.json([
+          {
+            created_at: "2026-09-20T12:00:00Z",
+            description: null,
+            id: organizationId,
+            is_default: true,
+            name: "Team Mây",
+            role: "member",
+          },
+        ]);
+      }),
+    );
+
+    // TanStack Query hands its query function a context object, so the
+    // service call must not read its arguments.
+    await expect(
+      (organizationsService.list as (context: object) => Promise<unknown>)({
+        queryKey: [],
+      }),
+    ).resolves.toEqual([
+      {
+        createdAt: "2026-09-20T12:00:00Z",
+        description: null,
+        id: organizationId,
+        isDefault: true,
+        name: "Team Mây",
+        role: "member",
+      },
+    ]);
+
+    expect(requests).toHaveLength(1);
+    const url = new URL(requests[0].url);
+    expect(url.pathname).toBe("/organizations");
+    expect(url.search).toBe("");
+  });
+});
+
+describe("organizationsService.summaries", () => {
+  it("asks for the recent usage window and maps each summary", async () => {
+    const requests: Request[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        requests.push(request);
+        return Response.json([
+          {
+            agent_count: 3,
+            created_at: "2026-09-20T12:00:00Z",
+            description: "The platform team",
+            id: organizationId,
+            is_default: true,
+            known_cached_tokens: 5,
+            known_input_tokens: 1200,
+            known_output_tokens: 300,
+            member_count: 4,
+            name: "Team Mây",
+            owner_username: "minh",
+            period_days: 30,
+            requests: 9,
+            role: "owner",
+            token_known_requests: 8,
+          },
+        ]);
+      }),
+    );
+
+    await expect(organizationsService.summaries()).resolves.toEqual([
+      {
+        agentCount: 3,
+        createdAt: "2026-09-20T12:00:00Z",
+        description: "The platform team",
+        id: organizationId,
+        isDefault: true,
+        knownCachedTokens: 5,
+        knownInputTokens: 1200,
+        knownOutputTokens: 300,
+        memberCount: 4,
+        name: "Team Mây",
+        ownerUsername: "minh",
+        periodDays: 30,
+        requests: 9,
+        role: "owner",
+        tokenKnownRequests: 8,
+      },
+    ]);
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0].method).toBe("GET");
+    const url = new URL(requests[0].url);
+    expect(url.pathname).toBe("/organization-summaries");
+    expect(url.searchParams.get("days")).toBe("30");
+  });
+
+  it("does not read its arguments, so a query can run it as is", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json([])),
+    );
+
+    await expect(
+      (organizationsService.summaries as (context: object) => Promise<unknown>)(
+        { queryKey: [] },
+      ),
+    ).resolves.toEqual([]);
+  });
+});
+
 describe.each([
   {
     call: () => organizationsService.deleteOrganization(organizationId),
+    method: "DELETE",
     name: "deleteOrganization",
     path: `/organizations/${organizationId}`,
   },
   {
     call: () => organizationsService.leave(organizationId),
+    method: "DELETE",
     name: "leave",
     path: `/organizations/${organizationId}/membership`,
   },
-])("organizationsService.$name", ({ call, path }) => {
-  it("sends one DELETE to the organization endpoint", async () => {
+  {
+    call: () => organizationsService.setDefault(organizationId),
+    method: "PUT",
+    name: "setDefault",
+    path: `/organizations/${organizationId}/default`,
+  },
+])("organizationsService.$name", ({ call, method, path }) => {
+  it("sends one request to the organization endpoint", async () => {
     const requests: Request[] = [];
     vi.stubGlobal(
       "fetch",
@@ -85,7 +207,7 @@ describe.each([
     await expect(call()).resolves.toBeUndefined();
 
     expect(requests).toHaveLength(1);
-    expect(requests[0].method).toBe("DELETE");
+    expect(requests[0].method).toBe(method);
     expect(new URL(requests[0].url).pathname).toBe(path);
   });
 
@@ -128,7 +250,7 @@ describe.each([
               username: "ban",
             },
           });
-        return requests.filter((item) => item.method === "DELETE").length === 1
+        return requests.filter((item) => item.method === method).length === 1
           ? Response.json(
               { code: "unauthorized", message: "Log in to continue." },
               { status: 401 },
@@ -145,9 +267,9 @@ describe.each([
         new URL(request.url).pathname,
       ]),
     ).toEqual([
-      ["DELETE", path],
+      [method, path],
       ["POST", "/auth/refresh"],
-      ["DELETE", path],
+      [method, path],
     ]);
   });
 });

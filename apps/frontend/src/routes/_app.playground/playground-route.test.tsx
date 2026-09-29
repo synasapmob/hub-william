@@ -167,6 +167,7 @@ describe("Playground conversation flow", () => {
       vi.mocked(organizationsService.list).mockResolvedValue([
         {
           id: "team",
+          isDefault: false,
           name: "Team",
           role: "member",
           description: null,
@@ -357,6 +358,7 @@ describe("Playground conversation flow", () => {
     vi.mocked(organizationsService.list).mockResolvedValue([
       {
         id: "team",
+        isDefault: false,
         name: "Team",
         role: "member",
         description: null,
@@ -1740,6 +1742,7 @@ describe("Playground conversation flow", () => {
         createdAt: "2026-09-23T00:00:00Z",
         description: null,
         id: organizationId,
+        isDefault: false,
         name: "Team Mây",
         role: "member",
       },
