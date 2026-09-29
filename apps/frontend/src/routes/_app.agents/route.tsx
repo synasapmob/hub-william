@@ -17,8 +17,7 @@ import agentPoolsService, {
   type AgentPool,
   type AgentPoolRequestStatus,
 } from "@/services/agent-pools";
-import organizationsService from "@/services/organizations";
-import playgroundService from "@/services/playground";
+import { invalidateAgentQueries } from "@/utils/utils.agent-queries";
 
 import AgentsExplorer from "./agents-explorer";
 import AgentsRequestDialog, {
@@ -48,24 +47,7 @@ export default function AgentsRoute() {
   const [requestPoolId, setRequestPoolId] = useState<string | null>(null);
   const [reviewPoolId, setReviewPoolId] = useState<string | null>(null);
   const refreshAgentData = useCallback(
-    () =>
-      Promise.all(
-        [
-          agentPoolsService.queryKey,
-          agentConnectionsService.queryKey,
-          organizationsService.queryKey,
-          playgroundService.queryKey,
-        ].map((queryKey) =>
-          queryClient.invalidateQueries({
-            queryKey,
-            // Completion polling already supplied the fresh connection. Refetching
-            // it here would trigger onRefreshComplete and invalidate it forever.
-            predicate: (query) =>
-              query.queryKey[1] !== "refresh-status" &&
-              query.queryKey[1] !== "status",
-          }),
-        ),
-      ),
+    () => invalidateAgentQueries(queryClient),
     [queryClient],
   );
   const poolsQuery = useQuery({

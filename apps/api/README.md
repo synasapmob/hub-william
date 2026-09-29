@@ -100,31 +100,48 @@ Gateway keys are shown once and stored only as hashes. A key can route through
 every connected account the user owns and every pool where their join request
 is accepted. Candidate pools are filtered strictly by the requested provider;
 an unusable credential advances to the next candidate. An upstream `429`
-persists a 30-minute cooldown, while an upstream `401` marks that account for
-reauthorization. A Grok `403` does the same because expanded subscription
-scopes require an explicit reconnect. These failures advance to the next
-same-provider pool. An AGY/Code Assist `403` also advances to the next Gemini
-pool for the current request, without assuming that reconnecting fixes an
+persists a 30-minute cooldown. An upstream `401` (and a Grok `403`) first
+refreshes the credential, or picks up the token another request already
+rotated in, and retries the same account once. The account is marked for
+reconnect only when the provider rejects its refresh credential or also rejects
+the fresh token; that mark is compare-and-set against the rejected token and
+logged. Other `403` responses and a `402` (such as a DeepSeek account without
+balance) advance to the next same-provider account; an
+AGY/Code Assist `403` does so without assuming that reconnecting fixes an
 account, project or model permission failure. An explicit `Verify your account
 to continue.` response instead marks only that AGY pool for reconnection before
-trying the next account. A malformed `400` remains
-visible to the caller. Browser Playground requests stay pinned to the
-explicitly selected account. Before any response is returned to the client,
-network failures and upstream `408`, `500`, `502`, `503`, and `504` responses
-use one four-attempt budget across all same-provider pools with bounded
-exponential backoff; partial streams are never combined with a retry. The
-first real request after a rate-limit timer is an atomic half-open probe. An
-owner can force-refresh the provider credential from pool management; a
-rejected or missing refresh token starts official authorization again on the
-same pool record. The API also refreshes connected OAuth provider credentials after 60
-minutes without rotation, isolating per-account failures so one stale pool
-cannot stop the remaining sweep. Around 00:00 Vietnam time, it checks every
-connected credential not already checked that local day: OAuth credentials are
-rotated, while static DeepSeek keys are validated. A restart catches up missed
-nightly checks. Accounts with rejected credentials need manual reconnection;
-the background sweeps cannot log in for them. Provider credential payloads are
-AES-256-GCM encrypted. Do not log request authorization headers, API keys,
-OAuth codes, device codes, callback URLs, or provider response bodies.
+trying the next account. A malformed `400` remains visible to the caller.
+
+Browser Playground requests treat the selected account as the preferred first
+candidate and fail over within their own scope: the user's accounts and joined
+pools, or only the selected organization's shared agents. A successful response
+names the serving account in `x-hub-connection-id`. Before any response is
+returned to the client, network failures and upstream `408`, `500`, `502`, `503`,
+and `504` responses share one attempt budget of `max(4, accounts in scope)`
+with bounded exponential backoff, so every account gets a turn; partial streams
+are never combined with a retry. The first real request after a rate-limit
+timer is an atomic half-open probe.
+
+An owner can force-refresh the provider credential from pool management or from
+a linked organization agent; a rejected or missing refresh token starts official
+authorization again on the same pool record. The API also refreshes every
+connected OAuth credential once it has gone 30 minutes plus a stable per-account
+offset of up to 15 minutes without rotation, so each account refreshes every
+30-45 minutes whether or not it is used. The same sweep retries accounts the
+gateway marked for reconnect, and accounts whose old reconnect prompt expired,
+restoring them when a refresh succeeds. Per-account failures are isolated so one
+stale pool cannot stop the remaining sweep. Around 00:00 Vietnam time, it checks
+every connected credential not already checked that local day: OAuth credentials
+are rotated, while static DeepSeek and Groq keys are validated. A restart catches
+up missed nightly checks. Request traffic reads credentials without a row lock
+unless they are about to expire, every refresh runs in its own task so a dropped
+request cannot lose a rotated token, and SIGTERM stops the sweep from starting
+another account while refreshes already talking to a provider commit (up to 25
+seconds after open requests drain) before the process exits. Accounts whose refresh credential is rejected
+need manual reconnection; the background sweeps cannot log in for them.
+Provider credential payloads are AES-256-GCM encrypted. Do not log request
+authorization headers, API keys, OAuth codes, device codes, callback URLs, or
+provider response bodies.
 
 ## Operator credential refresh
 

@@ -516,9 +516,15 @@ pub async fn list_agents(
     path = "/organizations/{id}/agents",
     params(("id" = Uuid, Path, description = "Organization ID")),
     request_body = ShareOrganizationAgent,
-    responses((status = 201, description = "Owned agent shared with organization", body = OrganizationAgent)),
+    responses(
+        (status = 201, description = "Owned agent linked to the organization", body = OrganizationAgent),
+        (status = 200, description = "Owned agent was already linked; the existing link is returned", body = OrganizationAgent)
+    ),
     tag = "organizations"
 )]
+/// Link an owned Workspace connection into an organization. The organization
+/// agent is the same connection and credential, not a copy. Repeating the
+/// request, including concurrently, returns the existing link.
 pub async fn share_agent(
     State(state): State<AppState>,
     jar: CookieJar,
@@ -554,26 +560,26 @@ pub async fn share_agent(
     }
     let inserted = sqlx::query(
         "INSERT INTO organization_agents (org_id, connection_id, owner_user_id)
-         VALUES ($1, $2, $3)",
+         VALUES ($1, $2, $3)
+         ON CONFLICT (org_id, connection_id) DO NOTHING",
     )
     .bind(org_id)
     .bind(payload.connection_id)
     .bind(user_id)
     .execute(&mut *transaction)
-    .await;
-    if let Err(error) = inserted {
-        if is_unique_violation(&error) {
-            return Err(ApiError::Validation(
-                "That agent is already shared with this organization.",
-            ));
-        }
-        return Err(database_error(error));
-    }
+    .await
+    .map_err(database_error)?
+    .rows_affected();
     transaction.commit().await.map_err(database_error)?;
     let agent = agent_for_org(&state, org_id, payload.connection_id)
         .await?
-        .ok_or(ApiError::Internal)?;
-    Ok((StatusCode::CREATED, Json(agent)))
+        .ok_or(ApiError::NotFound)?;
+    let status = if inserted == 1 {
+        StatusCode::CREATED
+    } else {
+        StatusCode::OK
+    };
+    Ok((status, Json(agent)))
 }
 
 #[utoipa::path(

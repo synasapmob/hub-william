@@ -3,6 +3,7 @@ import { Search, Trash2, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { tv } from "tailwind-variants";
 
+import AgentsCredentialRefresh from "@/components/agents-credential-refresh";
 import AgentsExplorerLinks from "@/components/agents-explorer-links";
 import AgentsProviderIcon from "@/components/agents-provider-icon";
 import AgentsUsageMetrics from "@/components/agents-usage-metrics";
@@ -23,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import type { AgentConnection } from "@/services/agent-connections";
 import type { AgentProvider } from "@/services/agent-pools";
 import organizationsService, {
   type OrganizationAgentDetails,
@@ -65,8 +67,11 @@ interface OrganizationAgentsExplorerProps {
   agents: OrganizationAgentDetails[];
   currentUsername: string | null;
   isOrganizationOwner: boolean;
+  onRefresh: (id: string) => Promise<AgentConnection>;
+  onRefreshComplete: (connection: AgentConnection) => void;
   onRemove: (id: string) => void;
   organizationId: string;
+  refreshing: boolean;
   removeError: string | null;
   removeErrorId: string | null;
   removing: boolean;
@@ -80,8 +85,11 @@ export default function OrganizationAgentsExplorer({
   agents,
   currentUsername,
   isOrganizationOwner,
+  onRefresh,
+  onRefreshComplete,
   onRemove,
   organizationId,
+  refreshing,
   removeError,
   removeErrorId,
   removing,
@@ -105,6 +113,8 @@ export default function OrganizationAgentsExplorer({
         .includes(normalizedQuery),
   );
   const selectedAgent = agents.find((agent) => agent.id === selectedId) ?? null;
+  const ownsSelectedAgent =
+    selectedAgent !== null && selectedAgent.ownerUsername === currentUsername;
   const usageQuery = useQuery({
     enabled: selectedAgent !== null,
     queryFn: () =>
@@ -252,6 +262,10 @@ export default function OrganizationAgentsExplorer({
                           {name} {agent.plan}
                         </p>
 
+                        <p className="mt-1 truncate text-[11px] text-zinc-400">
+                          Linked from @{agent.ownerUsername}'s Workspace
+                        </p>
+
                         {primaryUsage ? (
                           <p className="mt-2 text-[10px] text-zinc-500">
                             {primaryUsage.label} ·{" "}
@@ -391,31 +405,63 @@ export default function OrganizationAgentsExplorer({
                   </div>
                 ) : null}
 
-                <dl className="space-y-2 border-t border-zinc-100 pt-4 text-[11px]">
-                  <Flex className="items-center justify-between gap-3">
-                    <dt className="text-zinc-400">Added by</dt>
-                    <dd>@{selectedAgent.ownerUsername}</dd>
-                  </Flex>
-                  <Flex className="items-center justify-between gap-3">
-                    <dt className="text-zinc-400">Status</dt>
-                    <dd>
-                      {availabilityLabel(selectedAgent.availabilityStatus)}
-                    </dd>
-                  </Flex>
-                </dl>
+                <div className="space-y-3 border-t border-zinc-100 pt-4">
+                  <dl className="space-y-2 text-[11px]">
+                    <Flex className="items-center justify-between gap-3">
+                      <dt className="text-zinc-400">Source</dt>
+                      <dd>
+                        Linked from @{selectedAgent.ownerUsername}'s Workspace
+                      </dd>
+                    </Flex>
+
+                    <Flex className="items-center justify-between gap-3">
+                      <dt className="text-zinc-400">Status</dt>
+                      <dd>
+                        {availabilityLabel(selectedAgent.availabilityStatus)}
+                      </dd>
+                    </Flex>
+                  </dl>
+
+                  <p className="text-[11px]/relaxed text-zinc-500">
+                    This is the same account, not a copy. Refreshing or
+                    reconnecting it in Workspace updates it here, and deleting
+                    it in Workspace removes it from this organization.
+                  </p>
+
+                  {selectedAgent.availabilityStatus === "reauth_required" &&
+                  !ownsSelectedAgent ? (
+                    <p className="text-xs text-zinc-700">
+                      Ask @{selectedAgent.ownerUsername} to reconnect it in
+                      Workspace.
+                    </p>
+                  ) : null}
+                </div>
               </div>
 
-              {isOrganizationOwner ||
-              selectedAgent.ownerUsername === currentUsername ? (
+              {isOrganizationOwner || ownsSelectedAgent ? (
                 <footer className="space-y-3 border-t border-zinc-100 bg-zinc-50/60 px-5 py-3">
+                  {ownsSelectedAgent ? (
+                    <AgentsCredentialRefresh
+                      disabled={refreshing || removing}
+                      onRefresh={() => onRefresh(selectedAgent.id)}
+                      onRefreshComplete={onRefreshComplete}
+                    />
+                  ) : null}
+
                   {removeError && removeErrorId === selectedAgent.id ? (
                     <p role="alert" className="text-xs text-destructive">
                       {removeError}
                     </p>
                   ) : null}
+
+                  <p className="text-[11px]/relaxed text-zinc-500">
+                    Removing it only unlinks it from this organization. The
+                    Workspace account stays connected.
+                  </p>
+
                   <Button
                     className="ml-auto"
-                    disabled={removing}
+                    disabled={removing || refreshing}
                     onClick={() => onRemove(selectedAgent.id)}
                     size="sm"
                     type="button"

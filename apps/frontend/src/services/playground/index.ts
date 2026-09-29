@@ -46,6 +46,12 @@ export interface PlaygroundChatOptions {
   onDelta: (text: string) => void;
 }
 
+export interface PlaygroundChatResult {
+  // The API may answer from another account of the same provider and scope
+  // when the selected one cannot serve; this names the account that did.
+  servedConnectionId: string | null;
+}
+
 export interface PlaygroundVoiceSessionOptions {
   connectionId: string;
   organizationId?: string;
@@ -179,7 +185,7 @@ async function chat({
   connectionId,
   organizationId,
   ...input
-}: PlaygroundChatOptions) {
+}: PlaygroundChatOptions): Promise<PlaygroundChatResult> {
   const body = {
     ...input,
     connection_id: connectionId,
@@ -212,12 +218,15 @@ async function chat({
               "The provider could not complete this request. Check your pool or try another model.");
     throw new PlaygroundServiceError(message, result.response.status);
   }
+  const servedConnectionId =
+    result.response.headers.get("x-hub-connection-id")?.trim() || null;
   await readPlaygroundStream({
     provider: body.provider,
     stream: result.data,
     signal,
     onDelta,
   });
+  return { servedConnectionId };
 }
 
 const playgroundService = {

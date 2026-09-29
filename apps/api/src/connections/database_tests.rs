@@ -1,28 +1,35 @@
 use std::{
     collections::HashMap,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
     },
 };
 
 use axum::{
     Form, Json, Router,
-    http::{HeaderMap, StatusCode},
+    extract::{Path, State},
+    http::{HeaderMap, StatusCode, Uri},
     routing::{get, post},
 };
+use axum_extra::extract::{CookieJar, cookie::Cookie};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use sqlx::PgPool;
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, sync::Notify, task::JoinHandle};
 use uuid::Uuid;
 
 use super::{
-    ConnectionRow, CredentialRefreshMode, ProviderCredentialRefreshStatus,
-    RefreshConnectionOutcome, decrypt_json, encrypt_json, finish_connection,
-    refresh_all_provider_credentials, refresh_connected_connection,
-    refresh_nightly_provider_credentials,
+    ACCOUNT_VERIFICATION_REQUIRED_MESSAGE, AgentConnectionStatus, AgentProvider,
+    AuthorizationSecret, ConnectionRow, CredentialLookup, CredentialRefreshMode,
+    EXPIRED_AUTHORIZATION_PROMPT_MESSAGE, EXPIRED_PROVIDER_AUTHORIZATION_MESSAGE,
+    PROVIDER_LOGIN_REQUIRED_MESSAGE, ProviderCredentialRefreshStatus,
+    ProviderCredentialRefreshSummary, RefreshConnectionOutcome, decrypt_json, encrypt_json,
+    finish_connection, gateway_credential, get_connection, refresh_all_provider_credentials,
+    refresh_connected_connection, refresh_connection, refresh_due_provider_credentials,
+    refresh_nightly_provider_credentials, scheduled_refresh_after,
 };
 use crate::{AppConfig, AppState};
 
@@ -842,5 +849,735 @@ async fn rejected_refresh_marks_reauthorization_before_a_new_login(pool: PgPool)
     .unwrap();
     assert_eq!(availability, "active");
     assert!(failure_message.is_none());
+    server.abort();
+}
+
+// Background refresh cadence, recovery and cancellation safety.
+//
+// These tests use Grok accounts: the refresh endpoint is the configurable
+// `grok_issuer`, and a Grok refresh resolves account metadata from the token
+// alone, so no path exercised here can reach a real provider.
+
+type ProviderCalls = Arc<Mutex<Vec<String>>>;
+type AccountState = (String, String, Option<String>);
+type CredentialSnapshot = (Vec<u8>, DateTime<Utc>, Option<DateTime<Utc>>);
+
+/// A fake Grok issuer. Each token request records its refresh token; refresh
+/// token `rejected` is answered with `invalid_grant` and any other `<token>`
+/// rotates to `<token>-access` / `<token>-rotated`. A request to any other
+/// path is recorded as unexpected and fails.
+async fn fake_grok_issuer() -> (String, ProviderCalls, JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let issuer = format!("http://{}", listener.local_addr().unwrap());
+    let calls = ProviderCalls::default();
+    let token_calls = calls.clone();
+    let unexpected_calls = calls.clone();
+    let app = Router::new()
+        .route(
+            "/oauth2/token",
+            post(move |Form(form): Form<HashMap<String, String>>| {
+                let calls = token_calls.clone();
+                async move {
+                    let refresh_token = form.get("refresh_token").cloned().unwrap_or_default();
+                    calls.lock().unwrap().push(refresh_token.clone());
+                    if refresh_token == "rejected" {
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            Json(json!({"error": "invalid_grant"})),
+                        );
+                    }
+                    (
+                        StatusCode::OK,
+                        Json(json!({
+                            "access_token": format!("{refresh_token}-access"),
+                            "refresh_token": format!("{refresh_token}-rotated"),
+                            "expires_in": 3600
+                        })),
+                    )
+                }
+            }),
+        )
+        .fallback(move |uri: Uri| {
+            let calls = unexpected_calls.clone();
+            async move {
+                calls.lock().unwrap().push(format!("unexpected {uri}"));
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+        });
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (issuer, calls, server)
+}
+
+fn recorded(calls: &ProviderCalls) -> Vec<String> {
+    let mut calls = calls.lock().unwrap().clone();
+    calls.sort();
+    calls
+}
+
+fn counts(summary: &ProviderCredentialRefreshSummary) -> [u64; 4] {
+    [
+        summary.refreshed,
+        summary.recovered,
+        summary.reauthorization_required,
+        summary.failed,
+    ]
+}
+
+fn account(status: &str, availability: &str, failure_message: Option<&str>) -> AccountState {
+    (
+        status.to_owned(),
+        availability.to_owned(),
+        failure_message.map(str::to_owned),
+    )
+}
+
+async fn session_jar(pool: &PgPool, user_id: Uuid) -> CookieJar {
+    let token = Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO sessions (id, user_id, token_hash, expires_at)
+         VALUES ($1, $2, $3, NOW() + INTERVAL '1 hour')",
+    )
+    .bind(Uuid::new_v4())
+    .bind(user_id)
+    .bind(format!("{:x}", Sha256::digest(token.as_bytes())))
+    .execute(pool)
+    .await
+    .unwrap();
+    CookieJar::new().add(Cookie::new("hub_session", token))
+}
+
+/// A pending connection whose ID ends in `last_byte`, which fixes its
+/// scheduled refresh offset.
+async fn connection_ending_in(
+    state: &AppState,
+    owner: Uuid,
+    provider: &str,
+    last_byte: u8,
+) -> ConnectionRow {
+    let mut id = *Uuid::new_v4().as_bytes();
+    id[15] = last_byte;
+    sqlx::query_as(
+        "INSERT INTO agent_connections (id, user_id, provider, status)
+         VALUES ($1, $2, $3, 'pending') RETURNING id, provider, status, availability_status,
+         account_label, plan, failure_message, created_at, updated_at",
+    )
+    .bind(Uuid::from_bytes(id))
+    .bind(owner)
+    .bind(provider)
+    .fetch_one(&state.pool)
+    .await
+    .unwrap()
+}
+
+async fn store_refreshable_credential(state: &AppState, id: Uuid, refresh_token: &str) {
+    store_credential(
+        state,
+        id,
+        json!({
+            "access_token": format!("{refresh_token}-old-access"),
+            "refresh_token": refresh_token
+        }),
+    )
+    .await;
+}
+
+/// Backdate a credential's last refresh activity, measured on the database
+/// clock that the due sweep compares against.
+async fn backdate_refresh(
+    state: &AppState,
+    id: Uuid,
+    updated_ago: Duration,
+    attempted_ago: Option<Duration>,
+) {
+    sqlx::query(
+        "UPDATE agent_connection_credentials
+         SET updated_at = NOW() - make_interval(secs => $2),
+             refresh_attempted_at = NOW() - make_interval(secs => $3)
+         WHERE connection_id = $1",
+    )
+    .bind(id)
+    .bind(updated_ago.num_seconds() as f64)
+    .bind(attempted_ago.map(|ago| ago.num_seconds() as f64))
+    .execute(&state.pool)
+    .await
+    .unwrap();
+}
+
+async fn expire_access_token_in(state: &AppState, id: Uuid, expires_in: Duration) {
+    sqlx::query(
+        "UPDATE agent_connection_credentials
+         SET access_token_expires_at = NOW() + make_interval(secs => $2)
+         WHERE connection_id = $1",
+    )
+    .bind(id)
+    .bind(expires_in.num_seconds() as f64)
+    .execute(&state.pool)
+    .await
+    .unwrap();
+}
+
+async fn mark_for_reconnect(state: &AppState, id: Uuid, failure_message: Option<&str>) {
+    sqlx::query(
+        "UPDATE agent_connections
+         SET availability_status = 'reauth_required', failure_message = $2 WHERE id = $1",
+    )
+    .bind(id)
+    .bind(failure_message)
+    .execute(&state.pool)
+    .await
+    .unwrap();
+}
+
+/// A Grok device-code reconnect prompt, as `start_connection_reauthorization`
+/// stores it.
+async fn reconnect_prompt(state: &AppState, id: Uuid, expires_at: DateTime<Utc>) {
+    let secret = AuthorizationSecret::Grok {
+        device_code: "old-device-code".to_owned(),
+        user_code: "OLD-CODE".to_owned(),
+        verification_uri_complete: "https://accounts.x.ai/device?user_code=OLD-CODE".to_owned(),
+    };
+    let (ciphertext, nonce) =
+        encrypt_json(&state.config.credential_encryption_key, &secret).unwrap();
+    sqlx::query(
+        "INSERT INTO agent_connection_authorizations
+         (connection_id, flow, secret_ciphertext, secret_nonce, expires_at)
+         VALUES ($1, 'device_code', $2, $3, $4)",
+    )
+    .bind(id)
+    .bind(ciphertext)
+    .bind(nonce)
+    .bind(expires_at)
+    .execute(&state.pool)
+    .await
+    .unwrap();
+}
+
+async fn has_reconnect_prompt(state: &AppState, id: Uuid) -> bool {
+    sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM agent_connection_authorizations WHERE connection_id = $1)",
+    )
+    .bind(id)
+    .fetch_one(&state.pool)
+    .await
+    .unwrap()
+}
+
+async fn account_state(state: &AppState, id: Uuid) -> AccountState {
+    sqlx::query_as(
+        "SELECT status, availability_status, failure_message FROM agent_connections WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_one(&state.pool)
+    .await
+    .unwrap()
+}
+
+async fn stored_token(state: &AppState, id: Uuid) -> Value {
+    let (ciphertext, nonce): (Vec<u8>, Vec<u8>) = sqlx::query_as(
+        "SELECT credential_ciphertext, credential_nonce
+         FROM agent_connection_credentials WHERE connection_id = $1",
+    )
+    .bind(id)
+    .fetch_one(&state.pool)
+    .await
+    .unwrap();
+    decrypt_json(&state.config.credential_encryption_key, &ciphertext, &nonce).unwrap()
+}
+
+async fn credential_snapshot(state: &AppState, id: Uuid) -> CredentialSnapshot {
+    sqlx::query_as(
+        "SELECT credential_ciphertext, updated_at, refresh_attempted_at
+         FROM agent_connection_credentials WHERE connection_id = $1",
+    )
+    .bind(id)
+    .fetch_one(&state.pool)
+    .await
+    .unwrap()
+}
+
+#[sqlx::test]
+async fn due_sweep_refreshes_each_account_only_after_its_thirty_to_forty_five_minute_interval(
+    pool: PgPool,
+) {
+    let (issuer, calls, server) = fake_grok_issuer().await;
+    let mut state = state(pool);
+    state.config.grok_issuer = issuer;
+    let owner = user(&state.pool).await;
+
+    // The last ID byte sets the per-account offset: 0x00 refreshes after
+    // exactly 30 minutes and 0xFF after 44m56s, the widest spread.
+    let earliest = connection_ending_in(&state, owner, "grok", 0x00).await.id;
+    let earliest_early = connection_ending_in(&state, owner, "grok", 0x00).await.id;
+    let latest = connection_ending_in(&state, owner, "grok", 0xFF).await.id;
+    let latest_early = connection_ending_in(&state, owner, "grok", 0xFF).await.id;
+    let recently_attempted = connection_ending_in(&state, owner, "grok", 0x00).await.id;
+    assert_eq!(scheduled_refresh_after(earliest), Duration::minutes(30));
+    assert_eq!(
+        scheduled_refresh_after(latest),
+        Duration::seconds(44 * 60 + 56)
+    );
+    assert!(scheduled_refresh_after(latest) < Duration::minutes(45));
+
+    for (id, refresh_token, updated_ago, attempted_ago) in [
+        // Just past 30 minutes: the earliest offset is due.
+        (
+            earliest,
+            "earliest-due",
+            Duration::seconds(30 * 60 + 5),
+            None,
+        ),
+        // Under 30 minutes: no account refreshes this early.
+        (
+            earliest_early,
+            "earliest-early",
+            Duration::seconds(29 * 60 + 30),
+            None,
+        ),
+        // At 45 minutes even the latest offset is due.
+        (latest, "latest-due", Duration::minutes(45), None),
+        // Older than 30 minutes but still inside this account's own offset.
+        (
+            latest_early,
+            "latest-early",
+            Duration::seconds(44 * 60 + 26),
+            None,
+        ),
+        // An old credential whose last scheduled attempt was recent waits a
+        // full interval from that attempt.
+        (
+            recently_attempted,
+            "recently-attempted",
+            Duration::hours(2),
+            Some(Duration::seconds(29 * 60 + 30)),
+        ),
+    ] {
+        store_refreshable_credential(&state, id, refresh_token).await;
+        backdate_refresh(&state, id, updated_ago, attempted_ago).await;
+    }
+
+    let summary = refresh_due_provider_credentials(&state).await.unwrap();
+    assert_eq!(counts(&summary), [2, 0, 0, 0]);
+    assert_eq!(recorded(&calls), ["earliest-due", "latest-due"]);
+    for (id, refresh_token) in [(earliest, "earliest-due"), (latest, "latest-due")] {
+        let stored = stored_token(&state, id).await;
+        assert_eq!(stored["access_token"], format!("{refresh_token}-access"));
+        assert_eq!(stored["refresh_token"], format!("{refresh_token}-rotated"));
+        assert_eq!(
+            account_state(&state, id).await,
+            account("connected", "active", None)
+        );
+    }
+    for (id, refresh_token) in [
+        (earliest_early, "earliest-early"),
+        (latest_early, "latest-early"),
+        (recently_attempted, "recently-attempted"),
+    ] {
+        let stored = stored_token(&state, id).await;
+        assert_eq!(
+            stored["access_token"],
+            format!("{refresh_token}-old-access")
+        );
+        assert_eq!(stored["refresh_token"], refresh_token);
+    }
+
+    // A rotated credential starts a new interval, so an immediate second sweep
+    // makes no provider call.
+    let repeated = refresh_due_provider_credentials(&state).await.unwrap();
+    assert_eq!(counts(&repeated), [0, 0, 0, 0]);
+    assert_eq!(recorded(&calls), ["earliest-due", "latest-due"]);
+    server.abort();
+}
+
+#[sqlx::test]
+async fn due_sweep_restores_accounts_marked_for_a_recoverable_reconnect(pool: PgPool) {
+    let (issuer, calls, server) = fake_grok_issuer().await;
+    let mut state = state(pool);
+    state.config.grok_issuer = issuer;
+    let owner = user(&state.pool).await;
+
+    for (message, refresh_token) in [
+        (PROVIDER_LOGIN_REQUIRED_MESSAGE, "login-required"),
+        (EXPIRED_AUTHORIZATION_PROMPT_MESSAGE, "prompt-expired"),
+    ] {
+        let id = connection(&state, owner, "grok").await.id;
+        store_refreshable_credential(&state, id, refresh_token).await;
+        mark_for_reconnect(&state, id, Some(message)).await;
+        backdate_refresh(&state, id, Duration::minutes(46), None).await;
+
+        let summary = refresh_due_provider_credentials(&state).await.unwrap();
+        assert_eq!(counts(&summary), [1, 1, 0, 0], "{message}");
+        assert_eq!(
+            account_state(&state, id).await,
+            account("connected", "active", None),
+            "{message}"
+        );
+        let stored = stored_token(&state, id).await;
+        assert_eq!(stored["access_token"], format!("{refresh_token}-access"));
+        assert_eq!(stored["refresh_token"], format!("{refresh_token}-rotated"));
+    }
+    assert_eq!(recorded(&calls), ["login-required", "prompt-expired"]);
+    server.abort();
+}
+
+#[sqlx::test]
+async fn due_sweep_skips_unrecoverable_marks_and_accounts_with_a_pending_reconnect(pool: PgPool) {
+    let (issuer, calls, server) = fake_grok_issuer().await;
+    let mut state = state(pool);
+    state.config.grok_issuer = issuer.clone();
+    // A Gemini refresh or verification probe would reach the fake's
+    // unexpected-call recorder instead of Google.
+    state.config.gemini_token_url = format!("{issuer}/gemini/token");
+    state.config.gemini_code_assist_url = format!("{issuer}/gemini");
+    let owner = user(&state.pool).await;
+
+    let mut skipped = Vec::new();
+    for (provider, message, refresh_token, pending_reconnect) in [
+        (
+            "grok",
+            Some(EXPIRED_PROVIDER_AUTHORIZATION_MESSAGE),
+            "refresh-rejected",
+            false,
+        ),
+        (
+            "gemini",
+            Some(ACCOUNT_VERIFICATION_REQUIRED_MESSAGE),
+            "verification-required",
+            false,
+        ),
+        ("grok", None, "unexplained-mark", false),
+        (
+            "grok",
+            Some(PROVIDER_LOGIN_REQUIRED_MESSAGE),
+            "owner-reconnecting",
+            true,
+        ),
+    ] {
+        let id = connection(&state, owner, provider).await.id;
+        store_refreshable_credential(&state, id, refresh_token).await;
+        mark_for_reconnect(&state, id, message).await;
+        backdate_refresh(&state, id, Duration::hours(2), None).await;
+        if pending_reconnect {
+            reconnect_prompt(&state, id, Utc::now() + Duration::minutes(10)).await;
+        }
+        let before = credential_snapshot(&state, id).await;
+        skipped.push((id, message, pending_reconnect, before));
+    }
+    // Control: the same due, recoverable mark without a pending reconnect is
+    // retried, so the skips above are not an artefact of the fixture.
+    let recoverable = connection(&state, owner, "grok").await.id;
+    store_refreshable_credential(&state, recoverable, "recoverable").await;
+    mark_for_reconnect(&state, recoverable, Some(PROVIDER_LOGIN_REQUIRED_MESSAGE)).await;
+    backdate_refresh(&state, recoverable, Duration::hours(2), None).await;
+
+    let summary = refresh_due_provider_credentials(&state).await.unwrap();
+    assert_eq!(counts(&summary), [1, 1, 0, 0]);
+    assert_eq!(recorded(&calls), ["recoverable"]);
+    assert_eq!(
+        account_state(&state, recoverable).await,
+        account("connected", "active", None)
+    );
+    for (id, message, pending_reconnect, before) in skipped {
+        assert_eq!(
+            account_state(&state, id).await,
+            account("connected", "reauth_required", message),
+            "{message:?}"
+        );
+        assert_eq!(credential_snapshot(&state, id).await, before, "{message:?}");
+        assert_eq!(
+            has_reconnect_prompt(&state, id).await,
+            pending_reconnect,
+            "{message:?}"
+        );
+    }
+    server.abort();
+}
+
+#[sqlx::test]
+async fn rejected_recovery_refresh_keeps_the_mark_and_is_not_retried(pool: PgPool) {
+    let (issuer, calls, server) = fake_grok_issuer().await;
+    let mut state = state(pool);
+    state.config.grok_issuer = issuer;
+    let owner = user(&state.pool).await;
+    let id = connection(&state, owner, "grok").await.id;
+    store_refreshable_credential(&state, id, "rejected").await;
+    mark_for_reconnect(&state, id, Some(PROVIDER_LOGIN_REQUIRED_MESSAGE)).await;
+    backdate_refresh(&state, id, Duration::minutes(46), None).await;
+
+    let summary = refresh_due_provider_credentials(&state).await.unwrap();
+    assert_eq!(counts(&summary), [0, 0, 1, 0]);
+    assert_eq!(recorded(&calls), ["rejected"]);
+    let marked = account(
+        "connected",
+        "reauth_required",
+        Some(EXPIRED_PROVIDER_AUTHORIZATION_MESSAGE),
+    );
+    assert_eq!(account_state(&state, id).await, marked);
+    assert_eq!(stored_token(&state, id).await["refresh_token"], "rejected");
+
+    // Long past its interval again, the dead refresh credential is still not
+    // sent to the provider: only its owner can reconnect it now.
+    backdate_refresh(&state, id, Duration::hours(2), None).await;
+    let repeated = refresh_due_provider_credentials(&state).await.unwrap();
+    assert_eq!(counts(&repeated), [0, 0, 0, 0]);
+    assert_eq!(recorded(&calls), ["rejected"]);
+    assert_eq!(account_state(&state, id).await, marked);
+    server.abort();
+}
+
+#[sqlx::test]
+async fn manual_refresh_clears_a_stale_reconnect_prompt_so_polling_keeps_the_account_active(
+    pool: PgPool,
+) {
+    let (issuer, calls, server) = fake_grok_issuer().await;
+    let mut state = state(pool);
+    state.config.grok_issuer = issuer;
+    let owner = user(&state.pool).await;
+    let jar = session_jar(&state.pool, owner).await;
+    let id = connection(&state, owner, "grok").await.id;
+    store_refreshable_credential(&state, id, "manual").await;
+    // An earlier failed manual refresh left the account waiting on a
+    // reconnect prompt, which has since expired.
+    mark_for_reconnect(&state, id, None).await;
+    reconnect_prompt(&state, id, Utc::now() - Duration::minutes(1)).await;
+
+    let refreshed = refresh_connection(State(state.clone()), jar.clone(), Path(id))
+        .await
+        .unwrap()
+        .0;
+    assert_eq!(refreshed.status, AgentConnectionStatus::Connected);
+    assert_eq!(refreshed.availability_status, "active");
+    assert!(refreshed.failure_message.is_none());
+    assert!(refreshed.authorization.is_none());
+    assert_eq!(recorded(&calls), ["manual"]);
+    assert_eq!(
+        stored_token(&state, id).await["access_token"],
+        "manual-access"
+    );
+    assert!(!has_reconnect_prompt(&state, id).await);
+
+    let polled = get_connection(State(state.clone()), jar, Path(id))
+        .await
+        .unwrap()
+        .0;
+    assert_eq!(polled.status, AgentConnectionStatus::Connected);
+    assert_eq!(polled.availability_status, "active");
+    assert!(polled.failure_message.is_none());
+    assert!(polled.authorization.is_none());
+    assert_eq!(
+        account_state(&state, id).await,
+        account("connected", "active", None)
+    );
+    assert_eq!(recorded(&calls), ["manual"]);
+    server.abort();
+}
+
+#[sqlx::test]
+async fn expired_old_prompt_does_not_demote_a_connected_active_account(pool: PgPool) {
+    let (issuer, calls, server) = fake_grok_issuer().await;
+    let mut state = state(pool);
+    state.config.grok_issuer = issuer;
+    let owner = user(&state.pool).await;
+    let jar = session_jar(&state.pool, owner).await;
+    let id = connection(&state, owner, "grok").await.id;
+    store_refreshable_credential(&state, id, "current").await;
+    reconnect_prompt(&state, id, Utc::now() - Duration::minutes(1)).await;
+
+    let polled = get_connection(State(state.clone()), jar, Path(id))
+        .await
+        .unwrap()
+        .0;
+    assert_eq!(polled.status, AgentConnectionStatus::Connected);
+    assert_eq!(polled.availability_status, "active");
+    assert!(polled.failure_message.is_none());
+    assert!(polled.authorization.is_none());
+    assert_eq!(
+        account_state(&state, id).await,
+        account("connected", "active", None)
+    );
+    assert!(!has_reconnect_prompt(&state, id).await);
+    assert!(recorded(&calls).is_empty());
+    server.abort();
+}
+
+#[sqlx::test]
+async fn expired_reconnect_prompt_on_a_marked_account_becomes_recoverable_by_the_sweep(
+    pool: PgPool,
+) {
+    let (issuer, calls, server) = fake_grok_issuer().await;
+    let mut state = state(pool);
+    state.config.grok_issuer = issuer;
+    let owner = user(&state.pool).await;
+    let jar = session_jar(&state.pool, owner).await;
+    let id = connection(&state, owner, "grok").await.id;
+    store_refreshable_credential(&state, id, "abandoned-prompt").await;
+    // `start_connection_reauthorization` marks the account without a message
+    // and stores a prompt; the owner never finished it.
+    mark_for_reconnect(&state, id, None).await;
+    reconnect_prompt(&state, id, Utc::now() - Duration::minutes(1)).await;
+
+    let polled = get_connection(State(state.clone()), jar, Path(id))
+        .await
+        .unwrap()
+        .0;
+    assert_eq!(polled.availability_status, "reauth_required");
+    assert_eq!(
+        polled.failure_message.as_deref(),
+        Some(EXPIRED_AUTHORIZATION_PROMPT_MESSAGE)
+    );
+    assert!(!has_reconnect_prompt(&state, id).await);
+    assert!(recorded(&calls).is_empty());
+
+    backdate_refresh(&state, id, Duration::minutes(46), None).await;
+    let summary = refresh_due_provider_credentials(&state).await.unwrap();
+    assert_eq!(counts(&summary), [1, 1, 0, 0]);
+    assert_eq!(recorded(&calls), ["abandoned-prompt"]);
+    assert_eq!(
+        account_state(&state, id).await,
+        account("connected", "active", None)
+    );
+    server.abort();
+}
+
+#[sqlx::test]
+async fn request_credential_reads_do_not_queue_behind_a_locked_refresh(pool: PgPool) {
+    let (issuer, calls, server) = fake_grok_issuer().await;
+    let mut state = state(pool);
+    state.config.grok_issuer = issuer;
+    let owner = user(&state.pool).await;
+    let id = connection(&state, owner, "grok").await.id;
+    store_refreshable_credential(&state, id, "current").await;
+    expire_access_token_in(&state, id, Duration::hours(1)).await;
+
+    // A background refresh holds the credential row lock while it waits on
+    // its provider.
+    let mut background_refresh = state.pool.begin().await.unwrap();
+    sqlx::query(
+        "SELECT connection_id FROM agent_connection_credentials
+         WHERE connection_id = $1 FOR UPDATE",
+    )
+    .bind(id)
+    .fetch_one(&mut *background_refresh)
+    .await
+    .unwrap();
+    let lock_error = sqlx::query(
+        "SELECT connection_id FROM agent_connection_credentials
+         WHERE connection_id = $1 FOR UPDATE NOWAIT",
+    )
+    .bind(id)
+    .fetch_one(&state.pool)
+    .await
+    .unwrap_err();
+    assert_eq!(
+        lock_error
+            .as_database_error()
+            .and_then(|error| error.code())
+            .as_deref(),
+        Some("55P03"),
+        "the credential row lock must really be held"
+    );
+
+    let lookup = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        gateway_credential(&state, id),
+    )
+    .await
+    .expect("a credential that is not near expiry must be read without the row lock")
+    .unwrap();
+    let CredentialLookup::Ready(provider, token) = lookup else {
+        panic!("the stored credential must be usable");
+    };
+    assert_eq!(provider, AgentProvider::Grok);
+    assert_eq!(token["access_token"], "current-old-access");
+    background_refresh.rollback().await.unwrap();
+    assert!(recorded(&calls).is_empty());
+    server.abort();
+}
+
+#[sqlx::test]
+async fn cancelled_request_does_not_roll_back_a_rotated_credential(pool: PgPool) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let issuer = format!("http://{}", listener.local_addr().unwrap());
+    let calls = Arc::new(AtomicUsize::new(0));
+    let received = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let app = Router::new().route(
+        "/oauth2/token",
+        post({
+            let (calls, received, release) = (calls.clone(), received.clone(), release.clone());
+            move || {
+                let (calls, received, release) = (calls.clone(), received.clone(), release.clone());
+                async move {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    received.notify_one();
+                    // The provider now holds the refresh token and would rotate
+                    // it, but it only answers after the caller has gone away.
+                    release.notified().await;
+                    Json(json!({
+                        "access_token": "rotated-access",
+                        "refresh_token": "rotated-refresh",
+                        "expires_in": 3600
+                    }))
+                }
+            }
+        }),
+    );
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let mut state = state(pool);
+    state.config.grok_issuer = issuer;
+    let owner = user(&state.pool).await;
+    let id = connection(&state, owner, "grok").await.id;
+    store_refreshable_credential(&state, id, "near-expiry").await;
+    expire_access_token_in(&state, id, Duration::minutes(1)).await;
+
+    let request = tokio::time::timeout(
+        std::time::Duration::from_millis(100),
+        gateway_credential(&state, id),
+    )
+    .await;
+    assert!(
+        request.is_err(),
+        "the request must still be waiting on the provider when it is cancelled"
+    );
+    tokio::time::timeout(std::time::Duration::from_secs(5), received.notified())
+        .await
+        .expect("the refresh must reach the provider although its caller was cancelled");
+    assert_eq!(
+        stored_token(&state, id).await["refresh_token"],
+        "near-expiry"
+    );
+
+    release.notify_one();
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(1500);
+    let stored = loop {
+        let stored = stored_token(&state, id).await;
+        if stored["refresh_token"] == "rotated-refresh" {
+            break stored;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the detached refresh did not commit the rotated credential"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    };
+    assert_eq!(stored["access_token"], "rotated-access");
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let expires_at: Option<DateTime<Utc>> = sqlx::query_scalar(
+        "SELECT access_token_expires_at FROM agent_connection_credentials WHERE connection_id = $1",
+    )
+    .bind(id)
+    .fetch_one(&state.pool)
+    .await
+    .unwrap();
+    assert!(expires_at.is_some_and(|expires_at| expires_at > Utc::now() + Duration::minutes(50)));
+
+    // The next request uses the committed rotation without another provider
+    // call.
+    let CredentialLookup::Ready(provider, token) = gateway_credential(&state, id).await.unwrap()
+    else {
+        panic!("the rotated credential must be usable");
+    };
+    assert_eq!(provider, AgentProvider::Grok);
+    assert_eq!(token["access_token"], "rotated-access");
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
     server.abort();
 }

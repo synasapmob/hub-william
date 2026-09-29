@@ -166,7 +166,7 @@ export default function OrganizationOverviewRoute() {
                       {providerLabel(agent.provider)}
                     </p>
                     <p className="truncate text-[11px] text-zinc-500">
-                      Added by @{agent.ownerUsername}
+                      Linked from @{agent.ownerUsername}'s Workspace
                     </p>
                   </div>
 

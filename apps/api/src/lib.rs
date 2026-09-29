@@ -51,6 +51,7 @@ pub use connections::{
     ProviderCredentialRefreshStatus, ProviderCredentialRefreshSummary, StartAgentConnectionRequest,
     refresh_all_provider_credentials, refresh_due_provider_credentials,
     refresh_nightly_provider_credentials, refresh_stored_connection_metadata,
+    stop_credential_sweeps, wait_for_credential_refreshes,
 };
 use connections::{
     complete_authorization, connect_deepseek, connect_groq, disconnect, get_connection,
@@ -127,6 +128,9 @@ pub fn app(state: AppState) -> Router {
         .allow_origin(AllowOrigin::list(browser_origins(&state.config)))
         .allow_methods([Method::GET, Method::POST, Method::DELETE])
         .allow_headers([AUTHORIZATION, CONTENT_TYPE])
+        .expose_headers([axum::http::HeaderName::from_static(
+            gateway::SERVED_CONNECTION_HEADER,
+        )])
         .allow_credentials(true);
 
     let gateway_routes = Router::new()

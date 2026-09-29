@@ -6,7 +6,8 @@ Accepted — 2026-09-15. Supersedes ADR-0006's rule that every upstream response
 other than `401` and `429` returns immediately, and ADR-0007's rule that every
 non-`429` response restores a half-open pool to `active`, for the transient
 statuses named below. Gemini account-specific `403` handling is superseded by
-ADR-0028.
+ADR-0028. The four-attempt cap across all pools is partially superseded by
+[ADR-0045](0045-linked-organization-agents-account-rotation-and-credential-recovery.md), which keeps at least one attempt for every account in scope.
 
 ## Context
 

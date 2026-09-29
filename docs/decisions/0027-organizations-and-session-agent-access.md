@@ -1,6 +1,6 @@
 # ADR-0027: Organizations and session agent access
 
-- Status: Accepted for organization pages and browser sessions; gateway-key scope remains open
+- Status: Accepted for organization pages and browser sessions; gateway-key scope remains open; organization request pinning and non-idempotent sharing superseded by [ADR-0045](0045-linked-organization-agents-account-rotation-and-credential-recovery.md)
 - Date: 2026-09-23
 - Partially supersedes: ADR-0024's four-page app list and ADR-0025's personal-only Playground account choices
 

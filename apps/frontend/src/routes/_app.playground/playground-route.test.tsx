@@ -156,12 +156,13 @@ beforeEach(() => {
   ]);
   vi.mocked(playgroundService.chat).mockImplementation(async ({ onDelta }) => {
     onDelta("A real-service-shaped answer");
+    return { servedConnectionId: null };
   });
 });
 
 describe("Playground conversation flow", () => {
-  it.each(["chatgpt", "claude", "gemini", "grok", "deepseek"])(
-    "defaults to a usable %s organization account and keeps a blocked selection pinned",
+  it.each(["chatgpt", "claude", "gemini", "grok", "deepseek"] as const)(
+    "defaults to a usable %s organization account and lets a reconnect-required selection fall back",
     async (provider) => {
       vi.mocked(organizationsService.list).mockResolvedValue([
         {
@@ -221,24 +222,58 @@ describe("Playground conversation flow", () => {
           organizationId: "team",
         }),
       );
+      expect(screen.queryByText(/answered by/)).not.toBeInTheDocument();
+      expect(organizationsService.agents).toHaveBeenCalledTimes(1);
       vi.mocked(playgroundService.models).mockClear();
       vi.mocked(playgroundService.chat).mockClear();
       await chooseOption(user, "Account", "Blocked AGY");
       expect(screen.getByLabelText("Account")).toHaveTextContent("Blocked AGY");
+      const label = providerCatalogue.byId(provider).label;
       expect(
-        screen.getByText(/Its owner must reconnect it in Agents/),
+        screen.getByText(
+          `This account needs its owner to reconnect it. Messages will use another available ${label} account.`,
+        ),
       ).toBeVisible();
-      await user.type(screen.getByLabelText("Message"), "Do not send this");
-      expect(screen.getByLabelText("Model")).toBeDisabled();
       expect(
-        screen.getByRole("button", { name: "Send message" }),
-      ).toBeDisabled();
-      expect(playgroundService.models).not.toHaveBeenCalled();
-      expect(playgroundService.chat).not.toHaveBeenCalled();
+        screen.queryByText(/Its owner must reconnect it in Agents/),
+      ).not.toBeInTheDocument();
+      await waitFor(() =>
+        expect(playgroundService.models).toHaveBeenCalledWith(
+          provider,
+          "blocked",
+          expect.any(AbortSignal),
+          "team",
+        ),
+      );
+      await waitFor(() => expect(screen.getByLabelText("Model")).toBeEnabled());
+      vi.mocked(playgroundService.chat).mockImplementationOnce(
+        async ({ onDelta }) => {
+          onDelta("Answered by the ready account");
+          return { servedConnectionId: "ready" };
+        },
+      );
+      await user.type(screen.getByLabelText("Message"), "Use any account");
+      await user.click(screen.getByRole("button", { name: "Send message" }));
+      await screen.findByText("Answered by the ready account");
+      expect(playgroundService.chat).toHaveBeenCalledWith(
+        expect.objectContaining({
+          connectionId: "blocked",
+          organizationId: "team",
+        }),
+      );
+      expect(
+        screen.getByRole("heading", {
+          name: `${label} / Provider model · answered by Ready AGY`,
+        }),
+      ).toBeVisible();
+      await waitFor(() =>
+        expect(organizationsService.agents).toHaveBeenCalledTimes(2),
+      );
+      expect(screen.getByLabelText("Account")).toHaveTextContent("Blocked AGY");
     },
   );
 
-  it("keeps an explicitly linked blocked personal account selected until reconnect", async () => {
+  it("keeps an explicitly linked reconnect-required personal account selected while another account can answer", async () => {
     vi.mocked(agentPoolsService.list).mockResolvedValue([
       {
         ...account,
@@ -250,25 +285,72 @@ describe("Playground conversation flow", () => {
     render(
       <Harness initialEntry="/playground?provider=deepseek&connection=account-a" />,
     );
-    await screen.findByText(/Its owner must reconnect it in Agents/);
-    expect(screen.getByLabelText("Account")).toHaveTextContent("My account");
-    expect(playgroundService.models).not.toHaveBeenCalled();
-    await user.type(screen.getByLabelText("Message"), "Keep draft");
-    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
-    vi.mocked(agentPoolsService.list).mockResolvedValue([account]);
-    await user.click(
-      screen.getByRole("button", { name: "Refresh account status" }),
+    const note = await screen.findByText(
+      "This account needs its owner to reconnect it. Messages will use another available DeepSeek account.",
     );
+    expect(note).not.toHaveClass("text-destructive");
+    expect(screen.getByLabelText("Account")).toHaveTextContent("My account");
     await waitFor(() =>
       expect(screen.getByLabelText("Model")).toHaveTextContent(
         "Provider model",
       ),
     );
-    expect(
-      screen.queryByText(/Its owner must reconnect it in Agents/),
-    ).not.toBeInTheDocument();
+    expect(playgroundService.models).toHaveBeenCalledWith(
+      "deepseek",
+      "account-a",
+      expect.any(AbortSignal),
+      undefined,
+    );
+    await user.type(screen.getByLabelText("Message"), "Keep draft");
+    expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
+    vi.mocked(agentPoolsService.list).mockResolvedValue([account]);
+    await user.click(
+      screen.getByRole("button", { name: "Refresh account status" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByText(/This account needs its owner to reconnect it/),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.getByLabelText("Account")).toHaveTextContent("My account");
     expect(screen.getByLabelText("Message")).toHaveValue("Keep draft");
     expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
+  });
+
+  it("starts Call Live from a reconnect-required selection while another account is usable", async () => {
+    window.localStorage.setItem("hub.playground.mode", "call-live");
+    vi.mocked(agentPoolsService.list).mockResolvedValue([
+      {
+        ...account,
+        agent: "ChatGPT",
+        availability: { ...account.availability, status: "reauth_required" },
+      },
+      { ...account, agent: "ChatGPT", id: "ready", accountLabel: "Ready" },
+    ]);
+    vi.mocked(playgroundService.models).mockResolvedValue([
+      { id: "gpt-live-1-codex", name: "Codex Voice", modes: ["voice"] },
+    ]);
+    render(
+      <Harness initialEntry="/playground?provider=chatgpt&connection=account-a" />,
+    );
+    expect(
+      await screen.findByText(
+        "This account needs its owner to reconnect it. Messages will use another available ChatGPT account.",
+      ),
+    ).toBeVisible();
+    expect(screen.getByLabelText("Account")).toHaveTextContent("My account");
+    await waitFor(() =>
+      expect(screen.getByLabelText("Model")).toHaveTextContent(
+        "gpt-live-1-codex",
+      ),
+    );
+    expect(screen.getByRole("button", { name: "Start call" })).toBeEnabled();
+    expect(playgroundService.models).toHaveBeenCalledWith(
+      "chatgpt",
+      "account-a",
+      expect.any(AbortSignal),
+      undefined,
+    );
   });
 
   it("shows recovery guidance when all organization accounts need reconnect", async () => {
@@ -294,12 +376,21 @@ describe("Playground conversation flow", () => {
         usage: [],
       },
     ]);
+    const user = userEvent.setup();
     render(
       <Harness initialEntry="/playground?organization=team&provider=gemini" />,
     );
-    await screen.findByText(/Its owner must reconnect it in Agents/);
+    const note = await screen.findByText(
+      /Its owner must reconnect it in Agents\. No other .+ account here is available\./,
+    );
+    expect(note).toHaveClass("text-destructive");
+    expect(
+      screen.queryByText(/Messages will use another available/),
+    ).not.toBeInTheDocument();
     expect(screen.getByLabelText("Account")).toHaveTextContent("Blocked AGY");
     expect(screen.getByLabelText("Model")).toBeDisabled();
+    await user.type(screen.getByLabelText("Message"), "Nobody can answer");
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
     expect(playgroundService.models).not.toHaveBeenCalled();
     expect(playgroundService.chat).not.toHaveBeenCalled();
   });
@@ -347,7 +438,7 @@ describe("Playground conversation flow", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("keeps setup cached across chat results, tab focus and reconnect, but honors account invalidation", async () => {
+  it("keeps setup cached across chat results, tab focus and reconnect, refreshes only accounts after a failure, and honors account invalidation", async () => {
     const queryClient = createQueryClient();
     const user = userEvent.setup();
     render(<Harness queryClient={queryClient} />);
@@ -366,6 +457,11 @@ describe("Playground conversation flow", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "This account is no longer available.",
     );
+    // A failed turn refreshes the account statuses in Setup, never models.
+    await waitFor(() =>
+      expect(agentPoolsService.list).toHaveBeenCalledTimes(2),
+    );
+    expect(screen.getByLabelText("Account")).toHaveTextContent("My account");
     try {
       await act(async () => {
         focusManager.setFocused(false);
@@ -373,7 +469,7 @@ describe("Playground conversation flow", () => {
         onlineManager.setOnline(false);
         onlineManager.setOnline(true);
       });
-      expect(agentPoolsService.list).toHaveBeenCalledTimes(1);
+      expect(agentPoolsService.list).toHaveBeenCalledTimes(2);
       expect(playgroundService.models).toHaveBeenCalledTimes(1);
       expect(organizationsService.list).toHaveBeenCalledTimes(1);
     } finally {
@@ -388,8 +484,51 @@ describe("Playground conversation flow", () => {
     await waitFor(() =>
       expect(screen.getByLabelText("Account")).toBeDisabled(),
     );
-    expect(agentPoolsService.list).toHaveBeenCalledTimes(2);
+    expect(agentPoolsService.list).toHaveBeenCalledTimes(3);
     expect(playgroundService.models).toHaveBeenCalledTimes(1);
+  });
+
+  it("names the account that answered when the API served a turn from another account", async () => {
+    vi.mocked(agentPoolsService.list).mockResolvedValue([
+      account,
+      { ...account, id: "account-b", accountLabel: "Second account" },
+    ]);
+    vi.mocked(playgroundService.chat)
+      .mockImplementationOnce(async ({ onDelta }) => {
+        onDelta("First answer");
+        return { servedConnectionId: "account-a" };
+      })
+      .mockImplementationOnce(async ({ onDelta }) => {
+        onDelta("Second answer");
+        return { servedConnectionId: "account-b" };
+      });
+    const user = userEvent.setup();
+    render(<Harness />);
+    await selectAccount(user);
+    await user.type(screen.getByLabelText("Message"), "First question");
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+    await screen.findByText("First answer");
+    expect(
+      screen.getByRole("heading", { name: "DeepSeek / Provider model" }),
+    ).toBeVisible();
+    expect(agentPoolsService.list).toHaveBeenCalledTimes(1);
+
+    await user.type(screen.getByLabelText("Message"), "Second question");
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+    await screen.findByText("Second answer");
+    expect(
+      screen.getByRole("heading", {
+        name: "DeepSeek / Provider model · answered by Second account",
+      }),
+    ).toBeVisible();
+    expect(
+      vi.mocked(playgroundService.chat).mock.calls[1][0].connectionId,
+    ).toBe("account-a");
+    await waitFor(() =>
+      expect(agentPoolsService.list).toHaveBeenCalledTimes(2),
+    );
+    expect(playgroundService.models).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText("Account")).toHaveTextContent("My account");
   });
 
   it("filters models by mode, preserves the chosen account and chat draft, and cleans up an active call", async () => {
