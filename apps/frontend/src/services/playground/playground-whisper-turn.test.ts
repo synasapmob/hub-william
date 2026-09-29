@@ -30,7 +30,7 @@ afterEach(() => vi.restoreAllMocks());
 
 describe("Call Whisper text and local speech transport", () => {
   it.each(["chatgpt", "gemini", "claude", "deepseek", "grok", "groq"] as const)(
-    "pins %s chat to the selected account and never calls the Groq speech endpoint",
+    "sends %s chat with the selected account and never calls the Groq speech endpoint",
     async (provider) => {
       const input = options(provider);
       const remoteSpeech = vi.spyOn(playgroundService, "groqTurn");
@@ -39,6 +39,7 @@ describe("Call Whisper text and local speech transport", () => {
         .mockImplementation(async (request) => {
           request.onDelta("Hello! ");
           request.onDelta("How are you?");
+          return { servedConnectionId: "selected-account" };
         });
       const result = await playgroundWhisperTurn.turn(input);
       expect(chat).toHaveBeenCalledOnce();
@@ -70,9 +71,10 @@ describe("Call Whisper text and local speech transport", () => {
       });
       return { samples: new Float32Array(22050), sampleRate: 22050 };
     });
-    vi.spyOn(playgroundService, "chat").mockImplementation(async (request) =>
-      request.onDelta("a".repeat(240)),
-    );
+    vi.spyOn(playgroundService, "chat").mockImplementation(async (request) => {
+      request.onDelta("a".repeat(240));
+      return { servedConnectionId: null };
+    });
     const pending = playgroundWhisperTurn.turn(input);
     await vi.waitFor(() =>
       expect(input.speech.synthesize).toHaveBeenCalledOnce(),
@@ -98,7 +100,7 @@ describe("Call Whisper text and local speech transport", () => {
       .spyOn(playgroundService, "chat")
       .mockImplementation(async (request) => {
         request.onDelta("Hello.");
-        await new Promise<void>((_, reject) =>
+        return new Promise((_, reject) =>
           request.signal.addEventListener(
             "abort",
             () => reject(request.signal.reason),
@@ -124,9 +126,10 @@ describe("Call Whisper text and local speech transport", () => {
       });
       return { samples: new Float32Array(100), sampleRate: 22050 };
     });
-    vi.spyOn(playgroundService, "chat").mockImplementation(async (request) =>
-      request.onDelta("First. Second."),
-    );
+    vi.spyOn(playgroundService, "chat").mockImplementation(async (request) => {
+      request.onDelta("First. Second.");
+      return { servedConnectionId: null };
+    });
     const pending = playgroundWhisperTurn.turn(input);
     await vi.waitFor(() =>
       expect(input.speech.synthesize).toHaveBeenCalledOnce(),

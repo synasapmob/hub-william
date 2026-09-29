@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { tv } from "tailwind-variants";
 import type { UseFormReturn } from "react-hook-form";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUp, FlaskConical, Paperclip, Square, X } from "lucide-react";
 
 import AgentsProviderIcon from "@/components/agents-provider-icon";
@@ -47,12 +47,14 @@ interface PlaygroundWorkspaceProps {
 }
 interface PlaygroundTurn {
   attachments: PlaygroundAttachment[];
+  connectionId: string;
   id: string;
   provider: PlaygroundProviderId;
   model: string;
   question: string;
   answer: string;
   error?: string;
+  servedConnectionId?: string | null;
   status: "streaming" | "complete" | "interrupted" | "failed";
 }
 
@@ -77,6 +79,15 @@ const setupQueryOptions = {
   refetchOnWindowFocus: false,
   refetchOnReconnect: false,
 };
+const reconnectNote = tv({
+  base: "text-sm",
+  variants: {
+    blocked: {
+      true: "text-destructive",
+      false: "text-muted-foreground",
+    },
+  },
+});
 const chatConversation = tv({
   base: "flex min-w-0 flex-col overflow-hidden border border-border bg-white",
   variants: {
@@ -90,6 +101,7 @@ export default function PlaygroundWorkspace({
   form,
 }: PlaygroundWorkspaceProps) {
   const session = useWorkspaceSession();
+  const queryClient = useQueryClient();
   useEffect(() => {
     if (session.status === "loading") return;
     return playgroundSpeechPreload.preload();
@@ -107,9 +119,15 @@ export default function PlaygroundWorkspace({
   const userId = session.user?.id;
   const organizationId = form.watch("organizationId");
   const organizationRequested = Boolean(organizationId);
+  const poolQueryKey = [...agentPoolsService.queryKey, userId ?? "guest"];
+  const organizationAgentsQueryKey = [
+    ...organizationsService.queryKey,
+    organizationId,
+    "agents",
+  ];
   const poolQuery = useQuery({
     ...setupQueryOptions,
-    queryKey: [...agentPoolsService.queryKey, userId ?? "guest"],
+    queryKey: poolQueryKey,
     queryFn: () => agentPoolsService.list(),
     enabled: session.status !== "loading" && !organizationRequested,
   });
@@ -124,7 +142,7 @@ export default function PlaygroundWorkspace({
   );
   const organizationAgentsQuery = useQuery({
     ...setupQueryOptions,
-    queryKey: [...organizationsService.queryKey, organizationId, "agents"],
+    queryKey: organizationAgentsQueryKey,
     queryFn: () => organizationsService.agents(organizationId),
     enabled: Boolean(userId && selectedOrganization),
   });
@@ -191,8 +209,20 @@ export default function PlaygroundWorkspace({
     ) ??
     accounts[0];
   const connectionId = selectedAccount?.id;
-  const needsReconnect =
+  const selectedNeedsReconnect =
     selectedAccount?.availabilityStatus === "reauth_required";
+  const hasUsableAccount = accounts.some(
+    (account) => account.availabilityStatus !== "reauth_required",
+  );
+  // The selected account is a preference: the API answers from another
+  // account of this provider in the same scope when it cannot. Only a scope
+  // where every such account needs reconnect has nothing left to try.
+  const needsReconnect = selectedNeedsReconnect && !hasUsableAccount;
+  const reconnectMessage = !selectedNeedsReconnect
+    ? null
+    : needsReconnect
+      ? `This account needs provider reauthorization or verification. Its owner must reconnect it in Agents. No other ${providers[provider].label} account here is available.`
+      : `This account needs its owner to reconnect it. Messages will use another available ${providers[provider].label} account.`;
 
   useEffect(() => {
     if (
@@ -356,6 +386,7 @@ export default function PlaygroundWorkspace({
     setTurns((current) => [
       ...current,
       {
+        connectionId,
         id,
         provider,
         model: selectedModel.name,
@@ -367,8 +398,15 @@ export default function PlaygroundWorkspace({
     ]);
     form.resetField("prompt");
     form.setValue("attachments", []);
+    const refreshAccounts = () =>
+      queryClient.invalidateQueries({
+        queryKey: organizationRequested
+          ? organizationAgentsQueryKey
+          : poolQueryKey,
+        exact: true,
+      });
     try {
-      await mutation.mutateAsync({
+      const { servedConnectionId } = await mutation.mutateAsync({
         provider,
         connectionId,
         organizationId: selectedOrganization?.id,
@@ -394,9 +432,15 @@ export default function PlaygroundWorkspace({
       if (!mounted.current) return;
       setTurns((current) =>
         current.map((turn) =>
-          turn.id === id ? { ...turn, status: "complete" } : turn,
+          turn.id === id
+            ? { ...turn, servedConnectionId, status: "complete" }
+            : turn,
         ),
       );
+      // Another account answered, so the selected one may have just become
+      // unavailable. Refresh Setup statuses without changing the selection.
+      if (servedConnectionId && servedConnectionId !== connectionId)
+        void refreshAccounts();
     } catch (error) {
       if (!mounted.current) return;
       setTurns((current) =>
@@ -415,6 +459,7 @@ export default function PlaygroundWorkspace({
         ),
       );
       if (!request.signal.aborted) {
+        void refreshAccounts();
         if (error instanceof PlaygroundServiceError && error.status === 401)
           session.openAuth();
       } else {
@@ -708,12 +753,10 @@ export default function PlaygroundWorkspace({
               </div>
             </div>
 
-            {needsReconnect ? (
+            {reconnectMessage ? (
               <div className="space-y-2">
-                <p className="text-sm text-destructive">
-                  This account needs provider reauthorization or verification.
-                  Its owner must reconnect it in Agents. You can choose another
-                  account.
+                <p className={reconnectNote({ blocked: needsReconnect })}>
+                  {reconnectMessage}
                 </p>
 
                 <Button
@@ -872,6 +915,15 @@ export default function PlaygroundWorkspace({
                       <div className="space-y-2">
                         <h3 className="text-xs font-medium text-muted-foreground">
                           {providers[turn.provider].label} / {turn.model}
+                          {turn.servedConnectionId &&
+                          turn.servedConnectionId !== turn.connectionId
+                            ? ` · answered by ${
+                                accessibleAccounts.find(
+                                  (account) =>
+                                    account.id === turn.servedConnectionId,
+                                )?.accountLabel ?? "another account"
+                              }`
+                            : null}
                         </h3>
 
                         {turn.answer ? (

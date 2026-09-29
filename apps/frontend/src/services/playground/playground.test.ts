@@ -173,6 +173,29 @@ describe("session-backed Playground requests", () => {
     expect(onDelta).toHaveBeenCalledWith("Hello");
   });
 
+  it("returns the account the API used to answer, or null when it is not reported", async () => {
+    const options = {
+      connectionId: "selected-account",
+      provider: "chatgpt" as const,
+      model: "model",
+      messages: [{ role: "user" as const, content: "Hi" }],
+      signal: new AbortController().signal,
+      onDelta: vi.fn(),
+    };
+    const served = streamResponse();
+    served.headers.set("x-hub-connection-id", "fallback-account");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(served));
+    await expect(playgroundService.chat(options)).resolves.toEqual({
+      servedConnectionId: "fallback-account",
+    });
+    expect(options.onDelta).toHaveBeenCalledWith("Hello");
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(streamResponse()));
+    await expect(playgroundService.chat(options)).resolves.toEqual({
+      servedConnectionId: null,
+    });
+  });
+
   it("streams ChatGPT deltas before completion when the provider omits Content-Type", async () => {
     let streamController!: ReadableStreamDefaultController<Uint8Array>;
     const body = new ReadableStream<Uint8Array>({

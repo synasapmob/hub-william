@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { MemoryRouter, Outlet, Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
@@ -37,7 +37,115 @@ const connection: AgentConnection = {
   updatedAt: "2026-09-23T00:00:00Z",
 };
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+const linkedAgent: OrganizationAgentDetails = {
+  accountLabel: "••••1234",
+  availabilityStatus: "active",
+  createdAt: "2026-09-23T00:00:00Z",
+  id: connection.id,
+  ownerUsername: "minh",
+  plan: "API",
+  provider: "deepseek",
+  rateLimitedUntil: null,
+  usage: [],
+};
+
+const emptyUsage = {
+  breakdown: [],
+  dailyUsage: [],
+  knownCachedTokens: 0,
+  knownInputTokens: 0,
+  knownOutputTokens: 0,
+  periodDays: 30,
+  requests: 0,
+  tokenKnownRequests: 0,
+};
+
+// Views of the same Workspace account that must not keep stale data after it
+// is refreshed or unlinked from the organization.
+const linkedViews = [
+  ["agent-pools", "33333333-3333-4333-8333-333333333333"],
+  ["agent-connections", "33333333-3333-4333-8333-333333333333"],
+  ["organizations", "33333333-3333-4333-8333-333333333333"],
+  ["organizations", organization.id, "agents"],
+  [
+    "playground",
+    "models",
+    "33333333-3333-4333-8333-333333333333",
+    "deepseek",
+    connection.id,
+    organization.id,
+  ],
+];
+
+interface RenderOrganizationAgentsOptions {
+  queryClient?: QueryClient;
+  username?: string;
+}
+
+function renderOrganizationAgents({
+  queryClient = createQueryClient(),
+  username = "minh",
+}: RenderOrganizationAgentsOptions = {}) {
+  render(
+    <QueryClientProvider client={queryClient}>
+      <WorkspaceShellSessionContext.Provider
+        value={{
+          user: {
+            id: "33333333-3333-4333-8333-333333333333",
+            username,
+            recoveryEmail: null,
+          },
+          status: "authenticated",
+          openAuth: vi.fn(),
+          signOut: vi.fn(),
+        }}
+      >
+        <MemoryRouter initialEntries={["/organization/agents"]}>
+          <Routes>
+            <Route
+              path="/organization"
+              element={<Outlet context={{ organization }} />}
+            >
+              <Route path="agents" element={<OrganizationAgentsRoute />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </WorkspaceShellSessionContext.Provider>
+    </QueryClientProvider>,
+  );
+  return queryClient;
+}
+
+function apiConnection(values: Record<string, unknown> = {}) {
+  return {
+    account_label: connection.accountLabel,
+    authorization: null,
+    availability_status: "active",
+    created_at: connection.createdAt,
+    failure_message: null,
+    id: connection.id,
+    plan: connection.plan,
+    provider: connection.provider,
+    status: "connected",
+    updated_at: connection.updatedAt,
+    ...values,
+  };
+}
+
+function mockPopup() {
+  const popup = {
+    close: vi.fn(),
+    location: { replace: vi.fn() },
+    opener: window as Window | null,
+  };
+  vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
+  return popup;
+}
 
 describe("Organization Agents", () => {
   it("shows the provider layout with zero counts when no agents are shared", async () => {
@@ -289,8 +397,11 @@ describe("Organization Agents", () => {
           ]}
           currentUsername="minh"
           isOrganizationOwner={true}
+          onRefresh={vi.fn()}
+          onRefreshComplete={vi.fn()}
           onRemove={vi.fn()}
           organizationId={organization.id}
+          refreshing={false}
           removeError={null}
           removeErrorId={null}
           removing={false}
@@ -346,8 +457,11 @@ describe("Organization Agents", () => {
           ]}
           currentUsername="minh"
           isOrganizationOwner={false}
+          onRefresh={vi.fn()}
+          onRefreshComplete={vi.fn()}
           onRemove={vi.fn()}
           organizationId={organization.id}
+          refreshing={false}
           removeError={null}
           removeErrorId={null}
           removing={false}
@@ -455,6 +569,9 @@ describe("Organization Agents", () => {
       expect(screen.getByText("Share a connected agent")).toBeVisible();
       expect(await screen.findByText("Reconnect required")).toBeVisible();
       expect(screen.getByText(/without signing in again/)).toBeVisible();
+      expect(
+        screen.getByText(/gets a link to your Workspace account, not a copy/),
+      ).toBeVisible();
       await user.click(
         screen.getByRole("button", {
           name: `Add ${label} ••••1234 to organization`,
@@ -470,4 +587,208 @@ describe("Organization Agents", () => {
       expect(popup).not.toHaveBeenCalled();
     },
   );
+
+  it("labels each organization agent as a live link to its owner's Workspace", async () => {
+    vi.spyOn(organizationsService, "agents").mockResolvedValue([
+      { ...linkedAgent, ownerUsername: "lan" },
+    ]);
+    vi.spyOn(organizationsService, "usage").mockResolvedValue(emptyUsage);
+    renderOrganizationAgents();
+
+    const row = await screen.findByRole("button", {
+      name: "Open DeepSeek account ••••1234",
+    });
+    expect(within(row).getByText("Linked from @lan's Workspace")).toBeVisible();
+    await userEvent.setup().click(row);
+    const detail = screen.getByRole("dialog");
+    expect(
+      within(detail).getByText("Linked from @lan's Workspace"),
+    ).toBeVisible();
+    expect(
+      within(detail).getByText(
+        /Refreshing or reconnecting it in Workspace updates it here, and deleting it in Workspace removes it from this organization\./,
+      ),
+    ).toBeVisible();
+  });
+
+  it("lets the connection owner refresh the linked Workspace credential and updates every view", async () => {
+    const popup = mockPopup();
+    const requests: Request[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        requests.push(request);
+        return Response.json(apiConnection());
+      }),
+    );
+    vi.spyOn(organizationsService, "agents").mockResolvedValue([
+      { ...linkedAgent, availabilityStatus: "reauth_required" },
+    ]);
+    vi.spyOn(organizationsService, "usage").mockResolvedValue(emptyUsage);
+    const queryClient = createQueryClient();
+    for (const key of linkedViews) queryClient.setQueryData(key, []);
+    const pollingKey = ["agent-connections", "refresh-status", connection.id];
+    queryClient.setQueryData(pollingKey, {});
+    renderOrganizationAgents({ queryClient });
+
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Open DeepSeek account ••••1234",
+      }),
+    );
+    expect(
+      screen.queryByText(/Ask @minh to reconnect it/),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
+
+    expect(
+      await screen.findByText("Provider credential refreshed"),
+    ).toBeVisible();
+    expect(popup.close).toHaveBeenCalled();
+    expect(requests.map((request) => request.method)).toEqual(["POST"]);
+    expect(new URL(requests[0].url).pathname).toBe(
+      `/agent-connections/${connection.id}/refresh`,
+    );
+    for (const key of linkedViews) {
+      expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true);
+    }
+    expect(queryClient.getQueryState(pollingKey)?.isInvalidated).toBe(false);
+  });
+
+  it("finishes provider reauthorization from the organization when refresh requires it", async () => {
+    const popup = mockPopup();
+    const requests: Request[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        requests.push(request);
+        return Response.json(
+          new URL(request.url).pathname.endsWith("/refresh")
+            ? apiConnection({
+                authorization: {
+                  authorization_url:
+                    "https://claude.com/oauth/authorize?refresh=true",
+                  expires_at: "2026-09-23T01:00:00Z",
+                  poll_after_seconds: 5,
+                  requires_callback_url: true,
+                  user_code: null,
+                },
+                availability_status: "reauth_required",
+              })
+            : apiConnection(),
+        );
+      }),
+    );
+    vi.spyOn(organizationsService, "agents").mockResolvedValue([linkedAgent]);
+    vi.spyOn(organizationsService, "usage").mockResolvedValue(emptyUsage);
+    renderOrganizationAgents();
+
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Open DeepSeek account ••••1234",
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
+    await waitFor(() =>
+      expect(popup.location.replace).toHaveBeenCalledWith(
+        "https://claude.com/oauth/authorize?refresh=true",
+      ),
+    );
+    expect(popup.opener).toBeNull();
+    expect(
+      screen.getByText("Waiting for provider authorization"),
+    ).toBeVisible();
+    await user.type(
+      screen.getByLabelText("Callback URL or code"),
+      "callback-code#state-token",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Complete reconnection" }),
+    );
+    expect(
+      await screen.findByText("Provider credential refreshed"),
+    ).toBeVisible();
+    expect(requests.map((request) => new URL(request.url).pathname)).toEqual([
+      `/agent-connections/${connection.id}/refresh`,
+      `/agent-connections/${connection.id}/complete`,
+    ]);
+  });
+
+  it("never offers Refresh to a member who does not own the linked account", async () => {
+    const refresh = vi.spyOn(agentConnectionsService, "refresh");
+    vi.spyOn(organizationsService, "agents").mockResolvedValue([
+      {
+        ...linkedAgent,
+        availabilityStatus: "reauth_required",
+        ownerUsername: "lan",
+      },
+    ]);
+    vi.spyOn(organizationsService, "usage").mockResolvedValue(emptyUsage);
+    renderOrganizationAgents();
+
+    await userEvent.setup().click(
+      await screen.findByRole("button", {
+        name: "Open DeepSeek account ••••1234",
+      }),
+    );
+    expect(
+      screen.getByText("Ask @lan to reconnect it in Workspace."),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Refresh" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Remove from organization" }),
+    ).not.toBeInTheDocument();
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("removes only the organization link and clears cached Playground data for it", async () => {
+    let shared = [linkedAgent];
+    vi.spyOn(organizationsService, "agents").mockImplementation(
+      async () => shared,
+    );
+    vi.spyOn(organizationsService, "usage").mockResolvedValue(emptyUsage);
+    const disconnect = vi.spyOn(agentConnectionsService, "disconnect");
+    const removeAgent = vi
+      .spyOn(organizationsService, "removeAgent")
+      .mockImplementation(async () => {
+        shared = [];
+      });
+    const queryClient = createQueryClient();
+    for (const key of linkedViews) queryClient.setQueryData(key, []);
+    renderOrganizationAgents({ queryClient });
+
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Open DeepSeek account ••••1234",
+      }),
+    );
+    expect(
+      screen.getByText(
+        "Removing it only unlinks it from this organization. The Workspace account stays connected.",
+      ),
+    ).toBeVisible();
+    await user.click(
+      screen.getByRole("button", { name: "Remove from organization" }),
+    );
+
+    await waitFor(() =>
+      expect(removeAgent).toHaveBeenCalledWith(organization.id, connection.id),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", {
+          name: "Open DeepSeek account ••••1234",
+        }),
+      ).not.toBeInTheDocument(),
+    );
+    for (const key of linkedViews) {
+      expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true);
+    }
+    expect(disconnect).not.toHaveBeenCalled();
+  });
 });
