@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
 import { Navigate, Outlet, useLocation, useSearchParams } from "react-router";
 
 import { useWorkspaceSession } from "@/components/workspace-shell/workspace-shell-session-context";
@@ -12,19 +11,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import Flex from "@/components/ui/flex";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import organizationsService from "@/services/organizations";
+import {
+  MY_ORGANIZATION_TAB,
+  ORGANIZATION_TAB_PARAM,
+} from "@/utils/utils.organization-tabs";
 
 import OrganizationCreateForm from "./organization-create-form";
 import type { OrganizationCreateValues } from "./organization-create-form";
 import type { OrganizationContextValue } from "./organization-context";
+import OrganizationHeader from "./organization-header";
+import OrganizationManageDialog from "./organization-manage-dialog";
 
 function storageKey(userId: string) {
   return `hub-william:organization:${userId}`;
@@ -80,22 +77,6 @@ export default function OrganizationRoute() {
       });
     },
   });
-  const acceptMutation = useMutation({
-    mutationFn: organizationsService.acceptInvitation,
-    onSuccess: async (organization) => {
-      selectOrganization(organization.id);
-      await queryClient.invalidateQueries({
-        queryKey: organizationsService.queryKey,
-      });
-    },
-  });
-  const declineMutation = useMutation({
-    mutationFn: organizationsService.declineInvitation,
-    onSuccess: () =>
-      queryClient.invalidateQueries({
-        queryKey: organizationsService.queryKey,
-      }),
-  });
   const organizations = organizationsQuery.data ?? [];
   const storedId = storedOrganizationId(userId);
   const organization =
@@ -104,26 +85,46 @@ export default function OrganizationRoute() {
     organizations[0] ??
     null;
   const invitations = invitationsQuery.data ?? [];
+  // The session or the organization list is still on its way. Pages render
+  // their skeletons meanwhile instead of a text placeholder.
+  const loading =
+    session.status === "loading" ||
+    (Boolean(session.user) && organizationsQuery.isPending);
+  const managing =
+    Boolean(session.user) &&
+    searchParams.get(ORGANIZATION_TAB_PARAM) === MY_ORGANIZATION_TAB;
 
-  function selectOrganization(id: string) {
+  // One update per user action: successive setSearchParams calls in the same
+  // tick each start from the params of the last render and undo one another.
+  function updateSearchParams(update: (params: URLSearchParams) => void) {
+    const next = new URLSearchParams(searchParams);
+    update(next);
+    if (next.toString() !== searchParams.toString())
+      setSearchParams(next, { replace: true });
+  }
+
+  function selectOrganization(id: string, closeManage = false) {
     setSelectedId(id);
     rememberOrganizationId(userId, id);
-    if (searchParams.has("member")) {
-      const next = new URLSearchParams(searchParams);
-      next.delete("member");
-      setSearchParams(next, { replace: true });
-    }
+    updateSearchParams((params) => {
+      params.delete("member");
+      if (closeManage) params.delete(ORGANIZATION_TAB_PARAM);
+    });
+  }
+
+  function setManaging(open: boolean) {
+    updateSearchParams((params) => {
+      if (open) params.set(ORGANIZATION_TAB_PARAM, MY_ORGANIZATION_TAB);
+      else params.delete(ORGANIZATION_TAB_PARAM);
+    });
   }
 
   async function createOrganization(values: OrganizationCreateValues) {
     await createMutation.mutateAsync(values);
   }
 
-  if (session.status === "loading") {
-    return <p className="p-8 text-sm text-muted-foreground">Loading…</p>;
-  }
-
   if (
+    session.status !== "loading" &&
     location.pathname !== "/organization" &&
     (!session.user ||
       (!organizationsQuery.isPending &&
@@ -135,61 +136,50 @@ export default function OrganizationRoute() {
 
   return (
     <section className="mx-auto w-full max-w-7xl space-y-5 px-4 pt-5 pb-8 sm:px-6 lg:px-8">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-200/80 pb-4">
-        <Flex className="flex-wrap items-center gap-2.5">
-          <p className="font-mono text-xs tracking-widest text-zinc-400 uppercase">
-            Organization
-          </p>
-          {organization ? (
-            <Select onValueChange={selectOrganization} value={organization.id}>
-              <SelectTrigger
-                aria-label="Selected organization"
-                className="h-9! max-w-full min-w-36 bg-white px-3 text-sm font-semibold text-zinc-900"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {organizations.map((item) => (
-                  <SelectItem key={item.id} value={item.id}>
-                    {item.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : null}
-        </Flex>
-
-        {session.user && organization ? (
-          <Button
-            onClick={() => setCreating(true)}
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            <Plus aria-hidden="true" />
-            New organization
-          </Button>
-        ) : null}
-      </header>
+      <OrganizationHeader
+        invitationCount={invitations.length}
+        loading={loading}
+        onCreate={() => setCreating(true)}
+        onManage={() => setManaging(true)}
+        organization={organization}
+        signedIn={Boolean(session.user)}
+      />
 
       {session.user ? (
-        <Dialog onOpenChange={setCreating} open={creating}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>Create an organization</DialogTitle>
-              <DialogDescription>
-                Create a team, invite members, then share your agents with them.
-              </DialogDescription>
-            </DialogHeader>
-            <OrganizationCreateForm
-              onCancel={() => setCreating(false)}
-              onCreate={createOrganization}
-            />
-          </DialogContent>
-        </Dialog>
+        <>
+          <Dialog onOpenChange={setCreating} open={creating}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Create an organization</DialogTitle>
+                <DialogDescription>
+                  Create a team, invite members, then share your agents with
+                  them.
+                </DialogDescription>
+              </DialogHeader>
+              <OrganizationCreateForm
+                onCancel={() => setCreating(false)}
+                onCreate={createOrganization}
+              />
+            </DialogContent>
+          </Dialog>
+
+          <OrganizationManageDialog
+            invitations={invitations}
+            invitationsError={invitationsQuery.error}
+            invitationsLoading={invitationsQuery.isPending}
+            onInvitationAccepted={(accepted) => selectOrganization(accepted.id)}
+            onOpenChange={setManaging}
+            onRetryInvitations={() => void invitationsQuery.refetch()}
+            onSelect={(chosen) => selectOrganization(chosen.id, true)}
+            open={managing}
+            organizations={organizations}
+            organizationsLoading={organizationsQuery.isPending}
+            selectedId={organization?.id ?? null}
+          />
+        </>
       ) : null}
 
-      {!session.user ? (
+      {!session.user && !loading ? (
         <div className="rounded-2xl border border-zinc-200 bg-white py-20 text-center">
           <h1 className="font-heading text-xl font-semibold">
             Your teams, in one place
@@ -201,8 +191,6 @@ export default function OrganizationRoute() {
             Sign in
           </Button>
         </div>
-      ) : organizationsQuery.isPending ? (
-        <p className="text-sm text-muted-foreground">Loading organizations…</p>
       ) : organizationsQuery.error ? (
         <p className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
           {organizationsQuery.error instanceof Error
@@ -211,7 +199,7 @@ export default function OrganizationRoute() {
         </p>
       ) : (
         <>
-          {!organization ? (
+          {!loading && !organization ? (
             <section className="mx-auto max-w-xl space-y-5 rounded-2xl border border-zinc-200 bg-white p-5 shadow-xs sm:p-7">
               <h1 className="font-heading text-lg font-semibold">
                 Create an organization
@@ -224,78 +212,9 @@ export default function OrganizationRoute() {
             </section>
           ) : null}
 
-          {invitationsQuery.error ? (
-            <div
-              role="alert"
-              className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
-            >
-              <p>
-                {invitationsQuery.error instanceof Error
-                  ? invitationsQuery.error.message
-                  : "Invitations could not be loaded."}
-              </p>
-              <Button
-                className="mt-3"
-                onClick={() => void invitationsQuery.refetch()}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                Retry invitations
-              </Button>
-            </div>
-          ) : null}
-
-          {invitations.length > 0 ? (
-            <section className="space-y-3 rounded-2xl border border-indigo-200 bg-indigo-50/50 p-5">
-              <h2 className="font-heading text-lg font-semibold">
-                Invitations for you
-              </h2>
-              <ul className="space-y-3">
-                {invitations.map((invitation) => (
-                  <li
-                    key={invitation.id}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white p-3"
-                  >
-                    <p className="text-sm">
-                      <strong>{invitation.organizationName}</strong> · invited
-                      by @{invitation.invitedByUsername ?? "unknown"}
-                    </p>
-                    <Flex className="gap-2">
-                      <Button
-                        disabled={
-                          acceptMutation.isPending || declineMutation.isPending
-                        }
-                        onClick={() => acceptMutation.mutate(invitation.id)}
-                        type="button"
-                      >
-                        Accept
-                      </Button>
-                      <Button
-                        disabled={
-                          acceptMutation.isPending || declineMutation.isPending
-                        }
-                        onClick={() => declineMutation.mutate(invitation.id)}
-                        type="button"
-                        variant="outline"
-                      >
-                        Decline
-                      </Button>
-                    </Flex>
-                  </li>
-                ))}
-              </ul>
-              {acceptMutation.error || declineMutation.error ? (
-                <p className="text-sm text-destructive">
-                  {(acceptMutation.error ?? declineMutation.error)?.message}
-                </p>
-              ) : null}
-            </section>
-          ) : null}
-
-          {organization ? (
+          {loading || organization ? (
             <Outlet
-              key={organization.id}
+              key={organization?.id ?? "loading"}
               context={{ organization } satisfies OrganizationContextValue}
             />
           ) : null}

@@ -14,6 +14,7 @@ afterEach(() => vi.restoreAllMocks());
 describe("Organization navigation", () => {
   it("keeps only Overview available when the user has no organization", async () => {
     vi.spyOn(organizationsService, "list").mockResolvedValue([]);
+    vi.spyOn(organizationsService, "invitations").mockResolvedValue([]);
     const queryClient = createQueryClient();
 
     render(
@@ -82,5 +83,48 @@ describe("Organization navigation", () => {
     expect(
       within(navigation).getByRole("link", { name: "Usage" }),
     ).toBeVisible();
+  });
+});
+
+describe("Account block", () => {
+  it("puts the invitation bell beside Log out", async () => {
+    vi.spyOn(organizationsService, "list").mockResolvedValue([]);
+    vi.spyOn(organizationsService, "invitations").mockResolvedValue([
+      {
+        createdAt: "2026-09-25T00:00:00Z",
+        id: "66666666-6666-4666-8666-666666666666",
+        invitedByUsername: "linh",
+        organizationId: "77777777-7777-4777-8777-777777777777",
+        organizationName: "Team Gió",
+      },
+    ]);
+
+    render(
+      <QueryClientProvider client={createQueryClient()}>
+        <WorkspaceShellSessionContext.Provider
+          value={{
+            openAuth: vi.fn(),
+            signOut: vi.fn(),
+            status: "authenticated",
+            user: {
+              id: "11111111-1111-4111-8111-111111111111",
+              recoveryEmail: null,
+              username: "minh",
+            },
+          }}
+        >
+          <MemoryRouter>
+            <WorkspaceShellSidebar />
+          </MemoryRouter>
+        </WorkspaceShellSessionContext.Provider>
+      </QueryClientProvider>,
+    );
+
+    const bell = await screen.findByRole("button", {
+      name: "Notifications, 1 pending invitation",
+    });
+    expect(bell.parentElement).toBe(
+      screen.getByRole("button", { name: "Log out" }).parentElement,
+    );
   });
 });

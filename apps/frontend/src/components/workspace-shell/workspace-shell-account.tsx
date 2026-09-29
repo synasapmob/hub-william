@@ -2,6 +2,7 @@ import { LogIn, LogOut } from "lucide-react";
 
 import Flex from "@/components/ui/flex";
 import WorkspaceShellAvatar from "./workspace-shell-avatar";
+import WorkspaceShellNotifications from "./workspace-shell-notifications";
 import { Button } from "@/components/ui/button";
 
 import { useWorkspaceSession } from "./workspace-shell-session-context";
@@ -34,15 +35,19 @@ export default function WorkspaceShellAccount({
           </div>
         </Flex>
 
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => void session.signOut()}
-          aria-label="Log out"
-        >
-          <LogOut aria-hidden="true" />
-        </Button>
+        <Flex className="shrink-0 items-center gap-0.5">
+          <WorkspaceShellNotifications onNavigate={onNavigate} />
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => void session.signOut()}
+            aria-label="Log out"
+          >
+            <LogOut aria-hidden="true" />
+          </Button>
+        </Flex>
       </Flex>
     );
   }

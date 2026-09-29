@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { MemoryRouter, Outlet, Route, Routes } from "react-router";
@@ -148,6 +148,37 @@ function mockPopup() {
 }
 
 describe("Organization Agents", () => {
+  it("shows the explorer skeleton until the agents load, with no loading text or empty explorer", async () => {
+    let resolveAgents!: (agents: OrganizationAgentDetails[]) => void;
+    vi.spyOn(organizationsService, "agents").mockReturnValue(
+      new Promise((resolve) => {
+        resolveAgents = resolve;
+      }),
+    );
+    vi.spyOn(agentConnectionsService, "list").mockResolvedValue([]);
+
+    renderOrganizationAgents();
+
+    expect(await screen.findByText("Loading agents")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Agents" })).toBeVisible();
+    expect(screen.getByText("Providers")).toBeVisible();
+    expect(screen.queryByText("Loading agents…")).not.toBeInTheDocument();
+    // Nothing that needs the loaded list is offered yet.
+    expect(
+      screen.queryByRole("textbox", { name: "Search accounts" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^ChatGPT, \d+ accounts?$/ }),
+    ).not.toBeInTheDocument();
+
+    await act(async () => resolveAgents([linkedAgent]));
+
+    expect(
+      await screen.findByRole("textbox", { name: "Search accounts" }),
+    ).toBeVisible();
+    expect(screen.queryByText("Loading agents")).not.toBeInTheDocument();
+  });
+
   it("shows the provider layout with zero counts when no agents are shared", async () => {
     const secondConnection: AgentConnection = {
       ...connection,

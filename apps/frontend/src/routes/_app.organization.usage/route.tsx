@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { skipToken, useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
+import Flex from "@/components/ui/flex";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -11,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -28,6 +30,86 @@ import {
 } from "@/routes/_app.organization/organization-format";
 import OrganizationMetricStrip from "@/routes/_app.organization/organization-metric-strip";
 import OrganizationUsageChart from "@/routes/_app.organization/organization-usage-chart";
+import OrganizationUsageChartSkeleton from "@/routes/_app.organization/organization-usage-chart-skeleton";
+
+const skeletonRows = [0, 1, 2];
+
+// The column headings are static, so the skeleton shares them with the table.
+function UsageBreakdownHeader() {
+  return (
+    <TableHeader>
+      <TableRow>
+        <TableHead className="text-[11px]">Member</TableHead>
+        <TableHead className="text-[11px]">Agent</TableHead>
+        <TableHead className="text-[11px]">Model</TableHead>
+        <TableHead className="text-right text-[11px]">Requests</TableHead>
+        <TableHead className="text-right text-[11px]">Input</TableHead>
+        <TableHead className="text-right text-[11px]">Output</TableHead>
+      </TableRow>
+    </TableHeader>
+  );
+}
+
+// Mirrors the breakdown below: cards on small screens, the table from md up.
+function UsageBreakdownSkeleton() {
+  return (
+    <div aria-hidden="true">
+      <ul className="mt-3 space-y-2 md:hidden">
+        {skeletonRows.slice(0, 2).map((key) => (
+          <li
+            key={key}
+            className="space-y-2 rounded-lg border border-zinc-200 bg-zinc-50/40 p-3"
+          >
+            <Flex className="justify-between gap-3">
+              <div className="space-y-1.5">
+                <Skeleton className="h-3 w-24 bg-zinc-200" />
+
+                <Skeleton className="h-2.5 w-32 bg-zinc-100" />
+              </div>
+
+              <Skeleton className="h-7 w-10 bg-zinc-200" />
+            </Flex>
+
+            <Skeleton className="h-6 w-full bg-white" />
+
+            <Skeleton className="h-8 w-full bg-zinc-100" />
+          </li>
+        ))}
+      </ul>
+
+      <div className="hidden md:block">
+        <Table className="mt-3">
+          <UsageBreakdownHeader />
+
+          <TableBody>
+            {skeletonRows.map((key) => (
+              <TableRow key={key}>
+                <TableCell className="py-2.5">
+                  <Skeleton className="h-3 w-24 bg-zinc-200" />
+                </TableCell>
+                <TableCell className="py-2.5">
+                  <Skeleton className="h-3 w-28 bg-zinc-200" />
+                </TableCell>
+                <TableCell className="py-2.5">
+                  <Skeleton className="h-3 w-36 bg-zinc-200" />
+                </TableCell>
+                <TableCell className="py-2.5">
+                  <Skeleton className="ml-auto h-3 w-8 bg-zinc-200" />
+                </TableCell>
+                <TableCell className="py-2.5">
+                  <Skeleton className="ml-auto h-3 w-10 bg-zinc-200" />
+                </TableCell>
+                <TableCell className="py-2.5">
+                  <Skeleton className="ml-auto h-3 w-10 bg-zinc-200" />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
 
 export default function OrganizationUsageRoute() {
   const { organization } = useOrganizationContext();
@@ -36,22 +118,24 @@ export default function OrganizationUsageRoute() {
   const [connectionId, setConnectionId] = useState("");
   const [model, setModel] = useState("");
   const requestedMemberId = searchParams.get("member") ?? "";
+  const organizationId = organization?.id ?? null;
   const membersQuery = useQuery({
-    queryFn: () => organizationsService.members(organization.id),
-    queryKey: [...organizationsService.queryKey, organization.id, "members"],
+    queryFn: organization
+      ? () => organizationsService.members(organization.id)
+      : skipToken,
+    queryKey: [...organizationsService.queryKey, organizationId, "members"],
   });
   const agentsQuery = useQuery({
-    queryFn: () => organizationsService.agents(organization.id),
-    queryKey: [...organizationsService.queryKey, organization.id, "agents"],
+    queryFn: organization
+      ? () => organizationsService.agents(organization.id)
+      : skipToken,
+    queryKey: [...organizationsService.queryKey, organizationId, "agents"],
   });
   const allUsageQuery = useQuery({
-    queryFn: () => organizationsService.usage(organization.id, { days }),
-    queryKey: [
-      ...organizationsService.queryKey,
-      organization.id,
-      "usage",
-      days,
-    ],
+    queryFn: organization
+      ? () => organizationsService.usage(organization.id, { days })
+      : skipToken,
+    queryKey: [...organizationsService.queryKey, organizationId, "usage", days],
   });
   const memberExists = (membersQuery.data ?? []).some(
     (member) => member.status === "accepted" && member.id === requestedMemberId,
@@ -74,16 +158,18 @@ export default function OrganizationUsageRoute() {
   ).sort();
   const validModel = modelOptions.includes(model) ? model : "";
   const usageQuery = useQuery({
-    queryFn: () =>
-      organizationsService.usage(organization.id, {
-        days,
-        memberId: memberId || undefined,
-        connectionId: validConnectionId || undefined,
-        model: validModel || undefined,
-      }),
+    queryFn: organization
+      ? () =>
+          organizationsService.usage(organization.id, {
+            days,
+            memberId: memberId || undefined,
+            connectionId: validConnectionId || undefined,
+            model: validModel || undefined,
+          })
+      : skipToken,
     queryKey: [
       ...organizationsService.queryKey,
-      organization.id,
+      organizationId,
       "usage",
       days,
       memberId,
@@ -92,6 +178,7 @@ export default function OrganizationUsageRoute() {
     ],
   });
   const usage = usageQuery.data;
+  const pending = usageQuery.isPending;
   const agentsById = new Map(
     (agentsQuery.data ?? []).map((agent) => [agent.id, agent]),
   );
@@ -128,14 +215,27 @@ export default function OrganizationUsageRoute() {
 
   return (
     <div className="space-y-5">
+      {pending ? (
+        <p role="status" className="sr-only">
+          Loading usage
+        </p>
+      ) : null}
+
       <header>
         <h1 className="font-heading text-2xl font-semibold tracking-tight">
           Usage
         </h1>
-        <p className="mt-1 text-xs text-zinc-500">
-          Requests made through {organization.name}, broken down by member,
-          agent and model.
-        </p>
+
+        {organization ? (
+          <p className="mt-1 text-xs text-zinc-500">
+            Requests made through {organization.name}, broken down by member,
+            agent and model.
+          </p>
+        ) : (
+          <Flex className="mt-1 h-4 items-center">
+            <Skeleton className="h-3 w-80 max-w-full bg-zinc-200" />
+          </Flex>
+        )}
       </header>
 
       <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-xs">
@@ -303,8 +403,13 @@ export default function OrganizationUsageRoute() {
               {formatCount(usage.requests)} requests. Requests without provider
               usage remain in the request count.
             </p>
+          ) : pending ? (
+            <Flex className="h-4 items-center">
+              <Skeleton className="h-2.5 w-3/4 bg-zinc-200" />
+            </Flex>
           ) : undefined
         }
+        loading={pending}
         metrics={[
           {
             label: "Requests",
@@ -335,20 +440,20 @@ export default function OrganizationUsageRoute() {
               ? "Requests matching your filters."
               : "All organization requests."}
           </p>
-          {usageQuery.isPending ? (
-            <p className="py-10 text-center text-xs text-zinc-500">
-              Loading usage…
-            </p>
-          ) : (
-            <OrganizationUsageChart days={usage?.dailyUsage ?? []} />
-          )}
+          {pending ? (
+            <OrganizationUsageChartSkeleton />
+          ) : usage ? (
+            <OrganizationUsageChart days={usage.dailyUsage} />
+          ) : null}
         </div>
 
         <div className="p-4 sm:p-5">
           <h2 className="font-heading text-sm font-semibold">
             By member and model
           </h2>
-          {usage?.breakdown.length ? (
+          {pending ? (
+            <UsageBreakdownSkeleton />
+          ) : usage?.breakdown.length ? (
             <>
               <ul className="mt-3 space-y-2 md:hidden">
                 {usage.breakdown.map((row) => (
@@ -411,22 +516,8 @@ export default function OrganizationUsageRoute() {
 
               <div className="hidden md:block">
                 <Table className="mt-3" containerProps={{ tabIndex: 0 }}>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="text-[11px]">Member</TableHead>
-                      <TableHead className="text-[11px]">Agent</TableHead>
-                      <TableHead className="text-[11px]">Model</TableHead>
-                      <TableHead className="text-right text-[11px]">
-                        Requests
-                      </TableHead>
-                      <TableHead className="text-right text-[11px]">
-                        Input
-                      </TableHead>
-                      <TableHead className="text-right text-[11px]">
-                        Output
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
+                  <UsageBreakdownHeader />
+
                   <TableBody>
                     {usage.breakdown.map((row) => (
                       <TableRow
@@ -463,11 +554,11 @@ export default function OrganizationUsageRoute() {
                 </Table>
               </div>
             </>
-          ) : (
+          ) : usage ? (
             <p className="mt-3 text-xs text-zinc-500">
               No requests match this period and these filters.
             </p>
-          )}
+          ) : null}
         </div>
       </section>
     </div>
