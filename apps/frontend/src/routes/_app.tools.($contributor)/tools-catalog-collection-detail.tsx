@@ -15,6 +15,7 @@ import catalogService, {
 } from "@/services/catalog";
 
 import ToolsCatalogCollectionFiles from "./tools-catalog-collection-files";
+import ToolsCatalogDownloadReel from "./tools-catalog-download-reel";
 import ToolsCatalogEdgeTts from "./tools-catalog-edge-tts";
 import ToolsCatalogToolUsage from "./tools-catalog-tool-usage";
 
@@ -119,9 +120,17 @@ export default function ToolsCatalogCollectionDetail({
                 <ToolsCatalogEdgeTts />
               </CollectionSection>
             </>
-          ) : ["gateway", "opencode", "omp", "download-reel"].includes(
-              shown.id,
-            ) ? (
+          ) : shown.id === "download-reel" ? (
+            <>
+              <CollectionSection label="How to use via API">
+                <ToolsCatalogToolUsage collection={shown} />
+              </CollectionSection>
+
+              <CollectionSection label="Download Reel">
+                <ToolsCatalogDownloadReel />
+              </CollectionSection>
+            </>
+          ) : ["gateway", "opencode", "omp"].includes(shown.id) ? (
             <CollectionSection label={usageSectionLabel(shown)}>
               <ToolsCatalogToolUsage collection={shown} />
             </CollectionSection>

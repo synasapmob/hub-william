@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Plugin } from "vite";
 import { EdgeTTS } from "node-edge-tts";
+import { handleReelRequest } from "./vite.reel-endpoint.ts";
 
 interface TtsPayload {
   text?: string;
@@ -98,6 +99,8 @@ export function ttsEndpoint(): Plugin {
 
           return;
         }
+
+        if (handleReelRequest(req, res)) return;
 
         next();
       });

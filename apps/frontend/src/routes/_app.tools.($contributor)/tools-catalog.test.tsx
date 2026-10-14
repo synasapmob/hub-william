@@ -133,23 +133,18 @@ describe("ToolsCatalog", () => {
     await user.click(screen.getByRole("button", { name: /DOWNLOAD REEL/ }));
 
     expect(
-      screen.getByRole("heading", { name: "How to download" }),
+      screen.getByRole("heading", { name: "How to use via API" }),
     ).toBeVisible();
     expect(
       screen.getByText(
-        `curl -fsSL ${window.location.origin}/download-reel.sh | bash -s -- --platform=facebook --url='REEL_URL'`,
+        `curl -fsSL ${window.location.origin}/download-reel.sh | bash -s -- --platform=tiktok --url='REEL_URL'`,
       ),
     ).toBeVisible();
     expect(
-      screen.getByText(
-        `curl -fsSL ${window.location.origin}/download-reel.sh | bash -s -- --platform=x --url='REEL_URL'`,
-      ),
-    ).toBeVisible();
-    expect(
-      screen.getByText(/with your reel link, keep the quotes/),
+      screen.getByRole("heading", { name: "Download Reel" }),
     ).toBeVisible();
 
-    await user.click(screen.getAllByRole("button", { name: "Copy" })[0]);
+    await user.click(screen.getByRole("button", { name: "Copy" }));
     expect(await navigator.clipboard.readText()).toBe(
       `curl -fsSL ${window.location.origin}/download-reel.sh | bash -s -- --platform=tiktok --url='REEL_URL'`,
     );
