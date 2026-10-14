@@ -71,7 +71,7 @@ pub async fn synthesize_speech(request: &TtsRequest) -> Result<Vec<u8>, ApiError
     let sec_gec = generate_sec_ms_gec_token();
     let connection_id = Uuid::new_v4().simple().to_string();
     let ws_url = format!(
-        "wss://speech.platform.bing.com/consumer/speech/synthesize/readaheadedge/v1?TrustedClientToken={}&Sec-MS-GEC={}&Sec-MS-GEC-Version=1-{}&ConnectionId={}",
+        "wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1?Ocp-Apim-Subscription-Key={}&Sec-MS-GEC={}&Sec-MS-GEC-Version=1-{}&ConnectionId={}",
         TRUSTED_CLIENT_TOKEN, sec_gec, CHROMIUM_VERSION, connection_id
     );
 
@@ -80,9 +80,10 @@ pub async fn synthesize_speech(request: &TtsRequest) -> Result<Vec<u8>, ApiError
         .map_err(|_| ApiError::Internal)?;
 
     let headers = client_req.headers_mut();
+    let major_version = CHROMIUM_VERSION.split('.').next().unwrap_or("143");
     let user_agent = format!(
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{} Safari/537.36 Edg/{}",
-        CHROMIUM_VERSION, CHROMIUM_VERSION
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{}.0.0.0 Safari/537.36 Edg/{}.0.0.0",
+        major_version, major_version
     );
 
     headers.insert(
@@ -94,6 +95,14 @@ pub async fn synthesize_speech(request: &TtsRequest) -> Result<Vec<u8>, ApiError
     headers.insert(
         header::ORIGIN,
         HeaderValue::from_static("chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold"),
+    );
+    headers.insert(
+        header::ACCEPT_ENCODING,
+        HeaderValue::from_static("gzip, deflate, br, zstd"),
+    );
+    headers.insert(
+        header::ACCEPT_LANGUAGE,
+        HeaderValue::from_static("en-US,en;q=0.9"),
     );
 
     let (mut ws_stream, _) = connect_async(client_req)
@@ -210,5 +219,19 @@ mod tests {
             escape_xml("<hello & 'world'> \"test\""),
             "&lt;hello &amp; &apos;world&apos;&gt; &quot;test&quot;"
         );
+    }
+
+    #[tokio::test]
+    async fn live_synthesize_speech_works() {
+        let req = TtsRequest {
+            text: "Hi".to_string(),
+            voice: default_voice(),
+            rate: default_rate(),
+            pitch: default_pitch(),
+        };
+        let res = synthesize_speech(&req).await;
+        assert!(res.is_ok(), "TTS failed: {:?}", res.err());
+        let bytes = res.unwrap();
+        assert!(!bytes.is_empty());
     }
 }
