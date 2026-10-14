@@ -3,6 +3,7 @@ import {
   Files,
   Network,
   Terminal,
+  Volume2,
   type LucideIcon,
 } from "lucide-react";
 
@@ -15,6 +16,7 @@ const collectionIcons: Record<string, LucideIcon> = {
   opencode: Terminal,
   omp: Terminal,
   "download-reel": Download,
+  "edge-tts": Volume2,
 };
 
 interface ToolsCatalogCollectionCardProps {

@@ -28,6 +28,7 @@
     "dompurify": "^3.4.15",
     "isbot": "^5",
     "lucide-react": "^1.28.0",
+    "node-edge-tts": "^1.2.11",
     "onnxruntime-web": "1.31.0-dev.20260914-8d85527a0",
     "openapi-fetch": "^0.17.0",
     "pdfjs-dist": "^6.3.289",
