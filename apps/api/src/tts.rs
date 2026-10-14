@@ -41,14 +41,28 @@ fn default_pitch() -> String {
     "0Hz".to_string()
 }
 
-fn generate_sec_ms_gec_token() -> String {
+fn edge_tts_client_token() -> String {
+    std::env::var("EDGE_TTS_CLIENT_TOKEN").unwrap_or_else(|_| TRUSTED_CLIENT_TOKEN.to_string())
+}
+
+fn edge_tts_chromium_version() -> String {
+    std::env::var("EDGE_TTS_CHROMIUM_VERSION").unwrap_or_else(|_| CHROMIUM_VERSION.to_string())
+}
+
+fn edge_tts_endpoint() -> String {
+    std::env::var("EDGE_TTS_ENDPOINT").unwrap_or_else(|_| {
+        "wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1".to_string()
+    })
+}
+
+fn generate_sec_ms_gec_token(client_token: &str) -> String {
     let now_secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
     let ticks = (now_secs + WINDOWS_FILE_TIME_EPOCH) * 10_000_000;
     let rounded_ticks = ticks - (ticks % 3_000_000_000);
-    let str_to_hash = format!("{}{}", rounded_ticks, TRUSTED_CLIENT_TOKEN);
+    let str_to_hash = format!("{}{}", rounded_ticks, client_token);
     let mut hasher = Sha256::new();
     hasher.update(str_to_hash.as_bytes());
     format!("{:X}", hasher.finalize())
@@ -68,11 +82,13 @@ pub async fn synthesize_speech(request: &TtsRequest) -> Result<Vec<u8>, ApiError
         return Err(ApiError::Validation("Text content is required."));
     }
 
-    let sec_gec = generate_sec_ms_gec_token();
+    let client_token = edge_tts_client_token();
+    let chromium_version = edge_tts_chromium_version();
+    let endpoint = edge_tts_endpoint();
+    let sec_gec = generate_sec_ms_gec_token(&client_token);
     let connection_id = Uuid::new_v4().simple().to_string();
     let ws_url = format!(
-        "wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1?Ocp-Apim-Subscription-Key={}&Sec-MS-GEC={}&Sec-MS-GEC-Version=1-{}&ConnectionId={}",
-        TRUSTED_CLIENT_TOKEN, sec_gec, CHROMIUM_VERSION, connection_id
+        "{endpoint}?Ocp-Apim-Subscription-Key={client_token}&Sec-MS-GEC={sec_gec}&Sec-MS-GEC-Version=1-{chromium_version}&ConnectionId={connection_id}"
     );
 
     let mut client_req = ws_url
@@ -80,7 +96,7 @@ pub async fn synthesize_speech(request: &TtsRequest) -> Result<Vec<u8>, ApiError
         .map_err(|_| ApiError::Internal)?;
 
     let headers = client_req.headers_mut();
-    let major_version = CHROMIUM_VERSION.split('.').next().unwrap_or("143");
+    let major_version = chromium_version.split('.').next().unwrap_or("143");
     let user_agent = format!(
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{}.0.0.0 Safari/537.36 Edg/{}.0.0.0",
         major_version, major_version
@@ -208,7 +224,7 @@ mod tests {
 
     #[test]
     fn sec_gec_token_generates_hex_string() {
-        let token = generate_sec_ms_gec_token();
+        let token = generate_sec_ms_gec_token(TRUSTED_CLIENT_TOKEN);
         assert_eq!(token.len(), 64);
         assert!(token.chars().all(|c| c.is_ascii_hexdigit()));
     }
