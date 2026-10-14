@@ -141,6 +141,11 @@ describe("ToolsCatalog", () => {
       ),
     ).toBeVisible();
     expect(
+      screen.getByText(
+        `curl -fsSL ${window.location.origin}/download-reel.sh | bash -s -- --platform=x --url='REEL_URL'`,
+      ),
+    ).toBeVisible();
+    expect(
       screen.getByText(/with your reel link, keep the quotes/),
     ).toBeVisible();
 

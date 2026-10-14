@@ -82,8 +82,9 @@ export default function ToolsCatalogToolUsage({
           <p className={label()}>Run with your reel URL</p>
 
           <p className={description()}>
-            Use Bash and Python 3 on macOS, Linux or WSL. TikTok also requires
-            yt-dlp. On macOS, install it with <code>brew install yt-dlp</code>.
+            Use Bash and Python 3 on macOS, Linux or WSL. TikTok and X also work
+            with yt-dlp. On macOS, install it with{" "}
+            <code>brew install yt-dlp</code>.
           </p>
 
           <p className={description()}>
@@ -92,10 +93,14 @@ export default function ToolsCatalogToolUsage({
           </p>
         </div>
 
-        {["tiktok", "facebook"].map((platform) => (
+        {["tiktok", "facebook", "x"].map((platform) => (
           <div className={section()} key={platform}>
             <p className={label()}>
-              {platform === "tiktok" ? "TikTok" : "Facebook"}
+              {platform === "tiktok"
+                ? "TikTok"
+                : platform === "facebook"
+                  ? "Facebook"
+                  : "X (Twitter)"}
             </p>
 
             <CopyCommand

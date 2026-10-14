@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# DOWNLOAD REEL — one public TikTok or Facebook video, saved locally.
+# DOWNLOAD REEL — one public TikTok, Facebook or X (Twitter) video, saved locally.
 set -euo pipefail
 
 if ! command -v python3 >/dev/null 2>&1; then
@@ -26,11 +26,11 @@ from urllib.request import Request, urlopen
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         prog="download-reel.sh",
-        description="Download one public TikTok or Facebook video with sound.",
-        epilog="Requires Python 3. TikTok requires yt-dlp on PATH (or in this Python). "
-        "Facebook also tries its public video embed if yt-dlp is unavailable or fails.",
+        description="Download one public TikTok, Facebook or X (Twitter) video with sound.",
+        epilog="Requires Python 3. TikTok and X use yt-dlp on PATH (or in this Python) when available. "
+        "Facebook and X also fall back to public extractors if yt-dlp is unavailable or fails.",
     )
-    parser.add_argument("--platform", required=True, choices=("tiktok", "facebook"))
+    parser.add_argument("--platform", required=True, choices=("tiktok", "facebook", "x", "twitter"))
     parser.add_argument("--output-dir", default="~/Downloads", help="Destination folder (default: ~/Downloads)")
     parser.add_argument("--url", help="HTTPS link to one video or reel")
     parser.add_argument("positional_url", nargs="?", metavar="URL",
@@ -67,7 +67,12 @@ def prompt_url(platform):
 
 def validate_url(url, platform):
     parsed = urlsplit(url)
-    roots = ("tiktok.com",) if platform == "tiktok" else ("facebook.com", "fb.watch")
+    if platform == "tiktok":
+        roots = ("tiktok.com",)
+    elif platform in ("x", "twitter"):
+        roots = ("x.com", "twitter.com")
+    else:
+        roots = ("facebook.com", "fb.watch")
     host = parsed.hostname or ""
     if (parsed.scheme != "https" or parsed.username or parsed.password
             or parsed.port not in (None, 443)
@@ -78,12 +83,24 @@ def validate_url(url, platform):
         video = re.fullmatch(r"/@[^/]+/video/\d+/?", path)
         short = (host in ("vm.tiktok.com", "vt.tiktok.com") and re.fullmatch(r"/[^/]+/?", path))
         share = re.fullmatch(r"/t/[^/]+/?", path)
+    elif platform in ("x", "twitter"):
+        video = x_id(url)
+        short = False
+        share = False
     else:
         video = facebook_id(url)
         short = host == "fb.watch" and re.fullmatch(r"/[^/]+/?", path)
         share = re.fullmatch(r"/share/[rv]/[^/]+/?", path)
     if not (video or short or share):
         raise ValueError("Use a single video/reel link, not a profile, feed or playlist.")
+
+
+def x_id(url):
+    parsed = urlsplit(url)
+    match = re.search(r"/(?:status|statuses)/(\d+)", parsed.path)
+    if match:
+        return match[1]
+    return None
 
 
 def facebook_id(url):
@@ -110,12 +127,13 @@ def download_with_yt_dlp(command, args, folder):
     # A combined video/audio format works without installing ffmpeg. Ignore
     # personal yt-dlp config so this command cannot unexpectedly run hooks,
     # download playlists, read browser cookies or overwrite existing files.
+    platform_prefix = "x" if args.platform in ("x", "twitter") else args.platform
     return subprocess.run(command + [
         "--ignore-config", "--no-playlist", "--playlist-end", "1",
         "--no-overwrites", "--restrict-filenames", "--no-progress",
         "--socket-timeout", "30", "--retries", "2",
         "--format", "best[ext=mp4][vcodec!=none][acodec!=none]/best[vcodec!=none][acodec!=none]",
-        "--paths", str(folder), "--output", args.platform + "-%(id)s.%(ext)s",
+        "--paths", str(folder), "--output", platform_prefix + "-%(id)s.%(ext)s",
         "--print", "after_move:filepath", "--", args.url,
     ], check=False).returncode
 
@@ -134,13 +152,16 @@ def facebook_media(source):
 
 
 def request(url):
-    return urlopen(Request(url, headers={
-        "User-Agent": "Mozilla/5.0",
-        "Referer": "https://www.facebook.com/",
-    }), timeout=30)
+    headers = {"User-Agent": "Mozilla/5.0"}
+    host = (urlsplit(url).hostname or "").lower()
+    if "facebook.com" in host or "fb.watch" in host:
+        headers["Referer"] = "https://www.facebook.com/"
+    elif "x.com" in host or "twitter.com" in host:
+        headers["Referer"] = "https://x.com/"
+    return urlopen(Request(url, headers=headers), timeout=30)
 
 
-def save_facebook_video(url, destination):
+def save_video(url, destination, label="Video"):
     if destination.exists():
         print("Already exists: %s" % destination)
         return
@@ -152,7 +173,7 @@ def save_facebook_video(url, destination):
             temporary = Path(output.name)
             first = response.read(64 * 1024)
             if len(first) < 12 or first[4:8] != b"ftyp":
-                raise ValueError("Facebook returned an invalid MP4; no video was saved.")
+                raise ValueError("%s returned an invalid MP4; no video was saved." % label)
             output.write(first)
             total = len(first)
             while True:
@@ -176,6 +197,14 @@ def save_facebook_video(url, destination):
             temporary.unlink(missing_ok=True)
 
 
+def save_facebook_video(url, destination):
+    save_video(url, destination, label="Facebook")
+
+
+def save_x_video(url, destination):
+    save_video(url, destination, label="X")
+
+
 def download_facebook(url, folder):
     video_id = facebook_id(url)
     if not video_id:
@@ -195,6 +224,54 @@ def download_facebook(url, folder):
     with request(embed) as response:
         source = response.read(8 * 1024 * 1024).decode("utf-8")
     save_facebook_video(facebook_media(source), destination)
+
+
+def x_media(data):
+    if isinstance(data, (str, bytes)):
+        data = json.loads(data)
+    tweet = data.get("tweet") or {}
+    media = tweet.get("media") or {}
+    items = media.get("videos") or media.get("all") or []
+    best_url = None
+    best_bitrate = -1
+    for item in items:
+        variants = item.get("variants") or item.get("formats") or []
+        for variant in variants:
+            url = variant.get("url") or ""
+            parsed = urlsplit(url)
+            if (parsed.scheme == "https" and not parsed.username and not parsed.password
+                    and parsed.port in (None, 443)
+                    and (parsed.hostname or "").endswith(".twimg.com")
+                    and parsed.path.endswith(".mp4")):
+                bitrate = variant.get("bitrate") or 0
+                if bitrate > best_bitrate:
+                    best_bitrate = bitrate
+                    best_url = url
+        if not best_url and item.get("url"):
+            url = item["url"]
+            parsed = urlsplit(url)
+            if (parsed.scheme == "https" and not parsed.username and not parsed.password
+                    and parsed.port in (None, 443)
+                    and (parsed.hostname or "").endswith(".twimg.com")
+                    and (parsed.path.endswith(".mp4") or "video/mp4" in item.get("format", ""))):
+                best_url = url
+    if not best_url:
+        raise ValueError("X did not expose a public video. It may require login, be sensitive, or be unavailable.")
+    return best_url
+
+
+def download_x(url, folder):
+    video_id = x_id(url)
+    if not video_id:
+        raise ValueError("Could not extract a tweet or video ID from this link.")
+    destination = folder / ("x-%s.mp4" % video_id)
+    if destination.exists():
+        print("Already exists: %s" % destination)
+        return
+    api_url = "https://api.fxtwitter.com/i/status/" + video_id
+    with request(api_url) as response:
+        payload = response.read(2 * 1024 * 1024).decode("utf-8")
+    save_x_video(x_media(payload), destination)
 
 
 def main(argv=None):
@@ -217,6 +294,9 @@ def main(argv=None):
     if args.platform == "facebook":
         print("Trying Facebook's public video embed...", flush=True)
         download_facebook(args.url, folder)
+    elif args.platform in ("x", "twitter"):
+        print("Trying X's public video extractor...", flush=True)
+        download_x(args.url, folder)
     return 0
 
 
@@ -224,7 +304,7 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except HTTPError as error:
-        print("Facebook request failed (HTTP %s). Check the public link and retry." % error.code, file=sys.stderr)
+        print("Request failed (HTTP %s). Check the public link and retry." % error.code, file=sys.stderr)
         sys.exit(1)
     except (ValueError, OSError, URLError) as error:
         print("Download failed: %s" % error, file=sys.stderr)

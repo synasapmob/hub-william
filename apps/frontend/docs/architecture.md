@@ -158,11 +158,11 @@ adapter that calls the business API.
 ## Standalone installers
 
 The frontend also serves `download-reel.sh`, a standalone Bash/Python video
-downloader linked from DOWNLOAD REEL. It accepts `--platform=tiktok|facebook`,
+downloader linked from DOWNLOAD REEL. It accepts `--platform=tiktok|facebook|x|twitter`,
 `--url=VIDEO_URL` and an optional `--output-dir`. The Tools commands pipe curl
 directly into Bash with the platform and URL options. Omitting the URL prompts
 through the controlling terminal; positional URLs remain supported. Downloads run on the user's
-computer using yt-dlp, with a public-embed fallback for Facebook. It selects
+computer using yt-dlp, with public video extractors for Facebook and X. It selects
 combined video/audio formats, preserves existing files and does not read browser
 cookies. No media download API or server-side video storage is introduced.
 
