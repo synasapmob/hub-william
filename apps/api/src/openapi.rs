@@ -64,9 +64,11 @@ use crate::{
         crate::playground::models,
         crate::playground::chat,
         crate::playground_voice::create,
-        crate::playground_groq_voice::create
+        crate::playground_groq_voice::create,
+        crate::tts::synthesize
     ),
     components(schemas(
+        crate::TtsRequest,
         crate::playground::PlaygroundModel,
         crate::playground::PlaygroundMode,
         crate::playground_voice::PlaygroundVoiceRequest,

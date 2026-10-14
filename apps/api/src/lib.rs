@@ -14,6 +14,7 @@ mod provider_catalogue;
 mod provider_catalogue_generated;
 mod telegram;
 mod telegram_catalogue;
+mod tts;
 mod usage;
 
 use std::time::Duration;
@@ -88,6 +89,7 @@ pub use telegram_catalogue::{
 use telegram_catalogue::{
     adjust_product, catalogue, create_product, full_catalogue, get_product, restock_product,
 };
+pub use tts::TtsRequest;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -163,6 +165,7 @@ pub fn app(state: AppState) -> Router {
 
     Router::new()
         .route("/health", get(health))
+        .route("/tts", post(tts::synthesize))
         .route("/auth/register", post(register))
         .route("/auth/login", post(login))
         .route("/auth/session", get(session))

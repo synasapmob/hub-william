@@ -52,7 +52,7 @@ interface ToolsCatalogCollectionDetailProps {
 function usageSectionLabel(collection: CatalogCollection) {
   if (collection.id === "download-reel") return "How to download";
   if (collection.id === "gateway") return "How to install and use";
-  if (collection.id === "edge-tts") return "TEXT TO AUDIO";
+  if (collection.id === "edge-tts") return "How to use via API";
   return "How to install";
 }
 
@@ -110,9 +110,15 @@ export default function ToolsCatalogCollectionDetail({
           </CollectionSection>
 
           {shown.id === "edge-tts" ? (
-            <CollectionSection label="TEXT TO AUDIO">
-              <ToolsCatalogEdgeTts />
-            </CollectionSection>
+            <>
+              <CollectionSection label={usageSectionLabel(shown)}>
+                <ToolsCatalogToolUsage collection={shown} />
+              </CollectionSection>
+
+              <CollectionSection label="TEXT TO AUDIO">
+                <ToolsCatalogEdgeTts />
+              </CollectionSection>
+            </>
           ) : ["gateway", "opencode", "omp", "download-reel"].includes(
               shown.id,
             ) ? (
