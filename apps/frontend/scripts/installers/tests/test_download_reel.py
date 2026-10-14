@@ -23,7 +23,9 @@ reel = types.ModuleType("download_reel")
 exec(compile(SOURCE, str(SCRIPT), "exec"), reel.__dict__)
 FACEBOOK_URL = "https://www.facebook.com/reel/28447394274902429"
 TIKTOK_URL = "https://www.tiktok.com/@example/video/1234567890"
+X_URL = "https://x.com/example/status/2107755294914904328"
 MEDIA_URL = "https://video.example.fbcdn.net/clip.mp4?token=public&test=1"
+X_MEDIA_URL = "https://video.twimg.com/amplify_video/2107755172428681216/vid/avc1/1280x720/clip.mp4"
 MP4 = b"\x00\x00\x00\x18ftypisom" + b"\x00" * 32
 
 
@@ -84,7 +86,7 @@ class DownloadReelTest(unittest.TestCase):
             with self.subTest(command=command):
                 result = subprocess.run(command, input=source, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn("--platform {tiktok,facebook}", result.stdout)
+                self.assertIn("--platform {tiktok,facebook,x,twitter}", result.stdout)
 
     def test_omitted_url_prompts_and_validates_terminal_input(self):
         with mock.patch("builtins.open", mock.mock_open(read_data="  " + FACEBOOK_URL + "  \n")) as terminal:
@@ -156,6 +158,11 @@ class DownloadReelTest(unittest.TestCase):
         cases = [
             ["--platform=youtube", TIKTOK_URL],
             ["--platform=tiktok", FACEBOOK_URL],
+            ["--platform=x", FACEBOOK_URL],
+            ["--platform=x", "https://x.com.evil.example/status/123"],
+            ["--platform=x", "https://user:password@x.com/status/123"],
+            ["--platform=x", "http://x.com/status/123"],
+            ["--platform=x", "https://x.com/username"],
             ["--platform=facebook", "https://facebook.com.evil.example/reel/123"],
             ["--platform=facebook", "https://user:password@facebook.com/reel/123"],
             ["--platform=facebook", "http://facebook.com/reel/123"],
@@ -181,6 +188,11 @@ class DownloadReelTest(unittest.TestCase):
             ("facebook", "https://www.facebook.com/name/videos/123/"),
             ("facebook", "https://www.facebook.com/share/r/abc123/"),
             ("facebook", "https://fb.watch/abc123/"),
+            ("x", X_URL),
+            ("x", "https://x.com/username/status/1234567890?s=46"),
+            ("x", "https://twitter.com/username/status/1234567890"),
+            ("x", "https://x.com/i/status/1234567890"),
+            ("twitter", X_URL),
         ]:
             with self.subTest(url=url):
                 self.assertEqual(reel.parse_args(["--platform", platform, url]).url, url)
@@ -248,6 +260,60 @@ class DownloadReelTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     reel.save_facebook_video(MEDIA_URL, self.folder / "reel.mp4")
             self.assertEqual(list(self.folder.iterdir()), [])
+
+    def test_x_passes_literal_url_and_output_path(self):
+        url = X_URL + "?s=46"
+        folder = self.folder / "output"
+        with mock.patch.object(reel, "yt_dlp_command", return_value=["yt-dlp"]):
+            with mock.patch.object(reel.subprocess, "run", return_value=types.SimpleNamespace(returncode=0)) as run:
+                self.assertEqual(reel.main(["--platform=x", "--output-dir", str(folder), "--url=" + url]), 0)
+        command = run.call_args.args[0]
+        self.assertEqual(command[-2:], ["--", url])
+        self.assertEqual(command[command.index("--paths") + 1], str(folder))
+        self.assertEqual(command[command.index("--output") + 1], "x-%(id)s.%(ext)s")
+
+    def test_x_falls_back_when_extractor_fails_or_is_missing(self):
+        for command in (None, ["yt-dlp"]):
+            with self.subTest(command=command), contextlib.redirect_stdout(io.StringIO()):
+                with mock.patch.object(reel, "yt_dlp_command", return_value=command):
+                    with mock.patch.object(reel, "download_with_yt_dlp", return_value=1):
+                        with mock.patch.object(reel, "download_x") as fallback:
+                            self.assertEqual(reel.main(["--platform=x", "--output-dir", str(self.folder), X_URL]), 0)
+                            fallback.assert_called_once_with(X_URL, self.folder)
+
+    def test_x_extractor_downloads_highest_bitrate_and_preserves_existing_file(self):
+        payload = json.dumps({
+            "tweet": {
+                "media": {
+                    "videos": [{
+                        "variants": [
+                            {"bitrate": 256000, "url": "https://video.twimg.com/low.mp4"},
+                            {"bitrate": 10368000, "url": X_MEDIA_URL},
+                        ]
+                    }]
+                }
+            }
+        })
+        destination = self.folder / "x-2107755294914904328.mp4"
+        with mock.patch.object(reel, "request", side_effect=[response(payload.encode()), response(MP4)]) as req:
+            with contextlib.redirect_stdout(io.StringIO()):
+                reel.download_x(X_URL, self.folder)
+                reel.download_x(X_URL, self.folder)
+        self.assertEqual(destination.read_bytes(), MP4)
+        self.assertEqual(req.call_count, 2)
+        self.assertEqual(req.call_args_list[0].args[0], "https://api.fxtwitter.com/i/status/2107755294914904328")
+        self.assertEqual(req.call_args_list[1].args[0], X_MEDIA_URL)
+        self.assertEqual(list(self.folder.iterdir()), [destination])
+
+    def test_x_unavailable_media_and_foreign_media_are_not_downloaded(self):
+        for payload in (
+            {"tweet": {}},
+            {"tweet": {"media": {"videos": [{"variants": [{"url": "https://evil.example.com/video.mp4"}]}]}}},
+        ):
+            with self.subTest(payload=payload), mock.patch.object(reel, "request", return_value=response(json.dumps(payload).encode())):
+                with self.assertRaisesRegex(ValueError, "did not expose a public video"):
+                    reel.download_x(X_URL, self.folder)
+        self.assertEqual(list(self.folder.iterdir()), [])
 
 
 if __name__ == "__main__":

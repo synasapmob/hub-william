@@ -30,7 +30,7 @@ const COLLECTION_PRESENTATION: Record<string, CatalogCollectionPresentation> = {
   "download-reel": {
     label: "DOWNLOAD REEL",
     summary:
-      "Download TikTok videos and Facebook reels with sound using one local script.",
+      "Download TikTok, Facebook and X videos with sound using one local script.",
   },
   "edge-tts": {
     label: "TEXT TO AUDIO",

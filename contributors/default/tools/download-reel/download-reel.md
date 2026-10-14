@@ -1,19 +1,19 @@
 # DOWNLOAD REEL
 
-Download a public TikTok video or Facebook reel to your computer with one shell
+Download a public TikTok video, Facebook reel or X (Twitter) video to your computer with one shell
 command. Choose the platform explicitly; videos are saved with sound in your
 Downloads folder. Existing files are kept.
 
 ## Requirements
 
-Use Bash and Python 3 on macOS, Linux or WSL. TikTok uses
+Use Bash and Python 3 on macOS, Linux or WSL. TikTok and X work with
 [yt-dlp](https://pypi.org/project/yt-dlp/), installed on your PATH or in the
 Python environment running the script. On macOS, install it with
 `brew install yt-dlp`. For other systems, follow yt-dlp's installation guide.
 Keep yt-dlp up to date when either site changes.
 
-Facebook uses yt-dlp when available, then tries Facebook's public video embed
-if the extractor fails or yt-dlp is missing. The script selects a format with
+Facebook and X try yt-dlp when available, then fall back to public video
+extractors if yt-dlp is unavailable or fails. The script selects a format with
 both video and audio, so ffmpeg is not required; this may be lower resolution
 than separate video/audio streams.
 
@@ -34,6 +34,14 @@ curl -fsSL https://hub-william.site/download-reel.sh | bash -s -- --platform=fac
 Pass your Facebook reel link in `--url='...'`. The script runs directly from
 curl; no shell script file needs to be saved first. Quoting the URL preserves
 query parameters such as `?v=123&share=1` as one argument.
+
+## X (Twitter)
+
+```sh
+curl -fsSL https://hub-william.site/download-reel.sh | bash -s -- --platform=x --url='https://x.com/username/status/1234567890'
+```
+
+`--platform=twitter` is also accepted.
 
 ## Choose a folder
 
