@@ -1803,6 +1803,50 @@
           }
         }
       }
+    },
+    "/tts": {
+      "post": {
+        "tags": ["tools"],
+        "operationId": "synthesize",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TtsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Generated MP3 audio",
+            "content": {
+              "audio/mpeg": {}
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3113,6 +3157,24 @@
         "properties": {
           "provider": {
             "$ref": "#/components/schemas/AgentProvider"
+          }
+        }
+      },
+      "TtsRequest": {
+        "type": "object",
+        "required": ["text"],
+        "properties": {
+          "pitch": {
+            "type": "string"
+          },
+          "rate": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "voice": {
+            "type": "string"
           }
         }
       }

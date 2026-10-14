@@ -15,6 +15,7 @@ import catalogService, {
 } from "@/services/catalog";
 
 import ToolsCatalogCollectionFiles from "./tools-catalog-collection-files";
+import ToolsCatalogEdgeTts from "./tools-catalog-edge-tts";
 import ToolsCatalogToolUsage from "./tools-catalog-tool-usage";
 
 interface CollectionSectionProps {
@@ -51,6 +52,7 @@ interface ToolsCatalogCollectionDetailProps {
 function usageSectionLabel(collection: CatalogCollection) {
   if (collection.id === "download-reel") return "How to download";
   if (collection.id === "gateway") return "How to install and use";
+  if (collection.id === "edge-tts") return "How to use via API";
   return "How to install";
 }
 
@@ -107,9 +109,19 @@ export default function ToolsCatalogCollectionDetail({
             <ToolsCatalogCollectionFiles files={files} />
           </CollectionSection>
 
-          {["gateway", "opencode", "omp", "download-reel"].includes(
-            shown.id,
-          ) ? (
+          {shown.id === "edge-tts" ? (
+            <>
+              <CollectionSection label={usageSectionLabel(shown)}>
+                <ToolsCatalogToolUsage collection={shown} />
+              </CollectionSection>
+
+              <CollectionSection label="TEXT TO AUDIO">
+                <ToolsCatalogEdgeTts />
+              </CollectionSection>
+            </>
+          ) : ["gateway", "opencode", "omp", "download-reel"].includes(
+              shown.id,
+            ) ? (
             <CollectionSection label={usageSectionLabel(shown)}>
               <ToolsCatalogToolUsage collection={shown} />
             </CollectionSection>

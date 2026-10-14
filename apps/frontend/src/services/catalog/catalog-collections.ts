@@ -3,6 +3,7 @@ export const TOOL_IDS = [
   "opencode",
   "omp",
   "download-reel",
+  "edge-tts",
 ] as const;
 
 interface CatalogCollectionPresentation {
@@ -30,6 +31,11 @@ const COLLECTION_PRESENTATION: Record<string, CatalogCollectionPresentation> = {
     label: "DOWNLOAD REEL",
     summary:
       "Download TikTok videos and Facebook reels with sound using one local script.",
+  },
+  "edge-tts": {
+    label: "TEXT TO AUDIO",
+    summary:
+      "Convert text into natural speech audio using Microsoft Edge Neural voices across regional accents.",
   },
 };
 

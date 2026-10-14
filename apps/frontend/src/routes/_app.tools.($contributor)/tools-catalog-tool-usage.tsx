@@ -57,6 +57,24 @@ export default function ToolsCatalogToolUsage({
   const { container, section, label, description } = toolUsage();
   const siteOrigin = useSiteOrigin();
 
+  if (collection.id === "edge-tts") {
+    return (
+      <div className={container()}>
+        <div className={section()}>
+          <p className={description()}>
+            Call the TTS endpoint directly from terminal scripts, backend
+            services, or coding agents to generate <code>.mp3</code> files
+            without opening the UI.
+          </p>
+
+          <CopyCommand
+            command={`curl -X POST '${siteOrigin}/api/tts' -H 'Content-Type: application/json' -d '{"text":"Hello world","voice":"en-US-AriaNeural"}' -o speech.mp3`}
+          />
+        </div>
+      </div>
+    );
+  }
+
   if (collection.id === "download-reel") {
     return (
       <div className={container()}>
