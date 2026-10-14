@@ -637,6 +637,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/tts": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["synthesize"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1099,6 +1115,12 @@ export interface components {
     };
     StartAgentConnectionRequest: {
       provider: components["schemas"]["AgentProvider"];
+    };
+    TtsRequest: {
+      pitch?: string;
+      rate?: string;
+      text: string;
+      voice?: string;
     };
   };
   responses: never;
@@ -2540,6 +2562,46 @@ export interface operations {
         };
       };
       403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      502: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  synthesize: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["TtsRequest"];
+      };
+    };
+    responses: {
+      /** @description Generated MP3 audio */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "audio/mpeg": unknown;
+        };
+      };
+      400: {
         headers: {
           [name: string]: unknown;
         };
