@@ -40,14 +40,17 @@ function pool(validationUrl?: string): AgentPool {
   };
 }
 
-function renderCard(validationUrl?: string) {
+function renderCard(
+  validationUrl?: string,
+  status: AgentPool["availability"]["status"] = "reauth_required",
+) {
   return render(
     <AgentsPoolCard
       currentUsername="ui-owner"
       onCheckRequests={vi.fn()}
       onClose={vi.fn()}
       onRequestJoin={vi.fn()}
-      pool={pool(validationUrl)}
+      pool={{ ...pool(validationUrl), availability: { status, validationUrl } }}
     />,
   );
 }
@@ -66,6 +69,14 @@ describe("AgentsPoolCard", () => {
 
   it("shows no verification link for a reconnect without one", () => {
     renderCard();
+
+    expect(
+      screen.queryByRole("link", { name: /Verify with Google/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps a usable account free of the verification offer", () => {
+    renderCard(VERIFY_URL, "active");
 
     expect(
       screen.queryByRole("link", { name: /Verify with Google/ }),

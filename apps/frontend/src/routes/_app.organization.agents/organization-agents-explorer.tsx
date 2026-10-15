@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Search, Trash2, X } from "lucide-react";
+import { ExternalLink, Search, Trash2, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { tv } from "tailwind-variants";
 
@@ -446,6 +446,21 @@ export default function OrganizationAgentsExplorer({
                       onRefresh={() => onRefresh(selectedAgent.id)}
                       onRefreshComplete={onRefreshComplete}
                     />
+                  ) : null}
+
+                  {ownsSelectedAgent &&
+                  selectedAgent.availabilityStatus === "reauth_required" &&
+                  selectedAgent.validationUrl ? (
+                    <Button asChild size="sm" variant="outline">
+                      <a
+                        href={selectedAgent.validationUrl}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        Verify with Google
+                        <ExternalLink aria-hidden="true" />
+                      </a>
+                    </Button>
                   ) : null}
 
                   {removeError && removeErrorId === selectedAgent.id ? (

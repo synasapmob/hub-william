@@ -82,9 +82,11 @@ Google sends (`ineligibleTiers[].validationUrl` in the Code Assist tier payload)
 and stores it on the connection, the gateway keeps a link it sees in a refusal
 body, and both a completed login and a restored account clear it. Only an
 `https` address on Google's own domain is accepted, so a provider response can
-never turn the Hub into a redirect somewhere else. The account card in Workspace
-shows it as "Verify with Google", and the pool payload carries it in
-`availability.validation_url`.
+never turn the Hub into a redirect somewhere else. Every surface that reports the
+reconnect offers it while the account is marked: the Workspace account card, the
+Playground reconnect note and the organization explorer's owner controls, driven
+by `availability.validation_url` on the pool payload and `validation_url` on the
+organization agent payload.
 
 ## Considered alternative: trust an active tier
 
