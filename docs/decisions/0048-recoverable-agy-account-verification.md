@@ -47,7 +47,9 @@ model discovery and token counting as advisory steps: a challenge there falls
 back to the reviewed model catalogue and continues, instead of condemning the
 login. Only a generation the provider refuses with the explicit challenge
 message returns `ReauthorizationRequired`; a generation that succeeds returns
-`Verified` even when the listing endpoints challenged, and a generation that
+`Verified` even when the listing endpoints challenged, and the probe resolves
+the Code Assist project exactly as a served request does, so it can never refuse
+a login on a project the gateway would not have sent, and a generation that
 fails for a model-specific reason while token counting succeeded still verifies
 the login that ADR-0031 already lets a token count restore. Each probe step logs
 which endpoint challenged and which status a generation returned, without a

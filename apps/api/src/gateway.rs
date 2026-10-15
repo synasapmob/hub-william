@@ -3150,6 +3150,16 @@ pub(crate) async fn probe_gemini_account_verification(
     access_token: &str,
     project: &str,
 ) -> GeminiVerificationProbe {
+    // The gateway resolves the Code Assist project on every request, so the
+    // probe has to test that same project: a stored project Code Assist has
+    // moved on from would make the probe refuse a login real traffic serves.
+    let resolved_project = current_gemini_project(state, access_token, project).await;
+    if resolved_project != project {
+        println!(
+            "gemini verification probe: Code Assist reports a project other than the stored credential"
+        );
+    }
+    let project = resolved_project.as_str();
     let models_url = format!(
         "{}/v1internal:fetchAvailableModels",
         state.config.gemini_code_assist_url.trim_end_matches('/')
