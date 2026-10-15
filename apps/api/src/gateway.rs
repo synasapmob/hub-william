@@ -1563,7 +1563,7 @@ async fn gemini_models_for_user(
         loop {
             attempts_used += 1;
             candidate_attempts += 1;
-            let mut upstream = match state
+            let upstream = match state
                 .gateway_http
                 .post(&upstream_url)
                 .bearer_auth(&access_token)
@@ -1665,22 +1665,11 @@ async fn gemini_models_for_user(
                 }
                 UpstreamDisposition::NextPool | UpstreamDisposition::Return => {
                     if !upstream.status().is_success() {
-                        if upstream.status() == StatusCode::FORBIDDEN
-                            && gemini_response_requires_verification(&mut upstream).await
-                        {
-                            if crate::connections::mark_gemini_verification_required(
-                                state,
-                                candidate.id,
-                                &access_token,
-                            )
-                            .await?
-                            {
-                                saw_reauthorization = true;
-                            } else if claimed_probe {
-                                release_probe(state, candidate.id).await?;
-                            }
-                            continue 'candidates;
-                        }
+                        // A challenge on this listing is not proof that the login
+                        // is dead: Google answers model discovery with the
+                        // free-tier ineligibility notice for accounts that still
+                        // serve generations. Fail over instead of marking a
+                        // reconnect the owner cannot fix.
                         if claimed_probe {
                             release_probe(state, candidate.id).await?;
                         }
@@ -3127,27 +3116,30 @@ pub(crate) async fn probe_gemini_account_verification(
     else {
         return GeminiVerificationProbe::Inconclusive;
     };
-    if models.status() == StatusCode::FORBIDDEN {
-        return if gemini_response_requires_verification(&mut models).await {
-            GeminiVerificationProbe::ReauthorizationRequired
-        } else {
-            GeminiVerificationProbe::Inconclusive
-        };
-    }
-    if !models.status().is_success() {
-        return GeminiVerificationProbe::Inconclusive;
-    }
-    let Ok(catalogue) = models.json::<Value>().await else {
+    // Google answers the listing and counting endpoints with the account
+    // verification challenge for accounts that still serve generations, so a
+    // challenge there cannot condemn the login. Only a rejected generation
+    // below does; the catalogue falls back to the reviewed model list.
+    let catalogue = if models.status() == StatusCode::FORBIDDEN {
+        if !gemini_response_requires_verification(&mut models).await {
+            return GeminiVerificationProbe::Inconclusive;
+        }
+        None
+    } else if models.status().is_success() {
+        models.json::<Value>().await.ok()
+    } else {
         return GeminiVerificationProbe::Inconclusive;
     };
     let definition = crate::provider_catalogue::provider(AgentProvider::Gemini);
-    let model = definition
-        .chat_models()
-        .find(|model| {
-            catalogue
-                .pointer("/models")
-                .and_then(|models| models.get(&model.id))
-                .is_some()
+    let model = catalogue
+        .as_ref()
+        .and_then(|catalogue| {
+            definition.chat_models().find(|model| {
+                catalogue
+                    .pointer("/models")
+                    .and_then(|models| models.get(&model.id))
+                    .is_some()
+            })
         })
         .or_else(|| definition.chat_models().next())
         .expect("validated Gemini chat catalogue");
@@ -3173,12 +3165,11 @@ pub(crate) async fn probe_gemini_account_verification(
     else {
         return GeminiVerificationProbe::Inconclusive;
     };
-    if count.status() == StatusCode::FORBIDDEN
-        && gemini_response_requires_verification(&mut count).await
-    {
-        return GeminiVerificationProbe::ReauthorizationRequired;
-    }
-    if !count.status().is_success() {
+    if count.status() == StatusCode::FORBIDDEN {
+        if !gemini_response_requires_verification(&mut count).await {
+            return GeminiVerificationProbe::Inconclusive;
+        }
+    } else if !count.status().is_success() {
         return GeminiVerificationProbe::Inconclusive;
     }
     let generate_url = format!(

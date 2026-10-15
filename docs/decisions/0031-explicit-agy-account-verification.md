@@ -1,6 +1,6 @@
 # ADR-0031: Explicit AGY account verification challenge
 
-- Status: Accepted; browser request pinning partially superseded by [ADR-0045](0045-linked-organization-agents-account-rotation-and-credential-recovery.md)
+- Status: Accepted; browser request pinning partially superseded by [ADR-0045](0045-linked-organization-agents-account-rotation-and-credential-recovery.md); marking on any challenged endpoint and the permanent mark are partially superseded by [ADR-0048](0048-recoverable-agy-account-verification.md)
 - Date: 2026-09-25
 - Extends: ADR-0028's Gemini `403` pool failover and ADR-0030's operator refresh
 
