@@ -680,6 +680,11 @@ export interface components {
       status: components["schemas"]["AgentConnectionStatus"];
       /** Format: date-time */
       updated_at: string;
+      /**
+       * @description The provider's own account-verification link while this account needs
+       *     its owner to verify it, such as a Google Code Assist challenge.
+       */
+      validation_url?: string | null;
     };
     /** @enum {string} */
     AgentConnectionStatus: "pending" | "connected" | "failed" | "disconnected";
@@ -703,6 +708,11 @@ export interface components {
       /** Format: date-time */
       retry_at?: string | null;
       status: components["schemas"]["AgentPoolAvailabilityStatus"];
+      /**
+       * @description The provider's own account-verification link while this account needs
+       *     its owner to verify it.
+       */
+      validation_url?: string | null;
     };
     /** @enum {string} */
     AgentPoolAvailabilityStatus:

@@ -981,6 +981,7 @@ async fn organization_agent_reports_and_uses_the_live_workspace_state_and_creden
             connection_id,
             WORKSPACE_KEY,
             PROVIDER_LOGIN_REQUIRED_MESSAGE,
+            None,
         )
         .await
         .unwrap()

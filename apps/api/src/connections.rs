@@ -156,6 +156,9 @@ pub struct AgentConnection {
     pub provider: AgentProvider,
     pub status: AgentConnectionStatus,
     pub updated_at: DateTime<Utc>,
+    /// The provider's own account-verification link while this account needs
+    /// its owner to verify it, such as a Google Code Assist challenge.
+    pub validation_url: Option<String>,
 }
 
 #[derive(Debug, FromRow)]
@@ -169,6 +172,7 @@ struct ConnectionRow {
     provider: String,
     status: String,
     updated_at: DateTime<Utc>,
+    validation_url: Option<String>,
 }
 
 #[derive(Debug, FromRow)]
@@ -384,7 +388,7 @@ pub async fn start(
         "INSERT INTO agent_connections
             (id, user_id, provider, status, account_label, plan, failure_message)
          VALUES ($1, $2, $3, 'pending', NULL, NULL, NULL)
-         RETURNING id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at",
+         RETURNING id, provider, status, availability_status, account_label, plan, failure_message, validation_url, created_at, updated_at",
     )
     .bind(connection_id)
     .bind(user_id)
@@ -488,7 +492,7 @@ async fn connect_api_key(
         "INSERT INTO agent_connections
             (id, user_id, provider, status, account_label, plan, failure_message)
          VALUES ($1, $2, $3, 'pending', NULL, NULL, NULL)
-         RETURNING id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at",
+         RETURNING id, provider, status, availability_status, account_label, plan, failure_message, validation_url, created_at, updated_at",
     )
     .bind(Uuid::new_v4())
     .bind(user_id)
@@ -543,7 +547,7 @@ async fn start_connection_reauthorization(
              failure_message = NULL,
              updated_at = NOW()
          WHERE id = $1
-         RETURNING id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at",
+         RETURNING id, provider, status, availability_status, account_label, plan, failure_message, validation_url, created_at, updated_at",
     )
     .bind(row.id)
     .fetch_one(&mut *transaction)
@@ -569,7 +573,7 @@ pub async fn list_connections(
 ) -> Result<Json<Vec<AgentConnection>>, ApiError> {
     let user_id = authenticated_user_id(&state, &jar).await?;
     let rows = sqlx::query_as::<_, ConnectionRow>(
-        "SELECT id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at
+        "SELECT id, provider, status, availability_status, account_label, plan, failure_message, validation_url, created_at, updated_at
          FROM agent_connections WHERE user_id = $1 ORDER BY created_at ASC",
     )
     .bind(user_id)
@@ -1358,8 +1362,9 @@ async fn finish_connection(
     let updated = sqlx::query_as::<_, ConnectionRow>(
         "UPDATE agent_connections SET status = 'connected', account_label = $2, plan = $3,
           failure_message = NULL, availability_status = 'active', rate_limited_until = NULL,
-          retry_claimed_at = NULL, user_id = $4, updated_at = NOW() WHERE id = $1
-          RETURNING id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at",
+          retry_claimed_at = NULL, user_id = $4, validation_url = NULL,
+          updated_at = NOW() WHERE id = $1
+          RETURNING id, provider, status, availability_status, account_label, plan, failure_message, validation_url, created_at, updated_at",
     )
     .bind(target_id)
     .bind(account_label)
@@ -1793,7 +1798,7 @@ pub async fn refresh_due_provider_credentials(
     let rows = sqlx::query_as::<_, ConnectionRow>(
         "SELECT connections.id, connections.provider, connections.status, connections.availability_status,
                 connections.account_label, connections.plan, connections.failure_message,
-                connections.created_at, connections.updated_at
+                connections.validation_url, connections.created_at, connections.updated_at
          FROM agent_connections AS connections
          JOIN agent_connection_credentials AS credentials
            ON credentials.connection_id = connections.id
@@ -1849,7 +1854,7 @@ pub async fn refresh_nightly_provider_credentials(
     let rows = sqlx::query_as::<_, ConnectionRow>(
         "SELECT connections.id, connections.provider, connections.status, connections.availability_status,
                 connections.account_label, connections.plan, connections.failure_message,
-                connections.created_at, connections.updated_at
+                connections.validation_url, connections.created_at, connections.updated_at
          FROM agent_connections AS connections
          JOIN agent_connection_credentials AS credentials
            ON credentials.connection_id = connections.id
@@ -1924,7 +1929,7 @@ pub async fn refresh_all_provider_credentials(
     state: &AppState,
 ) -> Result<Vec<ProviderCredentialRefreshResult>, sqlx::Error> {
     let rows = sqlx::query_as::<_, ConnectionRow>(
-        "SELECT id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at
+        "SELECT id, provider, status, availability_status, account_label, plan, failure_message, validation_url, created_at, updated_at
          FROM agent_connections WHERE status = 'connected' ORDER BY provider, created_at",
     )
     .fetch_all(&state.pool)
@@ -1991,7 +1996,7 @@ async fn finish_refresh_reauthorization(
              failure_message = $2, updated_at = NOW()
          WHERE id = $1 AND status = 'connected'
            AND availability_status <> 'reauth_required'
-         RETURNING id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at",
+         RETURNING id, provider, status, availability_status, account_label, plan, failure_message, validation_url, created_at, updated_at",
     )
     .bind(row.id)
     .bind(EXPIRED_PROVIDER_AUTHORIZATION_MESSAGE)
@@ -2030,7 +2035,7 @@ async fn finish_refresh_reauthorization(
                 .map_err(database_error)?;
             }
             sqlx::query_as::<_, ConnectionRow>(
-                "SELECT id, provider, status, availability_status, account_label, plan, failure_message,
+                "SELECT id, provider, status, availability_status, account_label, plan, failure_message, validation_url,
                         created_at, updated_at
                  FROM agent_connections WHERE id = $1",
             )
@@ -2074,7 +2079,7 @@ async fn refresh_connected_connection(
     .map_err(database_error)?;
     let Some(credential) = credential else {
         let current = sqlx::query_as::<_, ConnectionRow>(
-            "SELECT id, provider, status, availability_status, account_label, plan, failure_message,
+            "SELECT id, provider, status, availability_status, account_label, plan, failure_message, validation_url,
                     created_at, updated_at
              FROM agent_connections WHERE id = $1 FOR UPDATE",
         )
@@ -2231,7 +2236,9 @@ async fn refresh_connected_connection(
     .map_err(database_error)?;
 
     let (account_label, plan) = resolved_connection_metadata(state, provider, &merged).await;
-    let verification_probe = if provider == AgentProvider::Gemini && mode.restores_availability() {
+    let (verification_probe, validation_url) = if provider == AgentProvider::Gemini
+        && mode.restores_availability()
+    {
         match (
             merged.get("access_token").and_then(Value::as_str),
             merged
@@ -2239,13 +2246,22 @@ async fn refresh_connected_connection(
                 .and_then(Value::as_str),
         ) {
             (Some(access_token), Some(project)) => {
-                crate::gateway::probe_gemini_account_verification(state, access_token, project)
-                    .await
+                let probe =
+                    crate::gateway::probe_gemini_account_verification(state, access_token, project)
+                        .await;
+                let validation_url =
+                    if probe == crate::gateway::GeminiVerificationProbe::ReauthorizationRequired {
+                        crate::gateway::gemini_account_validation_url(state, access_token, project)
+                            .await
+                    } else {
+                        None
+                    };
+                (probe, validation_url)
             }
-            _ => crate::gateway::GeminiVerificationProbe::Inconclusive,
+            _ => (crate::gateway::GeminiVerificationProbe::Inconclusive, None),
         }
     } else {
-        crate::gateway::GeminiVerificationProbe::Verified
+        (crate::gateway::GeminiVerificationProbe::Verified, None)
     };
 
     let verification_required =
@@ -2267,6 +2283,7 @@ async fn refresh_connected_connection(
             plan = COALESCE($3, plan),
             availability_status = CASE WHEN $4 THEN 'reauth_required' ELSE availability_status END,
             failure_message = CASE WHEN $4 THEN $5 ELSE failure_message END,
+            validation_url = CASE WHEN $4 THEN COALESCE($6, validation_url) ELSE NULL END,
             updated_at = NOW()
          WHERE id = $1",
         )
@@ -2275,6 +2292,7 @@ async fn refresh_connected_connection(
         .bind(plan)
         .bind(verification_required)
         .bind(ACCOUNT_VERIFICATION_REQUIRED_MESSAGE)
+        .bind(validation_url)
         .execute(&mut *transaction)
         .await
         .map_err(database_error)?;
@@ -2562,12 +2580,14 @@ pub(crate) async fn mark_gemini_verification_required(
     state: &AppState,
     connection_id: Uuid,
     observed_access_token: &str,
+    validation_url: Option<&str>,
 ) -> Result<bool, ApiError> {
     mark_reauthorization_required_if_current(
         state,
         connection_id,
         observed_access_token,
         ACCOUNT_VERIFICATION_REQUIRED_MESSAGE,
+        validation_url,
     )
     .await
 }
@@ -2581,6 +2601,7 @@ pub(crate) async fn mark_reauthorization_required_if_current(
     connection_id: Uuid,
     observed_access_token: &str,
     message: &'static str,
+    validation_url: Option<&str>,
 ) -> Result<bool, ApiError> {
     let mut transaction = state.pool.begin().await.map_err(database_error)?;
     let credential = sqlx::query_as::<_, CredentialRow>(
@@ -2608,12 +2629,14 @@ pub(crate) async fn mark_reauthorization_required_if_current(
     let marked = sqlx::query_scalar::<_, String>(
         "UPDATE agent_connections
          SET availability_status = 'reauth_required', rate_limited_until = NULL,
-             retry_claimed_at = NULL, failure_message = $2, updated_at = NOW()
+             retry_claimed_at = NULL, failure_message = $2,
+             validation_url = COALESCE($3, validation_url), updated_at = NOW()
          WHERE id = $1 AND status = 'connected'
          RETURNING provider",
     )
     .bind(connection_id)
     .bind(message)
+    .bind(validation_url)
     .fetch_optional(&mut *transaction)
     .await
     .map_err(database_error)?;
@@ -2769,7 +2792,7 @@ async fn fail_connection(
              END,
              updated_at = NOW()
          WHERE id = $1
-         RETURNING id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at",
+         RETURNING id, provider, status, availability_status, account_label, plan, failure_message, validation_url, created_at, updated_at",
     )
     .bind(row.id)
     .bind(message)
@@ -2785,7 +2808,7 @@ async fn owned_connection(
     connection_id: Uuid,
 ) -> Result<ConnectionRow, ApiError> {
     sqlx::query_as::<_, ConnectionRow>(
-        "SELECT id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at
+        "SELECT id, provider, status, availability_status, account_label, plan, failure_message, validation_url, created_at, updated_at
          FROM agent_connections WHERE id = $1 AND user_id = $2",
     )
     .bind(connection_id)
@@ -2801,7 +2824,7 @@ async fn owned_connection_by_id(
     connection_id: Uuid,
 ) -> Result<ConnectionRow, ApiError> {
     sqlx::query_as::<_, ConnectionRow>(
-        "SELECT id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at
+        "SELECT id, provider, status, availability_status, account_label, plan, failure_message, validation_url, created_at, updated_at
          FROM agent_connections WHERE id = $1",
     )
     .bind(connection_id)
@@ -2866,6 +2889,7 @@ fn connection_from_row(
         provider: AgentProvider::from_str(&row.provider)?,
         status: AgentConnectionStatus::from_str(&row.status)?,
         updated_at: row.updated_at,
+        validation_url: row.validation_url,
     })
 }
 

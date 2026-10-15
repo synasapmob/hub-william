@@ -22,6 +22,7 @@ const refreshedConnection: AgentConnection = {
   provider: "deepseek",
   status: "connected",
   updatedAt: "2026-09-29T00:00:00Z",
+  validationUrl: null,
 };
 
 afterEach(() => {

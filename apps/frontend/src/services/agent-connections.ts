@@ -31,6 +31,7 @@ export interface AgentConnection {
   provider: AgentProvider;
   status: AgentConnectionStatus;
   updatedAt: string;
+  validationUrl: string | null;
 }
 
 const apiBaseUrl = (
@@ -64,6 +65,7 @@ function connectionFromApi(connection: ApiAgentConnection): AgentConnection {
     provider: connection.provider,
     status: connection.status,
     updatedAt: connection.updated_at,
+    validationUrl: connection.validation_url ?? null,
   };
 }
 

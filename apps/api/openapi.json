@@ -1930,6 +1930,10 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "validation_url": {
+            "type": ["string", "null"],
+            "description": "The provider's own account-verification link while this account needs\nits owner to verify it, such as a Google Code Assist challenge."
           }
         }
       },
@@ -2010,6 +2014,10 @@
           },
           "status": {
             "$ref": "#/components/schemas/AgentPoolAvailabilityStatus"
+          },
+          "validation_url": {
+            "type": ["string", "null"],
+            "description": "The provider's own account-verification link while this account needs\nits owner to verify it."
           }
         }
       },
