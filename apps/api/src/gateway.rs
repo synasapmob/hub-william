@@ -3124,6 +3124,9 @@ pub(crate) async fn probe_gemini_account_verification(
         if !gemini_response_requires_verification(&mut models).await {
             return GeminiVerificationProbe::Inconclusive;
         }
+        println!(
+            "gemini verification probe: model discovery returned the account verification challenge"
+        );
         None
     } else if models.status().is_success() {
         models.json::<Value>().await.ok()
@@ -3169,9 +3172,13 @@ pub(crate) async fn probe_gemini_account_verification(
         if !gemini_response_requires_verification(&mut count).await {
             return GeminiVerificationProbe::Inconclusive;
         }
+        println!(
+            "gemini verification probe: token counting returned the account verification challenge"
+        );
     } else if !count.status().is_success() {
         return GeminiVerificationProbe::Inconclusive;
     }
+    let count_succeeded = count.status().is_success();
     let generate_url = format!(
         "{}/v1internal:generateContent",
         state.config.gemini_code_assist_url.trim_end_matches('/')
@@ -3196,11 +3203,23 @@ pub(crate) async fn probe_gemini_account_verification(
     else {
         return GeminiVerificationProbe::Inconclusive;
     };
-    if generated.status() == StatusCode::FORBIDDEN
+    let status = generated.status();
+    if status == StatusCode::FORBIDDEN
         && gemini_response_requires_verification(&mut generated).await
     {
-        GeminiVerificationProbe::ReauthorizationRequired
-    } else if generated.status().is_success() {
+        println!(
+            "gemini verification probe: generation returned the account verification challenge"
+        );
+        return GeminiVerificationProbe::ReauthorizationRequired;
+    }
+    if status.is_success() {
+        return GeminiVerificationProbe::Verified;
+    }
+    println!("gemini verification probe: generation returned HTTP {status}");
+    // A counted token proves the credential and project reach Code Assist, so a
+    // generation that failed for a model-specific reason does not condemn the
+    // login that ADR-0031 already treats the token count as able to restore.
+    if count_succeeded {
         GeminiVerificationProbe::Verified
     } else {
         GeminiVerificationProbe::Inconclusive
