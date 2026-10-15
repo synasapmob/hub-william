@@ -1940,13 +1940,14 @@ async fn gemini_proxy_request_for_user(
                     }
                 }
                 UpstreamDisposition::NextPool => {
-                    let (verification_required, forwarded) =
+                    let (verification_required, validation_url, forwarded) =
                         inspect_gemini_forbidden_response(upstream).await?;
                     if verification_required {
                         if crate::connections::mark_gemini_verification_required(
                             state,
                             candidate.id,
                             &access_token,
+                            validation_url.as_deref(),
                         )
                         .await?
                         {
@@ -2959,6 +2960,7 @@ async fn mark_reauth_required(
         connection_id,
         observed_access_token,
         PROVIDER_LOGIN_REQUIRED_MESSAGE,
+        None,
     )
     .await
 }
@@ -3060,15 +3062,61 @@ async fn gemini_response_requires_verification(upstream: &mut reqwest::Response)
         .is_ok_and(|(prefix, _)| gemini_verification_challenge(&prefix))
 }
 
+/// The account-verification link inside a provider payload. Only Google's own
+/// HTTPS address is accepted, so a provider response can never turn the Hub
+/// into a redirect somewhere else.
+fn gemini_validation_url(body: &[u8]) -> Option<String> {
+    let payload = serde_json::from_slice::<Value>(body).ok()?;
+    find_gemini_validation_url(&payload)
+}
+
+fn find_gemini_validation_url(value: &Value) -> Option<String> {
+    match value {
+        Value::Object(object) => object
+            .get("validationUrl")
+            .and_then(Value::as_str)
+            .filter(|url| is_google_validation_url(url))
+            .map(str::to_owned)
+            .or_else(|| object.values().find_map(find_gemini_validation_url)),
+        Value::Array(items) => items.iter().find_map(find_gemini_validation_url),
+        _ => None,
+    }
+}
+
+fn is_google_validation_url(url: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(url) else {
+        return false;
+    };
+    url.scheme() == "https"
+        && url
+            .host_str()
+            .is_some_and(|host| host == "google.com" || host.ends_with(".google.com"))
+}
+
+/// Ask Google for the verification link it wants the account owner to open. The
+/// refusal body does not carry it, so this reads the Code Assist tier payload
+/// that marks the account's free tier ineligible.
+pub(crate) async fn gemini_account_validation_url(
+    state: &AppState,
+    access_token: &str,
+    project: &str,
+) -> Option<String> {
+    let payload = crate::connections::load_gemini_code_assist(state, access_token, Some(project))
+        .await
+        .ok()?;
+    find_gemini_validation_url(&payload)
+}
+
 async fn inspect_gemini_forbidden_response(
     mut upstream: reqwest::Response,
-) -> Result<(bool, Response), ApiError> {
+) -> Result<(bool, Option<String>, Response), ApiError> {
     let status = upstream.status();
     let headers = upstream.headers().clone();
     let (prefix, overflow) = gemini_error_prefix(&mut upstream)
         .await
         .map_err(|error| upstream_network_error(AgentProvider::Gemini, error))?;
     let verification_required = gemini_verification_challenge(&prefix);
+    let validation_url = gemini_validation_url(&prefix).filter(|_| verification_required);
     let mut response = Response::builder().status(status);
     for (name, value) in &headers {
         if should_forward_response_header(name) {
@@ -3081,6 +3129,7 @@ async fn inspect_gemini_forbidden_response(
     );
     Ok((
         verification_required,
+        validation_url,
         response.body(body).map_err(|_| ApiError::Internal)?,
     ))
 }
@@ -3476,6 +3525,37 @@ fn database_error(error: sqlx::Error) -> ApiError {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_gemini_validation_link_must_be_googles_own_https_address() {
+        use super::gemini_validation_url;
+
+        assert_eq!(
+            gemini_validation_url(
+                br#"{"ineligibleTiers":[{"reasonCode":"VALIDATION_REQUIRED",
+                     "validationUrl":"https://accounts.google.com/signin/continue?sarp=1"}]}"#
+            )
+            .as_deref(),
+            Some("https://accounts.google.com/signin/continue?sarp=1")
+        );
+        assert_eq!(
+            gemini_validation_url(
+                br#"{"validationUrl":"http://accounts.google.com/signin/continue"}"#
+            ),
+            None
+        );
+        assert_eq!(
+            gemini_validation_url(
+                br#"{"validationUrl":"https://accounts.google.com.evil.test/x"}"#
+            ),
+            None
+        );
+        assert_eq!(
+            gemini_validation_url(br#"{"error":{"message":"Verify your account to continue."}}"#),
+            None
+        );
+        assert_eq!(gemini_validation_url(b"not json"), None);
+    }
+
     #[test]
     fn gemini_verification_challenge_requires_an_explicit_provider_message() {
         use super::gemini_verification_challenge;

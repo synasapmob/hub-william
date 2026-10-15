@@ -58,7 +58,7 @@ async fn connection(state: &AppState, owner: Uuid, provider: &str) -> Connection
     sqlx::query_as(
         "INSERT INTO agent_connections (id, user_id, provider, status)
          VALUES ($1, $2, $3, 'pending') RETURNING id, provider, status, availability_status,
-         account_label, plan, failure_message, created_at, updated_at",
+         account_label, plan, failure_message, validation_url, created_at, updated_at",
     )
     .bind(Uuid::new_v4())
     .bind(owner)
@@ -447,6 +447,18 @@ async fn forced_batch_marks_gemini_red_only_when_a_generation_is_refused(pool: P
             }),
         )
         .route(
+            "/v1internal:loadCodeAssist",
+            post(|_: HeaderMap| async move {
+                Json(json!({
+                    "currentTier": {"id": "standard-tier", "name": "Antigravity"},
+                    "ineligibleTiers": [{
+                        "reasonCode": "VALIDATION_REQUIRED",
+                        "validationUrl": "https://accounts.google.com/signin/continue?sarp=1"
+                    }]
+                }))
+            }),
+        )
+        .route(
             "/v1internal:generateContent",
             post(|headers: HeaderMap| async move {
                 match headers
@@ -505,23 +517,30 @@ async fn forced_batch_marks_gemini_red_only_when_a_generation_is_refused(pool: P
 
     let results = refresh_all_provider_credentials(&state).await.unwrap();
     assert_eq!(results.len(), 7);
-    for (case, expected_result, expected_availability) in [
+    const VALIDATION_URL: &str = "https://accounts.google.com/signin/continue?sarp=1";
+    for (case, expected_result, expected_availability, expected_validation_url) in [
         // Google answers the listing and counting endpoints with the challenge
         // for accounts that still serve generations, so only a refused
         // generation may mark the account for reconnect.
-        ("fetch-challenge", "refreshed", "active"),
-        ("count-challenge", "refreshed", "active"),
+        ("fetch-challenge", "refreshed", "active", None),
+        ("count-challenge", "refreshed", "active", None),
         (
             "generation-challenge",
             "reauthorization_required",
             "reauth_required",
+            Some(VALIDATION_URL),
         ),
         // A counted token proves the credential and project reach Code Assist,
         // so a model-specific generation failure does not mark the account.
-        ("generation-failed", "refreshed", "active"),
-        ("verified", "refreshed", "active"),
-        ("generic-forbidden", "refreshed", "active"),
-        ("generic-red", "reauthorization_required", "reauth_required"),
+        ("generation-failed", "refreshed", "active", None),
+        ("verified", "refreshed", "active", None),
+        ("generic-forbidden", "refreshed", "active", None),
+        (
+            "generic-red",
+            "reauthorization_required",
+            "reauth_required",
+            None,
+        ),
     ] {
         let result = results
             .iter()
@@ -541,6 +560,17 @@ async fn forced_batch_marks_gemini_red_only_when_a_generation_is_refused(pool: P
         .await
         .unwrap();
         assert_eq!(availability, expected_availability);
+        let validation_url: Option<String> =
+            sqlx::query_scalar("SELECT validation_url FROM agent_connections WHERE id = $1")
+                .bind(ids[case])
+                .fetch_one(&state.pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            validation_url.as_deref(),
+            expected_validation_url,
+            "{case}: the verification link the owner must open"
+        );
         let stored: Value =
             decrypt_json(&state.config.credential_encryption_key, &ciphertext, &nonce).unwrap();
         assert_eq!(stored["refresh_token"], "rotated-refresh");
@@ -828,7 +858,7 @@ async fn rejected_refresh_marks_reauthorization_before_a_new_login(pool: PgPool)
     .unwrap();
     let connected: ConnectionRow = sqlx::query_as(
         "SELECT id, provider, status, availability_status, account_label, plan, failure_message,
-                created_at, updated_at FROM agent_connections WHERE id = $1",
+                validation_url, created_at, updated_at FROM agent_connections WHERE id = $1",
     )
     .bind(old.id)
     .fetch_one(&state.pool)
@@ -970,7 +1000,7 @@ async fn connection_ending_in(
     sqlx::query_as(
         "INSERT INTO agent_connections (id, user_id, provider, status)
          VALUES ($1, $2, $3, 'pending') RETURNING id, provider, status, availability_status,
-         account_label, plan, failure_message, created_at, updated_at",
+         account_label, plan, failure_message, validation_url, created_at, updated_at",
     )
     .bind(Uuid::from_bytes(id))
     .bind(owner)

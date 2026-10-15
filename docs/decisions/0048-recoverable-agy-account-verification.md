@@ -76,6 +76,16 @@ applies: a prompt that can still be completed is untouched, and a settled prompt
 leaves its account marked with the recoverable "Authorization expired" message
 so the recovery sweep can restore it.
 
+**The provider's verification link reaches the owner.** A challenge can be
+genuine, and then only the account owner can clear it. The probe reads the link
+Google sends (`ineligibleTiers[].validationUrl` in the Code Assist tier payload)
+and stores it on the connection, the gateway keeps a link it sees in a refusal
+body, and both a completed login and a restored account clear it. Only an
+`https` address on Google's own domain is accepted, so a provider response can
+never turn the Hub into a redirect somewhere else. The account card in Workspace
+shows it as "Verify with Google", and the pool payload carries it in
+`availability.validation_url`.
+
 ## Consequences
 
 - A false Google verification notice costs at most one 30–45 minute interval of
@@ -86,5 +96,5 @@ so the recovery sweep can restore it.
 - An abandoned reconnect no longer hides an account from the recovery sweep, and
   the connection shows "Authorization expired. Start again." as if it had been
   polled instead of a `404`.
-- The provider `validationUrl` a genuine challenge carries is still discarded;
-  marking stays a message-only state. Recording it for the owner is future work.
+- A genuine challenge now arrives with the link that clears it, so an owner
+  sees what to do instead of a reconnect they cannot complete.

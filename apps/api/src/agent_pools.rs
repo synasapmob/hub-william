@@ -112,6 +112,9 @@ pub enum AgentPoolAvailabilityStatus {
 pub struct AgentPoolAvailability {
     pub retry_at: Option<DateTime<Utc>>,
     pub status: AgentPoolAvailabilityStatus,
+    /// The provider's own account-verification link while this account needs
+    /// its owner to verify it.
+    pub validation_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -157,6 +160,7 @@ struct PoolRow {
     plan: Option<String>,
     provider: String,
     rate_limited_until: Option<DateTime<Utc>>,
+    validation_url: Option<String>,
 }
 
 #[derive(FromRow)]
@@ -189,7 +193,7 @@ pub async fn list(
         "SELECT connections.id, connections.user_id AS owner_id, users.username AS owner_username,
                 connections.provider, connections.account_label, connections.plan,
                 connections.availability_status, connections.rate_limited_until,
-                connections.capacity, connections.created_at
+                connections.validation_url, connections.capacity, connections.created_at
          FROM agent_connections AS connections
          JOIN users ON users.id = connections.user_id
          WHERE connections.status = 'connected'
@@ -245,6 +249,7 @@ pub async fn list(
             availability: availability_from_values(
                 &row.availability_status,
                 row.rate_limited_until,
+                row.validation_url,
             )?,
             capacity: row.capacity,
             created_at: row.created_at,
@@ -525,6 +530,7 @@ pub async fn decide_request(
 fn availability_from_values(
     status: &str,
     retry_at: Option<DateTime<Utc>>,
+    validation_url: Option<String>,
 ) -> Result<AgentPoolAvailability, ApiError> {
     let status = match status {
         "active" => AgentPoolAvailabilityStatus::Active,
@@ -533,7 +539,11 @@ fn availability_from_values(
         "reauth_required" => AgentPoolAvailabilityStatus::ReauthRequired,
         _ => return Err(ApiError::Internal),
     };
-    Ok(AgentPoolAvailability { retry_at, status })
+    Ok(AgentPoolAvailability {
+        retry_at,
+        status,
+        validation_url,
+    })
 }
 
 async fn request_rows(
