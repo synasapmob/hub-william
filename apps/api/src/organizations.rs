@@ -79,6 +79,9 @@ pub struct OrganizationAgent {
     pub availability_status: String,
     pub rate_limited_until: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
+    /// The provider's own account-verification link while this account needs
+    /// its owner to verify it.
+    pub validation_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -92,6 +95,7 @@ pub struct OrganizationAgentDetails {
     pub created_at: DateTime<Utc>,
     pub plan: String,
     pub usage: Vec<AgentPoolUsageMetric>,
+    pub validation_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -230,6 +234,7 @@ struct AgentRow {
     rate_limited_until: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
     plan: Option<String>,
+    validation_url: Option<String>,
 }
 
 #[derive(FromRow)]
@@ -615,6 +620,7 @@ pub async fn list_agents(
             created_at: row.created_at,
             plan: row.plan.unwrap_or_else(|| "Unknown".to_owned()),
             usage: Vec::new(),
+            validation_url: row.validation_url,
         });
         if query.include_usage.unwrap_or(false)
             && crate::provider_catalogue::provider(provider).usage_metrics
@@ -1130,7 +1136,8 @@ async fn agent_rows_for_org(state: &AppState, org_id: Uuid) -> Result<Vec<AgentR
     let rows = sqlx::query_as::<_, AgentRow>(
         "SELECT connections.id, connections.provider, connections.account_label,
                 users.username AS owner_username, connections.availability_status,
-                connections.rate_limited_until, shares.created_at, connections.plan
+                connections.rate_limited_until, connections.validation_url,
+                shares.created_at, connections.plan
          FROM organization_agents AS shares
          JOIN agent_connections AS connections ON connections.id = shares.connection_id
          JOIN users ON users.id = shares.owner_user_id
@@ -1168,7 +1175,8 @@ async fn agent_for_org(
     let row = sqlx::query_as::<_, AgentRow>(
         "SELECT connections.id, connections.provider, connections.account_label,
                 users.username AS owner_username, connections.availability_status,
-                connections.rate_limited_until, shares.created_at, connections.plan
+                connections.rate_limited_until, connections.validation_url,
+                shares.created_at, connections.plan
          FROM organization_agents AS shares
          JOIN agent_connections AS connections ON connections.id = shares.connection_id
          JOIN users ON users.id = shares.owner_user_id
@@ -1413,6 +1421,7 @@ impl From<AgentRow> for OrganizationAgent {
             availability_status: row.availability_status,
             rate_limited_until: row.rate_limited_until,
             created_at: row.created_at,
+            validation_url: row.validation_url,
         }
     }
 }

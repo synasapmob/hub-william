@@ -906,6 +906,11 @@ export interface components {
       provider: string;
       /** Format: date-time */
       rate_limited_until?: string | null;
+      /**
+       * @description The provider's own account-verification link while this account needs
+       *     its owner to verify it.
+       */
+      validation_url?: string | null;
     };
     OrganizationAgentDetails: {
       account_label?: string | null;
@@ -920,6 +925,7 @@ export interface components {
       /** Format: date-time */
       rate_limited_until?: string | null;
       usage: components["schemas"]["AgentPoolUsageMetric"][];
+      validation_url?: string | null;
     };
     OrganizationAgentListQuery: {
       include_usage?: boolean | null;

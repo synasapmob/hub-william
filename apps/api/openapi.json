@@ -2546,6 +2546,10 @@
           "rate_limited_until": {
             "type": ["string", "null"],
             "format": "date-time"
+          },
+          "validation_url": {
+            "type": ["string", "null"],
+            "description": "The provider's own account-verification link while this account needs\nits owner to verify it."
           }
         }
       },
@@ -2593,6 +2597,9 @@
             "items": {
               "$ref": "#/components/schemas/AgentPoolUsageMetric"
             }
+          },
+          "validation_url": {
+            "type": ["string", "null"]
           }
         }
       },

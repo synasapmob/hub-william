@@ -43,7 +43,10 @@ export default function AgentsPoolCard({
 
   // The provider asked for verification, so only the account owner can clear
   // this state and the link it sent is the way to do it.
-  const validationUrl = pool.availability.validationUrl;
+  const validationUrl =
+    pool.availability.status === "reauth_required"
+      ? pool.availability.validationUrl
+      : undefined;
 
   return (
     <article
