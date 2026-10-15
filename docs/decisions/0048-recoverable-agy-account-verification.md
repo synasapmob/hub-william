@@ -86,15 +86,27 @@ never turn the Hub into a redirect somewhere else. The account card in Workspace
 shows it as "Verify with Google", and the pool payload carries it in
 `availability.validation_url`.
 
+## Considered alternative: trust an active tier
+
+Treating an active `paidTier`/`currentTier` as proof of health was rejected. The
+five production accounts that prompted this record carry `plan = Antigravity`
+from an active tier, and Google still refuses their generations with the
+verification challenge under the released `1.3.5` client. Restoring an account on
+tier presence alone would return it to service while every request is refused,
+and the gateway would mark it again on the next attempt. The generation an
+account actually serves is the only health proof the Hub accepts; because a
+refusal is now recoverable, waiting for it costs one interval instead of a
+reconnect.
+
 ## Consequences
 
 - A false Google verification notice costs at most one 30–45 minute interval of
-  failover instead of a permanent reconnect. The five accounts already marked in
-  production recover without an owner action.
+  failover instead of a permanent reconnect.
+- A genuine challenge still needs its owner, but it now arrives with the link
+  that clears it and restores the account on the following probe instead of a
+  reconnect that reproduced the same refusal.
 - Providers see at most one extra token rotation and probe per marked account per
   interval. A genuine challenge is re-probed rather than trusted once.
 - An abandoned reconnect no longer hides an account from the recovery sweep, and
   the connection shows "Authorization expired. Start again." as if it had been
   polled instead of a `404`.
-- A genuine challenge now arrives with the link that clears it, so an owner
-  sees what to do instead of a reconnect they cannot complete.
