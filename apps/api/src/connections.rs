@@ -55,10 +55,13 @@ pub(crate) const PROVIDER_LOGIN_REQUIRED_MESSAGE: &str =
 const EXPIRED_AUTHORIZATION_PROMPT_MESSAGE: &str = "Authorization expired. Start again.";
 /// Reconnect states that do not prove the stored refresh credential is dead.
 /// The background sweep retries them and restores the account when the
-/// provider accepts a refreshed credential.
-const RECOVERABLE_REAUTHORIZATION_MESSAGES: [&str; 2] = [
+/// provider accepts a refreshed credential. A Google account-verification
+/// challenge belongs here: Google reports it for accounts that still serve
+/// generations, so only a repeated rejected probe may keep the account marked.
+const RECOVERABLE_REAUTHORIZATION_MESSAGES: [&str; 3] = [
     PROVIDER_LOGIN_REQUIRED_MESSAGE,
     EXPIRED_AUTHORIZATION_PROMPT_MESSAGE,
+    ACCOUNT_VERIFICATION_REQUIRED_MESSAGE,
 ];
 
 #[cfg(all(test, feature = "database-tests"))]
@@ -286,6 +289,17 @@ pub(crate) enum CredentialLookup {
 
 fn access_token_fingerprint(access_token: &str) -> [u8; 32] {
     Sha256::digest(access_token.as_bytes()).into()
+}
+
+/// A provider-reported lifetime. Providers may omit the field, or answer with a
+/// non-positive value that means "not reported"; storing that as `now` would
+/// expire a healthy credential and mark its account for reconnect.
+fn provider_expiry_at(token: &Value, field: &str) -> Option<DateTime<Utc>> {
+    token
+        .get(field)
+        .and_then(Value::as_i64)
+        .filter(|seconds| *seconds > 0)
+        .map(|seconds| Utc::now() + Duration::seconds(seconds))
 }
 
 /// This account's scheduled refresh interval: 30 minutes plus a stable offset
@@ -1282,14 +1296,8 @@ async fn finish_connection(
     let pending_owner_id = connection_owner_id(state, row.id).await?;
     let (credential_ciphertext, credential_nonce) =
         encrypt_json(&state.config.credential_encryption_key, &token)?;
-    let access_token_expires_at = token
-        .get("expires_in")
-        .and_then(Value::as_i64)
-        .map(|seconds| Utc::now() + Duration::seconds(seconds));
-    let refresh_token_expires_at = token
-        .get("refresh_token_expires_in")
-        .and_then(Value::as_i64)
-        .map(|seconds| Utc::now() + Duration::seconds(seconds));
+    let access_token_expires_at = provider_expiry_at(&token, "expires_in");
+    let refresh_token_expires_at = provider_expiry_at(&token, "refresh_token_expires_in");
     let mut transaction = state.pool.begin().await.map_err(database_error)?;
     let identity_lock = i64::from_be_bytes(
         Sha256::digest(account_identity.as_bytes())[..8]
@@ -1736,6 +1744,40 @@ pub async fn refresh_stored_connection_metadata(state: &AppState) -> Result<u64,
     Ok(updated)
 }
 
+/// Drop authorization prompts no owner finished and settle their connections
+/// the way the polling path would have. A prompt left behind keeps its
+/// connection out of the recovery sweep, so an abandoned reconnect could
+/// otherwise leave an account reconnect-required with no way back.
+pub async fn expire_abandoned_authorizations(state: &AppState) -> Result<u64, sqlx::Error> {
+    let mut transaction = state.pool.begin().await?;
+    let expired = sqlx::query_scalar::<_, Uuid>(
+        "DELETE FROM agent_connection_authorizations
+         WHERE expires_at <= NOW()
+         RETURNING connection_id",
+    )
+    .fetch_all(&mut *transaction)
+    .await?;
+    if !expired.is_empty() {
+        sqlx::query(
+            "UPDATE agent_connections
+             SET status = CASE WHEN status = 'connected' THEN 'connected' ELSE 'failed' END,
+                 failure_message = CASE
+                     WHEN status <> 'connected' OR availability_status = 'reauth_required'
+                     THEN $2
+                     ELSE failure_message
+                 END,
+                 updated_at = NOW()
+             WHERE id = ANY($1)",
+        )
+        .bind(&expired)
+        .bind(EXPIRED_AUTHORIZATION_PROMPT_MESSAGE)
+        .execute(&mut *transaction)
+        .await?;
+    }
+    transaction.commit().await?;
+    Ok(expired.len() as u64)
+}
+
 /// Every minute: rotate OAuth credentials that have gone their 30-45 minute
 /// interval without a refresh, whether or not anyone is using them, and retry
 /// accounts the gateway marked for reconnect so a recovered provider session
@@ -2002,16 +2044,15 @@ async fn finish_refresh_reauthorization(
     Ok(RefreshConnectionOutcome::ReauthorizationRequired(updated))
 }
 
+/// A refresh that failed after the provider answered still holds a rotated
+/// credential, so commit it: the provider has already invalidated the token it
+/// was given, and rolling the rotation back would leave a credential that can
+/// never be refreshed again.
 async fn finish_refresh_error(
     transaction: Transaction<'_, Postgres>,
-    mode: CredentialRefreshMode,
     error: ApiError,
 ) -> Result<RefreshConnectionOutcome, ApiError> {
-    if mode.records_scheduled_attempt() {
-        transaction.commit().await.map_err(database_error)?;
-    } else {
-        transaction.rollback().await.map_err(database_error)?;
-    }
+    transaction.commit().await.map_err(database_error)?;
     Err(error)
 }
 
@@ -2078,7 +2119,7 @@ async fn refresh_connected_connection(
                     .map(access_token_fingerprint)
                     == Some(observed)
             }
-            Err(error) => return finish_refresh_error(transaction, mode, error).await,
+            Err(error) => return finish_refresh_error(transaction, error).await,
         }
     } else {
         should_refresh_credential(
@@ -2121,7 +2162,7 @@ async fn refresh_connected_connection(
     ) {
         Ok(stored_token) => stored_token,
         Err(error) => {
-            return finish_refresh_error(transaction, mode, error).await;
+            return finish_refresh_error(transaction, error).await;
         }
     };
     let provider = AgentProvider::from_str(&row.provider)?;
@@ -2134,7 +2175,7 @@ async fn refresh_connected_connection(
             Err(ApiError::Validation(_)) => {
                 return finish_refresh_reauthorization(transaction, row, mode).await;
             }
-            Err(error) => return finish_refresh_error(transaction, mode, error).await,
+            Err(error) => return finish_refresh_error(transaction, error).await,
         }
         if mode.restores_availability() {
             restore_refreshed_availability(&mut transaction, row.id, mode).await?;
@@ -2158,24 +2199,37 @@ async fn refresh_connected_connection(
                 return finish_refresh_reauthorization(transaction, row, mode).await;
             }
             Err(ProviderRefreshError::Api(error)) => {
-                return finish_refresh_error(transaction, mode, error).await;
+                return finish_refresh_error(transaction, error).await;
             }
         };
-    let access_token_expires_at = refreshed
-        .get("expires_in")
-        .and_then(Value::as_i64)
-        .map(|seconds| Utc::now() + Duration::seconds(seconds));
-    let refresh_token_expires_at = refreshed
-        .get("refresh_token_expires_in")
-        .and_then(Value::as_i64)
-        .map(|seconds| Utc::now() + Duration::seconds(seconds))
+    let access_token_expires_at = provider_expiry_at(&refreshed, "expires_in");
+    let refresh_token_expires_at = provider_expiry_at(&refreshed, "refresh_token_expires_in")
         .or(credential.refresh_token_expires_at);
     let merged = merge_token_response(stored_token, refreshed);
     let (credential_ciphertext, credential_nonce) =
         match encrypt_json(&state.config.credential_encryption_key, &merged) {
             Ok(encrypted) => encrypted,
-            Err(error) => return finish_refresh_error(transaction, mode, error).await,
+            Err(error) => return finish_refresh_error(transaction, error).await,
         };
+    // The provider has already rotated the refresh token, so write it before
+    // the metadata lookup and the verification probe below: a rotation that is
+    // rolled back or lost to a kill can never be replayed at the provider, and
+    // the account would need its owner to reconnect.
+    sqlx::query(
+        "UPDATE agent_connection_credentials SET credential_ciphertext = $2,
+         credential_nonce = $3, access_token_expires_at = $4,
+         refresh_token_expires_at = $5, refresh_attempted_at = NOW(), updated_at = NOW()
+         WHERE connection_id = $1",
+    )
+    .bind(row.id)
+    .bind(credential_ciphertext)
+    .bind(credential_nonce)
+    .bind(access_token_expires_at)
+    .bind(refresh_token_expires_at)
+    .execute(&mut *transaction)
+    .await
+    .map_err(database_error)?;
+
     let (account_label, plan) = resolved_connection_metadata(state, provider, &merged).await;
     let verification_probe = if provider == AgentProvider::Gemini && mode.restores_availability() {
         match (
@@ -2199,26 +2253,14 @@ async fn refresh_connected_connection(
     let restores_availability = mode.restores_availability()
         && verification_probe == crate::gateway::GeminiVerificationProbe::Verified;
     if mode.records_scheduled_attempt() {
+        // The rotated credential is already written, so a failure from here on
+        // may roll back the connection state alone.
         sqlx::query("SAVEPOINT scheduled_credential_persistence")
             .execute(&mut *transaction)
             .await
             .map_err(database_error)?;
     }
     let persistence = async {
-        sqlx::query(
-            "UPDATE agent_connection_credentials SET credential_ciphertext = $2,
-         credential_nonce = $3, access_token_expires_at = $4,
-         refresh_token_expires_at = $5, refresh_attempted_at = NOW(), updated_at = NOW()
-         WHERE connection_id = $1",
-        )
-        .bind(row.id)
-        .bind(credential_ciphertext)
-        .bind(credential_nonce)
-        .bind(access_token_expires_at)
-        .bind(refresh_token_expires_at)
-        .execute(&mut *transaction)
-        .await
-        .map_err(database_error)?;
         sqlx::query(
             "UPDATE agent_connections SET
             account_label = COALESCE($2, account_label),
@@ -2249,7 +2291,7 @@ async fn refresh_connected_connection(
                 .await
                 .map_err(database_error)?;
         }
-        return finish_refresh_error(transaction, mode, error).await;
+        return finish_refresh_error(transaction, error).await;
     }
     transaction.commit().await.map_err(database_error)?;
     let updated = owned_connection_by_id(state, row.id).await?;
@@ -3022,18 +3064,19 @@ mod tests {
     use tokio::net::TcpListener;
 
     use super::{
-        ANTIGRAVITY_CLIENT_VERSION, AgentProvider, AuthorizationSecret, CODEX_REDIRECT_URI,
-        CODEX_SCOPES, CredentialRefreshMode, GEMINI_SCOPES, GROK_SCOPES, connection_metadata,
+        ACCOUNT_VERIFICATION_REQUIRED_MESSAGE, ANTIGRAVITY_CLIENT_VERSION, AgentProvider,
+        AuthorizationSecret, CODEX_REDIRECT_URI, CODEX_SCOPES, CredentialRefreshMode,
+        GEMINI_SCOPES, GROK_SCOPES, RECOVERABLE_REAUTHORIZATION_MESSAGES, connection_metadata,
         decrypt_json, encrypt_json, exchange_gemini_code, fetch_claude_profile,
         gemini_code_assist_body, mask_account_label, merge_token_response, parse_callback_value,
-        provider_account_identity, reauthorization_identity_matches, refresh_provider_token,
-        refresh_requires_reauthorization, scheduled_refresh_after, should_refresh_credential,
-        start_claude_authorization, start_codex_authorization, start_gemini_authorization,
-        start_grok_authorization, token_claims, validate_api_key_input, validate_prompt_url,
-        validate_static_key,
+        provider_account_identity, provider_expiry_at, reauthorization_identity_matches,
+        refresh_provider_token, refresh_requires_reauthorization, scheduled_refresh_after,
+        should_refresh_credential, start_claude_authorization, start_codex_authorization,
+        start_gemini_authorization, start_grok_authorization, token_claims, validate_api_key_input,
+        validate_prompt_url, validate_static_key,
     };
     use crate::AppConfig;
-    use chrono::Duration;
+    use chrono::{Duration, Utc};
     use uuid::Uuid;
 
     #[test]
@@ -3782,5 +3825,48 @@ mod tests {
             now,
             now,
         ));
+    }
+
+    #[test]
+    fn provider_reported_lifetime_must_be_positive() {
+        let now = Utc::now();
+
+        assert!(
+            provider_expiry_at(&json!({ "expires_in": 3600 }), "expires_in")
+                .is_some_and(|expires_at| expires_at > now + Duration::minutes(59))
+        );
+        assert_eq!(
+            provider_expiry_at(
+                &json!({ "refresh_token_expires_in": 0 }),
+                "refresh_token_expires_in"
+            ),
+            None
+        );
+        assert_eq!(
+            provider_expiry_at(
+                &json!({ "refresh_token_expires_in": -60 }),
+                "refresh_token_expires_in"
+            ),
+            None
+        );
+        assert_eq!(
+            provider_expiry_at(&json!({}), "refresh_token_expires_in"),
+            None
+        );
+        assert_eq!(
+            provider_expiry_at(&json!({ "expires_in": "3600" }), "expires_in"),
+            None
+        );
+    }
+
+    #[test]
+    fn a_verification_challenge_is_recoverable_by_the_sweep() {
+        let mode = CredentialRefreshMode::Recover(Duration::minutes(30));
+
+        assert!(mode.records_scheduled_attempt());
+        assert!(mode.restores_availability());
+        assert!(
+            RECOVERABLE_REAUTHORIZATION_MESSAGES.contains(&ACCOUNT_VERIFICATION_REQUIRED_MESSAGE)
+        );
     }
 }

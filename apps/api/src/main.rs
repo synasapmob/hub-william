@@ -102,6 +102,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Err(error) => eprintln!("nightly provider credential sweep failed: {error}"),
                 }
             }
+            match hub_william_backend::expire_abandoned_authorizations(&credential_refresh_state)
+                .await
+            {
+                Ok(0) => {}
+                Ok(expired) => {
+                    println!("expired {expired} abandoned provider authorization prompt(s)")
+                }
+                Err(error) => eprintln!("abandoned authorization cleanup failed: {error}"),
+            }
             match hub_william_backend::refresh_due_provider_credentials(&credential_refresh_state)
                 .await
             {

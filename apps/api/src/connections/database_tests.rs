@@ -27,9 +27,10 @@ use super::{
     EXPIRED_AUTHORIZATION_PROMPT_MESSAGE, EXPIRED_PROVIDER_AUTHORIZATION_MESSAGE,
     PROVIDER_LOGIN_REQUIRED_MESSAGE, ProviderCredentialRefreshStatus,
     ProviderCredentialRefreshSummary, RefreshConnectionOutcome, decrypt_json, encrypt_json,
-    finish_connection, gateway_credential, get_connection, refresh_all_provider_credentials,
-    refresh_connected_connection, refresh_connection, refresh_due_provider_credentials,
-    refresh_nightly_provider_credentials, scheduled_refresh_after,
+    expire_abandoned_authorizations, finish_connection, gateway_credential, get_connection,
+    refresh_all_provider_credentials, refresh_connected_connection, refresh_connection,
+    refresh_due_provider_credentials, refresh_nightly_provider_credentials,
+    scheduled_refresh_after,
 };
 use crate::{AppConfig, AppState};
 
@@ -370,7 +371,7 @@ async fn forced_batch_refresh_isolates_rejected_credentials_and_keeps_pool_ids(p
 }
 
 #[sqlx::test]
-async fn forced_batch_marks_only_explicit_gemini_verification_challenges_red(pool: PgPool) {
+async fn forced_batch_marks_gemini_red_only_when_a_generation_is_refused(pool: PgPool) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let issuer = format!("http://{}", listener.local_addr().unwrap());
     let app = Router::new()
@@ -433,7 +434,9 @@ async fn forced_batch_marks_only_explicit_gemini_verification_challenges_red(poo
                         StatusCode::FORBIDDEN,
                         Json(json!({"error": {"message": "Verify your account to continue."}})),
                     ),
-                    Some("Bearer generation-challenge-access") | Some("Bearer verified-access") => {
+                    Some("Bearer fetch-challenge-access")
+                    | Some("Bearer generation-challenge-access")
+                    | Some("Bearer verified-access") => {
                         (StatusCode::OK, Json(json!({"tokenCount": 1})))
                     }
                     other => panic!("unexpected count authorization: {other:?}"),
@@ -451,7 +454,9 @@ async fn forced_batch_marks_only_explicit_gemini_verification_challenges_red(poo
                         StatusCode::FORBIDDEN,
                         Json(json!({"error": {"message": "Verify your account to continue."}})),
                     ),
-                    Some("Bearer verified-access") => (
+                    Some("Bearer fetch-challenge-access")
+                    | Some("Bearer count-challenge-access")
+                    | Some("Bearer verified-access") => (
                         StatusCode::OK,
                         Json(json!({"response": {"candidates": []}})),
                     ),
@@ -493,16 +498,11 @@ async fn forced_batch_marks_only_explicit_gemini_verification_challenges_red(poo
     let results = refresh_all_provider_credentials(&state).await.unwrap();
     assert_eq!(results.len(), 6);
     for (case, expected_result, expected_availability) in [
-        (
-            "fetch-challenge",
-            "reauthorization_required",
-            "reauth_required",
-        ),
-        (
-            "count-challenge",
-            "reauthorization_required",
-            "reauth_required",
-        ),
+        // Google answers the listing and counting endpoints with the challenge
+        // for accounts that still serve generations, so only a refused
+        // generation may mark the account for reconnect.
+        ("fetch-challenge", "refreshed", "active"),
+        ("count-challenge", "refreshed", "active"),
         (
             "generation-challenge",
             "reauthorization_required",
@@ -1220,14 +1220,85 @@ async fn due_sweep_restores_accounts_marked_for_a_recoverable_reconnect(pool: Pg
 }
 
 #[sqlx::test]
+async fn due_sweep_restores_a_verification_marked_account_whose_generation_succeeds(pool: PgPool) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let issuer = format!("http://{}", listener.local_addr().unwrap());
+    let app = Router::new()
+        .route(
+            "/token",
+            post(|Form(form): Form<HashMap<String, String>>| async move {
+                assert_eq!(
+                    form.get("refresh_token").map(String::as_str),
+                    Some("challenged")
+                );
+                Json(json!({
+                    "access_token": "challenged-access",
+                    "refresh_token": "challenged-rotated",
+                    "expires_in": 3600
+                }))
+            }),
+        )
+        .route(
+            "/v1internal:fetchAvailableModels",
+            post(|_: HeaderMap| async move {
+                // Google reports the free-tier verification notice here for an
+                // account that still serves paid generations.
+                (
+                    StatusCode::FORBIDDEN,
+                    Json(json!({"error": {"message": "Verify your account to continue."}})),
+                )
+            }),
+        )
+        .route(
+            "/v1internal:countTokens",
+            post(|_: HeaderMap| async move { (StatusCode::OK, Json(json!({"tokenCount": 1}))) }),
+        )
+        .route(
+            "/v1internal:generateContent",
+            post(|_: HeaderMap| async move {
+                (
+                    StatusCode::OK,
+                    Json(json!({"response": {"candidates": []}})),
+                )
+            }),
+        );
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let mut state = state(pool);
+    state.config.gemini_token_url = format!("{issuer}/token");
+    state.config.gemini_code_assist_url = issuer;
+    let owner = user(&state.pool).await;
+    let id = connection(&state, owner, "gemini").await.id;
+    store_credential(
+        &state,
+        id,
+        json!({
+            "access_token": "challenged-old-access",
+            "refresh_token": "challenged",
+            "cloudaicompanion_project": "test-project"
+        }),
+    )
+    .await;
+    mark_for_reconnect(&state, id, Some(ACCOUNT_VERIFICATION_REQUIRED_MESSAGE)).await;
+    backdate_refresh(&state, id, Duration::minutes(46), None).await;
+
+    let summary = refresh_due_provider_credentials(&state).await.unwrap();
+    assert_eq!(counts(&summary), [1, 1, 0, 0]);
+    assert_eq!(
+        account_state(&state, id).await,
+        account("connected", "active", None)
+    );
+    assert_eq!(
+        stored_token(&state, id).await["refresh_token"],
+        "challenged-rotated"
+    );
+    server.abort();
+}
+
+#[sqlx::test]
 async fn due_sweep_skips_unrecoverable_marks_and_accounts_with_a_pending_reconnect(pool: PgPool) {
     let (issuer, calls, server) = fake_grok_issuer().await;
     let mut state = state(pool);
-    state.config.grok_issuer = issuer.clone();
-    // A Gemini refresh or verification probe would reach the fake's
-    // unexpected-call recorder instead of Google.
-    state.config.gemini_token_url = format!("{issuer}/gemini/token");
-    state.config.gemini_code_assist_url = format!("{issuer}/gemini");
+    state.config.grok_issuer = issuer;
     let owner = user(&state.pool).await;
 
     let mut skipped = Vec::new();
@@ -1236,12 +1307,6 @@ async fn due_sweep_skips_unrecoverable_marks_and_accounts_with_a_pending_reconne
             "grok",
             Some(EXPIRED_PROVIDER_AUTHORIZATION_MESSAGE),
             "refresh-rejected",
-            false,
-        ),
-        (
-            "gemini",
-            Some(ACCOUNT_VERIFICATION_REQUIRED_MESSAGE),
-            "verification-required",
             false,
         ),
         ("grok", None, "unexplained-mark", false),
@@ -1434,6 +1499,67 @@ async fn expired_reconnect_prompt_on_a_marked_account_becomes_recoverable_by_the
     assert_eq!(
         account_state(&state, id).await,
         account("connected", "active", None)
+    );
+    server.abort();
+}
+
+#[sqlx::test]
+async fn abandoned_prompts_are_settled_and_released_for_the_sweep(pool: PgPool) {
+    let (issuer, calls, server) = fake_grok_issuer().await;
+    let mut state = state(pool);
+    state.config.grok_issuer = issuer;
+    let owner = user(&state.pool).await;
+
+    let pending = connection_ending_in(&state, owner, "grok", 0).await;
+    reconnect_prompt(&state, pending.id, Utc::now() - Duration::minutes(1)).await;
+    // `start_connection_reauthorization` marks an account without a message and
+    // stores a prompt; an owner who never finishes it leaves the sweep with
+    // nothing to match on.
+    let abandoned = connection(&state, owner, "grok").await.id;
+    store_refreshable_credential(&state, abandoned, "abandoned").await;
+    mark_for_reconnect(&state, abandoned, None).await;
+    reconnect_prompt(&state, abandoned, Utc::now() - Duration::minutes(1)).await;
+    let live = connection(&state, owner, "grok").await.id;
+    store_refreshable_credential(&state, live, "live").await;
+    mark_for_reconnect(&state, live, Some(PROVIDER_LOGIN_REQUIRED_MESSAGE)).await;
+    reconnect_prompt(&state, live, Utc::now() + Duration::minutes(10)).await;
+    backdate_refresh(&state, live, Duration::minutes(46), None).await;
+
+    assert_eq!(expire_abandoned_authorizations(&state).await.unwrap(), 2);
+    assert_eq!(
+        account_state(&state, pending.id).await,
+        account(
+            "failed",
+            "active",
+            Some(EXPIRED_AUTHORIZATION_PROMPT_MESSAGE)
+        )
+    );
+    assert_eq!(
+        account_state(&state, abandoned).await,
+        account(
+            "connected",
+            "reauth_required",
+            Some(EXPIRED_AUTHORIZATION_PROMPT_MESSAGE)
+        )
+    );
+    assert!(has_reconnect_prompt(&state, live).await);
+    assert!(recorded(&calls).is_empty());
+
+    backdate_refresh(&state, abandoned, Duration::minutes(46), None).await;
+    let summary = refresh_due_provider_credentials(&state).await.unwrap();
+    assert_eq!(counts(&summary), [1, 1, 0, 0]);
+    assert_eq!(recorded(&calls), ["abandoned"]);
+    assert_eq!(
+        account_state(&state, abandoned).await,
+        account("connected", "active", None)
+    );
+    assert_eq!(
+        account_state(&state, live).await,
+        account(
+            "connected",
+            "reauth_required",
+            Some(PROVIDER_LOGIN_REQUIRED_MESSAGE)
+        )
     );
     server.abort();
 }
