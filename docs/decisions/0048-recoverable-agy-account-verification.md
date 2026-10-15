@@ -47,10 +47,19 @@ model discovery and token counting as advisory steps: a challenge there falls
 back to the reviewed model catalogue and continues, instead of condemning the
 login. Only a generation the provider refuses with the explicit challenge
 message returns `ReauthorizationRequired`; a generation that succeeds returns
-`Verified` even when the listing endpoints challenged. Model discovery no longer
-marks a pool at all — a listing refusal is not proof that a login is gone, so the
-request fails over to another account and the credential probe and generation
-path still mark a login the provider really refuses.
+`Verified` even when the listing endpoints challenged, and a generation that
+fails for a model-specific reason while token counting succeeded still verifies
+the login that ADR-0031 already lets a token count restore. Each probe step logs
+which endpoint challenged and which status a generation returned, without a
+provider body, because this state was previously invisible in production. Model
+discovery no longer marks a pool at all — a listing refusal is not proof that a
+login is gone, so the request fails over to another account and the credential
+probe and generation path still mark a login the provider really refuses.
+
+**The Antigravity client version is current.** Google gates Code Assist
+behaviour by client version, and production ran the `1.2.3` user agent after
+upstream released `1.3.5`. The constant now carries the `1.3.5` string with its
+build number, taken from a public client that talks to the same API.
 
 **An account-verification mark is recoverable.** `ACCOUNT_VERIFICATION_REQUIRED_MESSAGE`
 joins the reconnect states the 30–45 minute sweep retries. Each retry rotates the

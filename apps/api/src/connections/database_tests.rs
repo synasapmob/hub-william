@@ -382,6 +382,7 @@ async fn forced_batch_marks_gemini_red_only_when_a_generation_is_refused(pool: P
                     Some("fetch-challenge") => "fetch-challenge-access",
                     Some("count-challenge") => "count-challenge-access",
                     Some("generation-challenge") => "generation-challenge-access",
+                    Some("generation-failed") => "generation-failed-access",
                     Some("verified") => "verified-access",
                     Some("generic-forbidden") => "generic-forbidden-access",
                     Some("generic-red") => "generic-red-access",
@@ -407,6 +408,7 @@ async fn forced_batch_marks_gemini_red_only_when_a_generation_is_refused(pool: P
                     ),
                     Some("Bearer count-challenge-access")
                     | Some("Bearer generation-challenge-access")
+                    | Some("Bearer generation-failed-access")
                     | Some("Bearer verified-access") => (
                         StatusCode::OK,
                         Json(
@@ -436,6 +438,7 @@ async fn forced_batch_marks_gemini_red_only_when_a_generation_is_refused(pool: P
                     ),
                     Some("Bearer fetch-challenge-access")
                     | Some("Bearer generation-challenge-access")
+                    | Some("Bearer generation-failed-access")
                     | Some("Bearer verified-access") => {
                         (StatusCode::OK, Json(json!({"tokenCount": 1})))
                     }
@@ -453,6 +456,10 @@ async fn forced_batch_marks_gemini_red_only_when_a_generation_is_refused(pool: P
                     Some("Bearer generation-challenge-access") => (
                         StatusCode::FORBIDDEN,
                         Json(json!({"error": {"message": "Verify your account to continue."}})),
+                    ),
+                    Some("Bearer generation-failed-access") => (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({"error": {"message": "Model not supported"}})),
                     ),
                     Some("Bearer fetch-challenge-access")
                     | Some("Bearer count-challenge-access")
@@ -474,6 +481,7 @@ async fn forced_batch_marks_gemini_red_only_when_a_generation_is_refused(pool: P
         "fetch-challenge",
         "count-challenge",
         "generation-challenge",
+        "generation-failed",
         "verified",
         "generic-forbidden",
         "generic-red",
@@ -496,7 +504,7 @@ async fn forced_batch_marks_gemini_red_only_when_a_generation_is_refused(pool: P
     }
 
     let results = refresh_all_provider_credentials(&state).await.unwrap();
-    assert_eq!(results.len(), 6);
+    assert_eq!(results.len(), 7);
     for (case, expected_result, expected_availability) in [
         // Google answers the listing and counting endpoints with the challenge
         // for accounts that still serve generations, so only a refused
@@ -508,6 +516,9 @@ async fn forced_batch_marks_gemini_red_only_when_a_generation_is_refused(pool: P
             "reauthorization_required",
             "reauth_required",
         ),
+        // A counted token proves the credential and project reach Code Assist,
+        // so a model-specific generation failure does not mark the account.
+        ("generation-failed", "refreshed", "active"),
         ("verified", "refreshed", "active"),
         ("generic-forbidden", "refreshed", "active"),
         ("generic-red", "reauthorization_required", "reauth_required"),
