@@ -56,6 +56,7 @@ use crate::{
         crate::connections::connect_groq,
         crate::connections::get_connection,
         crate::connections::refresh_connection,
+        crate::connections::reset_connection_credits,
         crate::connections::complete_authorization,
         crate::connections::disconnect,
         crate::gateway::create_key,

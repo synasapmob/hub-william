@@ -27,6 +27,7 @@ interface AgentsPoolCardProps {
   onCheckRequests: (pool: AgentPool) => void;
   onClose: () => void;
   onRequestJoin: (pool: AgentPool) => void;
+  onResetCredits?: () => Promise<void>;
   pool: AgentPool;
 }
 
@@ -35,6 +36,7 @@ export default function AgentsPoolCard({
   onCheckRequests,
   onClose,
   onRequestJoin,
+  onResetCredits,
   pool,
 }: AgentsPoolCardProps) {
   const showUsage = agentProviderShowsUsage(pool.agent);
@@ -115,7 +117,11 @@ export default function AgentsPoolCard({
         ) : null}
 
         {showUsage ? (
-          <AgentsUsageMetrics provider={pool.agent} usage={pool.usage} />
+          <AgentsUsageMetrics
+            onResetCredits={onResetCredits}
+            provider={pool.agent}
+            usage={pool.usage}
+          />
         ) : null}
 
         <details className={memberSection({ afterUsage: showUsage })}>

@@ -663,6 +663,47 @@ pub async fn refresh_connection(
 
 #[utoipa::path(
     post,
+    path = "/agent-connections/{connection_id}/reset-credits",
+    params(("connection_id" = Uuid, Path, description = "Agent connection ID")),
+    responses(
+        (status = 204, description = "One banked ChatGPT reset credit was redeemed"),
+        (status = 401, description = "Hub login required", body = crate::ErrorResponse),
+        (status = 404, description = "Connection not found", body = crate::ErrorResponse),
+        (status = 422, description = "This account has no reset credits", body = crate::ErrorResponse),
+        (status = 502, description = "OpenAI reset credits are unavailable", body = crate::ErrorResponse)
+    ),
+    tag = "agent connections"
+)]
+pub async fn reset_connection_credits(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path(connection_id): Path<Uuid>,
+) -> Result<StatusCode, ApiError> {
+    let user_id = authenticated_user_id(&state, &jar).await?;
+    let row = owned_connection(&state, user_id, connection_id).await?;
+    if AgentConnectionStatus::from_str(&row.status)? != AgentConnectionStatus::Connected {
+        return Err(ApiError::Validation(
+            "Only a connected account can use reset credits.",
+        ));
+    }
+    if AgentProvider::from_str(&row.provider)? != AgentProvider::Chatgpt {
+        return Err(ApiError::Validation(
+            "Only ChatGPT accounts have reset credits.",
+        ));
+    }
+    let (_, token) = provider_credential(&state, connection_id).await?;
+    let Some(access_token) = token.get("access_token").and_then(Value::as_str) else {
+        return Err(ApiError::Provider(
+            "This account has no access token.".to_owned(),
+        ));
+    };
+    crate::usage::reset_chatgpt_credits(&state, &token, access_token).await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    post,
     path = "/agent-connections/{connection_id}/complete",
     params(("connection_id" = Uuid, Path, description = "Agent connection ID")),
     request_body = CompleteAuthorizationRequest,

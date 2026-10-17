@@ -96,6 +96,12 @@ function apiPerson(
   };
 }
 
+interface UsageFixture {
+  detail?: string;
+  label: string;
+  value: string;
+}
+
 function poolFixture(requests: Array<Record<string, unknown>> = []) {
   return {
     account_label: "du**y@exa**.com",
@@ -110,7 +116,7 @@ function poolFixture(requests: Array<Record<string, unknown>> = []) {
     requests,
     usage: [
       { detail: "Resets in 2h", label: "5-hour limit", value: "68% used" },
-    ],
+    ] as UsageFixture[],
   };
 }
 
@@ -213,6 +219,17 @@ function renderRoute(
             ),
           },
         ];
+        return new Response(null, { status: 204 });
+      }
+      if (url.endsWith("/reset-credits") && method === "POST") {
+        pools = pools.map((pool) => ({
+          ...pool,
+          usage: pool.usage.map((metric) =>
+            metric.label === "Reset credits"
+              ? { ...metric, value: "1 available" }
+              : metric,
+          ),
+        }));
         return new Response(null, { status: 204 });
       }
       if (url.endsWith("/refresh") && method === "POST") {
@@ -1427,5 +1444,49 @@ describe("AgentsRoute", () => {
     expect(
       screen.queryByText("Provider login is required. Reconnect this pool."),
     ).not.toBeInTheDocument();
+  });
+
+  it("uses a ChatGPT reset credit and refreshes the remaining count", async () => {
+    const user = userEvent.setup();
+    const fetchMock = renderRoute({ id: "owner-1", username: "synasapmob" }, [
+      {
+        ...poolFixture(),
+        usage: [
+          {
+            detail: "Resets in 5d 13h",
+            label: "Reset credits",
+            value: "2 available",
+          },
+        ],
+      },
+    ]);
+
+    await openAccount(user);
+    await user.click(screen.getByRole("button", { name: "Reset" }));
+
+    expect(await screen.findByText("1 available")).toBeVisible();
+    expect(
+      fetchMock.mock.calls.some(([input, init]) => {
+        const url = input instanceof Request ? input.url : String(input);
+        return (
+          url.endsWith("/reset-credits") &&
+          (init?.method ??
+            (input instanceof Request ? input.method : "GET")) === "POST"
+        );
+      }),
+    ).toBe(true);
+  });
+
+  it("disables the ChatGPT reset when no credit is available", async () => {
+    const user = userEvent.setup();
+    renderRoute({ id: "owner-1", username: "synasapmob" }, [
+      {
+        ...poolFixture(),
+        usage: [{ label: "Reset credits", value: "0 available" }],
+      },
+    ]);
+
+    await openAccount(user);
+    expect(screen.getByRole("button", { name: "Reset" })).toBeDisabled();
   });
 });

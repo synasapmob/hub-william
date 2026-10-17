@@ -65,6 +65,12 @@ export function agentPoolPrimaryUsage(pool: Pick<AgentPool, "usage">) {
     .find((metric) => metric && metric.value !== "Unavailable");
 }
 
+export function agentPoolResetCreditCount(metric: AgentPoolUsageMetric) {
+  if (metric.label !== "Reset credits") return null;
+  const match = /^(\d+)\s+available$/i.exec(metric.value);
+  return match ? Number(match[1]) : null;
+}
+
 export function agentPoolRemaining(metric: AgentPoolUsageMetric) {
   const match = /^(\d+(?:\.\d+)?)%\s+(remaining|used)$/i.exec(metric.value);
   if (!match) return null;

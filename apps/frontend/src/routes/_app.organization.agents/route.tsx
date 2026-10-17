@@ -70,6 +70,11 @@ export default function OrganizationAgentsRoute() {
       agentConnectionsService.refresh(connectionId),
     onSuccess: refreshAgentData,
   });
+  const resetCreditsMutation = useMutation({
+    mutationFn: (connectionId: string) =>
+      agentConnectionsService.resetCredits(connectionId),
+    onSuccess: refreshAgentData,
+  });
   const agents = agentsQuery.data ?? [];
 
   return (
@@ -130,6 +135,7 @@ export default function OrganizationAgentsRoute() {
           onRefresh={(id) => refreshMutation.mutateAsync(id)}
           onRefreshComplete={refreshAgentData}
           onRemove={(id) => removeMutation.mutate(id)}
+          onResetCredits={(id) => resetCreditsMutation.mutateAsync(id)}
           organizationId={organization.id}
           refreshing={refreshMutation.isPending}
           removeError={removeMutation.error?.message ?? null}

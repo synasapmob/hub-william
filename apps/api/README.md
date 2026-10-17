@@ -45,7 +45,8 @@ tests.
 
 - `/auth/*`: five-hour access session and rotating seven-day refresh session.
 - `/agent-connections/*`: official provider authorization start, poll, callback,
-  DeepSeek API-key connection, disconnect, and refresh-on-read lifecycle.
+  DeepSeek API-key connection, disconnect, refresh-on-read lifecycle, and
+  owner-only redemption of the ChatGPT account's banked reset credits.
 - `/gateway-keys`: create-once, list metadata, and revoke operations.
 - `/organizations` and `/organization-invitations`: multiple teams, invitations,
   member lists, connected-agent shares, overview and usage. Accepted membership
