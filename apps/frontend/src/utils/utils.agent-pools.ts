@@ -71,6 +71,29 @@ export function agentPoolResetCreditCount(metric: AgentPoolUsageMetric) {
   return match ? Number(match[1]) : null;
 }
 
+/**
+ * The provider takes a moment to publish cleared usage windows, so reflect a
+ * successful reset immediately: quota windows restart at 100% and one banked
+ * credit is spent. Their reset times and the next credit's expiry are refreshed
+ * on the next provider read.
+ */
+export function agentPoolUsageAfterReset(
+  usage: AgentPoolUsageMetric[],
+): AgentPoolUsageMetric[] {
+  return usage.map((metric) => {
+    const creditCount = agentPoolResetCreditCount(metric);
+    if (creditCount !== null) {
+      return {
+        ...metric,
+        detail: undefined,
+        value: `${Math.max(0, creditCount - 1)} available`,
+      };
+    }
+    if (!quotaLabels.includes(metric.label)) return metric;
+    return { ...metric, detail: undefined, value: "100% remaining" };
+  });
+}
+
 export function agentPoolRemaining(metric: AgentPoolUsageMetric) {
   const match = /^(\d+(?:\.\d+)?)%\s+(remaining|used)$/i.exec(metric.value);
   if (!match) return null;
