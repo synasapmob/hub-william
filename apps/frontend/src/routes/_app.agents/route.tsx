@@ -18,6 +18,7 @@ import agentPoolsService, {
   type AgentPoolRequestStatus,
 } from "@/services/agent-pools";
 import { invalidateAgentQueries } from "@/utils/utils.agent-queries";
+import { agentPoolUsageAfterReset } from "@/utils/utils.agent-pools";
 
 import AgentsExplorer from "./agents-explorer";
 import AgentsRequestDialog, {
@@ -86,7 +87,19 @@ export default function AgentsRoute() {
   const resetCreditsMutation = useMutation({
     mutationFn: (poolId: string) =>
       agentConnectionsService.resetCredits(poolId),
-    onSuccess: refreshAgentData,
+    onSuccess: (_, poolId) => {
+      // The provider's usage endpoint can lag the reset, so update the pool the
+      // owner just reset instead of refetching the stale windows.
+      queryClient.setQueriesData<AgentPool[]>(
+        { queryKey: agentPoolsService.queryKey },
+        (pools) =>
+          pools?.map((pool) =>
+            pool.id === poolId
+              ? { ...pool, usage: agentPoolUsageAfterReset(pool.usage) }
+              : pool,
+          ),
+      );
+    },
   });
   const deletePoolMutation = useMutation({
     mutationFn: (poolId: string) => agentConnectionsService.disconnect(poolId),

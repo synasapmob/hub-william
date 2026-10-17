@@ -9,6 +9,7 @@ import {
   agentPoolPrimaryUsage,
   agentPoolRemaining,
   agentPoolTokenDetail,
+  agentPoolUsageAfterReset,
   agentPoolWarning,
 } from "./utils.agent-pools";
 
@@ -79,6 +80,26 @@ describe("agent pool usage summaries", () => {
     expect(agentPoolWarning(pool)).toBe("Cooling down");
     pool.availability.status = "half_open";
     expect(agentPoolWarning(pool)).toBe("Ready to retry");
+  });
+
+  it("reflects a successful reset before the provider publishes new windows", () => {
+    const usage = agentPoolUsageAfterReset([
+      { detail: "Resets in 2h", label: "5-hour limit", value: "0% remaining" },
+      { detail: "Resets in 4d", label: "Weekly limit", value: "18% remaining" },
+      {
+        detail: "Resets in 5d 13h",
+        label: "Reset credits",
+        value: "2 available",
+      },
+      { label: "Prepaid balance", value: "$20.00" },
+    ]);
+
+    expect(usage).toEqual([
+      { detail: undefined, label: "5-hour limit", value: "100% remaining" },
+      { detail: undefined, label: "Weekly limit", value: "100% remaining" },
+      { detail: undefined, label: "Reset credits", value: "1 available" },
+      { label: "Prepaid balance", value: "$20.00" },
+    ]);
   });
 
   it("shows tokens only when a provider actually reports them", () => {

@@ -1446,12 +1446,17 @@ describe("AgentsRoute", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("uses a ChatGPT reset credit and refreshes the remaining count", async () => {
+  it("uses a ChatGPT reset credit and clears the usage windows immediately", async () => {
     const user = userEvent.setup();
     const fetchMock = renderRoute({ id: "owner-1", username: "synasapmob" }, [
       {
         ...poolFixture(),
         usage: [
+          {
+            detail: "Resets in 2h",
+            label: "5-hour limit",
+            value: "0% remaining",
+          },
           {
             detail: "Resets in 5d 13h",
             label: "Reset credits",
@@ -1464,7 +1469,9 @@ describe("AgentsRoute", () => {
     await openAccount(user);
     await user.click(screen.getByRole("button", { name: "Reset" }));
 
-    expect(await screen.findByText("1 available")).toBeVisible();
+    expect(await screen.findByText("100% remaining")).toBeVisible();
+    expect(screen.getByText("1 available")).toBeVisible();
+    expect(screen.queryByText("Resets in 2h")).not.toBeInTheDocument();
     expect(
       fetchMock.mock.calls.some(([input, init]) => {
         const url = input instanceof Request ? input.url : String(input);

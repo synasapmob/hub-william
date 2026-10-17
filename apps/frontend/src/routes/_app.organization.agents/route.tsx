@@ -11,12 +11,15 @@ import AgentsConnectDialog from "@/components/agents-connect-dialog";
 import Flex from "@/components/ui/flex";
 import { Skeleton } from "@/components/ui/skeleton";
 import agentConnectionsService from "@/services/agent-connections";
-import organizationsService from "@/services/organizations";
+import organizationsService, {
+  type OrganizationAgentDetails,
+} from "@/services/organizations";
 import {
   requireOrganization,
   useOrganizationContext,
 } from "@/routes/_app.organization/organization-context";
 import { invalidateAgentQueries } from "@/utils/utils.agent-queries";
+import { agentPoolUsageAfterReset } from "@/utils/utils.agent-pools";
 
 import OrganizationAgentsExplorer from "./organization-agents-explorer";
 import OrganizationAgentsExplorerSkeleton from "./organization-agents-explorer-skeleton";
@@ -73,7 +76,24 @@ export default function OrganizationAgentsRoute() {
   const resetCreditsMutation = useMutation({
     mutationFn: (connectionId: string) =>
       agentConnectionsService.resetCredits(connectionId),
-    onSuccess: refreshAgentData,
+    onSuccess: (_, connectionId) => {
+      // The provider's usage endpoint can lag the reset, so update the shared
+      // agent the owner just reset instead of refetching the stale windows.
+      queryClient.setQueryData<OrganizationAgentDetails[]>(
+        [
+          ...organizationsService.queryKey,
+          organization?.id ?? null,
+          "agents",
+          "usage",
+        ],
+        (agents) =>
+          agents?.map((agent) =>
+            agent.id === connectionId
+              ? { ...agent, usage: agentPoolUsageAfterReset(agent.usage) }
+              : agent,
+          ),
+      );
+    },
   });
   const agents = agentsQuery.data ?? [];
 
