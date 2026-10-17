@@ -46,6 +46,7 @@ interface AgentsExplorerProps {
   loading: boolean;
   onCheckRequests: (pool: AgentPool) => void;
   onRequestJoin: (pool: AgentPool) => void;
+  onResetCredits: (poolId: string) => Promise<void>;
   pools: AgentPool[];
 }
 
@@ -54,6 +55,7 @@ export default function AgentsExplorer({
   loading,
   onCheckRequests,
   onRequestJoin,
+  onResetCredits,
   pools,
 }: AgentsExplorerProps) {
   const boardRef = useRef<HTMLDivElement>(null);
@@ -306,6 +308,7 @@ export default function AgentsExplorer({
               onCheckRequests={onCheckRequests}
               onClose={() => setSelectedPool(null)}
               onRequestJoin={onRequestJoin}
+              onResetCredits={() => onResetCredits(openPool.id)}
               pool={openPool}
             />
           </DialogContent>

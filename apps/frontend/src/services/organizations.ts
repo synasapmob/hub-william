@@ -60,6 +60,7 @@ export interface OrganizationAgent {
   ownerUsername: string;
   provider: string;
   rateLimitedUntil: string | null;
+  validationUrl?: string;
 }
 
 export interface OrganizationAgentDetails extends OrganizationAgent {
@@ -199,6 +200,7 @@ function agentFromApi(value: ApiAgent): OrganizationAgent {
     ownerUsername: value.owner_username,
     provider: value.provider,
     rateLimitedUntil: value.rate_limited_until ?? null,
+    validationUrl: value.validation_url ?? undefined,
   };
 }
 

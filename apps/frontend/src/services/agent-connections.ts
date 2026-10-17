@@ -31,6 +31,7 @@ export interface AgentConnection {
   provider: AgentProvider;
   status: AgentConnectionStatus;
   updatedAt: string;
+  validationUrl: string | null;
 }
 
 const apiBaseUrl = (
@@ -64,6 +65,7 @@ function connectionFromApi(connection: ApiAgentConnection): AgentConnection {
     provider: connection.provider,
     status: connection.status,
     updatedAt: connection.updated_at,
+    validationUrl: connection.validation_url ?? null,
   };
 }
 
@@ -206,6 +208,31 @@ async function refresh(connectionId: string) {
   }
 }
 
+async function resetCredits(connectionId: string) {
+  try {
+    let result = await client.POST(
+      "/agent-connections/{connection_id}/reset-credits",
+      {
+        params: { path: { connection_id: connectionId } },
+      },
+    );
+    if (result.response.status === 401 && (await refreshHubSession())) {
+      result = await client.POST(
+        "/agent-connections/{connection_id}/reset-credits",
+        {
+          params: { path: { connection_id: connectionId } },
+        },
+      );
+    }
+    if (!result.response.ok) throw serviceError(result.error);
+  } catch (error) {
+    if (error instanceof AgentConnectionServiceError) throw error;
+    throw new AgentConnectionServiceError(
+      "The reset credit could not be used.",
+    );
+  }
+}
+
 async function disconnect(connectionId: string) {
   try {
     let result = await client.DELETE("/agent-connections/{connection_id}", {
@@ -233,6 +260,7 @@ const agentConnectionsService = {
   list,
   queryKey: ["agent-connections"] as const,
   refresh,
+  resetCredits,
   start,
 };
 

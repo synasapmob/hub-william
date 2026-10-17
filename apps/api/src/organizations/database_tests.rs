@@ -975,12 +975,16 @@ async fn organization_agent_reports_and_uses_the_live_workspace_state_and_creden
 
     // A Workspace account that needs its owner to reconnect is unavailable
     // to the organization too, without contacting the provider.
+    // The provider's verification link reaches the organization view too, so
+    // the owner can act from wherever the reconnect is reported.
+    let validation_url = "https://accounts.google.com/signin/continue?sarp=1";
     assert!(
         mark_reauthorization_required_if_current(
             &state,
             connection_id,
             WORKSPACE_KEY,
             PROVIDER_LOGIN_REQUIRED_MESSAGE,
+            Some(validation_url),
         )
         .await
         .unwrap()
@@ -988,6 +992,7 @@ async fn organization_agent_reports_and_uses_the_live_workspace_state_and_creden
     let agents = organization_agents(&state, &member, org_id).await;
     assert_eq!(agents[0].availability_status, "reauth_required");
     assert_eq!(agents[0].rate_limited_until, None);
+    assert_eq!(agents[0].validation_url.as_deref(), Some(validation_url));
     let workspace = workspace_connections(&state, &owner).await;
     assert_eq!(workspace[0].availability_status, "reauth_required");
     assert_eq!(

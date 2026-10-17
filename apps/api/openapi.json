@@ -395,6 +395,69 @@
         }
       }
     },
+    "/agent-connections/{connection_id}/reset-credits": {
+      "post": {
+        "tags": ["agent connections"],
+        "operationId": "reset_connection_credits",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "description": "Agent connection ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "One banked ChatGPT reset credit was redeemed"
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Connection not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "This account has no reset credits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "OpenAI reset credits are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/agent-pool-requests/{request_id}/decision": {
       "post": {
         "tags": ["agent pools"],
@@ -1930,6 +1993,10 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "validation_url": {
+            "type": ["string", "null"],
+            "description": "The provider's own account-verification link while this account needs\nits owner to verify it, such as a Google Code Assist challenge."
           }
         }
       },
@@ -2010,6 +2077,10 @@
           },
           "status": {
             "$ref": "#/components/schemas/AgentPoolAvailabilityStatus"
+          },
+          "validation_url": {
+            "type": ["string", "null"],
+            "description": "The provider's own account-verification link while this account needs\nits owner to verify it."
           }
         }
       },
@@ -2538,6 +2609,10 @@
           "rate_limited_until": {
             "type": ["string", "null"],
             "format": "date-time"
+          },
+          "validation_url": {
+            "type": ["string", "null"],
+            "description": "The provider's own account-verification link while this account needs\nits owner to verify it."
           }
         }
       },
@@ -2585,6 +2660,9 @@
             "items": {
               "$ref": "#/components/schemas/AgentPoolUsageMetric"
             }
+          },
+          "validation_url": {
+            "type": ["string", "null"]
           }
         }
       },

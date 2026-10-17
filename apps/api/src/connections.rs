@@ -34,7 +34,7 @@ const CODEX_SCOPES: &str =
     "openid profile email offline_access api.connectors.read api.connectors.invoke";
 const CLAUDE_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const CLAUDE_SCOPES: &str = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
-pub(crate) const ANTIGRAVITY_CLIENT_VERSION: &str = "antigravity/cli/1.2.3 (aidev_client; os_type=linux; arch=amd64; cl=981443618; auth_method=consumer)";
+pub(crate) const ANTIGRAVITY_CLIENT_VERSION: &str = "antigravity/cli/1.3.5 (aidev_client; os_type=linux; arch=amd64; cl=998863838; auth_method=consumer)";
 const GEMINI_SCOPES: &str = "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/cclog https://www.googleapis.com/auth/experimentsandconfigs";
 const GROK_SCOPES: &str = "openid profile email offline_access grok-cli:access api:access conversations:read conversations:write workspaces:read workspaces:write";
 const GROK_CLIENT_SURFACE: &str = "grok-build";
@@ -55,10 +55,13 @@ pub(crate) const PROVIDER_LOGIN_REQUIRED_MESSAGE: &str =
 const EXPIRED_AUTHORIZATION_PROMPT_MESSAGE: &str = "Authorization expired. Start again.";
 /// Reconnect states that do not prove the stored refresh credential is dead.
 /// The background sweep retries them and restores the account when the
-/// provider accepts a refreshed credential.
-const RECOVERABLE_REAUTHORIZATION_MESSAGES: [&str; 2] = [
+/// provider accepts a refreshed credential. A Google account-verification
+/// challenge belongs here: Google reports it for accounts that still serve
+/// generations, so only a repeated rejected probe may keep the account marked.
+const RECOVERABLE_REAUTHORIZATION_MESSAGES: [&str; 3] = [
     PROVIDER_LOGIN_REQUIRED_MESSAGE,
     EXPIRED_AUTHORIZATION_PROMPT_MESSAGE,
+    ACCOUNT_VERIFICATION_REQUIRED_MESSAGE,
 ];
 
 #[cfg(all(test, feature = "database-tests"))]
@@ -153,6 +156,9 @@ pub struct AgentConnection {
     pub provider: AgentProvider,
     pub status: AgentConnectionStatus,
     pub updated_at: DateTime<Utc>,
+    /// The provider's own account-verification link while this account needs
+    /// its owner to verify it, such as a Google Code Assist challenge.
+    pub validation_url: Option<String>,
 }
 
 #[derive(Debug, FromRow)]
@@ -166,6 +172,7 @@ struct ConnectionRow {
     provider: String,
     status: String,
     updated_at: DateTime<Utc>,
+    validation_url: Option<String>,
 }
 
 #[derive(Debug, FromRow)]
@@ -288,6 +295,17 @@ fn access_token_fingerprint(access_token: &str) -> [u8; 32] {
     Sha256::digest(access_token.as_bytes()).into()
 }
 
+/// A provider-reported lifetime. Providers may omit the field, or answer with a
+/// non-positive value that means "not reported"; storing that as `now` would
+/// expire a healthy credential and mark its account for reconnect.
+fn provider_expiry_at(token: &Value, field: &str) -> Option<DateTime<Utc>> {
+    token
+        .get(field)
+        .and_then(Value::as_i64)
+        .filter(|seconds| *seconds > 0)
+        .map(|seconds| Utc::now() + Duration::seconds(seconds))
+}
+
 /// This account's scheduled refresh interval: 30 minutes plus a stable offset
 /// of up to 15 minutes derived from the last byte of its ID. The SQL in
 /// `refresh_due_provider_credentials` computes the same value.
@@ -370,7 +388,7 @@ pub async fn start(
         "INSERT INTO agent_connections
             (id, user_id, provider, status, account_label, plan, failure_message)
          VALUES ($1, $2, $3, 'pending', NULL, NULL, NULL)
-         RETURNING id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at",
+         RETURNING id, provider, status, availability_status, account_label, plan, failure_message, validation_url, created_at, updated_at",
     )
     .bind(connection_id)
     .bind(user_id)
@@ -474,7 +492,7 @@ async fn connect_api_key(
         "INSERT INTO agent_connections
             (id, user_id, provider, status, account_label, plan, failure_message)
          VALUES ($1, $2, $3, 'pending', NULL, NULL, NULL)
-         RETURNING id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at",
+         RETURNING id, provider, status, availability_status, account_label, plan, failure_message, validation_url, created_at, updated_at",
     )
     .bind(Uuid::new_v4())
     .bind(user_id)
@@ -529,7 +547,7 @@ async fn start_connection_reauthorization(
              failure_message = NULL,
              updated_at = NOW()
          WHERE id = $1
-         RETURNING id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at",
+         RETURNING id, provider, status, availability_status, account_label, plan, failure_message, validation_url, created_at, updated_at",
     )
     .bind(row.id)
     .fetch_one(&mut *transaction)
@@ -555,7 +573,7 @@ pub async fn list_connections(
 ) -> Result<Json<Vec<AgentConnection>>, ApiError> {
     let user_id = authenticated_user_id(&state, &jar).await?;
     let rows = sqlx::query_as::<_, ConnectionRow>(
-        "SELECT id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at
+        "SELECT id, provider, status, availability_status, account_label, plan, failure_message, validation_url, created_at, updated_at
          FROM agent_connections WHERE user_id = $1 ORDER BY created_at ASC",
     )
     .bind(user_id)
@@ -641,6 +659,47 @@ pub async fn refresh_connection(
     };
 
     Ok(Json(connection))
+}
+
+#[utoipa::path(
+    post,
+    path = "/agent-connections/{connection_id}/reset-credits",
+    params(("connection_id" = Uuid, Path, description = "Agent connection ID")),
+    responses(
+        (status = 204, description = "One banked ChatGPT reset credit was redeemed"),
+        (status = 401, description = "Hub login required", body = crate::ErrorResponse),
+        (status = 404, description = "Connection not found", body = crate::ErrorResponse),
+        (status = 422, description = "This account has no reset credits", body = crate::ErrorResponse),
+        (status = 502, description = "OpenAI reset credits are unavailable", body = crate::ErrorResponse)
+    ),
+    tag = "agent connections"
+)]
+pub async fn reset_connection_credits(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path(connection_id): Path<Uuid>,
+) -> Result<StatusCode, ApiError> {
+    let user_id = authenticated_user_id(&state, &jar).await?;
+    let row = owned_connection(&state, user_id, connection_id).await?;
+    if AgentConnectionStatus::from_str(&row.status)? != AgentConnectionStatus::Connected {
+        return Err(ApiError::Validation(
+            "Only a connected account can use reset credits.",
+        ));
+    }
+    if AgentProvider::from_str(&row.provider)? != AgentProvider::Chatgpt {
+        return Err(ApiError::Validation(
+            "Only ChatGPT accounts have reset credits.",
+        ));
+    }
+    let (_, token) = provider_credential(&state, connection_id).await?;
+    let Some(access_token) = token.get("access_token").and_then(Value::as_str) else {
+        return Err(ApiError::Provider(
+            "This account has no access token.".to_owned(),
+        ));
+    };
+    crate::usage::reset_chatgpt_credits(&state, &token, access_token).await?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[utoipa::path(
@@ -1282,14 +1341,8 @@ async fn finish_connection(
     let pending_owner_id = connection_owner_id(state, row.id).await?;
     let (credential_ciphertext, credential_nonce) =
         encrypt_json(&state.config.credential_encryption_key, &token)?;
-    let access_token_expires_at = token
-        .get("expires_in")
-        .and_then(Value::as_i64)
-        .map(|seconds| Utc::now() + Duration::seconds(seconds));
-    let refresh_token_expires_at = token
-        .get("refresh_token_expires_in")
-        .and_then(Value::as_i64)
-        .map(|seconds| Utc::now() + Duration::seconds(seconds));
+    let access_token_expires_at = provider_expiry_at(&token, "expires_in");
+    let refresh_token_expires_at = provider_expiry_at(&token, "refresh_token_expires_in");
     let mut transaction = state.pool.begin().await.map_err(database_error)?;
     let identity_lock = i64::from_be_bytes(
         Sha256::digest(account_identity.as_bytes())[..8]
@@ -1350,8 +1403,9 @@ async fn finish_connection(
     let updated = sqlx::query_as::<_, ConnectionRow>(
         "UPDATE agent_connections SET status = 'connected', account_label = $2, plan = $3,
           failure_message = NULL, availability_status = 'active', rate_limited_until = NULL,
-          retry_claimed_at = NULL, user_id = $4, updated_at = NOW() WHERE id = $1
-          RETURNING id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at",
+          retry_claimed_at = NULL, user_id = $4, validation_url = NULL,
+          updated_at = NOW() WHERE id = $1
+          RETURNING id, provider, status, availability_status, account_label, plan, failure_message, validation_url, created_at, updated_at",
     )
     .bind(target_id)
     .bind(account_label)
@@ -1736,6 +1790,40 @@ pub async fn refresh_stored_connection_metadata(state: &AppState) -> Result<u64,
     Ok(updated)
 }
 
+/// Drop authorization prompts no owner finished and settle their connections
+/// the way the polling path would have. A prompt left behind keeps its
+/// connection out of the recovery sweep, so an abandoned reconnect could
+/// otherwise leave an account reconnect-required with no way back.
+pub async fn expire_abandoned_authorizations(state: &AppState) -> Result<u64, sqlx::Error> {
+    let mut transaction = state.pool.begin().await?;
+    let expired = sqlx::query_scalar::<_, Uuid>(
+        "DELETE FROM agent_connection_authorizations
+         WHERE expires_at <= NOW()
+         RETURNING connection_id",
+    )
+    .fetch_all(&mut *transaction)
+    .await?;
+    if !expired.is_empty() {
+        sqlx::query(
+            "UPDATE agent_connections
+             SET status = CASE WHEN status = 'connected' THEN 'connected' ELSE 'failed' END,
+                 failure_message = CASE
+                     WHEN status <> 'connected' OR availability_status = 'reauth_required'
+                     THEN $2
+                     ELSE failure_message
+                 END,
+                 updated_at = NOW()
+             WHERE id = ANY($1)",
+        )
+        .bind(&expired)
+        .bind(EXPIRED_AUTHORIZATION_PROMPT_MESSAGE)
+        .execute(&mut *transaction)
+        .await?;
+    }
+    transaction.commit().await?;
+    Ok(expired.len() as u64)
+}
+
 /// Every minute: rotate OAuth credentials that have gone their 30-45 minute
 /// interval without a refresh, whether or not anyone is using them, and retry
 /// accounts the gateway marked for reconnect so a recovered provider session
@@ -1751,7 +1839,7 @@ pub async fn refresh_due_provider_credentials(
     let rows = sqlx::query_as::<_, ConnectionRow>(
         "SELECT connections.id, connections.provider, connections.status, connections.availability_status,
                 connections.account_label, connections.plan, connections.failure_message,
-                connections.created_at, connections.updated_at
+                connections.validation_url, connections.created_at, connections.updated_at
          FROM agent_connections AS connections
          JOIN agent_connection_credentials AS credentials
            ON credentials.connection_id = connections.id
@@ -1807,7 +1895,7 @@ pub async fn refresh_nightly_provider_credentials(
     let rows = sqlx::query_as::<_, ConnectionRow>(
         "SELECT connections.id, connections.provider, connections.status, connections.availability_status,
                 connections.account_label, connections.plan, connections.failure_message,
-                connections.created_at, connections.updated_at
+                connections.validation_url, connections.created_at, connections.updated_at
          FROM agent_connections AS connections
          JOIN agent_connection_credentials AS credentials
            ON credentials.connection_id = connections.id
@@ -1882,7 +1970,7 @@ pub async fn refresh_all_provider_credentials(
     state: &AppState,
 ) -> Result<Vec<ProviderCredentialRefreshResult>, sqlx::Error> {
     let rows = sqlx::query_as::<_, ConnectionRow>(
-        "SELECT id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at
+        "SELECT id, provider, status, availability_status, account_label, plan, failure_message, validation_url, created_at, updated_at
          FROM agent_connections WHERE status = 'connected' ORDER BY provider, created_at",
     )
     .fetch_all(&state.pool)
@@ -1949,7 +2037,7 @@ async fn finish_refresh_reauthorization(
              failure_message = $2, updated_at = NOW()
          WHERE id = $1 AND status = 'connected'
            AND availability_status <> 'reauth_required'
-         RETURNING id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at",
+         RETURNING id, provider, status, availability_status, account_label, plan, failure_message, validation_url, created_at, updated_at",
     )
     .bind(row.id)
     .bind(EXPIRED_PROVIDER_AUTHORIZATION_MESSAGE)
@@ -1988,7 +2076,7 @@ async fn finish_refresh_reauthorization(
                 .map_err(database_error)?;
             }
             sqlx::query_as::<_, ConnectionRow>(
-                "SELECT id, provider, status, availability_status, account_label, plan, failure_message,
+                "SELECT id, provider, status, availability_status, account_label, plan, failure_message, validation_url,
                         created_at, updated_at
                  FROM agent_connections WHERE id = $1",
             )
@@ -2002,16 +2090,15 @@ async fn finish_refresh_reauthorization(
     Ok(RefreshConnectionOutcome::ReauthorizationRequired(updated))
 }
 
+/// A refresh that failed after the provider answered still holds a rotated
+/// credential, so commit it: the provider has already invalidated the token it
+/// was given, and rolling the rotation back would leave a credential that can
+/// never be refreshed again.
 async fn finish_refresh_error(
     transaction: Transaction<'_, Postgres>,
-    mode: CredentialRefreshMode,
     error: ApiError,
 ) -> Result<RefreshConnectionOutcome, ApiError> {
-    if mode.records_scheduled_attempt() {
-        transaction.commit().await.map_err(database_error)?;
-    } else {
-        transaction.rollback().await.map_err(database_error)?;
-    }
+    transaction.commit().await.map_err(database_error)?;
     Err(error)
 }
 
@@ -2033,7 +2120,7 @@ async fn refresh_connected_connection(
     .map_err(database_error)?;
     let Some(credential) = credential else {
         let current = sqlx::query_as::<_, ConnectionRow>(
-            "SELECT id, provider, status, availability_status, account_label, plan, failure_message,
+            "SELECT id, provider, status, availability_status, account_label, plan, failure_message, validation_url,
                     created_at, updated_at
              FROM agent_connections WHERE id = $1 FOR UPDATE",
         )
@@ -2078,7 +2165,7 @@ async fn refresh_connected_connection(
                     .map(access_token_fingerprint)
                     == Some(observed)
             }
-            Err(error) => return finish_refresh_error(transaction, mode, error).await,
+            Err(error) => return finish_refresh_error(transaction, error).await,
         }
     } else {
         should_refresh_credential(
@@ -2121,7 +2208,7 @@ async fn refresh_connected_connection(
     ) {
         Ok(stored_token) => stored_token,
         Err(error) => {
-            return finish_refresh_error(transaction, mode, error).await;
+            return finish_refresh_error(transaction, error).await;
         }
     };
     let provider = AgentProvider::from_str(&row.provider)?;
@@ -2134,7 +2221,7 @@ async fn refresh_connected_connection(
             Err(ApiError::Validation(_)) => {
                 return finish_refresh_reauthorization(transaction, row, mode).await;
             }
-            Err(error) => return finish_refresh_error(transaction, mode, error).await,
+            Err(error) => return finish_refresh_error(transaction, error).await,
         }
         if mode.restores_availability() {
             restore_refreshed_availability(&mut transaction, row.id, mode).await?;
@@ -2158,26 +2245,41 @@ async fn refresh_connected_connection(
                 return finish_refresh_reauthorization(transaction, row, mode).await;
             }
             Err(ProviderRefreshError::Api(error)) => {
-                return finish_refresh_error(transaction, mode, error).await;
+                return finish_refresh_error(transaction, error).await;
             }
         };
-    let access_token_expires_at = refreshed
-        .get("expires_in")
-        .and_then(Value::as_i64)
-        .map(|seconds| Utc::now() + Duration::seconds(seconds));
-    let refresh_token_expires_at = refreshed
-        .get("refresh_token_expires_in")
-        .and_then(Value::as_i64)
-        .map(|seconds| Utc::now() + Duration::seconds(seconds))
+    let access_token_expires_at = provider_expiry_at(&refreshed, "expires_in");
+    let refresh_token_expires_at = provider_expiry_at(&refreshed, "refresh_token_expires_in")
         .or(credential.refresh_token_expires_at);
     let merged = merge_token_response(stored_token, refreshed);
     let (credential_ciphertext, credential_nonce) =
         match encrypt_json(&state.config.credential_encryption_key, &merged) {
             Ok(encrypted) => encrypted,
-            Err(error) => return finish_refresh_error(transaction, mode, error).await,
+            Err(error) => return finish_refresh_error(transaction, error).await,
         };
+    // The provider has already rotated the refresh token, so write it before
+    // the metadata lookup and the verification probe below: a rotation that is
+    // rolled back or lost to a kill can never be replayed at the provider, and
+    // the account would need its owner to reconnect.
+    sqlx::query(
+        "UPDATE agent_connection_credentials SET credential_ciphertext = $2,
+         credential_nonce = $3, access_token_expires_at = $4,
+         refresh_token_expires_at = $5, refresh_attempted_at = NOW(), updated_at = NOW()
+         WHERE connection_id = $1",
+    )
+    .bind(row.id)
+    .bind(credential_ciphertext)
+    .bind(credential_nonce)
+    .bind(access_token_expires_at)
+    .bind(refresh_token_expires_at)
+    .execute(&mut *transaction)
+    .await
+    .map_err(database_error)?;
+
     let (account_label, plan) = resolved_connection_metadata(state, provider, &merged).await;
-    let verification_probe = if provider == AgentProvider::Gemini && mode.restores_availability() {
+    let (verification_probe, validation_url) = if provider == AgentProvider::Gemini
+        && mode.restores_availability()
+    {
         match (
             merged.get("access_token").and_then(Value::as_str),
             merged
@@ -2185,13 +2287,22 @@ async fn refresh_connected_connection(
                 .and_then(Value::as_str),
         ) {
             (Some(access_token), Some(project)) => {
-                crate::gateway::probe_gemini_account_verification(state, access_token, project)
-                    .await
+                let probe =
+                    crate::gateway::probe_gemini_account_verification(state, access_token, project)
+                        .await;
+                let validation_url =
+                    if probe == crate::gateway::GeminiVerificationProbe::ReauthorizationRequired {
+                        crate::gateway::gemini_account_validation_url(state, access_token, project)
+                            .await
+                    } else {
+                        None
+                    };
+                (probe, validation_url)
             }
-            _ => crate::gateway::GeminiVerificationProbe::Inconclusive,
+            _ => (crate::gateway::GeminiVerificationProbe::Inconclusive, None),
         }
     } else {
-        crate::gateway::GeminiVerificationProbe::Verified
+        (crate::gateway::GeminiVerificationProbe::Verified, None)
     };
 
     let verification_required =
@@ -2199,6 +2310,8 @@ async fn refresh_connected_connection(
     let restores_availability = mode.restores_availability()
         && verification_probe == crate::gateway::GeminiVerificationProbe::Verified;
     if mode.records_scheduled_attempt() {
+        // The rotated credential is already written, so a failure from here on
+        // may roll back the connection state alone.
         sqlx::query("SAVEPOINT scheduled_credential_persistence")
             .execute(&mut *transaction)
             .await
@@ -2206,25 +2319,12 @@ async fn refresh_connected_connection(
     }
     let persistence = async {
         sqlx::query(
-            "UPDATE agent_connection_credentials SET credential_ciphertext = $2,
-         credential_nonce = $3, access_token_expires_at = $4,
-         refresh_token_expires_at = $5, refresh_attempted_at = NOW(), updated_at = NOW()
-         WHERE connection_id = $1",
-        )
-        .bind(row.id)
-        .bind(credential_ciphertext)
-        .bind(credential_nonce)
-        .bind(access_token_expires_at)
-        .bind(refresh_token_expires_at)
-        .execute(&mut *transaction)
-        .await
-        .map_err(database_error)?;
-        sqlx::query(
             "UPDATE agent_connections SET
             account_label = COALESCE($2, account_label),
             plan = COALESCE($3, plan),
             availability_status = CASE WHEN $4 THEN 'reauth_required' ELSE availability_status END,
             failure_message = CASE WHEN $4 THEN $5 ELSE failure_message END,
+            validation_url = CASE WHEN $4 THEN COALESCE($6, validation_url) ELSE NULL END,
             updated_at = NOW()
          WHERE id = $1",
         )
@@ -2233,6 +2333,7 @@ async fn refresh_connected_connection(
         .bind(plan)
         .bind(verification_required)
         .bind(ACCOUNT_VERIFICATION_REQUIRED_MESSAGE)
+        .bind(validation_url)
         .execute(&mut *transaction)
         .await
         .map_err(database_error)?;
@@ -2249,7 +2350,7 @@ async fn refresh_connected_connection(
                 .await
                 .map_err(database_error)?;
         }
-        return finish_refresh_error(transaction, mode, error).await;
+        return finish_refresh_error(transaction, error).await;
     }
     transaction.commit().await.map_err(database_error)?;
     let updated = owned_connection_by_id(state, row.id).await?;
@@ -2520,12 +2621,14 @@ pub(crate) async fn mark_gemini_verification_required(
     state: &AppState,
     connection_id: Uuid,
     observed_access_token: &str,
+    validation_url: Option<&str>,
 ) -> Result<bool, ApiError> {
     mark_reauthorization_required_if_current(
         state,
         connection_id,
         observed_access_token,
         ACCOUNT_VERIFICATION_REQUIRED_MESSAGE,
+        validation_url,
     )
     .await
 }
@@ -2539,6 +2642,7 @@ pub(crate) async fn mark_reauthorization_required_if_current(
     connection_id: Uuid,
     observed_access_token: &str,
     message: &'static str,
+    validation_url: Option<&str>,
 ) -> Result<bool, ApiError> {
     let mut transaction = state.pool.begin().await.map_err(database_error)?;
     let credential = sqlx::query_as::<_, CredentialRow>(
@@ -2566,12 +2670,14 @@ pub(crate) async fn mark_reauthorization_required_if_current(
     let marked = sqlx::query_scalar::<_, String>(
         "UPDATE agent_connections
          SET availability_status = 'reauth_required', rate_limited_until = NULL,
-             retry_claimed_at = NULL, failure_message = $2, updated_at = NOW()
+             retry_claimed_at = NULL, failure_message = $2,
+             validation_url = COALESCE($3, validation_url), updated_at = NOW()
          WHERE id = $1 AND status = 'connected'
          RETURNING provider",
     )
     .bind(connection_id)
     .bind(message)
+    .bind(validation_url)
     .fetch_optional(&mut *transaction)
     .await
     .map_err(database_error)?;
@@ -2727,7 +2833,7 @@ async fn fail_connection(
              END,
              updated_at = NOW()
          WHERE id = $1
-         RETURNING id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at",
+         RETURNING id, provider, status, availability_status, account_label, plan, failure_message, validation_url, created_at, updated_at",
     )
     .bind(row.id)
     .bind(message)
@@ -2743,7 +2849,7 @@ async fn owned_connection(
     connection_id: Uuid,
 ) -> Result<ConnectionRow, ApiError> {
     sqlx::query_as::<_, ConnectionRow>(
-        "SELECT id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at
+        "SELECT id, provider, status, availability_status, account_label, plan, failure_message, validation_url, created_at, updated_at
          FROM agent_connections WHERE id = $1 AND user_id = $2",
     )
     .bind(connection_id)
@@ -2759,7 +2865,7 @@ async fn owned_connection_by_id(
     connection_id: Uuid,
 ) -> Result<ConnectionRow, ApiError> {
     sqlx::query_as::<_, ConnectionRow>(
-        "SELECT id, provider, status, availability_status, account_label, plan, failure_message, created_at, updated_at
+        "SELECT id, provider, status, availability_status, account_label, plan, failure_message, validation_url, created_at, updated_at
          FROM agent_connections WHERE id = $1",
     )
     .bind(connection_id)
@@ -2824,6 +2930,7 @@ fn connection_from_row(
         provider: AgentProvider::from_str(&row.provider)?,
         status: AgentConnectionStatus::from_str(&row.status)?,
         updated_at: row.updated_at,
+        validation_url: row.validation_url,
     })
 }
 
@@ -3022,18 +3129,19 @@ mod tests {
     use tokio::net::TcpListener;
 
     use super::{
-        ANTIGRAVITY_CLIENT_VERSION, AgentProvider, AuthorizationSecret, CODEX_REDIRECT_URI,
-        CODEX_SCOPES, CredentialRefreshMode, GEMINI_SCOPES, GROK_SCOPES, connection_metadata,
+        ACCOUNT_VERIFICATION_REQUIRED_MESSAGE, ANTIGRAVITY_CLIENT_VERSION, AgentProvider,
+        AuthorizationSecret, CODEX_REDIRECT_URI, CODEX_SCOPES, CredentialRefreshMode,
+        GEMINI_SCOPES, GROK_SCOPES, RECOVERABLE_REAUTHORIZATION_MESSAGES, connection_metadata,
         decrypt_json, encrypt_json, exchange_gemini_code, fetch_claude_profile,
         gemini_code_assist_body, mask_account_label, merge_token_response, parse_callback_value,
-        provider_account_identity, reauthorization_identity_matches, refresh_provider_token,
-        refresh_requires_reauthorization, scheduled_refresh_after, should_refresh_credential,
-        start_claude_authorization, start_codex_authorization, start_gemini_authorization,
-        start_grok_authorization, token_claims, validate_api_key_input, validate_prompt_url,
-        validate_static_key,
+        provider_account_identity, provider_expiry_at, reauthorization_identity_matches,
+        refresh_provider_token, refresh_requires_reauthorization, scheduled_refresh_after,
+        should_refresh_credential, start_claude_authorization, start_codex_authorization,
+        start_gemini_authorization, start_grok_authorization, token_claims, validate_api_key_input,
+        validate_prompt_url, validate_static_key,
     };
     use crate::AppConfig;
-    use chrono::Duration;
+    use chrono::{Duration, Utc};
     use uuid::Uuid;
 
     #[test]
@@ -3782,5 +3890,48 @@ mod tests {
             now,
             now,
         ));
+    }
+
+    #[test]
+    fn provider_reported_lifetime_must_be_positive() {
+        let now = Utc::now();
+
+        assert!(
+            provider_expiry_at(&json!({ "expires_in": 3600 }), "expires_in")
+                .is_some_and(|expires_at| expires_at > now + Duration::minutes(59))
+        );
+        assert_eq!(
+            provider_expiry_at(
+                &json!({ "refresh_token_expires_in": 0 }),
+                "refresh_token_expires_in"
+            ),
+            None
+        );
+        assert_eq!(
+            provider_expiry_at(
+                &json!({ "refresh_token_expires_in": -60 }),
+                "refresh_token_expires_in"
+            ),
+            None
+        );
+        assert_eq!(
+            provider_expiry_at(&json!({}), "refresh_token_expires_in"),
+            None
+        );
+        assert_eq!(
+            provider_expiry_at(&json!({ "expires_in": "3600" }), "expires_in"),
+            None
+        );
+    }
+
+    #[test]
+    fn a_verification_challenge_is_recoverable_by_the_sweep() {
+        let mode = CredentialRefreshMode::Recover(Duration::minutes(30));
+
+        assert!(mode.records_scheduled_attempt());
+        assert!(mode.restores_availability());
+        assert!(
+            RECOVERABLE_REAUTHORIZATION_MESSAGES.contains(&ACCOUNT_VERIFICATION_REQUIRED_MESSAGE)
+        );
     }
 }

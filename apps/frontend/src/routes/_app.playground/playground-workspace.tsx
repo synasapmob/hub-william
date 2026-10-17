@@ -2,7 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { tv } from "tailwind-variants";
 import type { UseFormReturn } from "react-hook-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUp, FlaskConical, Paperclip, Square, X } from "lucide-react";
+import {
+  ArrowUp,
+  ExternalLink,
+  FlaskConical,
+  Paperclip,
+  Square,
+  X,
+} from "lucide-react";
 
 import AgentsProviderIcon from "@/components/agents-provider-icon";
 import { Button } from "@/components/ui/button";
@@ -155,6 +162,7 @@ export default function PlaygroundWorkspace({
           accountLabel: agent.accountLabel ?? "Connected account",
           availabilityStatus: agent.availabilityStatus,
           provider: agent.provider.toLowerCase(),
+          validationUrl: undefined,
         }),
       )
     : (poolQuery.data ?? [])
@@ -170,6 +178,7 @@ export default function PlaygroundWorkspace({
           provider: providerIds.find(
             (id) => providers[id].label === pool.agent,
           ),
+          validationUrl: pool.availability.validationUrl,
         }));
   const availableProviderIds = providerIds.filter(
     (id) =>
@@ -218,6 +227,9 @@ export default function PlaygroundWorkspace({
   // account of this provider in the same scope when it cannot. Only a scope
   // where every such account needs reconnect has nothing left to try.
   const needsReconnect = selectedNeedsReconnect && !hasUsableAccount;
+  // Only the account owner can clear a provider verification, so offer the
+  // provider's own link where the reconnect is reported.
+  const validationUrl = selectedAccount?.validationUrl;
   const reconnectMessage = !selectedNeedsReconnect
     ? null
     : needsReconnect
@@ -776,6 +788,15 @@ export default function PlaygroundWorkspace({
                 >
                   Refresh account status
                 </Button>
+
+                {validationUrl ? (
+                  <Button asChild size="sm" variant="outline">
+                    <a href={validationUrl} rel="noreferrer" target="_blank">
+                      Verify with Google
+                      <ExternalLink aria-hidden="true" />
+                    </a>
+                  </Button>
+                ) : null}
               </div>
             ) : null}
           </section>

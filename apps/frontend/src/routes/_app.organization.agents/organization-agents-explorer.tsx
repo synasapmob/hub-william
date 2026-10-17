@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Search, Trash2, X } from "lucide-react";
+import { ExternalLink, Search, Trash2, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { tv } from "tailwind-variants";
 
@@ -70,6 +70,7 @@ interface OrganizationAgentsExplorerProps {
   onRefresh: (id: string) => Promise<AgentConnection>;
   onRefreshComplete: (connection: AgentConnection) => void;
   onRemove: (id: string) => void;
+  onResetCredits: (id: string) => Promise<void>;
   organizationId: string;
   refreshing: boolean;
   removeError: string | null;
@@ -88,6 +89,7 @@ export default function OrganizationAgentsExplorer({
   onRefresh,
   onRefreshComplete,
   onRemove,
+  onResetCredits,
   organizationId,
   refreshing,
   removeError,
@@ -352,6 +354,11 @@ export default function OrganizationAgentsExplorer({
               <div className="space-y-5 p-5">
                 {agentProviderShowsUsage(agentProvider(selectedAgent)) ? (
                   <AgentsUsageMetrics
+                    onResetCredits={
+                      ownsSelectedAgent
+                        ? () => onResetCredits(selectedAgent.id)
+                        : undefined
+                    }
                     provider={agentProvider(selectedAgent)}
                     usage={selectedAgent.usage}
                   />
@@ -446,6 +453,21 @@ export default function OrganizationAgentsExplorer({
                       onRefresh={() => onRefresh(selectedAgent.id)}
                       onRefreshComplete={onRefreshComplete}
                     />
+                  ) : null}
+
+                  {ownsSelectedAgent &&
+                  selectedAgent.availabilityStatus === "reauth_required" &&
+                  selectedAgent.validationUrl ? (
+                    <Button asChild size="sm" variant="outline">
+                      <a
+                        href={selectedAgent.validationUrl}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        Verify with Google
+                        <ExternalLink aria-hidden="true" />
+                      </a>
+                    </Button>
                   ) : null}
 
                   {removeError && removeErrorId === selectedAgent.id ? (

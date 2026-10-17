@@ -50,13 +50,13 @@ pub use connections::{
     AgentConnection, AgentConnectionStatus, AgentProvider, CompleteAuthorizationRequest,
     ConnectDeepseekRequest, ConnectGroqRequest, ProviderCredentialRefreshResult,
     ProviderCredentialRefreshStatus, ProviderCredentialRefreshSummary, StartAgentConnectionRequest,
-    refresh_all_provider_credentials, refresh_due_provider_credentials,
-    refresh_nightly_provider_credentials, refresh_stored_connection_metadata,
-    stop_credential_sweeps, wait_for_credential_refreshes,
+    expire_abandoned_authorizations, refresh_all_provider_credentials,
+    refresh_due_provider_credentials, refresh_nightly_provider_credentials,
+    refresh_stored_connection_metadata, stop_credential_sweeps, wait_for_credential_refreshes,
 };
 use connections::{
     complete_authorization, connect_deepseek, connect_groq, disconnect, get_connection,
-    list_connections, refresh_connection, start,
+    list_connections, refresh_connection, reset_connection_credits, start,
 };
 pub use error::ErrorResponse;
 pub use gateway::{CreatedGatewayKey, GatewayKey};
@@ -291,6 +291,10 @@ pub fn app(state: AppState) -> Router {
         .route(
             "/agent-connections/{connection_id}/refresh",
             post(refresh_connection),
+        )
+        .route(
+            "/agent-connections/{connection_id}/reset-credits",
+            post(reset_connection_credits),
         )
         .route("/gateway-keys", get(list_keys).post(create_key))
         .route("/gateway-keys/{key_id}", axum::routing::delete(revoke_key))

@@ -1,9 +1,10 @@
-import { ChevronDown, Users, X } from "lucide-react";
+import { ChevronDown, ExternalLink, ShieldAlert, Users, X } from "lucide-react";
 import { tv } from "tailwind-variants";
 
 import AgentsProviderIcon from "@/components/agents-provider-icon";
 import AgentsUsageMetrics from "@/components/agents-usage-metrics";
 import Flex from "@/components/ui/flex";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import agentPoolsService, { type AgentPool } from "@/services/agent-pools";
@@ -26,6 +27,7 @@ interface AgentsPoolCardProps {
   onCheckRequests: (pool: AgentPool) => void;
   onClose: () => void;
   onRequestJoin: (pool: AgentPool) => void;
+  onResetCredits?: () => Promise<void>;
   pool: AgentPool;
 }
 
@@ -34,11 +36,19 @@ export default function AgentsPoolCard({
   onCheckRequests,
   onClose,
   onRequestJoin,
+  onResetCredits,
   pool,
 }: AgentsPoolCardProps) {
   const showUsage = agentProviderShowsUsage(pool.agent);
   const access = agentPoolAccess(pool, currentUsername);
   const actionDisabled = access !== "owner" && access !== "request";
+
+  // The provider asked for verification, so only the account owner can clear
+  // this state and the link it sent is the way to do it.
+  const validationUrl =
+    pool.availability.status === "reauth_required"
+      ? pool.availability.validationUrl
+      : undefined;
 
   return (
     <article
@@ -86,8 +96,32 @@ export default function AgentsPoolCard({
       </header>
 
       <div className="space-y-5 p-5">
+        {validationUrl ? (
+          <Alert>
+            <ShieldAlert aria-hidden="true" />
+            <AlertTitle>Verify this account with Google</AlertTitle>
+            <AlertDescription className="space-y-2">
+              <p>
+                Google asked for account verification, so this account cannot
+                serve requests until its owner completes it.
+              </p>
+
+              <Button asChild size="sm" variant="outline">
+                <a href={validationUrl} rel="noreferrer" target="_blank">
+                  Verify with Google
+                  <ExternalLink aria-hidden="true" />
+                </a>
+              </Button>
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
         {showUsage ? (
-          <AgentsUsageMetrics provider={pool.agent} usage={pool.usage} />
+          <AgentsUsageMetrics
+            onResetCredits={onResetCredits}
+            provider={pool.agent}
+            usage={pool.usage}
+          />
         ) : null}
 
         <details className={memberSection({ afterUsage: showUsage })}>

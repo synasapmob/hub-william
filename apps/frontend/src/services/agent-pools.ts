@@ -12,6 +12,7 @@ export type AgentPoolAvailabilityStatus =
 export interface AgentPoolAvailability {
   retryAt?: string;
   status: AgentPoolAvailabilityStatus;
+  validationUrl?: string;
 }
 
 export interface AgentPoolShareEvidence {
@@ -144,6 +145,7 @@ function poolFromApi(pool: ApiAgentPool): AgentPool {
     availability: {
       retryAt: pool.availability.retry_at ?? undefined,
       status: pool.availability.status,
+      validationUrl: pool.availability.validation_url ?? undefined,
     },
     capacity: pool.capacity,
     createdAt: pool.created_at,
