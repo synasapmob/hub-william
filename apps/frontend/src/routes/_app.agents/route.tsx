@@ -83,6 +83,11 @@ export default function AgentsRoute() {
     mutationFn: (poolId: string) => agentConnectionsService.refresh(poolId),
     onSuccess: refreshAgentData,
   });
+  const resetCreditsMutation = useMutation({
+    mutationFn: (poolId: string) =>
+      agentConnectionsService.resetCredits(poolId),
+    onSuccess: refreshAgentData,
+  });
   const deletePoolMutation = useMutation({
     mutationFn: (poolId: string) => agentConnectionsService.disconnect(poolId),
     onSuccess: async () => {
@@ -240,6 +245,7 @@ export default function AgentsRoute() {
           currentUsername={session.user?.username ?? null}
           onCheckRequests={(selectedPool) => setReviewPoolId(selectedPool.id)}
           onRequestJoin={requestJoin}
+          onResetCredits={(poolId) => resetCreditsMutation.mutateAsync(poolId)}
           pools={pools}
         />
       </Flex>

@@ -70,6 +70,7 @@ interface OrganizationAgentsExplorerProps {
   onRefresh: (id: string) => Promise<AgentConnection>;
   onRefreshComplete: (connection: AgentConnection) => void;
   onRemove: (id: string) => void;
+  onResetCredits: (id: string) => Promise<void>;
   organizationId: string;
   refreshing: boolean;
   removeError: string | null;
@@ -88,6 +89,7 @@ export default function OrganizationAgentsExplorer({
   onRefresh,
   onRefreshComplete,
   onRemove,
+  onResetCredits,
   organizationId,
   refreshing,
   removeError,
@@ -352,6 +354,11 @@ export default function OrganizationAgentsExplorer({
               <div className="space-y-5 p-5">
                 {agentProviderShowsUsage(agentProvider(selectedAgent)) ? (
                   <AgentsUsageMetrics
+                    onResetCredits={
+                      ownsSelectedAgent
+                        ? () => onResetCredits(selectedAgent.id)
+                        : undefined
+                    }
                     provider={agentProvider(selectedAgent)}
                     usage={selectedAgent.usage}
                   />

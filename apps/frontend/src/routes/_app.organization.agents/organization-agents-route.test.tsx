@@ -432,6 +432,7 @@ describe("Organization Agents", () => {
           onRefresh={vi.fn()}
           onRefreshComplete={vi.fn()}
           onRemove={vi.fn()}
+          onResetCredits={vi.fn()}
           organizationId={organization.id}
           refreshing={false}
           removeError={null}
@@ -492,6 +493,7 @@ describe("Organization Agents", () => {
           onRefresh={vi.fn()}
           onRefreshComplete={vi.fn()}
           onRemove={vi.fn()}
+          onResetCredits={vi.fn()}
           organizationId={organization.id}
           refreshing={false}
           removeError={null}
@@ -686,6 +688,39 @@ describe("Organization Agents", () => {
       expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true);
     }
     expect(queryClient.getQueryState(pollingKey)?.isInvalidated).toBe(false);
+  });
+
+  it("lets the connection owner spend a ChatGPT reset credit from the organization", async () => {
+    const resetCredits = vi
+      .spyOn(agentConnectionsService, "resetCredits")
+      .mockResolvedValue();
+    vi.spyOn(organizationsService, "agents").mockResolvedValue([
+      {
+        ...linkedAgent,
+        accountLabel: "chatgpt-account",
+        plan: "Plus",
+        provider: "chatgpt",
+        usage: [
+          {
+            detail: "Resets in 5d 13h",
+            label: "Reset credits",
+            value: "2 available",
+          },
+        ],
+      },
+    ]);
+    vi.spyOn(organizationsService, "usage").mockResolvedValue(emptyUsage);
+    renderOrganizationAgents({ username: "minh" });
+
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Open ChatGPT account chatgpt-account",
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "Reset" }));
+
+    expect(resetCredits).toHaveBeenCalledWith(connection.id);
   });
 
   it("finishes provider reauthorization from the organization when refresh requires it", async () => {

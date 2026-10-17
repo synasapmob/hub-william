@@ -1,13 +1,18 @@
 use chrono::{DateTime, Utc};
-use serde_json::Value;
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::{
     AgentPoolUsageMetric, AgentProvider, AppState, connections::provider_credential,
-    gateway::chatgpt_account_id,
+    error::ApiError, gateway::chatgpt_account_id,
 };
 
+const CHATGPT_BACKEND_URL: &str = "https://chatgpt.com/backend-api";
 const USAGE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
+const RESET_CREDITS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// A retried redeem for the same credit must reuse its request ID so OpenAI
+/// returns the original outcome instead of spending another credit.
+const CODEX_RESET_NAMESPACE: Uuid = Uuid::from_u128(0x2fe186a4_5650_4da7_bf01_7f549fa28e6a);
 
 #[derive(Debug, Default)]
 pub struct ConnectionUsage {
@@ -128,6 +133,87 @@ async fn chatgpt_usage(state: &AppState, token: &Value, access_token: &str) -> C
     parsed.into_connection_usage()
 }
 
+/// Redeem the banked ChatGPT reset credit that expires first. OpenAI clears the
+/// account's rate-limit windows and marks that credit redeemed.
+pub async fn reset_chatgpt_credits(
+    state: &AppState,
+    token: &Value,
+    access_token: &str,
+) -> Result<(), ApiError> {
+    let credits = chatgpt_reset_credit_payload(state, token, access_token).await?;
+    let Some(credit_id) = select_chatgpt_reset_credit(&credits) else {
+        return Err(ApiError::Validation(
+            "This account has no reset credits available.",
+        ));
+    };
+    let mut request = state
+        .http
+        .post(format!(
+            "{CHATGPT_BACKEND_URL}/wham/rate-limit-reset-credits/consume"
+        ))
+        .bearer_auth(access_token)
+        .header(
+            "user-agent",
+            format!("codex_cli_rs/{}", state.config.codex_client_version),
+        )
+        .header("originator", "codex_cli_rs")
+        .json(&json!({
+            "credit_id": credit_id,
+            "redeem_request_id": codex_redeem_request_id(&credit_id),
+        }));
+    if let Some(account_id) = chatgpt_account_id(token) {
+        request = request.header("chatgpt-account-id", account_id);
+    }
+    let response = request
+        .timeout(RESET_CREDITS_TIMEOUT)
+        .send()
+        .await
+        .map_err(|_| ApiError::Provider("OpenAI reset credits are unreachable.".to_owned()))?;
+    if !response.status().is_success() {
+        return Err(ApiError::Provider(format!(
+            "OpenAI refused to reset this account's limits (HTTP {}).",
+            response.status()
+        )));
+    }
+    Ok(())
+}
+
+async fn chatgpt_reset_credit_payload(
+    state: &AppState,
+    token: &Value,
+    access_token: &str,
+) -> Result<Value, ApiError> {
+    let mut request = state
+        .http
+        .get(format!(
+            "{CHATGPT_BACKEND_URL}/wham/rate-limit-reset-credits"
+        ))
+        .bearer_auth(access_token)
+        .header(
+            "user-agent",
+            format!("codex_cli_rs/{}", state.config.codex_client_version),
+        )
+        .header("originator", "codex_cli_rs");
+    if let Some(account_id) = chatgpt_account_id(token) {
+        request = request.header("chatgpt-account-id", account_id);
+    }
+    let response = request
+        .timeout(RESET_CREDITS_TIMEOUT)
+        .send()
+        .await
+        .map_err(|_| ApiError::Provider("OpenAI reset credits are unreachable.".to_owned()))?;
+    if !response.status().is_success() {
+        return Err(ApiError::Provider(format!(
+            "OpenAI reset credits returned HTTP {}.",
+            response.status()
+        )));
+    }
+    response
+        .json::<Value>()
+        .await
+        .map_err(|_| ApiError::Provider("OpenAI reset credits could not be read.".to_owned()))
+}
+
 async fn claude_usage(state: &AppState, access_token: &str) -> ConnectionUsage {
     let request = state
         .http
@@ -225,6 +311,30 @@ pub(crate) fn parse_chatgpt_reset_credits(body: &Value) -> Vec<AgentPoolUsageMet
         &format!("{count} available"),
         soonest.map(resets_in),
     )]
+}
+
+fn codex_redeem_request_id(credit_id: &str) -> String {
+    Uuid::new_v5(&CODEX_RESET_NAMESPACE, credit_id.as_bytes()).to_string()
+}
+
+/// The credit a reset spends: available, not expired, and the soonest to
+/// expire so the owner does not lose a credit that would lapse first.
+fn select_chatgpt_reset_credit(body: &Value) -> Option<String> {
+    let now = Utc::now();
+    body.get("credits")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|credit| credit.get("status").and_then(Value::as_str) == Some("available"))
+        .filter_map(|credit| {
+            let id = credit.get("id").and_then(Value::as_str)?.to_owned();
+            let expires_at = parse_reset_at(credit.get("expires_at").or(credit.get("expiresAt")));
+            Some((expires_at, id))
+        })
+        .filter(|(expires_at, _)| expires_at.is_none_or(|expires_at| expires_at > now))
+        .map(|(expires_at, id)| (expires_at.is_none(), expires_at, id))
+        .min()
+        .map(|(_, _, id)| id)
 }
 
 fn parse_claude(body: &Value) -> ParsedUsage {
@@ -502,8 +612,12 @@ fn unavailable(detail: &str) -> AgentPoolUsageMetric {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_chatgpt, parse_chatgpt_reset_credits, parse_claude, parse_grok};
+    use super::{
+        codex_redeem_request_id, parse_chatgpt, parse_chatgpt_reset_credits, parse_claude,
+        parse_grok, select_chatgpt_reset_credit,
+    };
     use serde_json::json;
+    use uuid::Uuid;
 
     #[test]
     fn chatgpt_windows_are_labeled_by_duration_not_slot() {
@@ -560,6 +674,41 @@ mod tests {
         }));
         assert_eq!(credits[0].label, "Reset credits");
         assert_eq!(credits[0].value, "2 available");
+    }
+
+    #[test]
+    fn chatgpt_reset_spends_the_soonest_unexpired_available_credit() {
+        let body = json!({
+            "available_count": 3,
+            "credits": [
+                { "id": "later", "status": "available", "expires_at": "2030-01-03T00:00:00Z" },
+                { "id": "redeemed", "status": "redeemed", "expires_at": "2029-01-01T00:00:00Z" },
+                { "id": "soon", "status": "available", "expires_at": "2030-01-01T00:00:00Z" },
+                { "id": "no-expiry", "status": "available" },
+                { "id": "expired", "status": "available", "expires_at": "2020-01-01T00:00:00Z" }
+            ]
+        });
+
+        assert_eq!(select_chatgpt_reset_credit(&body).as_deref(), Some("soon"));
+    }
+
+    #[test]
+    fn chatgpt_reset_has_no_target_when_no_credit_is_available() {
+        let body = json!({
+            "available_count": 0,
+            "credits": [{ "id": "redeemed", "status": "redeemed" }]
+        });
+
+        assert_eq!(select_chatgpt_reset_credit(&body), None);
+    }
+
+    #[test]
+    fn chatgpt_reset_request_id_is_stable_per_credit() {
+        let first = codex_redeem_request_id("credit-1");
+
+        assert_eq!(first, codex_redeem_request_id("credit-1"));
+        assert_ne!(first, codex_redeem_request_id("credit-2"));
+        assert!(Uuid::parse_str(&first).is_ok());
     }
 
     #[test]

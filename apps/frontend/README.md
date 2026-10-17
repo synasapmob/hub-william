@@ -9,7 +9,9 @@ its conversation only while the page remains open. Organization routes show
 Overview, Agents, Members and Usage for the selected team.
 Organization Agents uses the Workspace provider/account explorer. Its detail
 dialog shows quota only for supported providers and 30-day organization usage
-only for accounts with recorded requests. Members and owners can use Connect
+only for accounts with recorded requests. An account owner can spend one of the
+ChatGPT account's banked reset credits from the usage section; the action stays
+visible but disabled when none are available. Members and owners can use Connect
 Agent to share an existing account or connect and share a new one with the team.
 Organization creation accepts an optional description of up to 350 characters.
 My organizations, beside New organization, lists your teams with their owner,
