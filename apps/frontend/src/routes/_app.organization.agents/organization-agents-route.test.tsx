@@ -702,6 +702,11 @@ describe("Organization Agents", () => {
         provider: "chatgpt",
         usage: [
           {
+            detail: "Resets in 2h",
+            label: "5-hour limit",
+            value: "0% remaining",
+          },
+          {
             detail: "Resets in 5d 13h",
             label: "Reset credits",
             value: "2 available",
@@ -721,6 +726,8 @@ describe("Organization Agents", () => {
     await user.click(screen.getByRole("button", { name: "Reset" }));
 
     expect(resetCredits).toHaveBeenCalledWith(connection.id);
+    expect(await screen.findByText("100% remaining")).toBeVisible();
+    expect(screen.getByText("1 available")).toBeVisible();
   });
 
   it("finishes provider reauthorization from the organization when refresh requires it", async () => {
