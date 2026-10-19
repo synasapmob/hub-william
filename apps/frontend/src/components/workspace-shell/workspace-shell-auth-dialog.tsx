@@ -17,8 +17,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { AuthServiceError } from "@/services/auth";
-import type { LoginCredentials, RegisterCredentials } from "@/services/auth";
+import { AuthServiceError } from "@/services/auth/auth-service";
+import type {
+  LoginCredentials,
+  RegisterCredentials,
+} from "@/services/auth/auth-types";
 
 export type WorkspaceShellAuthMode = "login" | "register";
 

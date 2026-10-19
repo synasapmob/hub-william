@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import playgroundService from "./index";
+import { playgroundService } from "./playground-service";
 import playgroundVoiceService, {
   type PlaygroundVoiceStartOptions,
 } from "./playground-voice";

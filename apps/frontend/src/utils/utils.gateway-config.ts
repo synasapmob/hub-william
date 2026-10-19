@@ -1,4 +1,4 @@
-import providerCatalogue from "@/services/provider-catalogue";
+import { providerCatalogueService } from "@/services/provider-catalogue/provider-catalogue-service";
 
 /**
  * Agent config the gateway installer writes, as copyable snippets.
@@ -53,7 +53,7 @@ export function gatewayAgentConfigs(
 ): GatewayAgentConfig[] {
   const origin = gatewayOrigin.replace(/\/$/, "");
   const key = options.key ?? GATEWAY_KEY_PLACEHOLDER;
-  return providerCatalogue
+  return providerCatalogueService
     .list("installers")
     .flatMap((provider): GatewayAgentConfig[] => {
       const client = provider.native_cli;

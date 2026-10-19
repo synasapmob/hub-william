@@ -1,4 +1,5 @@
-import playgroundService, { type PlaygroundProviderId } from "./index";
+import { playgroundService } from "./playground-service";
+import type { PlaygroundProviderId } from "./playground-types";
 import type {
   PlaygroundLocalTts,
   PlaygroundSpeechAudio,

@@ -1,6 +1,6 @@
 import { createContext, useContext } from "react";
 
-import type { AuthenticatedUser } from "@/services/auth";
+import type { AuthenticatedUser } from "@/services/auth/auth-types";
 
 export type WorkspaceSessionStatus = "authenticated" | "guest" | "loading";
 

@@ -9,8 +9,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import organizationsService from "@/services/organizations";
-import type { Organization } from "@/services/organizations";
+import { organizationsService } from "@/services/organizations/organizations-service";
+import type { Organization } from "@/services/organizations/organizations-types";
 
 // An owner removing an organization deletes it for everyone; anyone else only
 // leaves it. The confirmation says which of the two is about to happen.

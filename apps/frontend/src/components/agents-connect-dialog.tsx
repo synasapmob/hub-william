@@ -40,18 +40,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useWorkspaceSession } from "@/components/workspace-shell/workspace-shell-session-context";
-import agentConnectionsService, {
-  AgentConnectionServiceError,
-  type AgentConnection,
-  type AgentProvider,
-} from "@/services/agent-connections";
-import agentPoolsService from "@/services/agent-pools";
-import organizationsService from "@/services/organizations";
-import playgroundService from "@/services/playground";
+import {
+  AgentServiceError,
+  agentService,
+} from "@/services/agent/agent-service";
+import type {
+  AgentConnection,
+  AgentProviderId,
+} from "@/services/agent/agent-types";
+import { organizationsService } from "@/services/organizations/organizations-service";
+import { playgroundService } from "@/services/playground/playground-service";
 import { agentAvailabilityStatusLabel } from "@/utils/utils.agent-pools";
 
-import providerCatalogue from "@/services/provider-catalogue";
-import type { ApiKeyProviderId } from "@/services/provider-catalogue.generated";
+import { providerCatalogueService } from "@/services/provider-catalogue/provider-catalogue-service";
+import type { ApiKeyProviderId } from "@/services/provider-catalogue/provider-catalogue.generated";
 
 interface ConnectionFormValues {
   apiKey: string;
@@ -67,8 +69,8 @@ interface AgentsConnectDialogProps {
 interface AgentProviderOptionProps {
   disabled: boolean;
   label: string;
-  onConnect: (provider: AgentProvider) => void;
-  provider: AgentProvider;
+  onConnect: (provider: AgentProviderId) => void;
+  provider: AgentProviderId;
 }
 
 interface CompleteConnectionVariables {
@@ -76,14 +78,16 @@ interface CompleteConnectionVariables {
   connectionId: string;
 }
 
-const providers = providerCatalogue.list("connect").map((provider) => ({
+const providers = providerCatalogueService.list("connect").map((provider) => ({
   label: provider.connect_label,
   provider: provider.id,
 }));
 
 const apiKeyProviders = new Intl.ListFormat("en-GB").format(
   providers
-    .filter((option) => providerCatalogue.isApiKeyProvider(option.provider))
+    .filter((option) =>
+      providerCatalogueService.isApiKeyProvider(option.provider),
+    )
     .map((option) => option.label),
 );
 
@@ -109,7 +113,7 @@ function AgentProviderOption({
           <span>{label}</span>
         </Flex>
 
-        {providerCatalogue.isApiKeyProvider(provider) ? (
+        {providerCatalogueService.isApiKeyProvider(provider) ? (
           <KeyRound aria-hidden="true" className="size-3.5" />
         ) : (
           <ExternalLink aria-hidden="true" className="size-3.5" />
@@ -131,11 +135,12 @@ export default function AgentsConnectDialog({
     useState<AgentConnection | null>(null);
   const [keyProvider, setKeyProvider] = useState<ApiKeyProviderId | null>(null);
   const keyProviderLabel = keyProvider
-    ? providerCatalogue.byId(keyProvider).label
+    ? providerCatalogueService.byId(keyProvider).label
     : "";
   const [popupError, setPopupError] = useState<string | null>(null);
   const [addingExistingId, setAddingExistingId] = useState<string | null>(null);
-  const [shareProvider, setShareProvider] = useState<AgentProvider>("chatgpt");
+  const [shareProvider, setShareProvider] =
+    useState<AgentProviderId>("chatgpt");
   const notifiedConnectionIds = useRef(new Set<string>());
   const connectionSchema = z
     .object({
@@ -161,24 +166,25 @@ export default function AgentsConnectDialog({
     resolver: zodResolver(connectionSchema),
   });
   const connectionQueryKey = useMemo(
-    () => [...agentConnectionsService.queryKey, session.user?.id ?? "guest"],
+    () => [...agentService.connectionsQueryKey, session.user?.id ?? "guest"],
     [session.user?.id],
   );
   const connectionsQuery = useQuery({
     enabled: open && Boolean(session.user),
-    queryFn: agentConnectionsService.list,
+    queryFn: () => agentService.listConnections(),
     queryKey: connectionQueryKey,
   });
   const startMutation = useMutation({
-    mutationFn: agentConnectionsService.start,
+    mutationFn: (provider: AgentProviderId) =>
+      agentService.startConnection(provider),
   });
   const completeMutation = useMutation({
     mutationFn: ({ callbackUrl, connectionId }: CompleteConnectionVariables) =>
-      agentConnectionsService.complete(connectionId, callbackUrl),
+      agentService.completeConnection(connectionId, callbackUrl),
   });
   const keyMutation = useMutation({
     mutationFn: (apiKey: string) =>
-      agentConnectionsService.connectApiKey(keyProvider!, apiKey),
+      agentService.connectApiKey(keyProvider!, apiKey),
   });
   const pollConnectionId =
     activeConnection?.status === "pending" &&
@@ -187,9 +193,9 @@ export default function AgentsConnectDialog({
       : null;
   const connectionStatusQuery = useQuery({
     queryFn: pollConnectionId
-      ? () => agentConnectionsService.get(pollConnectionId)
+      ? () => agentService.getConnection(pollConnectionId)
       : skipToken,
-    queryKey: [...agentConnectionsService.queryKey, "status", pollConnectionId],
+    queryKey: [...agentService.connectionsQueryKey, "status", pollConnectionId],
     refetchInterval: (query) =>
       query.state.data?.status === "pending"
         ? (activeConnection?.authorization?.pollAfterSeconds ?? 5) * 1_000
@@ -224,7 +230,7 @@ export default function AgentsConnectDialog({
   const errorMessage =
     popupError ??
     (requestError
-      ? requestError instanceof AgentConnectionServiceError
+      ? requestError instanceof AgentServiceError
         ? requestError.message
         : "Connections could not be loaded."
       : null);
@@ -235,7 +241,7 @@ export default function AgentsConnectDialog({
       notifiedConnectionIds.current.add(connection.id);
       await Promise.all(
         [
-          agentPoolsService.queryKey,
+          agentService.poolsQueryKey,
           organizationsService.queryKey,
           playgroundService.queryKey,
         ].map((queryKey) => queryClient.invalidateQueries({ queryKey })),
@@ -311,8 +317,8 @@ export default function AgentsConnectDialog({
     }
   }
 
-  async function connect(provider: AgentProvider) {
-    if (providerCatalogue.isApiKeyProvider(provider)) {
+  async function connect(provider: AgentProviderId) {
+    if (providerCatalogueService.isApiKeyProvider(provider)) {
       setActiveConnection(null);
       setPopupError(null);
       setKeyProvider(provider);
@@ -337,7 +343,7 @@ export default function AgentsConnectDialog({
       const connection = await startMutation.mutateAsync(provider);
       if (!connection.authorization) {
         popup.close();
-        throw new AgentConnectionServiceError(
+        throw new AgentServiceError(
           "The provider did not return an authorization page.",
         );
       }
@@ -349,7 +355,7 @@ export default function AgentsConnectDialog({
       );
     } catch (error) {
       popup.close();
-      if (!(error instanceof AgentConnectionServiceError)) {
+      if (!(error instanceof AgentServiceError)) {
         setPopupError("The provider authorization could not be started.");
       }
     }
@@ -386,7 +392,7 @@ export default function AgentsConnectDialog({
     } catch (error) {
       form.setError("root", {
         message:
-          error instanceof AgentConnectionServiceError
+          error instanceof AgentServiceError
             ? error.message
             : "The authorization code could not be exchanged.",
       });
@@ -411,7 +417,7 @@ export default function AgentsConnectDialog({
     } catch (error) {
       form.setError("root", {
         message:
-          error instanceof AgentConnectionServiceError
+          error instanceof AgentServiceError
             ? error.message
             : `The ${keyProviderLabel} API key could not be connected.`,
       });
@@ -445,7 +451,7 @@ export default function AgentsConnectDialog({
 
               <Select
                 value={selectedShareProvider?.provider}
-                onValueChange={(value: AgentProvider) =>
+                onValueChange={(value: AgentProviderId) =>
                   setShareProvider(value)
                 }
                 disabled={addingExistingId !== null}
@@ -555,7 +561,8 @@ export default function AgentsConnectDialog({
                 autoComplete="off"
                 placeholder={
                   keyProvider
-                    ? providerCatalogue.byId(keyProvider).auth.key_placeholder
+                    ? providerCatalogueService.byId(keyProvider).auth
+                        .key_placeholder
                     : undefined
                 }
                 type="password"

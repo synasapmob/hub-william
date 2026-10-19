@@ -11,11 +11,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import organizationsService from "@/services/organizations";
+import { organizationsService } from "@/services/organizations/organizations-service";
 import type {
+  CreateOrganizationInput,
   Organization,
   OrganizationSummary,
-} from "@/services/organizations";
+} from "@/services/organizations/organizations-types";
 import {
   MY_ORGANIZATION_TAB,
   ORGANIZATION_TAB_PARAM,
@@ -56,19 +57,19 @@ export default function OrganizationRoute() {
     searchParams.get(ORGANIZATION_TAB_PARAM) === MY_ORGANIZATION_TAB;
   const organizationsQuery = useQuery({
     enabled: Boolean(userId),
-    queryFn: organizationsService.list,
+    queryFn: () => organizationsService.list(),
     queryKey: organizationsKey,
   });
   // The table's owner, counts and usage cost more to compute than the plain
   // list, so they are only fetched while the dialog shows them.
   const summariesQuery = useQuery({
     enabled: managing && Boolean(userId),
-    queryFn: organizationsService.summaries,
+    queryFn: () => organizationsService.summaries(),
     queryKey: summariesKey,
   });
   const invitationsQuery = useQuery({
     enabled: Boolean(userId),
-    queryFn: organizationsService.invitations,
+    queryFn: () => organizationsService.invitations(),
     queryKey: [
       ...organizationsService.queryKey,
       "invitations",
@@ -76,7 +77,8 @@ export default function OrganizationRoute() {
     ],
   });
   const createMutation = useMutation({
-    mutationFn: organizationsService.create,
+    mutationFn: (input: CreateOrganizationInput) =>
+      organizationsService.create(input),
     onSuccess: async () => {
       // The server made the new organization the default. Show it once the
       // list says so, not before.

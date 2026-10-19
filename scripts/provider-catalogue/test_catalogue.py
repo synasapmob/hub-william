@@ -77,7 +77,7 @@ class CatalogueTest(unittest.TestCase):
             surface.append(extra["id"])
         generator.validate(self.catalogue)
         artifacts = dict(generator.artifacts(self.catalogue))
-        self.assertIn("future-chat-fixture", artifacts["apps/frontend/src/services/provider-catalogue.generated.ts"])
+        self.assertIn("future-chat-fixture", artifacts["apps/frontend/src/services/provider-catalogue/provider-catalogue.generated.ts"])
         rust = artifacts["apps/api/src/utils/provider_catalogue/generated.rs"]
         self.assertIn("ExtraProvider,", rust)
         self.assertIn('#[serde(rename = "extra-provider")]', rust)

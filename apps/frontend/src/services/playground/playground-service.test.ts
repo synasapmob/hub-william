@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import playgroundService from "./index";
-import providerCatalogue from "@/services/provider-catalogue";
+import { playgroundService } from "./playground-service";
+import { providerCatalogueService } from "@/services/provider-catalogue/provider-catalogue-service";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -17,7 +17,7 @@ function streamResponse() {
 
 describe("session-backed Playground requests", () => {
   it("retains model capabilities and Call metadata from account discovery", async () => {
-    const profile = providerCatalogue.callProfile(
+    const profile = providerCatalogueService.callProfile(
       "groq",
       "openai/gpt-oss-20b",
     )!;

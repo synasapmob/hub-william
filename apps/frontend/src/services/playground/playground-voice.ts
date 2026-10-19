@@ -1,6 +1,7 @@
-import providerCatalogue from "@/services/provider-catalogue";
-import type { CatalogueCallProfile } from "@/services/provider-catalogue.generated";
-import playgroundService, { type PlaygroundVoiceSessionOptions } from "./index";
+import { providerCatalogueService } from "@/services/provider-catalogue/provider-catalogue-service";
+import type { CatalogueCallProfile } from "@/services/provider-catalogue/provider-catalogue.generated";
+import { playgroundService } from "./playground-service";
+import type { PlaygroundVoiceSessionOptions } from "./playground-types";
 import type {
   PlaygroundWhisperTurnOptions,
   PlaygroundWhisperTurnResult,
@@ -78,7 +79,10 @@ async function start(
 ): Promise<PlaygroundVoiceCall> {
   if (options.mode === "call-whisper") {
     if (
-      !providerCatalogue.supportsMode(options.provider, "call-whisper") ||
+      !providerCatalogueService.supportsMode(
+        options.provider,
+        "call-whisper",
+      ) ||
       !options.model
     )
       throw new Error("Choose an available chat model for Call Whisper.");
@@ -86,7 +90,7 @@ async function start(
   }
   const profile =
     options.callProfile ??
-    providerCatalogue.callProfile(options.provider, options.model);
+    providerCatalogueService.callProfile(options.provider, options.model);
   if (
     !profile ||
     profile.provider !== options.provider ||

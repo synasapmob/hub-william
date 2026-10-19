@@ -8,15 +8,15 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import Flex from "@/components/ui/flex";
 import { useWorkspaceSession } from "@/components/workspace-shell/workspace-shell-session-context";
 import AgentsConnectDialog from "@/components/agents-connect-dialog";
-import agentConnectionsService, {
-  AgentConnectionServiceError,
-  type AgentConnection,
-} from "@/services/agent-connections";
-import agentPoolsService, {
-  AgentPoolServiceError,
-  type AgentPool,
-  type AgentPoolRequestStatus,
-} from "@/services/agent-pools";
+import {
+  AgentServiceError,
+  agentService,
+} from "@/services/agent/agent-service";
+import type {
+  AgentConnection,
+  AgentPool,
+  AgentPoolRequestStatus,
+} from "@/services/agent/agent-types";
 import { invalidateAgentQueries } from "@/utils/utils.agent-queries";
 import { agentPoolUsageAfterReset } from "@/utils/utils.agent-pools";
 
@@ -53,45 +53,44 @@ export default function AgentsRoute() {
   );
   const poolsQuery = useQuery({
     enabled: session.status !== "loading",
-    queryFn: agentPoolsService.list,
-    queryKey: [...agentPoolsService.queryKey, session.user?.id ?? "guest"],
+    queryFn: () => agentService.listPools(),
+    queryKey: [...agentService.poolsQueryKey, session.user?.id ?? "guest"],
   });
   const requestMutation = useMutation({
     mutationFn: ({ poolId, values }: RequestJoinVariables) =>
-      agentPoolsService.requestJoin(poolId, values),
+      agentService.requestJoin(poolId, values),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: agentPoolsService.queryKey }),
+      queryClient.invalidateQueries({ queryKey: agentService.poolsQueryKey }),
   });
   const decisionMutation = useMutation({
     mutationFn: ({ requestId, status }: DecideRequestVariables) =>
-      agentPoolsService.decide(requestId, status),
+      agentService.decideJoinRequest(requestId, status),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: agentPoolsService.queryKey }),
+      queryClient.invalidateQueries({ queryKey: agentService.poolsQueryKey }),
   });
   const inviteMutation = useMutation({
     mutationFn: ({ poolId, username }: PoolMemberVariables) =>
-      agentPoolsService.invite(poolId, username),
+      agentService.inviteMember(poolId, username),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: agentPoolsService.queryKey }),
+      queryClient.invalidateQueries({ queryKey: agentService.poolsQueryKey }),
   });
   const removeMemberMutation = useMutation({
     mutationFn: ({ poolId, username }: PoolMemberVariables) =>
-      agentPoolsService.removeMember(poolId, username),
+      agentService.removeMember(poolId, username),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: agentPoolsService.queryKey }),
+      queryClient.invalidateQueries({ queryKey: agentService.poolsQueryKey }),
   });
   const refreshMutation = useMutation({
-    mutationFn: (poolId: string) => agentConnectionsService.refresh(poolId),
+    mutationFn: (poolId: string) => agentService.refreshConnection(poolId),
     onSuccess: refreshAgentData,
   });
   const resetCreditsMutation = useMutation({
-    mutationFn: (poolId: string) =>
-      agentConnectionsService.resetCredits(poolId),
+    mutationFn: (poolId: string) => agentService.resetCredits(poolId),
     onSuccess: (_, poolId) => {
       // The provider's usage endpoint can lag the reset, so update the pool the
       // owner just reset instead of refetching the stale windows.
       queryClient.setQueriesData<AgentPool[]>(
-        { queryKey: agentPoolsService.queryKey },
+        { queryKey: agentService.poolsQueryKey },
         (pools) =>
           pools?.map((pool) =>
             pool.id === poolId
@@ -102,7 +101,7 @@ export default function AgentsRoute() {
     },
   });
   const deletePoolMutation = useMutation({
-    mutationFn: (poolId: string) => agentConnectionsService.disconnect(poolId),
+    mutationFn: (poolId: string) => agentService.disconnect(poolId),
     onSuccess: async () => {
       setReviewPoolId(null);
       await refreshAgentData();
@@ -123,8 +122,7 @@ export default function AgentsRoute() {
     deletePoolMutation.error ??
     refreshMutation.error;
   const errorMessage = routeError
-    ? routeError instanceof AgentPoolServiceError ||
-      routeError instanceof AgentConnectionServiceError
+    ? routeError instanceof AgentServiceError
       ? routeError.message
       : "The account pools could not be loaded."
     : null;
@@ -168,7 +166,7 @@ export default function AgentsRoute() {
 
   async function refreshPool(): Promise<AgentConnection> {
     if (!reviewPool) {
-      throw new AgentConnectionServiceError("Select a pool to refresh.");
+      throw new AgentServiceError("Select a pool to refresh.");
     }
     return refreshMutation.mutateAsync(reviewPool.id);
   }
@@ -182,7 +180,7 @@ export default function AgentsRoute() {
     (connection: AgentConnection) => {
       queryClient.setQueryData(
         [
-          ...agentConnectionsService.queryKey,
+          ...agentService.connectionsQueryKey,
           "pool-availability",
           connection.id,
         ],
@@ -240,7 +238,7 @@ export default function AgentsRoute() {
             <AgentsConnectDialog
               onConnected={() =>
                 void queryClient.invalidateQueries({
-                  queryKey: agentPoolsService.queryKey,
+                  queryKey: agentService.poolsQueryKey,
                 })
               }
             />

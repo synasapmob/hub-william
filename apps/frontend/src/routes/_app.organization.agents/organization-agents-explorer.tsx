@@ -24,11 +24,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { AgentConnection } from "@/services/agent-connections";
-import type { AgentProvider } from "@/services/agent-pools";
-import organizationsService, {
-  type OrganizationAgentDetails,
-} from "@/services/organizations";
+import type {
+  AgentConnection,
+  AgentProvider,
+} from "@/services/agent/agent-types";
+import { organizationsService } from "@/services/organizations/organizations-service";
+import type { OrganizationAgentDetails } from "@/services/organizations/organizations-types";
 import {
   availabilityLabel,
   formatCount,

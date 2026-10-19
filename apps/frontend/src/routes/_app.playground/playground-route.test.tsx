@@ -18,49 +18,62 @@ import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import WorkspaceShellSessionContext from "@/components/workspace-shell/workspace-shell-session-context";
-import agentPoolsService, { type AgentPool } from "@/services/agent-pools";
-import organizationsService, {
-  type OrganizationAgentDetails,
-} from "@/services/organizations";
-import playgroundService from "@/services/playground";
+import { agentService } from "@/services/agent/agent-service";
+import type { AgentPool } from "@/services/agent/agent-types";
+import { organizationsService } from "@/services/organizations/organizations-service";
+import type { OrganizationAgentDetails } from "@/services/organizations/organizations-types";
+import { playgroundService } from "@/services/playground/playground-service";
 import playgroundWhisperTurnService from "@/services/playground/playground-whisper-turn";
 import playgroundSpeechPreload from "@/services/playground/playground-speech-preload";
 import playgroundVoiceService from "@/services/playground/playground-voice";
-import providerCatalogue from "@/services/provider-catalogue";
+import { providerCatalogueService } from "@/services/provider-catalogue/provider-catalogue-service";
 import createQueryClient from "@/utils/utils.query-client";
 
 import PlaygroundRoute from "./route";
 
-vi.mock("@/services/playground", async (importOriginal) => {
+vi.mock("@/services/playground/playground-service", async (importOriginal) => {
   const original =
-    await importOriginal<typeof import("@/services/playground")>();
+    await importOriginal<
+      typeof import("@/services/playground/playground-service")
+    >();
   return {
     ...original,
-    default: {
-      ...original.default,
-      models: vi.fn(),
-      chat: vi.fn(),
-    },
+    playgroundService: Object.assign(
+      Object.create(original.playgroundService),
+      {
+        models: vi.fn(),
+        chat: vi.fn(),
+      },
+    ),
   };
 });
 
-vi.mock("@/services/agent-pools", async (importOriginal) => {
+vi.mock("@/services/agent/agent-service", async (importOriginal) => {
   const original =
-    await importOriginal<typeof import("@/services/agent-pools")>();
-  return { ...original, default: { ...original.default, list: vi.fn() } };
-});
-vi.mock("@/services/organizations", async (importOriginal) => {
-  const original =
-    await importOriginal<typeof import("@/services/organizations")>();
+    await importOriginal<typeof import("@/services/agent/agent-service")>();
   return {
     ...original,
-    default: {
-      ...original.default,
-      list: vi.fn(),
-      agents: vi.fn(),
-    },
+    agentService: Object.assign(Object.create(original.agentService), {
+      listPools: vi.fn(),
+    }),
   };
 });
+vi.mock(
+  "@/services/organizations/organizations-service",
+  async (importOriginal) => {
+    const original =
+      await importOriginal<
+        typeof import("@/services/organizations/organizations-service")
+      >();
+    return {
+      ...original,
+      organizationsService: Object.assign(
+        Object.create(original.organizationsService),
+        { list: vi.fn(), agents: vi.fn() },
+      ),
+    };
+  },
+);
 const account = {
   id: "account-a",
   accountLabel: "My account",
@@ -148,7 +161,7 @@ beforeEach(() => {
   vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(
     () => undefined,
   );
-  vi.mocked(agentPoolsService.list).mockResolvedValue([account]);
+  vi.mocked(agentService.listPools).mockResolvedValue([account]);
   vi.mocked(organizationsService.list).mockResolvedValue([]);
   vi.mocked(organizationsService.agents).mockResolvedValue([]);
   vi.mocked(playgroundService.models).mockResolvedValue([
@@ -229,7 +242,7 @@ describe("Playground conversation flow", () => {
       vi.mocked(playgroundService.chat).mockClear();
       await chooseOption(user, "Account", "Blocked AGY");
       expect(screen.getByLabelText("Account")).toHaveTextContent("Blocked AGY");
-      const label = providerCatalogue.byId(provider).label;
+      const label = providerCatalogueService.byId(provider).label;
       expect(
         screen.getByText(
           `This account needs its owner to reconnect it. Messages will use another available ${label} account.`,
@@ -275,7 +288,7 @@ describe("Playground conversation flow", () => {
   );
 
   it("keeps an explicitly linked reconnect-required personal account selected while another account can answer", async () => {
-    vi.mocked(agentPoolsService.list).mockResolvedValue([
+    vi.mocked(agentService.listPools).mockResolvedValue([
       {
         ...account,
         availability: { ...account.availability, status: "reauth_required" },
@@ -304,7 +317,7 @@ describe("Playground conversation flow", () => {
     );
     await user.type(screen.getByLabelText("Message"), "Keep draft");
     expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
-    vi.mocked(agentPoolsService.list).mockResolvedValue([account]);
+    vi.mocked(agentService.listPools).mockResolvedValue([account]);
     await user.click(
       screen.getByRole("button", { name: "Refresh account status" }),
     );
@@ -320,7 +333,7 @@ describe("Playground conversation flow", () => {
 
   it("starts Call Live from a reconnect-required selection while another account is usable", async () => {
     window.localStorage.setItem("hub.playground.mode", "call-live");
-    vi.mocked(agentPoolsService.list).mockResolvedValue([
+    vi.mocked(agentService.listPools).mockResolvedValue([
       {
         ...account,
         agent: "ChatGPT",
@@ -445,7 +458,7 @@ describe("Playground conversation flow", () => {
     const user = userEvent.setup();
     render(<Harness queryClient={queryClient} />);
     await selectAccount(user);
-    expect(agentPoolsService.list).toHaveBeenCalledTimes(1);
+    expect(agentService.listPools).toHaveBeenCalledTimes(1);
     expect(playgroundService.models).toHaveBeenCalledTimes(1);
 
     await user.type(screen.getByLabelText("Message"), "Hello");
@@ -461,7 +474,7 @@ describe("Playground conversation flow", () => {
     );
     // A failed turn refreshes the account statuses in Setup, never models.
     await waitFor(() =>
-      expect(agentPoolsService.list).toHaveBeenCalledTimes(2),
+      expect(agentService.listPools).toHaveBeenCalledTimes(2),
     );
     expect(screen.getByLabelText("Account")).toHaveTextContent("My account");
     try {
@@ -471,7 +484,7 @@ describe("Playground conversation flow", () => {
         onlineManager.setOnline(false);
         onlineManager.setOnline(true);
       });
-      expect(agentPoolsService.list).toHaveBeenCalledTimes(2);
+      expect(agentService.listPools).toHaveBeenCalledTimes(2);
       expect(playgroundService.models).toHaveBeenCalledTimes(1);
       expect(organizationsService.list).toHaveBeenCalledTimes(1);
     } finally {
@@ -479,19 +492,19 @@ describe("Playground conversation flow", () => {
       onlineManager.setOnline(true);
     }
 
-    vi.mocked(agentPoolsService.list).mockResolvedValue([]);
+    vi.mocked(agentService.listPools).mockResolvedValue([]);
     await act(() =>
-      queryClient.invalidateQueries({ queryKey: agentPoolsService.queryKey }),
+      queryClient.invalidateQueries({ queryKey: agentService.poolsQueryKey }),
     );
     await waitFor(() =>
       expect(screen.getByLabelText("Account")).toBeDisabled(),
     );
-    expect(agentPoolsService.list).toHaveBeenCalledTimes(3);
+    expect(agentService.listPools).toHaveBeenCalledTimes(3);
     expect(playgroundService.models).toHaveBeenCalledTimes(1);
   });
 
   it("names the account that answered when the API served a turn from another account", async () => {
-    vi.mocked(agentPoolsService.list).mockResolvedValue([
+    vi.mocked(agentService.listPools).mockResolvedValue([
       account,
       { ...account, id: "account-b", accountLabel: "Second account" },
     ]);
@@ -513,7 +526,7 @@ describe("Playground conversation flow", () => {
     expect(
       screen.getByRole("heading", { name: "DeepSeek / Provider model" }),
     ).toBeVisible();
-    expect(agentPoolsService.list).toHaveBeenCalledTimes(1);
+    expect(agentService.listPools).toHaveBeenCalledTimes(1);
 
     await user.type(screen.getByLabelText("Message"), "Second question");
     await user.click(screen.getByRole("button", { name: "Send message" }));
@@ -527,14 +540,14 @@ describe("Playground conversation flow", () => {
       vi.mocked(playgroundService.chat).mock.calls[1][0].connectionId,
     ).toBe("account-a");
     await waitFor(() =>
-      expect(agentPoolsService.list).toHaveBeenCalledTimes(2),
+      expect(agentService.listPools).toHaveBeenCalledTimes(2),
     );
     expect(playgroundService.models).toHaveBeenCalledTimes(1);
     expect(screen.getByLabelText("Account")).toHaveTextContent("My account");
   });
 
   it("filters models by mode, preserves the chosen account and chat draft, and cleans up an active call", async () => {
-    vi.mocked(agentPoolsService.list).mockResolvedValue([
+    vi.mocked(agentService.listPools).mockResolvedValue([
       { ...account, agent: "ChatGPT" },
       {
         ...account,
@@ -625,7 +638,7 @@ describe("Playground conversation flow", () => {
     const transcript = screen.getByRole("log", { name: "Call transcript" });
     expect(await within(transcript).findByText("Hello teacher")).toBeVisible();
     expect(within(transcript).getByText("Hello, how are you?")).toBeVisible();
-    expect(agentPoolsService.list).toHaveBeenCalledTimes(1);
+    expect(agentService.listPools).toHaveBeenCalledTimes(1);
     expect(playgroundService.models).toHaveBeenCalledTimes(2);
     expect(screen.getByRole("button", { name: "End call" })).toBeVisible();
     expect(
@@ -673,7 +686,7 @@ describe("Playground conversation flow", () => {
   ] as const)(
     "retains %s, Voice and Camera through End and remount without starting automatically",
     async (label, storedMode, agent, model) => {
-      vi.mocked(agentPoolsService.list).mockResolvedValue([
+      vi.mocked(agentService.listPools).mockResolvedValue([
         { ...account, agent },
       ]);
       vi.mocked(playgroundService.models).mockResolvedValue([
@@ -761,11 +774,11 @@ describe("Playground conversation flow", () => {
   );
 
   it("separates native and Whisper providers/models and ends the old call when changing call modes", async () => {
-    const groqProfile = providerCatalogue.callProfile(
+    const groqProfile = providerCatalogueService.callProfile(
       "groq",
       "openai/gpt-oss-20b",
     )!;
-    vi.mocked(agentPoolsService.list).mockResolvedValue([
+    vi.mocked(agentService.listPools).mockResolvedValue([
       { ...account, agent: "ChatGPT" },
       {
         ...account,
@@ -876,7 +889,7 @@ describe("Playground conversation flow", () => {
     expect(end).toHaveBeenCalledTimes(2);
     expect(screen.getByLabelText("Account")).toHaveTextContent("Groq account");
     expect(screen.getByLabelText("Model")).toHaveTextContent("GPT OSS 20B");
-    expect(agentPoolsService.list).toHaveBeenCalledOnce();
+    expect(agentService.listPools).toHaveBeenCalledOnce();
     expect(playgroundService.models).toHaveBeenCalledTimes(2);
   });
 
@@ -890,7 +903,7 @@ describe("Playground conversation flow", () => {
     async (agent, label, storedMode, model) => {
       window.localStorage.setItem("hub.playground.mode", "voice");
       let resolveAccounts!: (accounts: AgentPool[]) => void;
-      vi.mocked(agentPoolsService.list).mockImplementation(
+      vi.mocked(agentService.listPools).mockImplementation(
         () =>
           new Promise((resolve) => {
             resolveAccounts = resolve;
@@ -925,11 +938,11 @@ describe("Playground conversation flow", () => {
     async (state) => {
       window.localStorage.setItem("hub.playground.mode", "voice");
       if (state === "discovery error")
-        vi.mocked(agentPoolsService.list).mockRejectedValueOnce(
+        vi.mocked(agentService.listPools).mockRejectedValueOnce(
           new Error("Accounts unavailable"),
         );
-      else vi.mocked(agentPoolsService.list).mockResolvedValueOnce([]);
-      vi.mocked(agentPoolsService.list).mockResolvedValue([
+      else vi.mocked(agentService.listPools).mockResolvedValueOnce([]);
+      vi.mocked(agentService.listPools).mockResolvedValue([
         { ...account, agent: "Groq" },
       ]);
       vi.mocked(playgroundService.models).mockResolvedValue([
@@ -953,7 +966,7 @@ describe("Playground conversation flow", () => {
       else
         await act(async () => {
           await client.invalidateQueries({
-            queryKey: agentPoolsService.queryKey,
+            queryKey: agentService.poolsQueryKey,
           });
         });
       await waitFor(() =>
@@ -979,7 +992,7 @@ describe("Playground conversation flow", () => {
   ] as const)(
     "offers %s chat models in Call Whisper without native voice or Orpheus access",
     async (agent, provider) => {
-      vi.mocked(agentPoolsService.list).mockResolvedValue([
+      vi.mocked(agentService.listPools).mockResolvedValue([
         { ...account, agent },
       ]);
       vi.mocked(playgroundService.models).mockResolvedValue([
@@ -1029,7 +1042,7 @@ describe("Playground conversation flow", () => {
   );
 
   it("keeps Start disabled when an account only advertises native audio models", async () => {
-    vi.mocked(agentPoolsService.list).mockResolvedValue([
+    vi.mocked(agentService.listPools).mockResolvedValue([
       { ...account, agent: "ChatGPT" },
     ]);
     vi.mocked(playgroundService.models).mockResolvedValue([
@@ -1054,7 +1067,7 @@ describe("Playground conversation flow", () => {
     const sendTurn = vi
       .spyOn(playgroundWhisperTurnService, "turn")
       .mockResolvedValue({ transcript: "Hello", reply: "Hi", audio: [] });
-    vi.mocked(agentPoolsService.list).mockResolvedValue([
+    vi.mocked(agentService.listPools).mockResolvedValue([
       { ...account, agent: "Groq" },
     ]);
     vi.mocked(playgroundService.models).mockResolvedValue([
@@ -1116,7 +1129,7 @@ describe("Playground conversation flow", () => {
       );
     });
     expect(sendTurn).toHaveBeenCalledTimes(3);
-    expect(agentPoolsService.list).toHaveBeenCalledTimes(1);
+    expect(agentService.listPools).toHaveBeenCalledTimes(1);
     expect(playgroundService.models).toHaveBeenCalledTimes(1);
     act(() => callbacks.onInputLevel?.(0.1));
     expect(screen.getByRole("status")).toHaveTextContent("Speaking");
@@ -1151,7 +1164,7 @@ describe("Playground conversation flow", () => {
     expect(screen.getByRole("button", { name: "End call" })).toBeDisabled();
     act(() => callbacks.onStatus("ended"));
     expect(screen.getByRole("status")).toHaveTextContent("Call ended");
-    expect(agentPoolsService.list).toHaveBeenCalledTimes(1);
+    expect(agentService.listPools).toHaveBeenCalledTimes(1);
     expect(playgroundService.models).toHaveBeenCalledTimes(1);
     expect(start.mock.calls[0][0]).toEqual(
       expect.objectContaining({
@@ -1211,7 +1224,7 @@ describe("Playground conversation flow", () => {
   );
 
   it("keeps Call selected during account discovery and does not substitute a chat-only model", async () => {
-    vi.mocked(agentPoolsService.list).mockResolvedValue([
+    vi.mocked(agentService.listPools).mockResolvedValue([
       { ...account, agent: "ChatGPT" },
       {
         ...account,
@@ -1296,7 +1309,7 @@ describe("Playground conversation flow", () => {
   );
 
   it("shows model discovery errors in Call and retries without changing mode", async () => {
-    vi.mocked(agentPoolsService.list).mockResolvedValue([
+    vi.mocked(agentService.listPools).mockResolvedValue([
       { ...account, agent: "ChatGPT" },
     ]);
     vi.mocked(playgroundService.models)
@@ -1420,7 +1433,7 @@ describe("Playground conversation flow", () => {
     expect(
       await screen.findByText("Stopped · Incomplete response"),
     ).toBeVisible();
-    expect(agentPoolsService.list).toHaveBeenCalledTimes(1);
+    expect(agentService.listPools).toHaveBeenCalledTimes(1);
     expect(playgroundService.models).toHaveBeenCalledTimes(1);
     expect(screen.getByLabelText("Message")).toHaveValue("My question");
     await user.click(screen.getByRole("button", { name: "Send message" }));
@@ -1467,7 +1480,7 @@ describe("Playground conversation flow", () => {
   });
 
   it("keeps selection unavailable without an account and does not send requests", async () => {
-    vi.mocked(agentPoolsService.list).mockResolvedValue([]);
+    vi.mocked(agentService.listPools).mockResolvedValue([]);
     render(<Harness />);
     await waitFor(() =>
       expect(
@@ -1489,7 +1502,7 @@ describe("Playground conversation flow", () => {
   });
 
   it("selects the first accessible account for each provider and keeps a manual choice", async () => {
-    vi.mocked(agentPoolsService.list).mockResolvedValue([
+    vi.mocked(agentService.listPools).mockResolvedValue([
       {
         ...account,
         id: "chatgpt-first",
@@ -1579,7 +1592,7 @@ describe("Playground conversation flow", () => {
   });
 
   it("sends on Enter, inserts a newline with Shift+Enter, and lists only owned or joined accounts", async () => {
-    vi.mocked(agentPoolsService.list).mockResolvedValue([
+    vi.mocked(agentService.listPools).mockResolvedValue([
       account,
       {
         ...account,
@@ -1684,7 +1697,7 @@ describe("Playground conversation flow", () => {
   });
 
   it("explains an empty current Claude lineup in the model control", async () => {
-    vi.mocked(agentPoolsService.list).mockResolvedValue([
+    vi.mocked(agentService.listPools).mockResolvedValue([
       { ...account, agent: "Claude" },
     ]);
     vi.mocked(playgroundService.models).mockResolvedValue([]);
@@ -1733,7 +1746,7 @@ describe("Playground conversation flow", () => {
   });
 
   it("uses only agents shared with the selected organization and attributes its request", async () => {
-    vi.mocked(agentPoolsService.list).mockResolvedValue([
+    vi.mocked(agentService.listPools).mockResolvedValue([
       { ...account, agent: "Groq" },
     ]);
     const organizationId = "11111111-1111-4111-8111-111111111111";

@@ -6,7 +6,8 @@ import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import WorkspaceShellSession from "@/components/workspace-shell/workspace-shell-session";
-import authService, { type AuthenticatedUser } from "@/services/auth";
+import { authService } from "@/services/auth/auth-service";
+import type { AuthenticatedUser } from "@/services/auth/auth-types";
 import createQueryClient from "@/utils/utils.query-client";
 
 import AgentsRoute from "./route";

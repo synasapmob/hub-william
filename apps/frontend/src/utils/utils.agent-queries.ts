@@ -1,9 +1,8 @@
 import type { QueryClient } from "@tanstack/react-query";
 
-import agentConnectionsService from "@/services/agent-connections";
-import agentPoolsService from "@/services/agent-pools";
-import organizationsService from "@/services/organizations";
-import playgroundService from "@/services/playground";
+import { agentService } from "@/services/agent/agent-service";
+import { organizationsService } from "@/services/organizations/organizations-service";
+import { playgroundService } from "@/services/playground/playground-service";
 
 // An organization agent is a live link to its owner's Workspace connection, so
 // a refresh, reconnect, delete or organization removal changes what Workspace,
@@ -11,8 +10,8 @@ import playgroundService from "@/services/playground";
 export function invalidateAgentQueries(queryClient: QueryClient) {
   return Promise.all(
     [
-      agentPoolsService.queryKey,
-      agentConnectionsService.queryKey,
+      agentService.poolsQueryKey,
+      agentService.connectionsQueryKey,
       organizationsService.queryKey,
       playgroundService.queryKey,
     ].map((queryKey) =>

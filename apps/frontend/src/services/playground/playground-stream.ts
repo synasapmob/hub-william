@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { components } from "@/services/api.generated";
+import type { components } from "@/services/api/api.generated";
 
 interface ReadPlaygroundStreamOptions {
   provider: components["schemas"]["AgentProvider"];

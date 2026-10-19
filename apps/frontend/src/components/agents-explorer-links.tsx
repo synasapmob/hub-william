@@ -1,7 +1,7 @@
 import { useEffect, useState, type RefObject } from "react";
 import { tv } from "tailwind-variants";
 
-import type { AgentProvider } from "@/services/agent-pools";
+import type { AgentProvider } from "@/services/agent/agent-types";
 
 const link = tv({
   base: "fill-none transition-colors",

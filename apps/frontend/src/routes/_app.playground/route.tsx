@@ -6,8 +6,8 @@ import { useSearchParams } from "react-router";
 
 import { useWorkspaceSession } from "@/components/workspace-shell/workspace-shell-session-context";
 
-import type { PlaygroundAttachment } from "@/services/playground";
-import { playgroundModes } from "@/services/provider-catalogue";
+import type { PlaygroundAttachment } from "@/services/playground/playground-types";
+import { playgroundModes } from "@/services/provider-catalogue/provider-catalogue-service";
 import playgroundMedia, {
   type SavedPlaygroundMode,
 } from "@/utils/utils.playground-media";

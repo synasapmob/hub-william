@@ -3,11 +3,11 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import Flex from "@/components/ui/flex";
 import { Skeleton } from "@/components/ui/skeleton";
-import organizationsService from "@/services/organizations";
+import { organizationsService } from "@/services/organizations/organizations-service";
 import type {
   Organization,
   OrganizationInvitation,
-} from "@/services/organizations";
+} from "@/services/organizations/organizations-types";
 
 interface OrganizationManageInvitationsProps {
   error: Error | null;

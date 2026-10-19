@@ -35,10 +35,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import agentConnectionsService, {
-  type AgentConnection,
-} from "@/services/agent-connections";
-import type { AgentPool, AgentPoolRequestStatus } from "@/services/agent-pools";
+import { agentService } from "@/services/agent/agent-service";
+import type {
+  AgentConnection,
+  AgentPool,
+  AgentPoolRequestStatus,
+} from "@/services/agent/agent-types";
 import {
   agentPoolAvailabilityLabel,
   agentPoolUsageIssues,
@@ -104,9 +106,9 @@ export default function AgentsRequestsDialog({
   });
   const poolConnectionQuery = useQuery({
     queryFn:
-      open && pool ? () => agentConnectionsService.get(pool.id) : skipToken,
+      open && pool ? () => agentService.getConnection(pool.id) : skipToken,
     queryKey: [
-      ...agentConnectionsService.queryKey,
+      ...agentService.connectionsQueryKey,
       "pool-availability",
       pool?.id,
     ],

@@ -14,7 +14,7 @@ import { tv } from "tailwind-variants";
 import { Button } from "@/components/ui/button";
 import Center from "@/components/ui/center";
 import Flex from "@/components/ui/flex";
-import type { PlaygroundProviderId } from "@/services/playground";
+import type { PlaygroundProviderId } from "@/services/playground/playground-types";
 import playgroundWhisperTurnService from "@/services/playground/playground-whisper-turn";
 import playgroundVoiceService, {
   type PlaygroundVoiceCall,
@@ -27,7 +27,7 @@ import PlaygroundVoiceStatus from "./playground-voice-status";
 import PlaygroundVoiceRecordings from "./playground-voice-recordings";
 import { PlaygroundZoomButton } from "./playground-conversation";
 
-import type { CatalogueCallProfile } from "@/services/provider-catalogue.generated";
+import type { CatalogueCallProfile } from "@/services/provider-catalogue/provider-catalogue.generated";
 
 interface PlaygroundVoiceProps {
   connectionId?: string;

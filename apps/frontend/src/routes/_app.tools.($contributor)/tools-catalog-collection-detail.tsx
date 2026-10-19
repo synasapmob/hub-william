@@ -9,10 +9,11 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import catalogService, {
+import {
+  catalogService,
   GITHUB_REPOSITORY_URL,
-  type CatalogCollection,
-} from "@/services/catalog";
+} from "@/services/catalog/catalog-service";
+import type { CatalogCollection } from "@/services/catalog/catalog-types";
 
 import ToolsCatalogCollectionFiles from "./tools-catalog-collection-files";
 import ToolsCatalogDownloadReel from "./tools-catalog-download-reel";

@@ -1,7 +1,8 @@
 import { useState, useSyncExternalStore } from "react";
 import { useSearchParams } from "react-router";
 
-import catalogService, { type CatalogCollection } from "@/services/catalog";
+import { catalogService } from "@/services/catalog/catalog-service";
+import type { CatalogCollection } from "@/services/catalog/catalog-types";
 
 import ToolsCatalogCollectionCard from "./tools-catalog-collection-card";
 import ToolsCatalogCollectionDetail from "./tools-catalog-collection-detail";
