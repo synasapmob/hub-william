@@ -4,6 +4,7 @@ export const TOOL_IDS = [
   "omp",
   "download-reel",
   "edge-tts",
+  "vosk",
 ] as const;
 
 interface CatalogCollectionPresentation {
@@ -36,6 +37,11 @@ const COLLECTION_PRESENTATION: Record<string, CatalogCollectionPresentation> = {
     label: "TEXT TO AUDIO",
     summary:
       "Convert text into natural speech audio using Microsoft Edge Neural voices across regional accents.",
+  },
+  vosk: {
+    label: "AUDIO TO TEXT",
+    summary:
+      "Transcribe audio files into text in your browser with Vosk speech recognition. Nothing is uploaded.",
   },
 };
 

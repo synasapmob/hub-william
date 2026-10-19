@@ -17,7 +17,13 @@ describe("ToolsCatalog", () => {
   it("renders one flat node per functional collection", () => {
     renderTools();
 
-    for (const name of ["GATEWAY", "OPENCODE", "OMP", "DOWNLOAD REEL"]) {
+    for (const name of [
+      "GATEWAY",
+      "OPENCODE",
+      "OMP",
+      "DOWNLOAD REEL",
+      "AUDIO TO TEXT",
+    ]) {
       expect(
         screen.getByRole("button", { name: new RegExp(name) }),
       ).toBeVisible();

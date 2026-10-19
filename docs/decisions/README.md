@@ -56,3 +56,4 @@ record and mark the old one superseded rather than rewriting its history.
 - [ADR-0046: My organizations dialog and organization removal](0046-my-organizations-dialog-and-organization-removal.md)
 - [ADR-0047: Server-side default organization and organization summaries](0047-server-side-default-organization-and-summaries.md)
 - [ADR-0048: Recoverable AGY account verification and abandoned reconnect prompts](0048-recoverable-agy-account-verification.md)
+- [ADR-0049: Browser-local Vosk audio to text](0049-browser-local-vosk-audio-to-text.md)
