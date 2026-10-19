@@ -113,6 +113,10 @@ class OpenCodeInstallerTest(unittest.TestCase):
         )
         self.assertNotIn("apiKey", document["provider"]["hub-claude"]["options"])
         self.assertEqual(
+            document["provider"]["hub-claude"]["options"]["baseURL"],
+            "https://api.hub.example/gateway/claude/v1",
+        )
+        self.assertEqual(
             document["provider"]["hub-gemini"]["options"]["headers"],
             {"Authorization": "Bearer hw_gateway_secret"},
         )

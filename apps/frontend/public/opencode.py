@@ -145,7 +145,7 @@ PROVIDER_CATALOGUE = json.loads(r'''
     "id": "claude",
     "hub_id": "hub-claude",
     "name": "Hub William · Claude",
-    "base_path": "/gateway/claude",
+    "base_path": "/gateway/claude/v1",
     "models_path": "/gateway/claude/v1/models?limit=1000",
     "owned_by": "anthropic",
     "npm": "@ai-sdk/anthropic",
