@@ -79,6 +79,10 @@ tests.
   unknown tokens. See [ADR-0032](../../docs/decisions/0032-playground-native-voice.md).
 - `/gateway/openai/v1/responses`: Codex/OpenAI Responses streaming gateway.
 - `/gateway/claude/v1/messages`: Claude Messages streaming gateway.
+- `/gateway/openai/v1/models`, `/gateway/claude/v1/models`: the models the key
+  owner's connected account lists live, intersected with the current catalogue
+  for names and effort metadata. A model the subscription lacks is never offered
+  to key clients such as OpenCode and OMP.
 - `/gateway/gemini/v1beta/models`: the current public AGY model set intersected
   with the connected Google Code Assist subscription's live catalogue.
 - `/gateway/gemini/v1beta/models/*`: AGY native Gemini generation protocol
