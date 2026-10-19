@@ -1,17 +1,17 @@
-import providerCatalogue from "@/services/provider-catalogue";
+import { providerCatalogueService } from "@/services/provider-catalogue/provider-catalogue-service";
 import type {
   AgentPool,
   AgentPoolAvailabilityStatus,
   AgentPoolUsageMetric,
   AgentProvider,
-} from "@/services/agent-pools";
+} from "@/services/agent/agent-types";
 
-export const AGENT_PROVIDERS: AgentProvider[] = providerCatalogue
+export const AGENT_PROVIDERS: AgentProvider[] = providerCatalogueService
   .list("agents")
   .map((provider) => provider.label);
 
 export function agentProviderShowsUsage(provider: AgentProvider) {
-  return providerCatalogue.byLabel(provider).usage_metrics;
+  return providerCatalogueService.byLabel(provider).usage_metrics;
 }
 
 const quotaLabels = [

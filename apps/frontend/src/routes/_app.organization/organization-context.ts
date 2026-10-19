@@ -1,6 +1,6 @@
 import { useOutletContext } from "react-router";
 
-import type { Organization } from "@/services/organizations";
+import type { Organization } from "@/services/organizations/organizations-types";
 
 export interface OrganizationContextValue {
   // Null while the session or the organization list is still loading. Every

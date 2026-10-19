@@ -4,9 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import organizationsService, {
-  type OrganizationInvitation,
-} from "@/services/organizations";
+import { organizationsService } from "@/services/organizations/organizations-service";
+import type { OrganizationInvitation } from "@/services/organizations/organizations-types";
 import createQueryClient from "@/utils/utils.query-client";
 
 import WorkspaceShellNotifications from "./workspace-shell-notifications";

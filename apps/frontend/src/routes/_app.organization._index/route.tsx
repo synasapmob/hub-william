@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import organizationsService from "@/services/organizations";
+import { organizationsService } from "@/services/organizations/organizations-service";
 import { useOrganizationContext } from "@/routes/_app.organization/organization-context";
 import {
   availabilityLabel,

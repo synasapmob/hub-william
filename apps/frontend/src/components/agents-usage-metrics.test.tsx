@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { AgentPoolUsageMetric } from "@/services/agent-pools";
+import type { AgentPoolUsageMetric } from "@/services/agent/agent-types";
 
 import AgentsUsageMetrics from "./agents-usage-metrics";
 

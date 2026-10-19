@@ -1,4 +1,4 @@
-import type { PlaygroundAttachment } from "@/services/playground";
+import type { PlaygroundAttachment } from "@/services/playground/playground-types";
 
 export const PLAYGROUND_FILE_LIMIT = 5 * 1024 * 1024;
 export const PLAYGROUND_FILE_ACCEPT =

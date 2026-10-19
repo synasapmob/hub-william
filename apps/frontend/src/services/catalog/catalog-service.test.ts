@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import catalogService from "@/services/catalog";
+import { catalogService } from "./catalog-service";
 import {
   collectionIdForPath,
   collectionPresentation,

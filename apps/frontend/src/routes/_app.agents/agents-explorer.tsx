@@ -20,7 +20,7 @@ import {
 import { TooltipProvider } from "@/components/ui/tooltip";
 import AgentsExplorerLinks from "@/components/agents-explorer-links";
 import AgentsProviderIcon from "@/components/agents-provider-icon";
-import type { AgentPool, AgentProvider } from "@/services/agent-pools";
+import type { AgentPool, AgentProvider } from "@/services/agent/agent-types";
 import { AGENT_PROVIDERS, agentPoolAccess } from "@/utils/utils.agent-pools";
 
 import AgentsAccountRow from "./agents-account-row";

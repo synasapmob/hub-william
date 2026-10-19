@@ -2,7 +2,8 @@ import { tv } from "tailwind-variants";
 
 import CopyBlock from "@/components/copy-block";
 import CopyCommand from "@/components/copy-command";
-import catalogService, { type CatalogCollection } from "@/services/catalog";
+import { catalogService } from "@/services/catalog/catalog-service";
+import type { CatalogCollection } from "@/services/catalog/catalog-types";
 import {
   GATEWAY_KEY_PLACEHOLDER,
   gatewayAgentConfigs,

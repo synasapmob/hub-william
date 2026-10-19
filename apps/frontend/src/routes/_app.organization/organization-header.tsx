@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import Flex from "@/components/ui/flex";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Organization } from "@/services/organizations";
+import type { Organization } from "@/services/organizations/organizations-types";
 
 interface OrganizationHeaderProps {
   invitationCount: number;

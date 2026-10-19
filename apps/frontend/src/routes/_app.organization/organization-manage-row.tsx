@@ -2,7 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import Flex from "@/components/ui/flex";
 import { TableCell, TableRow } from "@/components/ui/table";
-import type { OrganizationSummary } from "@/services/organizations";
+import type { OrganizationSummary } from "@/services/organizations/organizations-types";
 
 import {
   formatCount,

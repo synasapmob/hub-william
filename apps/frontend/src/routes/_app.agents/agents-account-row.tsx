@@ -6,7 +6,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { AgentPool } from "@/services/agent-pools";
+import type { AgentPool } from "@/services/agent/agent-types";
 import {
   agentPoolTokenDetail,
   agentPoolUsageIssues,

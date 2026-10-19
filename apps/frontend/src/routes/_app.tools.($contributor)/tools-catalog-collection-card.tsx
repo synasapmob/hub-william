@@ -10,7 +10,8 @@ import {
 
 import Center from "@/components/ui/center";
 import Flex from "@/components/ui/flex";
-import catalogService, { type CatalogCollection } from "@/services/catalog";
+import { catalogService } from "@/services/catalog/catalog-service";
+import type { CatalogCollection } from "@/services/catalog/catalog-types";
 
 const collectionIcons: Record<string, LucideIcon> = {
   gateway: Network,

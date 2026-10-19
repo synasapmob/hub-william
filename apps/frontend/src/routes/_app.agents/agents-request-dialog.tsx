@@ -16,7 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import type { AgentPool } from "@/services/agent-pools";
+import type { AgentPool } from "@/services/agent/agent-types";
 
 interface RequestFormValues {
   reason: string;

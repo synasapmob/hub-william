@@ -3,10 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  AgentConnectionServiceError,
-  type AgentConnection,
-} from "@/services/agent-connections";
+import { AgentServiceError } from "@/services/agent/agent-service";
+import type { AgentConnection } from "@/services/agent/agent-types";
 import createQueryClient from "@/utils/utils.query-client";
 
 import AgentsCredentialRefresh from "./agents-credential-refresh";
@@ -41,7 +39,7 @@ describe("AgentsCredentialRefresh", () => {
       .fn<() => Promise<AgentConnection>>()
       .mockResolvedValueOnce(refreshedConnection)
       .mockRejectedValueOnce(
-        new AgentConnectionServiceError("DeepSeek is temporarily unavailable."),
+        new AgentServiceError("DeepSeek is temporarily unavailable."),
       );
     const user = userEvent.setup();
     render(

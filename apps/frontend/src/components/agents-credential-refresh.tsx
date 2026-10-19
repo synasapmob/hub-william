@@ -10,10 +10,11 @@ import { Button } from "@/components/ui/button";
 import Flex from "@/components/ui/flex";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import agentConnectionsService, {
-  AgentConnectionServiceError,
-  type AgentConnection,
-} from "@/services/agent-connections";
+import {
+  AgentServiceError,
+  agentService,
+} from "@/services/agent/agent-service";
+import type { AgentConnection } from "@/services/agent/agent-types";
 
 interface CallbackFormValues {
   callbackUrl: string;
@@ -57,10 +58,10 @@ export default function AgentsCredentialRefresh({
       : null;
   const connectionStatusQuery = useQuery({
     queryFn: pollConnectionId
-      ? () => agentConnectionsService.get(pollConnectionId)
+      ? () => agentService.getConnection(pollConnectionId)
       : skipToken,
     queryKey: [
-      ...agentConnectionsService.queryKey,
+      ...agentService.connectionsQueryKey,
       "refresh-status",
       pollConnectionId,
     ],
@@ -71,7 +72,7 @@ export default function AgentsCredentialRefresh({
   });
   const completeMutation = useMutation({
     mutationFn: ({ callbackUrl, connectionId }: CompleteConnectionVariables) =>
-      agentConnectionsService.complete(connectionId, callbackUrl),
+      agentService.completeConnection(connectionId, callbackUrl),
   });
   const currentRefreshConnection =
     connectionStatusQuery.data ?? refreshConnection;
@@ -119,7 +120,7 @@ export default function AgentsCredentialRefresh({
     } catch (error) {
       popup.close();
       setRefreshError(
-        error instanceof AgentConnectionServiceError
+        error instanceof AgentServiceError
           ? error.message
           : "The provider credential could not be refreshed.",
       );
@@ -140,7 +141,7 @@ export default function AgentsCredentialRefresh({
     } catch (error) {
       callbackForm.setError("root", {
         message:
-          error instanceof AgentConnectionServiceError
+          error instanceof AgentServiceError
             ? error.message
             : "The authorization code could not be exchanged.",
       });

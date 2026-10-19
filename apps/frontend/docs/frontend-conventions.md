@@ -327,7 +327,7 @@ separately from these code conventions. See
     `GITHUB_REPOSITORY_URL`, `collectionIdForPath`, `CatalogCollection`. They are named
     for what they are. The test is whether
     the file exists to provide that one thing.
-  - **Data types are not components.** `apps/frontend/src/services/agent-pools.ts`
+  - **Data types are not components.** `apps/frontend/src/services/agent/agent-types.ts`
     exports `AgentPool`, while the component reading it is `AgentsPoolCard` in
     `_app.agents/`. The record keeps its domain name; the component keeps its
     route ownership prefix.

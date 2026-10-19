@@ -17,11 +17,11 @@ import Flex from "@/components/ui/flex";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
-import voskService, {
+import {
   VOSK_MAX_RECORDING_SECONDS,
-  type VoskModel,
-  type VoskProgress,
-} from "@/services/vosk";
+  voskService,
+} from "@/services/vosk/vosk-service";
+import type { VoskModel, VoskProgress } from "@/services/vosk/vosk-types";
 import { copyText } from "@/utils/utils.clipboard";
 import { downloadText } from "@/utils/utils.download";
 

@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { AgentPool } from "@/services/agent-pools";
+import type { AgentPool } from "@/services/agent/agent-types";
 
 import AgentsPoolCard from "./agents-pool-card";
 

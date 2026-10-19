@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import authService from "./auth";
+import { authService } from "./auth-service";
 
 function jsonResponse(value: unknown, status = 200) {
   return new Response(JSON.stringify(value), {

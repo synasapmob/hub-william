@@ -11,7 +11,7 @@ import type {
   Organization,
   OrganizationInvitation,
   OrganizationSummary,
-} from "@/services/organizations";
+} from "@/services/organizations/organizations-types";
 
 import OrganizationManageInvitations from "./organization-manage-invitations";
 import OrganizationManageRemoveDialog from "./organization-manage-remove-dialog";

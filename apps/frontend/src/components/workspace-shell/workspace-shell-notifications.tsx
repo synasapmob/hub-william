@@ -15,7 +15,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
-import organizationsService from "@/services/organizations";
+import { organizationsService } from "@/services/organizations/organizations-service";
 import { MY_ORGANIZATION_PATH } from "@/utils/utils.organization-tabs";
 
 import { useWorkspaceSession } from "./workspace-shell-session-context";
@@ -38,7 +38,7 @@ export default function WorkspaceShellNotifications({
   // Same query as the Organization page, so the two never disagree.
   const invitationsQuery = useQuery({
     enabled: Boolean(userId),
-    queryFn: organizationsService.invitations,
+    queryFn: () => organizationsService.invitations(),
     queryKey: [
       ...organizationsService.queryKey,
       "invitations",

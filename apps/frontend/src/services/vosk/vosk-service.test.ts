@@ -78,7 +78,7 @@ vi.mock("./vosk-audio", async (importOriginal) => ({
   decodeAudioFile: vi.fn().mockResolvedValue(new Float32Array(16_000 * 5)),
 }));
 
-type VoskService = typeof import("./index").default;
+type VoskService = typeof import("./vosk-service").voskService;
 let voskService: VoskService;
 
 const english: VoskModel = {
@@ -105,7 +105,7 @@ describe("voskService.transcribe", () => {
     nextLoad = "ok";
     // The service caches its loaded model at module scope; start each test cold.
     vi.resetModules();
-    voskService = (await import("./index")).default;
+    voskService = (await import("./vosk-service")).voskService;
   });
 
   it("finishes only after every chunk and the final result have replied", async () => {
@@ -201,7 +201,7 @@ describe("voskService model loading", () => {
     nextLoad = "ok";
     // The service caches its loaded model at module scope; start each test cold.
     vi.resetModules();
-    voskService = (await import("./index")).default;
+    voskService = (await import("./vosk-service")).voskService;
   });
 
   it("surfaces a failed download and retries instead of caching the failure", async () => {
