@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type {
   AgentPoolAvailability,
   AgentPoolUsageMetric,
-} from "@/services/agent-pools";
+} from "@/services/agent/agent-types";
 
 import {
   agentPoolPrimaryUsage,

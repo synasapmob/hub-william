@@ -4,7 +4,7 @@ import { tv } from "tailwind-variants";
 
 import Center from "@/components/ui/center";
 import ImageFallBack from "@/components/ui/image-fallback";
-import organizationsService from "@/services/organizations";
+import { organizationsService } from "@/services/organizations/organizations-service";
 import assetPath from "@/utils/utils.asset-path";
 
 import WorkspaceShellAccount from "./workspace-shell-account";
@@ -119,7 +119,7 @@ function OrganizationNavigation({ onNavigate }: OrganizationNavigationProps) {
   const inPlayground = Boolean(useMatch("/playground"));
   const organizationsQuery = useQuery({
     enabled: Boolean(userId),
-    queryFn: organizationsService.list,
+    queryFn: () => organizationsService.list(),
     queryKey: [...organizationsService.queryKey, userId ?? "guest"],
     // This observer shares Playground's organization choices.
     refetchOnWindowFocus: !inPlayground,

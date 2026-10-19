@@ -1,8 +1,8 @@
 import { Bot } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import type { AgentProvider } from "@/services/agent-pools";
-import providerCatalogue from "@/services/provider-catalogue";
-import type { ProviderId } from "@/services/provider-catalogue.generated";
+import type { AgentProvider } from "@/services/agent/agent-types";
+import { providerCatalogueService } from "@/services/provider-catalogue/provider-catalogue-service";
+import type { ProviderId } from "@/services/provider-catalogue/provider-catalogue.generated";
 import assetPath from "@/utils/utils.asset-path";
 
 interface AgentsProviderIconProps {
@@ -15,7 +15,7 @@ export default function AgentsProviderIcon({
   return (
     <Avatar size="sm" className="rounded-md after:rounded-md after:border-0">
       <AvatarImage
-        src={assetPath(providerCatalogue.byIdOrLabel(provider).icon)}
+        src={assetPath(providerCatalogueService.byIdOrLabel(provider).icon)}
         alt=""
         className="rounded-md object-contain"
       />

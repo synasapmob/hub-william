@@ -10,10 +10,9 @@ import { useWorkspaceSession } from "@/components/workspace-shell/workspace-shel
 import AgentsConnectDialog from "@/components/agents-connect-dialog";
 import Flex from "@/components/ui/flex";
 import { Skeleton } from "@/components/ui/skeleton";
-import agentConnectionsService from "@/services/agent-connections";
-import organizationsService, {
-  type OrganizationAgentDetails,
-} from "@/services/organizations";
+import { agentService } from "@/services/agent/agent-service";
+import { organizationsService } from "@/services/organizations/organizations-service";
+import type { OrganizationAgentDetails } from "@/services/organizations/organizations-types";
 import {
   requireOrganization,
   useOrganizationContext,
@@ -70,12 +69,12 @@ export default function OrganizationAgentsRoute() {
   // organization agent links to, so every view of that account updates.
   const refreshMutation = useMutation({
     mutationFn: (connectionId: string) =>
-      agentConnectionsService.refresh(connectionId),
+      agentService.refreshConnection(connectionId),
     onSuccess: refreshAgentData,
   });
   const resetCreditsMutation = useMutation({
     mutationFn: (connectionId: string) =>
-      agentConnectionsService.resetCredits(connectionId),
+      agentService.resetCredits(connectionId),
     onSuccess: (_, connectionId) => {
       // The provider's usage endpoint can lag the reset, so update the shared
       // agent the owner just reset instead of refetching the stale windows.

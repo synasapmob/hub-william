@@ -12,15 +12,17 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import WorkspaceShellSession from "@/components/workspace-shell/workspace-shell-session";
-import authService, { type AuthenticatedUser } from "@/services/auth";
-import organizationsService, {
-  type Organization,
-  type OrganizationInvitation,
-  type OrganizationMember,
-  type OrganizationOverview,
-  type OrganizationSummary,
-  type OrganizationUsage,
-} from "@/services/organizations";
+import { authService } from "@/services/auth/auth-service";
+import type { AuthenticatedUser } from "@/services/auth/auth-types";
+import { organizationsService } from "@/services/organizations/organizations-service";
+import type {
+  Organization,
+  OrganizationInvitation,
+  OrganizationMember,
+  OrganizationOverview,
+  OrganizationSummary,
+  OrganizationUsage,
+} from "@/services/organizations/organizations-types";
 import createQueryClient from "@/utils/utils.query-client";
 
 import OrganizationOverviewRoute from "@/routes/_app.organization._index/route";

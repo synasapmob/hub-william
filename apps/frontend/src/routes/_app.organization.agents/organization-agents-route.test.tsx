@@ -6,12 +6,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 
 import WorkspaceShellSessionContext from "@/components/workspace-shell/workspace-shell-session-context";
-import agentConnectionsService, {
-  type AgentConnection,
-} from "@/services/agent-connections";
-import organizationsService, {
-  type OrganizationAgentDetails,
-} from "@/services/organizations";
+import { agentService } from "@/services/agent/agent-service";
+import type { AgentConnection } from "@/services/agent/agent-types";
+import { organizationsService } from "@/services/organizations/organizations-service";
+import type { OrganizationAgentDetails } from "@/services/organizations/organizations-types";
 import createQueryClient from "@/utils/utils.query-client";
 
 import OrganizationAgentsRoute from "./route";
@@ -156,7 +154,7 @@ describe("Organization Agents", () => {
         resolveAgents = resolve;
       }),
     );
-    vi.spyOn(agentConnectionsService, "list").mockResolvedValue([]);
+    vi.spyOn(agentService, "listConnections").mockResolvedValue([]);
 
     renderOrganizationAgents();
 
@@ -190,7 +188,7 @@ describe("Organization Agents", () => {
     const connections = [connection, secondConnection];
     const shared: OrganizationAgentDetails[] = [];
     const success = vi.spyOn(toast, "success").mockReturnValue("toast");
-    vi.spyOn(agentConnectionsService, "list").mockResolvedValue(connections);
+    vi.spyOn(agentService, "listConnections").mockResolvedValue(connections);
     vi.spyOn(organizationsService, "agents").mockImplementation(async () => [
       ...shared,
     ]);
@@ -307,10 +305,8 @@ describe("Organization Agents", () => {
 
   it("lets a member connect an agent and immediately shares it with the organization", async () => {
     let shared: OrganizationAgentDetails[] = [];
-    vi.spyOn(agentConnectionsService, "list").mockResolvedValue([]);
-    vi.spyOn(agentConnectionsService, "connectApiKey").mockResolvedValue(
-      connection,
-    );
+    vi.spyOn(agentService, "listConnections").mockResolvedValue([]);
+    vi.spyOn(agentService, "connectApiKey").mockResolvedValue(connection);
     vi.spyOn(organizationsService, "agents").mockImplementation(
       async () => shared,
     );
@@ -536,11 +532,11 @@ describe("Organization Agents", () => {
         provider,
         availabilityStatus: "reauth_required",
       };
-      const start = vi.spyOn(agentConnectionsService, "start");
-      const refresh = vi.spyOn(agentConnectionsService, "refresh");
-      const complete = vi.spyOn(agentConnectionsService, "complete");
+      const start = vi.spyOn(agentService, "startConnection");
+      const refresh = vi.spyOn(agentService, "refreshConnection");
+      const complete = vi.spyOn(agentService, "completeConnection");
       const popup = vi.spyOn(window, "open");
-      vi.spyOn(agentConnectionsService, "list").mockResolvedValue([existing]);
+      vi.spyOn(agentService, "listConnections").mockResolvedValue([existing]);
       vi.spyOn(organizationsService, "agents").mockResolvedValue([]);
       const addAgent = vi
         .spyOn(organizationsService, "addAgent")
@@ -692,7 +688,7 @@ describe("Organization Agents", () => {
 
   it("lets the connection owner spend a ChatGPT reset credit from the organization", async () => {
     const resetCredits = vi
-      .spyOn(agentConnectionsService, "resetCredits")
+      .spyOn(agentService, "resetCredits")
       .mockResolvedValue();
     vi.spyOn(organizationsService, "agents").mockResolvedValue([
       {
@@ -791,7 +787,7 @@ describe("Organization Agents", () => {
   });
 
   it("never offers Refresh to a member who does not own the linked account", async () => {
-    const refresh = vi.spyOn(agentConnectionsService, "refresh");
+    const refresh = vi.spyOn(agentService, "refreshConnection");
     vi.spyOn(organizationsService, "agents").mockResolvedValue([
       {
         ...linkedAgent,
@@ -825,7 +821,7 @@ describe("Organization Agents", () => {
       async () => shared,
     );
     vi.spyOn(organizationsService, "usage").mockResolvedValue(emptyUsage);
-    const disconnect = vi.spyOn(agentConnectionsService, "disconnect");
+    const disconnect = vi.spyOn(agentService, "disconnect");
     const removeAgent = vi
       .spyOn(organizationsService, "removeAgent")
       .mockImplementation(async () => {

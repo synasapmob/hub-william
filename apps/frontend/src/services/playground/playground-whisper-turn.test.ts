@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import playgroundService from "./index";
+import { playgroundService } from "./playground-service";
 import playgroundWhisperTurn, {
   type PlaygroundWhisperEvent,
   type PlaygroundWhisperTurnOptions,

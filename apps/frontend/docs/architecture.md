@@ -11,7 +11,8 @@ and [ADR-0027](../../../docs/decisions/0027-organizations-and-session-agent-acce
 - `/` remains the Home white paper about tool contributions, sharing agent
   pools with teammates, and keeping provider credentials on the server. The
   retired Documents setup section is removed.
-- `/tools` shows shared tools, currently Gateway, OpenCode, OMP and DOWNLOAD REEL. The existing
+- `/tools` shows shared tools, currently Gateway, OpenCode, OMP, DOWNLOAD REEL, TEXT TO AUDIO and AUDIO TO TEXT. AUDIO TO TEXT
+  transcribes in the browser with Vosk ([ADR-0049](../../../docs/decisions/0049-browser-local-vosk-audio-to-text.md)). The existing
   contributor selector and `/tools/<contributor>` show contributed tools.
   Search checks tool metadata and
   documentation filenames. Selecting a tool sets `?node=` and opens a sheet
@@ -150,7 +151,7 @@ tokens include any reported cached input. Existing personal gateway keys retain
 their existing reach while organization gateway-key scope awaits a separate
 operator decision.
 
-The gateway remains `apps/api/src/gateway.rs`. Extraction into a separate
+The gateway remains `apps/api/src/api/gateway/`. Extraction into a separate
 service requires an explicit internal contract and must avoid an additional
 API-to-gateway hop for each prompt. The Telegram application is a separate
 adapter that calls the business API.

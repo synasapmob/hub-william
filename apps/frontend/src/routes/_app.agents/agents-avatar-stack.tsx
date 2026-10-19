@@ -4,7 +4,7 @@ import {
   AvatarGroup,
   AvatarGroupCount,
 } from "@/components/ui/avatar";
-import type { AgentPoolPerson } from "@/services/agent-pools";
+import type { AgentPoolPerson } from "@/services/agent/agent-types";
 
 interface AgentsAvatarStackProps {
   maxVisible?: number;

@@ -18,11 +18,14 @@ import Flex from "@/components/ui/flex";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useWorkspaceSession } from "@/components/workspace-shell/workspace-shell-session-context";
-import gatewayKeysService, {
+import {
   GatewayKeyServiceError,
-  type CreatedGatewayKey,
-  type GatewayKey,
-} from "@/services/gateway-keys";
+  gatewayKeysService,
+} from "@/services/gateway-keys/gateway-keys-service";
+import type {
+  CreatedGatewayKey,
+  GatewayKey,
+} from "@/services/gateway-keys/gateway-keys-types";
 import { copyText } from "@/utils/utils.clipboard";
 
 export default function AgentsGatewayKeyDialog() {
@@ -36,11 +39,11 @@ export default function AgentsGatewayKeyDialog() {
   ] as const;
   const keysQuery = useQuery({
     enabled: open && Boolean(session.user),
-    queryFn: gatewayKeysService.list,
+    queryFn: () => gatewayKeysService.list(),
     queryKey: gatewayKeyQueryKey,
   });
   const createMutation = useMutation({
-    mutationFn: gatewayKeysService.create,
+    mutationFn: () => gatewayKeysService.create(),
     onSuccess: (key) => {
       setCreatedKey(key);
       queryClient.setQueryData<GatewayKey[]>(gatewayKeyQueryKey, (items) => [
@@ -50,7 +53,7 @@ export default function AgentsGatewayKeyDialog() {
     },
   });
   const revokeMutation = useMutation({
-    mutationFn: gatewayKeysService.revoke,
+    mutationFn: (keyId: string) => gatewayKeysService.revoke(keyId),
     onSuccess: (_, keyId) => {
       queryClient.setQueryData<GatewayKey[]>(gatewayKeyQueryKey, (items) =>
         (items ?? []).filter((key) => key.id !== keyId),

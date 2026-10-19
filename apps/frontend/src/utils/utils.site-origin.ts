@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-import catalogService from "@/services/catalog";
+import { catalogService } from "@/services/catalog/catalog-service";
 
 const subscribe = () => () => {};
 const getBrowserSnapshot = () => window.location.origin;

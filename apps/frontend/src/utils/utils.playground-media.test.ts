@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import playgroundMedia from "./utils.playground-media";
-import { playgroundModes } from "@/services/provider-catalogue";
+import { playgroundModes } from "@/services/provider-catalogue/provider-catalogue-service";
 
 afterEach(() => {
   vi.restoreAllMocks();

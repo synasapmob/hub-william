@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { PlaygroundGroqTurnResult } from "./index";
+import type { PlaygroundGroqTurnResult } from "./playground-types";
 
 const eventSchema = z.discriminatedUnion("type", [
   z.object({

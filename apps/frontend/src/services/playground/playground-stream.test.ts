@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import readPlaygroundStream from "./playground-stream";
-import type { PlaygroundProviderId } from "./index";
+import type { PlaygroundProviderId } from "./playground-types";
 
 function stream(text: string, chunkSize = 1) {
   const bytes = new TextEncoder().encode(text);

@@ -1,10 +1,11 @@
 import { useEffect, useState, type ReactNode } from "react";
 
-import authService, {
-  type AuthenticatedUser,
-  type LoginCredentials,
-  type RegisterCredentials,
-} from "@/services/auth";
+import { authService } from "@/services/auth/auth-service";
+import type {
+  AuthenticatedUser,
+  LoginCredentials,
+  RegisterCredentials,
+} from "@/services/auth/auth-types";
 
 import WorkspaceShellAuthDialog, {
   type WorkspaceShellAuthMode,

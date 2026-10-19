@@ -4,7 +4,7 @@ import { Link } from "react-router";
 
 import CopyBlock from "@/components/copy-block";
 import Flex from "@/components/ui/flex";
-import { GITHUB_REPOSITORY_URL } from "@/services/catalog";
+import { GITHUB_REPOSITORY_URL } from "@/services/catalog/catalog-service";
 
 const CONTRIBUTION_TREE = `contributors/
 ├── default/                  # system (read-only)

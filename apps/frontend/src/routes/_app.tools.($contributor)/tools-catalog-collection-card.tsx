@@ -1,4 +1,5 @@
 import {
+  AudioLines,
   Download,
   Files,
   Network,
@@ -9,7 +10,8 @@ import {
 
 import Center from "@/components/ui/center";
 import Flex from "@/components/ui/flex";
-import catalogService, { type CatalogCollection } from "@/services/catalog";
+import { catalogService } from "@/services/catalog/catalog-service";
+import type { CatalogCollection } from "@/services/catalog/catalog-types";
 
 const collectionIcons: Record<string, LucideIcon> = {
   gateway: Network,
@@ -17,6 +19,7 @@ const collectionIcons: Record<string, LucideIcon> = {
   omp: Terminal,
   "download-reel": Download,
   "edge-tts": Volume2,
+  vosk: AudioLines,
 };
 
 interface ToolsCatalogCollectionCardProps {

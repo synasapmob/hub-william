@@ -7,7 +7,8 @@ import Flex from "@/components/ui/flex";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import agentPoolsService, { type AgentPool } from "@/services/agent-pools";
+import { agentService } from "@/services/agent/agent-service";
+import type { AgentPool } from "@/services/agent/agent-types";
 import {
   agentPoolAccess,
   agentPoolAccessLabels,
@@ -148,7 +149,7 @@ export default function AgentsPoolCard({
                   <p className="mt-1 text-[10px] text-zinc-400">
                     Joined{" "}
                     <time dateTime={member.joinedAt}>
-                      {agentPoolsService.createdLabel(member.joinedAt)}
+                      {agentService.createdLabel(member.joinedAt)}
                     </time>
                   </p>
                 </div>
@@ -175,7 +176,7 @@ export default function AgentsPoolCard({
 
             <dd>
               <time dateTime={pool.createdAt}>
-                {agentPoolsService.createdLabel(pool.createdAt)}
+                {agentService.createdLabel(pool.createdAt)}
               </time>
             </dd>
           </Flex>

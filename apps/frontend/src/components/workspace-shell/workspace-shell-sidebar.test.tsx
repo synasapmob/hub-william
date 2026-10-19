@@ -3,7 +3,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import organizationsService from "@/services/organizations";
+import { organizationsService } from "@/services/organizations/organizations-service";
 import createQueryClient from "@/utils/utils.query-client";
 
 import WorkspaceShellSessionContext from "./workspace-shell-session-context";

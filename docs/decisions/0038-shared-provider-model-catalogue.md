@@ -16,7 +16,7 @@ so a future model refresh follows the same ownership and verification boundaries
 ## Decision
 
 - The editable source for public provider/model metadata is
-  [`apps/api/src/provider_catalogue.json`](../../apps/api/src/provider_catalogue.json).
+  [`apps/api/src/utils/provider_catalogue/catalogue.json`](../../apps/api/src/utils/provider_catalogue/catalogue.json).
   It owns provider identity/presentation, connection metadata, supported client
   mappings, discovery strategy/source URLs, reviewed model IDs/status/capabilities,
   reasoning efforts, client defaults, usage support and Call profiles/dependencies.

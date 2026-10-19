@@ -4,7 +4,7 @@ import { Clock3, LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Flex from "@/components/ui/flex";
 import { Progress } from "@/components/ui/progress";
-import type { AgentPoolUsageMetric } from "@/services/agent-pools";
+import type { AgentPoolUsageMetric } from "@/services/agent/agent-types";
 import {
   agentPoolRemaining,
   agentPoolResetCreditCount,

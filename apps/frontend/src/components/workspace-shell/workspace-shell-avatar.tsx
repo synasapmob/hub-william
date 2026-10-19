@@ -1,5 +1,6 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import authService, { type AuthenticatedUser } from "@/services/auth";
+import { authService } from "@/services/auth/auth-service";
+import type { AuthenticatedUser } from "@/services/auth/auth-types";
 
 interface WorkspaceShellAvatarProps {
   user: AuthenticatedUser;

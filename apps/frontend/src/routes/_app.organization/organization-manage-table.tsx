@@ -11,10 +11,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import organizationsService, {
+import {
   ORGANIZATION_SUMMARY_DAYS,
-} from "@/services/organizations";
-import type { OrganizationSummary } from "@/services/organizations";
+  organizationsService,
+} from "@/services/organizations/organizations-service";
+import type { OrganizationSummary } from "@/services/organizations/organizations-types";
 
 import OrganizationManageRow from "./organization-manage-row";
 import OrganizationManageRowSkeleton from "./organization-manage-row-skeleton";

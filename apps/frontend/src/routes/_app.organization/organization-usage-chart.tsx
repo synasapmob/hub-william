@@ -2,7 +2,7 @@ import { tv } from "tailwind-variants";
 
 import Center from "@/components/ui/center";
 import Flex from "@/components/ui/flex";
-import type { OrganizationUsageDay } from "@/services/organizations";
+import type { OrganizationUsageDay } from "@/services/organizations/organizations-types";
 
 const dailyBar = tv({
   base: "w-full max-w-3 rounded-t-sm",

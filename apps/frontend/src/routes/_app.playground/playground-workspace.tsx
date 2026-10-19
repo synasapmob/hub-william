@@ -25,18 +25,21 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useWorkspaceSession } from "@/components/workspace-shell/workspace-shell-session-context";
-import providerCatalogue from "@/services/provider-catalogue";
-import agentPoolsService from "@/services/agent-pools";
-import organizationsService from "@/services/organizations";
+import { providerCatalogueService } from "@/services/provider-catalogue/provider-catalogue-service";
+import { agentService } from "@/services/agent/agent-service";
+import { organizationsService } from "@/services/organizations/organizations-service";
 import { agentPoolAccess } from "@/utils/utils.agent-pools";
 import playgroundMedia from "@/utils/utils.playground-media";
 import playgroundSpeechPreload from "@/services/playground/playground-speech-preload";
-import playgroundService, {
+import {
+  playgroundService,
   PlaygroundServiceError,
-  type PlaygroundChatOptions,
-  type PlaygroundAttachment,
-  type PlaygroundProviderId,
-} from "@/services/playground";
+} from "@/services/playground/playground-service";
+import type {
+  PlaygroundAttachment,
+  PlaygroundChatOptions,
+  PlaygroundProviderId,
+} from "@/services/playground/playground-types";
 
 import readPlaygroundAttachment, {
   PLAYGROUND_FILE_ACCEPT,
@@ -66,11 +69,14 @@ interface PlaygroundTurn {
 }
 
 const providers = Object.fromEntries(
-  providerCatalogue
+  providerCatalogueService
     .list("playground")
     .map((provider) => [provider.id, provider]),
-) as Record<PlaygroundProviderId, ReturnType<typeof providerCatalogue.byId>>;
-const imageProviderNames = providerCatalogue
+) as Record<
+  PlaygroundProviderId,
+  ReturnType<typeof providerCatalogueService.byId>
+>;
+const imageProviderNames = providerCatalogueService
   .list("playground")
   .filter((provider) => provider.chat_capabilities.includes("image_input"))
   .map((provider) => provider.label);
@@ -126,7 +132,7 @@ export default function PlaygroundWorkspace({
   const userId = session.user?.id;
   const organizationId = form.watch("organizationId");
   const organizationRequested = Boolean(organizationId);
-  const poolQueryKey = [...agentPoolsService.queryKey, userId ?? "guest"];
+  const poolQueryKey = [...agentService.poolsQueryKey, userId ?? "guest"];
   const organizationAgentsQueryKey = [
     ...organizationsService.queryKey,
     organizationId,
@@ -135,13 +141,13 @@ export default function PlaygroundWorkspace({
   const poolQuery = useQuery({
     ...setupQueryOptions,
     queryKey: poolQueryKey,
-    queryFn: () => agentPoolsService.list(),
+    queryFn: () => agentService.listPools(),
     enabled: session.status !== "loading" && !organizationRequested,
   });
   const organizationsQuery = useQuery({
     ...setupQueryOptions,
     queryKey: [...organizationsService.queryKey, userId ?? "guest"],
-    queryFn: organizationsService.list,
+    queryFn: () => organizationsService.list(),
     enabled: Boolean(userId),
   });
   const selectedOrganization = (organizationsQuery.data ?? []).find(
@@ -182,7 +188,7 @@ export default function PlaygroundWorkspace({
         }));
   const availableProviderIds = providerIds.filter(
     (id) =>
-      providerCatalogue.supportsMode(id, savedMode) &&
+      providerCatalogueService.supportsMode(id, savedMode) &&
       accessibleAccounts.some((account) => account.provider === id),
   );
   const requestedProvider = form.watch("provider");
@@ -192,12 +198,12 @@ export default function PlaygroundWorkspace({
   const mode =
     savedMode === "voice"
       ? legacyProvider &&
-        !providerCatalogue.supportsMode(legacyProvider, "call-live")
+        !providerCatalogueService.supportsMode(legacyProvider, "call-live")
         ? "call-whisper"
         : "call-live"
       : savedMode;
   const visibleProviderIds = availableProviderIds.filter((id) =>
-    providerCatalogue.supportsMode(id, mode),
+    providerCatalogueService.supportsMode(id, mode),
   );
   const provider =
     visibleProviderIds.find((id) => id === requestedProvider) ??
@@ -286,12 +292,12 @@ export default function PlaygroundWorkspace({
       if (mode === "chat" || mode === "call-whisper")
         return entry.modes.includes("chat");
       const profile =
-        entry.call ?? providerCatalogue.callProfile(provider, entry.id);
+        entry.call ?? providerCatalogueService.callProfile(provider, entry.id);
       return (
         entry.modes.includes("voice") &&
         profile?.provider === provider &&
         profile.selector_model === entry.id &&
-        providerCatalogue.callMode(profile) === mode
+        providerCatalogueService.callMode(profile) === mode
       );
     },
   );
@@ -599,12 +605,15 @@ export default function PlaygroundWorkspace({
                     playgroundMedia.writeMode(value);
                     form.setValue("model", "");
                     const nextProvider =
-                      providerCatalogue.supportsMode(provider, value) &&
+                      providerCatalogueService.supportsMode(provider, value) &&
                       visibleProviderIds.includes(provider)
                         ? provider
                         : (providerIds.find(
                             (id) =>
-                              providerCatalogue.supportsMode(id, value) &&
+                              providerCatalogueService.supportsMode(
+                                id,
+                                value,
+                              ) &&
                               accessibleAccounts.some(
                                 (account) => account.provider === id,
                               ),

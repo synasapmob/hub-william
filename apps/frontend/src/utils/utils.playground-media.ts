@@ -1,7 +1,7 @@
 import {
-  playgroundModes,
   type PlaygroundMode,
-} from "@/services/provider-catalogue";
+  playgroundModes,
+} from "@/services/provider-catalogue/provider-catalogue-service";
 
 // Legacy Call is resolved after the workspace's accessible accounts load.
 export type SavedPlaygroundMode = PlaygroundMode | "voice";
