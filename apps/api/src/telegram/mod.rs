@@ -9,10 +9,13 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
-    AppState,
-    error::ApiError,
-    telegram_catalogue::{load_product, normalize_slug},
+    core::{ApiError, AppState},
+    telegram::catalogue::{load_product, normalize_slug},
 };
+
+mod catalogue;
+mod routes;
+pub(crate) use routes::routes;
 
 const TELEGRAM_SERVICE_TOKEN_HEADER: &str = "x-hub-william-telegram-token";
 const ORDER_REFERENCE_ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -632,8 +635,7 @@ fn secrets_match(expected: &[u8], received: &[u8]) -> bool {
 }
 
 fn database_error(error: sqlx::Error) -> ApiError {
-    eprintln!("telegram contact database operation failed: {error}");
-    ApiError::Internal
+    crate::helpers::database_error("telegram contact", error)
 }
 
 #[cfg(test)]

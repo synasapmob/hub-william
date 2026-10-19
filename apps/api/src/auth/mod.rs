@@ -22,7 +22,10 @@ use time::Duration;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::{AppState, error::ApiError};
+use crate::core::{ApiError, AppState};
+
+mod routes;
+pub(crate) use routes::{AuthApi, routes};
 
 const SESSION_COOKIE: &str = "hub_session";
 const REFRESH_COOKIE: &str = "hub_refresh";
@@ -88,8 +91,8 @@ struct SessionCookies {
     request_body = RegisterRequest,
     responses(
         (status = 201, description = "Account created and session started", body = SessionResponse),
-        (status = 409, description = "Username already exists", body = crate::ErrorResponse),
-        (status = 422, description = "Invalid account fields", body = crate::ErrorResponse)
+        (status = 409, description = "Username already exists", body = crate::core::ErrorResponse),
+        (status = 422, description = "Invalid account fields", body = crate::core::ErrorResponse)
     ),
     tag = "auth"
 )]
@@ -152,8 +155,8 @@ pub async fn register(
     request_body = LoginRequest,
     responses(
         (status = 200, description = "Session started", body = SessionResponse),
-        (status = 401, description = "Credentials rejected", body = crate::ErrorResponse),
-        (status = 422, description = "Invalid account fields", body = crate::ErrorResponse)
+        (status = 401, description = "Credentials rejected", body = crate::core::ErrorResponse),
+        (status = 422, description = "Invalid account fields", body = crate::core::ErrorResponse)
     ),
     tag = "auth"
 )]
@@ -198,7 +201,7 @@ pub async fn login(
     responses(
         (status = 200, description = "Current authenticated user", body = SessionResponse),
         (status = 204, description = "No browser session has been started"),
-        (status = 401, description = "No active session", body = crate::ErrorResponse)
+        (status = 401, description = "No active session", body = crate::core::ErrorResponse)
     ),
     tag = "auth"
 )]
@@ -300,7 +303,7 @@ pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> (CookieJar
     path = "/auth/refresh",
     responses(
         (status = 200, description = "Access and refresh sessions rotated", body = SessionResponse),
-        (status = 401, description = "Refresh session missing or expired", body = crate::ErrorResponse)
+        (status = 401, description = "Refresh session missing or expired", body = crate::core::ErrorResponse)
     ),
     tag = "auth"
 )]

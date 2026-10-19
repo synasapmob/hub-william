@@ -41,6 +41,39 @@ Postgres TCP Proxy is not needed for this script. Check the linked project and
 environment before running it; do not use the production database for routine
 tests.
 
+## Source layout
+
+Each feature lives in its own folder under `src/`, so features can be added or
+extracted without touching each other.
+
+```text
+src/
+  lib.rs            crate root: declares the modules, exports what main.rs needs
+  main.rs           the server binary
+  core/             shared infrastructure: config, ApiError, AppState, CORS,
+                    the router and the OpenAPI document
+  helpers/          leaf modules with no endpoints that features share
+    provider_catalogue/   reviewed provider/model metadata (+ catalogue.json)
+  agent/            provider connections, account pools, provider usage
+  auth/             browser accounts and sessions
+  gateway/          gateway keys and the provider-compatible proxy endpoints
+  organizations/    membership, shared agents, recorded usage
+  playground/       model chat and voice calls
+  telegram/         internal endpoints for the Telegram adapter
+  tts/              text to speech
+```
+
+- A feature's `mod.rs` is its public face; its submodules stay private and other
+  features import only what `mod.rs` re-exports.
+- A feature wires itself in from its own `routes.rs`: `routes()` for its
+  endpoints and an `...Api` struct for its OpenAPI fragment.
+- `core/router.rs` and `core/openapi.rs` are the only places that list features.
+  Adding a feature is a new folder plus one line in each.
+- `helpers/` modules may depend on `core` but never on a feature. Code that
+  needs a feature belongs in that feature, not in `helpers/`.
+- Database-backed tests sit beside their code in `database_tests.rs` and run
+  with `--features database-tests`.
+
 ## Live routes
 
 - `/auth/*`: five-hour access session and rotating seven-day refresh session.

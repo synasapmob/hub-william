@@ -33,14 +33,14 @@ use super::{
     set_default_organization, share_agent, unshare_agent, usage,
 };
 use crate::{
-    AgentConnection, AgentConnectionStatus, AgentProvider, AppConfig, AppState,
-    ConnectDeepseekRequest,
-    connections::{
-        CredentialLookup, PROVIDER_LOGIN_REQUIRED_MESSAGE, gateway_credential,
+    agent::{
+        AgentConnection, AgentConnectionStatus, ConnectDeepseekRequest, CredentialLookup,
+        PROVIDER_LOGIN_REQUIRED_MESSAGE, gateway_credential,
         mark_reauthorization_required_if_current,
     },
-    error::ApiError,
+    core::{ApiError, AppConfig, AppState},
     gateway::{SERVED_CONNECTION_HEADER, response_for_organization_user, response_for_user},
+    helpers::provider_catalogue::AgentProvider,
 };
 use axum::extract::{Query, State};
 
@@ -132,7 +132,7 @@ async fn existing_accounts_share_without_reauthorizing_and_keep_status_for_every
             assert_eq!(shared.id, id);
             assert_eq!(shared.availability_status, availability);
             let Json(connections) =
-                crate::connections::list_connections(State(state.clone()), owner.jar.clone())
+                crate::agent::list_connections(State(state.clone()), owner.jar.clone())
                     .await
                     .unwrap();
             let workspace = connections.iter().find(|row| row.id == id).unwrap();
@@ -656,7 +656,7 @@ async fn organization_with_members(
 
 /// Connect a DeepSeek account in `user`'s Workspace through the real handler.
 async fn connect_workspace_deepseek(state: &AppState, user: &TestUser, api_key: &str) -> Uuid {
-    let (status, Json(connection)) = crate::connections::connect_deepseek(
+    let (status, Json(connection)) = crate::agent::connect_deepseek(
         State(state.clone()),
         user.jar.clone(),
         Json(ConnectDeepseekRequest {
@@ -711,10 +711,9 @@ async fn organization_agents(
 }
 
 async fn workspace_connections(state: &AppState, user: &TestUser) -> Vec<AgentConnection> {
-    let Json(connections) =
-        crate::connections::list_connections(State(state.clone()), user.jar.clone())
-            .await
-            .unwrap();
+    let Json(connections) = crate::agent::list_connections(State(state.clone()), user.jar.clone())
+        .await
+        .unwrap();
     connections
 }
 
@@ -1118,7 +1117,7 @@ async fn deleting_the_workspace_connection_removes_its_organization_agent_and_ga
     assert_eq!(fake.generations(), [PEER_KEY, WORKSPACE_KEY]);
 
     assert_eq!(
-        crate::connections::disconnect(State(state.clone()), owner.jar.clone(), Path(root_id))
+        crate::agent::disconnect(State(state.clone()), owner.jar.clone(), Path(root_id))
             .await
             .unwrap(),
         StatusCode::NO_CONTENT
@@ -2156,7 +2155,7 @@ async fn deleting_a_workspace_connection_waits_for_a_refresh_that_holds_its_cred
     let delete = tokio::spawn({
         let state = state.clone();
         let jar = owner.jar.clone();
-        async move { crate::connections::disconnect(State(state), jar, Path(root_id)).await }
+        async move { crate::agent::disconnect(State(state), jar, Path(root_id)).await }
     });
     // Give the delete time to queue behind the credential lock.
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;

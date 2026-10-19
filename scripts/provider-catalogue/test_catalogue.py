@@ -78,7 +78,7 @@ class CatalogueTest(unittest.TestCase):
         generator.validate(self.catalogue)
         artifacts = dict(generator.artifacts(self.catalogue))
         self.assertIn("future-chat-fixture", artifacts["apps/frontend/src/services/provider-catalogue.generated.ts"])
-        rust = artifacts["apps/api/src/provider_catalogue_generated.rs"]
+        rust = artifacts["apps/api/src/helpers/provider_catalogue/generated.rs"]
         self.assertIn("ExtraProvider,", rust)
         self.assertIn('#[serde(rename = "extra-provider")]', rust)
         for client in ("opencode", "omp"):

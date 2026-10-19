@@ -151,7 +151,7 @@ tokens include any reported cached input. Existing personal gateway keys retain
 their existing reach while organization gateway-key scope awaits a separate
 operator decision.
 
-The gateway remains `apps/api/src/gateway.rs`. Extraction into a separate
+The gateway remains `apps/api/src/gateway/`. Extraction into a separate
 service requires an explicit internal contract and must avoid an additional
 API-to-gateway hop for each prompt. The Telegram application is a separate
 adapter that calls the business API.

@@ -32,7 +32,7 @@ use super::{
     refresh_due_provider_credentials, refresh_nightly_provider_credentials,
     scheduled_refresh_after,
 };
-use crate::{AppConfig, AppState};
+use crate::core::{AppConfig, AppState};
 
 fn state(pool: PgPool) -> AppState {
     AppState {

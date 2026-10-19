@@ -7,7 +7,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use utoipa::ToSchema;
 
-pub use crate::provider_catalogue_generated::AgentProvider;
+pub use generated::AgentProvider;
+
+pub(crate) mod generated;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -87,7 +89,7 @@ struct Catalogue {
 fn catalogue() -> &'static Catalogue {
     static CATALOGUE: OnceLock<Catalogue> = OnceLock::new();
     CATALOGUE.get_or_init(|| {
-        let catalogue: Catalogue = serde_json::from_str(include_str!("provider_catalogue.json"))
+        let catalogue: Catalogue = serde_json::from_str(include_str!("catalogue.json"))
             .expect("validated, embedded provider catalogue");
         assert_eq!(catalogue.schema_version, 1, "unsupported catalogue schema");
         catalogue

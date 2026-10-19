@@ -7,9 +7,14 @@ use serde_json::{Value, json};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::{AgentProvider, AppState, error::ApiError, gateway, playground::PlaygroundSession};
+use crate::{
+    core::{ApiError, AppState},
+    gateway,
+    helpers::provider_catalogue::AgentProvider,
+    playground::PlaygroundSession,
+};
 
-pub(crate) use crate::provider_catalogue_generated::CALL_CODEX_REALTIME_MODEL as CODEX_VOICE_MODEL;
+pub(crate) use crate::helpers::provider_catalogue::generated::CALL_CODEX_REALTIME_MODEL as CODEX_VOICE_MODEL;
 
 #[derive(Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
@@ -28,11 +33,11 @@ pub struct PlaygroundVoiceSession {
 
 #[utoipa::path(post, path = "/playground/voice", request_body = PlaygroundVoiceRequest, responses(
     (status = 200, body = PlaygroundVoiceSession),
-    (status = 401, body = crate::ErrorResponse),
-    (status = 403, body = crate::ErrorResponse),
-    (status = 422, body = crate::ErrorResponse),
-    (status = 429, body = crate::ErrorResponse),
-    (status = 502, body = crate::ErrorResponse)
+    (status = 401, body = crate::core::ErrorResponse),
+    (status = 403, body = crate::core::ErrorResponse),
+    (status = 422, body = crate::core::ErrorResponse),
+    (status = 429, body = crate::core::ErrorResponse),
+    (status = 502, body = crate::core::ErrorResponse)
 ), tag = "playground")]
 pub async fn create(
     State(state): State<AppState>,

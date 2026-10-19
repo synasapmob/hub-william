@@ -30,7 +30,7 @@ use super::{
     CLAUDE_DOCS_CACHE, OPENAI_DOCS_CACHE, claude_models, default_claude_model_catalogue,
     default_openai_model_catalogue, hash_gateway_key, openai_models,
 };
-use crate::{AppConfig, AppState};
+use crate::core::{AppConfig, AppState};
 
 const GATEWAY_KEY: &str = "hw_live_subscriber_models_test_key_0123456789";
 

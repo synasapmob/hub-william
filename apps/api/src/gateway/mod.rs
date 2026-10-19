@@ -21,15 +21,18 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
-    AgentProvider, AppState,
-    auth::authenticated_user_id,
-    connections::{
+    agent::{
         ANTIGRAVITY_CLIENT_VERSION, CredentialLookup, PROVIDER_LOGIN_REQUIRED_MESSAGE,
         gateway_credential, load_gemini_code_assist, mark_reauthorization_required_if_current,
         provider_credential, recover_rejected_credential,
     },
-    error::ApiError,
+    auth::authenticated_user_id,
+    core::{ApiError, AppState},
+    helpers::provider_catalogue::AgentProvider,
 };
+
+mod routes;
+pub(crate) use routes::{GatewayApi, routes};
 
 mod groq_voice;
 mod voice;
@@ -738,8 +741,8 @@ enum UpstreamDisposition {
     path = "/gateway-keys",
     responses(
         (status = 201, description = "Gateway key created and returned once", body = CreatedGatewayKey),
-        (status = 401, description = "Hub login required", body = crate::ErrorResponse),
-        (status = 404, description = "Connected provider not found", body = crate::ErrorResponse)
+        (status = 401, description = "Hub login required", body = crate::core::ErrorResponse),
+        (status = 404, description = "Connected provider not found", body = crate::core::ErrorResponse)
     ),
     tag = "gateway keys"
 )]
@@ -806,7 +809,7 @@ pub async fn create_key(
     path = "/gateway-keys",
     responses(
         (status = 200, description = "Active gateway keys", body = [GatewayKey]),
-        (status = 401, description = "Hub login required", body = crate::ErrorResponse)
+        (status = 401, description = "Hub login required", body = crate::core::ErrorResponse)
     ),
     tag = "gateway keys"
 )]
@@ -839,7 +842,7 @@ pub async fn list_keys(
     params(("key_id" = Uuid, Path, description = "Gateway key ID")),
     responses(
         (status = 204, description = "Gateway key revoked"),
-        (status = 404, description = "Gateway key not found", body = crate::ErrorResponse)
+        (status = 404, description = "Gateway key not found", body = crate::core::ErrorResponse)
     ),
     tag = "gateway keys"
 )]
@@ -961,7 +964,7 @@ pub(crate) fn intersect_live_catalogue(current: &Value, live: &Value) -> Result<
 }
 
 pub(crate) fn default_openai_model_catalogue() -> Value {
-    crate::provider_catalogue::default_model_catalogue(AgentProvider::Chatgpt)
+    crate::helpers::provider_catalogue::default_model_catalogue(AgentProvider::Chatgpt)
 }
 
 pub(crate) fn parse_openai_models_markdown(content: &str) -> Option<Value> {
@@ -1061,7 +1064,7 @@ pub(crate) async fn fetch_or_cached_openai_catalogue(http: &reqwest::Client) -> 
     let fetched = async {
         let response = http
             .get(
-                &crate::provider_catalogue::provider(AgentProvider::Chatgpt)
+                &crate::helpers::provider_catalogue::provider(AgentProvider::Chatgpt)
                     .discovery
                     .docs_url,
             )
@@ -1218,7 +1221,7 @@ pub async fn claude_models(
 }
 
 pub(crate) fn default_claude_model_catalogue() -> Value {
-    crate::provider_catalogue::default_model_catalogue(AgentProvider::Claude)
+    crate::helpers::provider_catalogue::default_model_catalogue(AgentProvider::Claude)
 }
 
 pub(crate) fn parse_claude_models_markdown(content: &str) -> Option<Value> {
@@ -1256,8 +1259,8 @@ pub(crate) fn parse_claude_models_markdown(content: &str) -> Option<Value> {
         return None;
     }
 
-    let standard_effort = crate::provider_catalogue::effort_capability(
-        &crate::provider_catalogue::provider(AgentProvider::Claude)
+    let standard_effort = crate::helpers::provider_catalogue::effort_capability(
+        &crate::helpers::provider_catalogue::provider(AgentProvider::Claude)
             .models
             .iter()
             .find(|model| !model.reasoning_efforts.is_empty())
@@ -1318,7 +1321,7 @@ pub(crate) async fn fetch_or_cached_claude_catalogue(http: &reqwest::Client) -> 
     let fetched = async {
         let response = http
             .get(
-                &crate::provider_catalogue::provider(AgentProvider::Claude)
+                &crate::helpers::provider_catalogue::provider(AgentProvider::Claude)
                     .discovery
                     .docs_url,
             )
@@ -1481,7 +1484,7 @@ pub async fn grok_models(
 }
 
 pub(crate) fn current_live_model_id(provider: AgentProvider, id: &str) -> bool {
-    crate::provider_catalogue::current_chat_model(provider, id)
+    crate::helpers::provider_catalogue::current_chat_model(provider, id)
 }
 
 fn filter_current_live_model_catalogue(
@@ -2008,7 +2011,7 @@ async fn gemini_proxy_request_for_user(
                     let (verification_required, validation_url, forwarded) =
                         inspect_gemini_forbidden_response(upstream).await?;
                     if verification_required {
-                        if crate::connections::mark_gemini_verification_required(
+                        if crate::agent::mark_gemini_verification_required(
                             state,
                             candidate.id,
                             &access_token,
@@ -2161,7 +2164,7 @@ fn gemini_model_catalogue(payload: &Value) -> Value {
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
-    let models = crate::provider_catalogue::provider(AgentProvider::Gemini)
+    let models = crate::helpers::provider_catalogue::provider(AgentProvider::Gemini)
         .chat_models()
         .filter_map(|model| {
             let identifier = &model.id;
@@ -3150,7 +3153,7 @@ pub(crate) async fn gemini_account_validation_url(
     access_token: &str,
     project: &str,
 ) -> Option<String> {
-    let payload = crate::connections::load_gemini_code_assist(state, access_token, Some(project))
+    let payload = crate::agent::load_gemini_code_assist(state, access_token, Some(project))
         .await
         .ok()?;
     find_gemini_validation_url(&payload)
@@ -3241,7 +3244,7 @@ pub(crate) async fn probe_gemini_account_verification(
     } else {
         return GeminiVerificationProbe::Inconclusive;
     };
-    let definition = crate::provider_catalogue::provider(AgentProvider::Gemini);
+    let definition = crate::helpers::provider_catalogue::provider(AgentProvider::Gemini);
     let model = catalogue
         .as_ref()
         .and_then(|catalogue| {
@@ -3578,8 +3581,7 @@ fn upstream_network_error(provider: AgentProvider, error: reqwest::Error) -> Api
 }
 
 fn database_error(error: sqlx::Error) -> ApiError {
-    eprintln!("gateway database operation failed: {error}");
-    ApiError::Internal
+    crate::helpers::database_error("gateway", error)
 }
 
 #[cfg(test)]
@@ -3684,7 +3686,7 @@ mod tests {
     use serde_json::{Value, json};
     use uuid::Uuid;
 
-    use crate::AgentProvider;
+    use crate::helpers::provider_catalogue::AgentProvider;
 
     use super::{
         GeminiOperation, GeminiSseTransformer, MAX_USAGE_PAYLOAD_BYTES, TokenUsage,
@@ -4324,7 +4326,7 @@ mod gemini_gateway_database_tests {
         GatewaySelection, GeminiOperation, SERVED_CONNECTION_HEADER, gemini_proxy_request_for_user,
         mark_active, mark_rate_limited,
     };
-    use crate::{AppConfig, AppState};
+    use crate::core::{AppConfig, AppState};
 
     #[derive(Clone)]
     struct FakeCodeAssist {
@@ -4686,7 +4688,7 @@ mod gemini_gateway_database_tests {
             };
             let models = super::gemini_models_for_user(&state, preferred).await;
             assert!(
-                matches!(&models, Err(crate::error::ApiError::Provider(message))
+                matches!(&models, Err(crate::core::ApiError::Provider(message))
                 if message.starts_with("Every account for this provider") && message.contains(scope))
             );
             for operation in [GeminiOperation::Generate, GeminiOperation::CountTokens] {
@@ -4701,7 +4703,7 @@ mod gemini_gateway_database_tests {
                 )
                 .await;
                 assert!(
-                    matches!(&result, Err(crate::error::ApiError::Provider(message))
+                    matches!(&result, Err(crate::core::ApiError::Provider(message))
                     if message.starts_with("Every account for this provider") && message.contains(scope))
                 );
             }
@@ -4723,7 +4725,10 @@ mod organization_gateway_database_tests {
         GatewaySelection, OrganizationUsageEvent, connected_provider_candidates,
         record_organization_usage, upstream_response_with_usage,
     };
-    use crate::{AgentProvider, AppConfig, AppState, error::ApiError};
+    use crate::{
+        core::{ApiError, AppConfig, AppState},
+        helpers::provider_catalogue::AgentProvider,
+    };
 
     #[sqlx::test]
     async fn organization_candidate_scope_does_not_grant_personal_pool_access(pool: PgPool) {

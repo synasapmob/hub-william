@@ -18,7 +18,10 @@ use tokio::net::TcpListener;
 use tower::ServiceExt;
 use uuid::Uuid;
 
-use crate::{AppConfig, AppState, app};
+use crate::{
+    app,
+    core::{AppConfig, AppState},
+};
 
 async fn user(pool: &PgPool) -> (Uuid, String) {
     let id = Uuid::new_v4();
@@ -267,7 +270,7 @@ async fn session_authorization_streaming_and_membership_revocation(pool: PgPool)
 
 #[sqlx::test]
 async fn groq_local_transcript_pipeline_pins_access_without_remote_stt_or_replay(pool: PgPool) {
-    use crate::playground_groq_voice::{GROQ_CHAT_MODEL, GROQ_TTS_MODEL};
+    use crate::playground::groq_voice::{GROQ_CHAT_MODEL, GROQ_TTS_MODEL};
     use std::sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -1229,7 +1232,7 @@ async fn preferred_share_needing_reconnect_is_skipped_for_models_and_chat(pool: 
          WHERE id = $1",
     )
     .bind(reconnect)
-    .bind(crate::connections::PROVIDER_LOGIN_REQUIRED_MESSAGE)
+    .bind(crate::agent::PROVIDER_LOGIN_REQUIRED_MESSAGE)
     .execute(&state.pool)
     .await
     .unwrap();
@@ -1265,7 +1268,7 @@ async fn preferred_share_needing_reconnect_is_skipped_for_models_and_chat(pool: 
         availability(&state.pool, reconnect).await,
         (
             "reauth_required".to_owned(),
-            Some(crate::connections::PROVIDER_LOGIN_REQUIRED_MESSAGE.to_owned()),
+            Some(crate::agent::PROVIDER_LOGIN_REQUIRED_MESSAGE.to_owned()),
             false
         ),
         "Skipping the account leaves its reconnect prompt untouched"
@@ -1298,7 +1301,7 @@ async fn every_account_needing_reconnect_fails_with_a_scope_specific_message(poo
         "UPDATE agent_connections
          SET availability_status = 'reauth_required', failure_message = $1",
     )
-    .bind(crate::connections::PROVIDER_LOGIN_REQUIRED_MESSAGE)
+    .bind(crate::agent::PROVIDER_LOGIN_REQUIRED_MESSAGE)
     .execute(&state.pool)
     .await
     .unwrap();

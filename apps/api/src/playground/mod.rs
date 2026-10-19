@@ -13,16 +13,29 @@ use serde_json::{Value, json};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::{AgentProvider, AppState, auth::authenticated_user_id, error::ApiError, gateway};
+use crate::{
+    auth::authenticated_user_id,
+    core::{ApiError, AppState},
+    gateway,
+    helpers::provider_catalogue::AgentProvider,
+};
+
+mod groq_voice;
+mod routes;
+mod voice;
+pub(crate) use groq_voice::{
+    GROQ_CHAT_MODEL, GROQ_TTS_MODEL, GroqVoiceTurnRequest, GroqVoiceTurnResponse,
+};
+pub(crate) use routes::{PlaygroundApi, routes};
 
 #[derive(Serialize, ToSchema)]
 pub struct PlaygroundModel {
     pub id: String,
     pub name: String,
     pub modes: Vec<PlaygroundMode>,
-    pub capabilities: Vec<crate::provider_catalogue::ModelCapability>,
+    pub capabilities: Vec<crate::helpers::provider_catalogue::ModelCapability>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub call: Option<crate::provider_catalogue::CallProfile>,
+    pub call: Option<crate::helpers::provider_catalogue::CallProfile>,
 }
 
 #[derive(Serialize, ToSchema, Debug, PartialEq)]
@@ -77,7 +90,7 @@ pub async fn authorize_chat(
         .headers()
         .get(header::ORIGIN)
         .ok_or(ApiError::Forbidden)?;
-    if !crate::browser_origins(&state.config).contains(origin) {
+    if !crate::core::browser_origins(&state.config).contains(origin) {
         return Err(ApiError::Forbidden);
     }
     request.extensions_mut().insert(PlaygroundSession(user_id));
@@ -101,9 +114,9 @@ pub struct PlaygroundModelsQuery {
 
 #[utoipa::path(get, path = "/playground/{provider}/accounts/{connection_id}/models", params(("provider" = AgentProvider, Path), ("connection_id" = Uuid, Path), ("organization_id" = Option<Uuid>, Query, description = "Organization whose shared agent should be used")), responses(
     (status = 200, body = [PlaygroundModel]),
-    (status = 401, body = crate::ErrorResponse),
-    (status = 403, body = crate::ErrorResponse),
-    (status = 502, body = crate::ErrorResponse)
+    (status = 401, body = crate::core::ErrorResponse),
+    (status = 403, body = crate::core::ErrorResponse),
+    (status = 502, body = crate::core::ErrorResponse)
 ), tag = "playground")]
 pub async fn models(
     State(state): State<AppState>,
@@ -146,8 +159,8 @@ pub async fn models(
     };
     let mut models = normalize_models(provider, &value, current_catalogue.as_ref())?;
     let has_chat_models = !models.is_empty();
-    for call in crate::provider_catalogue::call_profiles(provider) {
-        if crate::provider_catalogue::call_available(call, &value, has_chat_models) {
+    for call in crate::helpers::provider_catalogue::call_profiles(provider) {
+        if crate::helpers::provider_catalogue::call_available(call, &value, has_chat_models) {
             if let Some(model) = models
                 .iter_mut()
                 .find(|model| model.id == call.selector_model)
@@ -160,7 +173,7 @@ pub async fn models(
                 id: call.selector_model.clone(),
                 name: call.name.clone(),
                 modes: vec![PlaygroundMode::Voice],
-                capabilities: crate::provider_catalogue::provider(provider)
+                capabilities: crate::helpers::provider_catalogue::provider(provider)
                     .capabilities(&call.selector_model),
                 call: Some(call.clone()),
             });
@@ -177,7 +190,7 @@ fn current_playground_model(
     id: &str,
     current_catalogue: Option<&Value>,
 ) -> bool {
-    match crate::provider_catalogue::provider(provider)
+    match crate::helpers::provider_catalogue::provider(provider)
         .discovery
         .strategy
         .as_str()
@@ -186,7 +199,7 @@ fn current_playground_model(
             .and_then(|catalogue| catalogue.get("data"))
             .and_then(Value::as_array)
             .is_some_and(|models| models.iter().any(|model| model["id"] == id)),
-        _ => crate::provider_catalogue::current_chat_model(provider, id),
+        _ => crate::helpers::provider_catalogue::current_chat_model(provider, id),
     }
 }
 
@@ -239,7 +252,7 @@ fn normalize_models(
             id: id.to_owned(),
             name: name.to_owned(),
             modes: vec![PlaygroundMode::Chat],
-            capabilities: crate::provider_catalogue::provider(provider).capabilities(id),
+            capabilities: crate::helpers::provider_catalogue::provider(provider).capabilities(id),
             call: None,
         });
     }
@@ -248,21 +261,21 @@ fn normalize_models(
 
 #[utoipa::path(post, path = "/playground/chat", request_body = PlaygroundChatRequest, responses(
     (status = 200, description = "Provider-native text event stream", body = String, content_type = "text/event-stream"),
-    (status = 401, body = crate::ErrorResponse),
-    (status = 403, body = crate::ErrorResponse),
-    (status = 422, body = crate::ErrorResponse),
-    (status = 429, body = crate::ErrorResponse),
-    (status = 502, body = crate::ErrorResponse)
+    (status = 401, body = crate::core::ErrorResponse),
+    (status = 403, body = crate::core::ErrorResponse),
+    (status = 422, body = crate::core::ErrorResponse),
+    (status = 429, body = crate::core::ErrorResponse),
+    (status = 502, body = crate::core::ErrorResponse)
 ), tag = "playground")]
 pub async fn chat(
     State(state): State<AppState>,
     Extension(session): Extension<PlaygroundSession>,
     Json(request): Json<PlaygroundChatRequest>,
 ) -> Result<Response, ApiError> {
-    if crate::provider_catalogue::call_profile(request.provider, &request.model).is_some()
-        && !crate::provider_catalogue::provider(request.provider)
+    if crate::helpers::provider_catalogue::call_profile(request.provider, &request.model).is_some()
+        && !crate::helpers::provider_catalogue::provider(request.provider)
             .capabilities(&request.model)
-            .contains(&crate::provider_catalogue::ModelCapability::Chat)
+            .contains(&crate::helpers::provider_catalogue::ModelCapability::Chat)
     {
         return Err(ApiError::Validation("Select Call to use this voice model."));
     }
@@ -323,9 +336,9 @@ fn validate_attachment(
             media_type,
             data,
         } => {
-            if !crate::provider_catalogue::provider(provider)
+            if !crate::helpers::provider_catalogue::provider(provider)
                 .chat_capabilities
-                .contains(&crate::provider_catalogue::ModelCapability::ImageInput)
+                .contains(&crate::helpers::provider_catalogue::ModelCapability::ImageInput)
             {
                 return Err(ApiError::Validation(
                     "This Playground provider supports text files, but image input is not supported yet.",

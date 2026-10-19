@@ -26,7 +26,10 @@ use tokio::sync::Notify;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::{AppState, auth::authenticated_user_id, error::ApiError};
+use crate::{
+    auth::authenticated_user_id,
+    core::{ApiError, AppState},
+};
 
 const CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const CODEX_REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
@@ -67,11 +70,11 @@ const RECOVERABLE_REAUTHORIZATION_MESSAGES: [&str; 3] = [
 #[cfg(all(test, feature = "database-tests"))]
 mod database_tests;
 
-pub use crate::provider_catalogue::AgentProvider;
+pub use crate::helpers::provider_catalogue::AgentProvider;
 
 impl AgentProvider {
     pub(crate) fn label(self) -> &'static str {
-        &crate::provider_catalogue::provider(self).label
+        &crate::helpers::provider_catalogue::provider(self).label
     }
 }
 
@@ -362,8 +365,8 @@ struct GrokDeviceResponse {
     request_body = StartAgentConnectionRequest,
     responses(
         (status = 201, description = "Provider authorization started", body = AgentConnection),
-        (status = 401, description = "Hub login required", body = crate::ErrorResponse),
-        (status = 502, description = "Provider authorization unavailable", body = crate::ErrorResponse)
+        (status = 401, description = "Hub login required", body = crate::core::ErrorResponse),
+        (status = 502, description = "Provider authorization unavailable", body = crate::core::ErrorResponse)
     ),
     tag = "agent connections"
 )]
@@ -438,9 +441,9 @@ pub async fn start(
     request_body = ConnectDeepseekRequest,
     responses(
         (status = 201, description = "DeepSeek API key validated and encrypted", body = AgentConnection),
-        (status = 401, description = "Hub login required", body = crate::ErrorResponse),
-        (status = 422, description = "Invalid DeepSeek API key", body = crate::ErrorResponse),
-        (status = 502, description = "DeepSeek validation unavailable", body = crate::ErrorResponse)
+        (status = 401, description = "Hub login required", body = crate::core::ErrorResponse),
+        (status = 422, description = "Invalid DeepSeek API key", body = crate::core::ErrorResponse),
+        (status = 502, description = "DeepSeek validation unavailable", body = crate::core::ErrorResponse)
     ),
     tag = "agent connections"
 )]
@@ -453,8 +456,8 @@ pub async fn connect_deepseek(
 }
 
 #[utoipa::path(post, path = "/agent-connections/groq", request_body = ConnectGroqRequest,
-    responses((status = 201, body = AgentConnection), (status = 401, body = crate::ErrorResponse),
-        (status = 422, body = crate::ErrorResponse), (status = 502, body = crate::ErrorResponse)),
+    responses((status = 201, body = AgentConnection), (status = 401, body = crate::core::ErrorResponse),
+        (status = 422, body = crate::core::ErrorResponse), (status = 502, body = crate::core::ErrorResponse)),
     tag = "agent connections")]
 pub async fn connect_groq(
     State(state): State<AppState>,
@@ -563,7 +566,7 @@ async fn start_connection_reauthorization(
     path = "/agent-connections",
     responses(
         (status = 200, description = "Current user's provider connections", body = [AgentConnection]),
-        (status = 401, description = "Hub login required", body = crate::ErrorResponse)
+        (status = 401, description = "Hub login required", body = crate::core::ErrorResponse)
     ),
     tag = "agent connections"
 )]
@@ -594,7 +597,7 @@ pub async fn list_connections(
     params(("connection_id" = Uuid, Path, description = "Agent connection ID")),
     responses(
         (status = 200, description = "Latest provider connection status", body = AgentConnection),
-        (status = 404, description = "Connection not found", body = crate::ErrorResponse)
+        (status = 404, description = "Connection not found", body = crate::core::ErrorResponse)
     ),
     tag = "agent connections"
 )]
@@ -632,9 +635,9 @@ pub async fn get_connection(
     params(("connection_id" = Uuid, Path, description = "Agent connection ID")),
     responses(
         (status = 200, description = "Credential refreshed or provider reauthorization started", body = AgentConnection),
-        (status = 401, description = "Hub login required", body = crate::ErrorResponse),
-        (status = 404, description = "Connection not found", body = crate::ErrorResponse),
-        (status = 502, description = "Provider refresh unavailable", body = crate::ErrorResponse)
+        (status = 401, description = "Hub login required", body = crate::core::ErrorResponse),
+        (status = 404, description = "Connection not found", body = crate::core::ErrorResponse),
+        (status = 502, description = "Provider refresh unavailable", body = crate::core::ErrorResponse)
     ),
     tag = "agent connections"
 )]
@@ -667,10 +670,10 @@ pub async fn refresh_connection(
     params(("connection_id" = Uuid, Path, description = "Agent connection ID")),
     responses(
         (status = 204, description = "One banked ChatGPT reset credit was redeemed"),
-        (status = 401, description = "Hub login required", body = crate::ErrorResponse),
-        (status = 404, description = "Connection not found", body = crate::ErrorResponse),
-        (status = 422, description = "This account has no reset credits", body = crate::ErrorResponse),
-        (status = 502, description = "OpenAI reset credits are unavailable", body = crate::ErrorResponse)
+        (status = 401, description = "Hub login required", body = crate::core::ErrorResponse),
+        (status = 404, description = "Connection not found", body = crate::core::ErrorResponse),
+        (status = 422, description = "This account has no reset credits", body = crate::core::ErrorResponse),
+        (status = 502, description = "OpenAI reset credits are unavailable", body = crate::core::ErrorResponse)
     ),
     tag = "agent connections"
 )]
@@ -697,7 +700,7 @@ pub async fn reset_connection_credits(
             "This account has no access token.".to_owned(),
         ));
     };
-    crate::usage::reset_chatgpt_credits(&state, &token, access_token).await?;
+    super::usage::reset_chatgpt_credits(&state, &token, access_token).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -709,8 +712,8 @@ pub async fn reset_connection_credits(
     request_body = CompleteAuthorizationRequest,
     responses(
         (status = 200, description = "Authorization completed", body = AgentConnection),
-        (status = 422, description = "Invalid callback URL", body = crate::ErrorResponse),
-        (status = 502, description = "Provider rejected the exchange", body = crate::ErrorResponse)
+        (status = 422, description = "Invalid callback URL", body = crate::core::ErrorResponse),
+        (status = 502, description = "Provider rejected the exchange", body = crate::core::ErrorResponse)
     ),
     tag = "agent connections"
 )]
@@ -791,7 +794,7 @@ pub async fn complete_authorization(
     params(("connection_id" = Uuid, Path, description = "Agent connection ID")),
     responses(
         (status = 204, description = "Connected account pool deleted"),
-        (status = 404, description = "Connection not found", body = crate::ErrorResponse)
+        (status = 404, description = "Connection not found", body = crate::core::ErrorResponse)
     ),
     tag = "agent connections"
 )]
@@ -3107,8 +3110,7 @@ fn upstream_payload_error(provider: AgentProvider) -> ApiError {
 }
 
 fn database_error(error: sqlx::Error) -> ApiError {
-    eprintln!("agent connection database operation failed: {error}");
-    ApiError::Internal
+    crate::helpers::database_error("agent connection", error)
 }
 
 #[cfg(test)]
@@ -3140,7 +3142,7 @@ mod tests {
         start_gemini_authorization, start_grok_authorization, token_claims, validate_api_key_input,
         validate_prompt_url, validate_static_key,
     };
-    use crate::AppConfig;
+    use crate::core::AppConfig;
     use chrono::{Duration, Utc};
     use uuid::Uuid;
 
@@ -3164,7 +3166,7 @@ mod tests {
 
     #[tokio::test]
     async fn claude_authorization_uses_pkce_and_official_manual_callback() {
-        let state = crate::AppState {
+        let state = crate::core::AppState {
             config: AppConfig::default(),
             http: reqwest::Client::new(),
             gateway_http: reqwest::Client::new(),
@@ -3188,7 +3190,7 @@ mod tests {
 
     #[tokio::test]
     async fn gemini_authorization_uses_agy_google_oauth_with_pkce() {
-        let state = crate::AppState {
+        let state = crate::core::AppState {
             config: AppConfig::default(),
             http: reqwest::Client::new(),
             gateway_http: reqwest::Client::new(),
@@ -3236,7 +3238,7 @@ mod tests {
             }),
         );
         let server_task = tokio::spawn(async move { axum::serve(listener, server).await });
-        let state = crate::AppState {
+        let state = crate::core::AppState {
             config: AppConfig {
                 claude_profile_url: format!("{origin}/api/oauth/profile"),
                 ..AppConfig::default()
@@ -3325,7 +3327,7 @@ mod tests {
             );
         let server_task = tokio::spawn(async move { axum::serve(listener, server).await });
 
-        let state = crate::AppState {
+        let state = crate::core::AppState {
             config: AppConfig {
                 gemini_client_id: "agy-client-id".to_owned(),
                 gemini_client_secret: "agy-client-secret".to_owned(),
@@ -3395,7 +3397,7 @@ mod tests {
         );
         let server_task = tokio::spawn(async move { axum::serve(listener, server).await });
 
-        let state = crate::AppState {
+        let state = crate::core::AppState {
             config: AppConfig {
                 gemini_client_id: "agy-client-id".to_owned(),
                 gemini_client_secret: "agy-client-secret".to_owned(),
@@ -3468,7 +3470,7 @@ mod tests {
             grok_issuer: issuer,
             ..AppConfig::default()
         };
-        let state = crate::AppState {
+        let state = crate::core::AppState {
             config,
             http: reqwest::Client::new(),
             gateway_http: reqwest::Client::new(),
@@ -3531,7 +3533,7 @@ mod tests {
 
     #[tokio::test]
     async fn codex_browser_authorization_uses_the_official_local_callback_contract() {
-        let state = crate::AppState {
+        let state = crate::core::AppState {
             config: AppConfig::default(),
             http: reqwest::Client::new(),
             gateway_http: reqwest::Client::new(),
@@ -3600,7 +3602,7 @@ mod tests {
             }),
         );
         let server_task = tokio::spawn(async move { axum::serve(listener, server).await });
-        let state = crate::AppState {
+        let state = crate::core::AppState {
             config: AppConfig {
                 deepseek_api_url: api_url,
                 ..AppConfig::default()

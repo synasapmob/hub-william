@@ -16,11 +16,12 @@ use uuid::Uuid;
 mod database_tests;
 
 use crate::{
-    AgentProvider, AppState,
     auth::{authenticated_user_id, normalize_username, optional_authenticated_user_id},
-    error::ApiError,
-    usage,
+    core::{ApiError, AppState},
+    helpers::provider_catalogue::AgentProvider,
 };
+
+use super::usage;
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
 pub struct AgentPoolShareEvidence {
@@ -289,8 +290,8 @@ pub async fn list(
     request_body = InviteAgentPoolMember,
     responses(
         (status = 201, description = "Member invited", body = AgentPoolPerson),
-        (status = 403, description = "Pool ownership required", body = crate::ErrorResponse),
-        (status = 422, description = "Invite rejected", body = crate::ErrorResponse)
+        (status = 403, description = "Pool ownership required", body = crate::core::ErrorResponse),
+        (status = 422, description = "Invite rejected", body = crate::core::ErrorResponse)
     ),
     tag = "agent pools"
 )]
@@ -366,8 +367,8 @@ pub async fn invite_member(
     ),
     responses(
         (status = 204, description = "Member removed"),
-        (status = 403, description = "Pool ownership required", body = crate::ErrorResponse),
-        (status = 404, description = "Membership not found", body = crate::ErrorResponse)
+        (status = 403, description = "Pool ownership required", body = crate::core::ErrorResponse),
+        (status = 404, description = "Membership not found", body = crate::core::ErrorResponse)
     ),
     tag = "agent pools"
 )]
@@ -416,8 +417,8 @@ pub async fn remove_member(
     request_body = CreateAgentPoolJoinRequest,
     responses(
         (status = 201, description = "Join request created", body = AgentPoolJoinRequest),
-        (status = 401, description = "Login required", body = crate::ErrorResponse),
-        (status = 422, description = "Request rejected", body = crate::ErrorResponse)
+        (status = 401, description = "Login required", body = crate::core::ErrorResponse),
+        (status = 422, description = "Request rejected", body = crate::core::ErrorResponse)
     ),
     tag = "agent pools"
 )]
@@ -480,7 +481,7 @@ pub async fn create_request(
     request_body = DecideAgentPoolJoinRequest,
     responses(
         (status = 200, description = "Join request decided", body = AgentPoolJoinRequest),
-        (status = 403, description = "Pool ownership required", body = crate::ErrorResponse)
+        (status = 403, description = "Pool ownership required", body = crate::core::ErrorResponse)
     ),
     tag = "agent pools"
 )]
@@ -634,6 +635,5 @@ fn status_value(status: AgentPoolRequestStatus) -> &'static str {
 }
 
 fn database_error(error: sqlx::Error) -> ApiError {
-    eprintln!("agent pool database operation failed: {error}");
-    ApiError::Internal
+    crate::helpers::database_error("agent pool", error)
 }

@@ -43,7 +43,10 @@ use super::{
     gemini_proxy_request_for_user, handle_rejected_credential, mark_reauth_required,
     response_for_selection,
 };
-use crate::{AgentProvider, AppConfig, AppState, error::ApiError};
+use crate::{
+    core::{ApiError, AppConfig, AppState},
+    helpers::provider_catalogue::AgentProvider,
+};
 
 const LOGIN_REQUIRED: &str = "Provider login is required. Reconnect this pool.";
 const REFRESH_REJECTED: &str = "Provider authorization expired. Refresh this pool to reconnect.";

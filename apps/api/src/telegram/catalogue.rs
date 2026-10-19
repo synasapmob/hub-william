@@ -6,7 +6,10 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{AppState, error::ApiError, telegram::authorize_telegram_service};
+use crate::{
+    core::{ApiError, AppState},
+    telegram::authorize_telegram_service,
+};
 
 const MAXIMUM_PRICE_VND: i64 = 1_000_000_000;
 const MAXIMUM_RESTOCK: i32 = 100_000;
@@ -73,6 +76,9 @@ pub struct CreateTelegramProduct {
     pub price_vnd: i64,
     pub provider: String,
     pub available: i32,
+    // Accepted in the request body but never read: reservations are derived
+    // from open orders in SQL.
+    #[allow(dead_code)]
     pub reserved: i32,
     pub variant: Option<String>,
     pub warranty: String,
@@ -475,8 +481,7 @@ fn default_warranty_note_vi(warranty: &str) -> &'static str {
 }
 
 fn database_error(error: sqlx::Error) -> ApiError {
-    eprintln!("telegram catalogue database operation failed: {error}");
-    ApiError::Internal
+    crate::helpers::database_error("telegram catalogue", error)
 }
 
 #[cfg(test)]

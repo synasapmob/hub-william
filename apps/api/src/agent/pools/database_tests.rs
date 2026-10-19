@@ -12,7 +12,7 @@ use super::{
     AgentPoolRequestStatus, CreateAgentPoolJoinRequest, DecideAgentPoolJoinRequest,
     InviteAgentPoolMember, create_request, decide_request, invite_member,
 };
-use crate::{AppConfig, AppState, error::ApiError};
+use crate::core::{ApiError, AppConfig, AppState};
 
 struct TestUser {
     id: Uuid,

@@ -3,8 +3,10 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::{
-    AgentPoolUsageMetric, AgentProvider, AppState, connections::provider_credential,
-    error::ApiError, gateway::chatgpt_account_id,
+    agent::{AgentPoolUsageMetric, provider_credential},
+    core::{ApiError, AppState},
+    gateway::chatgpt_account_id,
+    helpers::provider_catalogue::AgentProvider,
 };
 
 const CHATGPT_BACKEND_URL: &str = "https://chatgpt.com/backend-api";

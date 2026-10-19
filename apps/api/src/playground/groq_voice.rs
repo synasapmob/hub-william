@@ -8,13 +8,12 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
-    AppState,
-    error::ApiError,
+    core::{ApiError, AppState},
     gateway,
     playground::{PlaygroundRole, PlaygroundSession},
 };
 
-pub(crate) use crate::provider_catalogue_generated::{
+pub(crate) use crate::helpers::provider_catalogue::generated::{
     CALL_GROQ_CHAT_MODEL as GROQ_CHAT_MODEL, CALL_GROQ_TTS_MODEL as GROQ_TTS_MODEL,
 };
 
@@ -79,9 +78,9 @@ fn validate_request(request: &GroqVoiceTurnRequest) -> Result<(), ApiError> {
 }
 
 #[utoipa::path(post, operation_id = "create_groq_voice_turn", path = "/playground/groq/voice/turn", request_body = GroqVoiceTurnRequest,
-    responses((status = 200, description = "JSON by default; stream=true returns SSE transcript, delta, audio, done or error events. stream_audio=true allows delta and audio to interleave", content((GroqVoiceTurnResponse = "application/json"), (String = "text/event-stream"))), (status = 401, body = crate::ErrorResponse),
-        (status = 403, body = crate::ErrorResponse), (status = 422, body = crate::ErrorResponse),
-        (status = 429, body = crate::ErrorResponse), (status = 502, body = crate::ErrorResponse)), tag = "playground")]
+    responses((status = 200, description = "JSON by default; stream=true returns SSE transcript, delta, audio, done or error events. stream_audio=true allows delta and audio to interleave", content((GroqVoiceTurnResponse = "application/json"), (String = "text/event-stream"))), (status = 401, body = crate::core::ErrorResponse),
+        (status = 403, body = crate::core::ErrorResponse), (status = 422, body = crate::core::ErrorResponse),
+        (status = 429, body = crate::core::ErrorResponse), (status = 502, body = crate::core::ErrorResponse)), tag = "playground")]
 pub async fn create(
     State(state): State<AppState>,
     Extension(session): Extension<PlaygroundSession>,
@@ -97,19 +96,21 @@ mod tests {
 
     #[test]
     fn call_requires_only_chat_and_speech_models() {
-        let call = crate::provider_catalogue::call_profiles(crate::AgentProvider::Groq)
-            .next()
-            .unwrap();
+        let call = crate::helpers::provider_catalogue::call_profiles(
+            crate::helpers::provider_catalogue::AgentProvider::Groq,
+        )
+        .next()
+        .unwrap();
         let mut models = serde_json::json!({"data":[{"id":GROQ_CHAT_MODEL},{"id":GROQ_TTS_MODEL}]});
-        assert!(crate::provider_catalogue::call_available(
+        assert!(crate::helpers::provider_catalogue::call_available(
             call, &models, false
         ));
         models["data"][1]["active"] = false.into();
-        assert!(!crate::provider_catalogue::call_available(
+        assert!(!crate::helpers::provider_catalogue::call_available(
             call, &models, false
         ));
         models["data"].as_array_mut().unwrap().pop();
-        assert!(!crate::provider_catalogue::call_available(
+        assert!(!crate::helpers::provider_catalogue::call_available(
             call, &models, false
         ));
     }

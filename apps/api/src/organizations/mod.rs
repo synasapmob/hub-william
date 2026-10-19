@@ -12,9 +12,14 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
-    AgentPoolUsageMetric, AgentProvider, AppState, auth::authenticated_user_id,
-    auth::normalize_username, error::ApiError, usage,
+    agent::{AgentPoolUsageMetric, usage},
+    auth::{authenticated_user_id, normalize_username},
+    core::{ApiError, AppState},
+    helpers::provider_catalogue::AgentProvider,
 };
+
+mod routes;
+pub(crate) use routes::{OrganizationsApi, routes};
 
 const DEFAULT_PERIOD_DAYS: i64 = 30;
 const MAX_PERIOD_DAYS: i64 = 365;
@@ -623,7 +628,7 @@ pub async fn list_agents(
             validation_url: row.validation_url,
         });
         if query.include_usage.unwrap_or(false)
-            && crate::provider_catalogue::provider(provider).usage_metrics
+            && crate::helpers::provider_catalogue::provider(provider).usage_metrics
         {
             let state = state.clone();
             usage_tasks.spawn(async move {
@@ -1360,8 +1365,7 @@ fn is_unique_violation(error: &sqlx::Error) -> bool {
 }
 
 fn database_error(error: sqlx::Error) -> ApiError {
-    eprintln!("organization database operation failed: {error}");
-    ApiError::Internal
+    crate::helpers::database_error("organization", error)
 }
 
 impl From<OrganizationRow> for Organization {

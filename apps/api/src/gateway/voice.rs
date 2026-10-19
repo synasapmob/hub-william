@@ -8,9 +8,9 @@ use super::{
     record_organization_usage, release_probe, selected_provider_candidates,
 };
 use crate::{
-    AgentProvider, AppState,
-    connections::{CredentialLookup, gateway_credential},
-    error::ApiError,
+    agent::{CredentialLookup, gateway_credential},
+    core::{ApiError, AppState},
+    helpers::provider_catalogue::AgentProvider,
 };
 
 const CODEX_VOICE_URL: &str =
@@ -226,7 +226,7 @@ mod tests {
     #[sqlx::test]
     async fn voice_fails_over_on_refusals_preserves_cooldown_and_never_replays_setup(pool: PgPool) {
         let state = AppState {
-            config: crate::AppConfig::default(),
+            config: crate::core::AppConfig::default(),
             http: reqwest::Client::new(),
             gateway_http: reqwest::Client::new(),
             pool,
@@ -439,9 +439,9 @@ mod credential_failover_tests {
             axum::serve(listener, server).await.unwrap();
         });
         let state = AppState {
-            config: crate::AppConfig {
+            config: crate::core::AppConfig {
                 codex_issuer: base.clone(),
-                ..crate::AppConfig::default()
+                ..crate::core::AppConfig::default()
             },
             http: reqwest::Client::new(),
             gateway_http: reqwest::Client::new(),

@@ -12,7 +12,10 @@ use tokio_tungstenite::{connect_async, tungstenite::client::IntoClientRequest};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::error::ApiError;
+use crate::core::ApiError;
+
+mod routes;
+pub(crate) use routes::{TtsApi, routes};
 
 const WINDOWS_FILE_TIME_EPOCH: u64 = 11_644_473_600;
 const TRUSTED_CLIENT_TOKEN: &str = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
@@ -215,8 +218,8 @@ async fn synthesize_once(request: &TtsRequest) -> Result<Vec<u8>, ApiError> {
     request_body = TtsRequest,
     responses(
         (status = 200, description = "Generated MP3 audio", content_type = "audio/mpeg"),
-        (status = 400, body = crate::ErrorResponse),
-        (status = 502, body = crate::ErrorResponse)
+        (status = 400, body = crate::core::ErrorResponse),
+        (status = 502, body = crate::core::ErrorResponse)
     ),
     tag = "tools"
 )]

@@ -24,12 +24,10 @@ use super::{
     record_organization_usage, release_probe, selected_provider_candidates,
 };
 use crate::{
-    AgentProvider, AppState,
-    connections::{CredentialLookup, recover_rejected_credential},
-    error::ApiError,
-    playground_groq_voice::{
-        GROQ_CHAT_MODEL, GROQ_TTS_MODEL, GroqVoiceTurnRequest, GroqVoiceTurnResponse,
-    },
+    agent::{CredentialLookup, recover_rejected_credential},
+    core::{ApiError, AppState},
+    helpers::provider_catalogue::AgentProvider,
+    playground::{GROQ_CHAT_MODEL, GROQ_TTS_MODEL, GroqVoiceTurnRequest, GroqVoiceTurnResponse},
 };
 
 static TURN_RELEASED: Notify = Notify::const_new();
@@ -651,9 +649,9 @@ mod rejected_key_tests {
             axum::serve(listener, server).await.unwrap();
         });
         let state = AppState {
-            config: crate::AppConfig {
+            config: crate::core::AppConfig {
                 groq_api_url: base.clone(),
-                ..crate::AppConfig::default()
+                ..crate::core::AppConfig::default()
             },
             http: reqwest::Client::new(),
             gateway_http: reqwest::Client::new(),
