@@ -28,6 +28,8 @@ pub struct AppConfig {
     pub grok_client_version: String,
     pub deepseek_api_url: String,
     pub groq_api_url: String,
+    pub chatgpt_codex_models_url: String,
+    pub claude_models_url: String,
 }
 
 #[derive(Debug)]
@@ -124,6 +126,10 @@ impl AppConfig {
                 .unwrap_or_else(|_| "https://api.groq.com/openai/v1".to_owned())
                 .trim_end_matches('/')
                 .to_owned(),
+            chatgpt_codex_models_url: env::var("CHATGPT_CODEX_MODELS_URL")
+                .unwrap_or_else(|_| "https://chatgpt.com/backend-api/codex/models".to_owned()),
+            claude_models_url: env::var("CLAUDE_MODELS_URL")
+                .unwrap_or_else(|_| "https://api.anthropic.com/v1/models?limit=1000".to_owned()),
             deepseek_api_url: env::var("DEEPSEEK_API_URL")
                 .unwrap_or_else(|_| "https://api.deepseek.com".to_owned())
                 .trim_end_matches('/')
@@ -161,6 +167,8 @@ impl Default for AppConfig {
             grok_client_version: "1.0.30".to_owned(),
             deepseek_api_url: "https://api.deepseek.com".to_owned(),
             groq_api_url: "https://api.groq.com/openai/v1".to_owned(),
+            chatgpt_codex_models_url: "https://chatgpt.com/backend-api/codex/models".to_owned(),
+            claude_models_url: "https://api.anthropic.com/v1/models?limit=1000".to_owned(),
         }
     }
 }

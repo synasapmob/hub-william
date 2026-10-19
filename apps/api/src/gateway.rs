@@ -37,11 +37,9 @@ pub(crate) use groq_voice::groq_voice_turn_for_user;
 pub(crate) use voice::create_voice_session_for_user;
 
 const OPENAI_RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
-const OPENAI_CODEX_MODELS_URL: &str = "https://chatgpt.com/backend-api/codex/models";
 const OPENAI_MODELS_URL: &str = "https://chatgpt.com/backend-api/models";
 const CLAUDE_MESSAGES_URL: &str = "https://api.anthropic.com/v1/messages";
 // Match the installed OpenCode/OMP gateway installers: Claude defaults to only 20 models.
-const CLAUDE_MODELS_URL: &str = "https://api.anthropic.com/v1/models?limit=1000";
 const CLAUDE_COUNT_TOKENS_URL: &str = "https://api.anthropic.com/v1/messages/count_tokens";
 const GROK_CHAT_URL: &str = "https://cli-chat-proxy.grok.com/v1/chat/completions";
 const GROK_RESPONSES_URL: &str = "https://cli-chat-proxy.grok.com/v1/responses";
@@ -180,7 +178,10 @@ async fn models_for_selection(
                 HeaderValue::from_str(&state.config.codex_client_version)
                     .map_err(|_| ApiError::Internal)?,
             );
-            for base_url in [OPENAI_CODEX_MODELS_URL, OPENAI_MODELS_URL] {
+            for base_url in [
+                state.config.chatgpt_codex_models_url.as_str(),
+                OPENAI_MODELS_URL,
+            ] {
                 let mut url = reqwest::Url::parse(base_url).map_err(|_| ApiError::Internal)?;
                 url.query_pairs_mut()
                     .append_pair("client_version", &state.config.codex_client_version);
@@ -216,7 +217,7 @@ async fn models_for_selection(
                 selection,
                 GatewayUpstream {
                     provider,
-                    url: CLAUDE_MODELS_URL,
+                    url: &state.config.claude_models_url,
                 },
                 Method::GET,
                 &axum::http::Uri::from_static("/"),
@@ -886,11 +887,77 @@ pub async fn openai_responses(
 pub async fn openai_models(
     State(state): State<AppState>,
     headers: HeaderMap,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Response, ApiError> {
     let authorized = authorize_gateway_key(&state, &headers).await?;
-    connected_provider_ids(&state, authorized.into(), AgentProvider::Chatgpt).await?;
+    subscriber_models(&state, authorized.into(), AgentProvider::Chatgpt).await
+}
 
-    Ok(Json(fetch_or_cached_openai_catalogue(&state.http).await))
+/// Lists what the key owner's connected account can actually use. The live
+/// account catalogue decides availability; the current catalogue only supplies
+/// names and effort metadata and hides retired models, so a model missing from
+/// the subscription never reaches key clients such as OpenCode and OMP.
+async fn subscriber_models(
+    state: &AppState,
+    selection: GatewaySelection,
+    provider: AgentProvider,
+) -> Result<Response, ApiError> {
+    let response = models_for_selection(state, selection, provider).await?;
+    if !response.status().is_success() {
+        return Ok(response);
+    }
+    let bytes = to_bytes(response.into_body(), 8 * 1024 * 1024)
+        .await
+        .map_err(|_| ApiError::Provider("The model catalogue could not be read.".to_owned()))?;
+    let live: Value = serde_json::from_slice(&bytes).map_err(|_| {
+        ApiError::Provider("The provider returned an invalid model catalogue.".to_owned())
+    })?;
+    let current = match provider {
+        AgentProvider::Chatgpt => fetch_or_cached_openai_catalogue(&state.http).await,
+        AgentProvider::Claude => fetch_or_cached_claude_catalogue(&state.http).await,
+        _ => return Err(ApiError::Internal),
+    };
+    Ok(Json(intersect_live_catalogue(&current, &live)?).into_response())
+}
+
+/// Keeps the current catalogue entries that the live account also lists.
+/// Hidden and inactive live entries do not count as available.
+pub(crate) fn intersect_live_catalogue(current: &Value, live: &Value) -> Result<Value, ApiError> {
+    let entries = live
+        .get("data")
+        .or_else(|| live.get("models"))
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            ApiError::Provider("The provider returned an invalid model catalogue.".to_owned())
+        })?;
+    let available: Vec<&str> = entries
+        .iter()
+        .filter(|entry| entry.get("active") != Some(&Value::Bool(false)))
+        .filter(|entry| {
+            !entry
+                .get("visibility")
+                .and_then(Value::as_str)
+                .is_some_and(|visibility| {
+                    visibility.eq_ignore_ascii_case("hide")
+                        || visibility.eq_ignore_ascii_case("hidden")
+                })
+        })
+        .filter_map(|entry| {
+            entry
+                .get("slug")
+                .or_else(|| entry.get("id"))
+                .and_then(Value::as_str)
+        })
+        .collect();
+    let mut catalogue = current.clone();
+    if let Some(models) = catalogue.get_mut("data").and_then(Value::as_array_mut) {
+        models.retain(|model| {
+            model
+                .get("id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| available.contains(&id))
+        });
+    }
+    Ok(catalogue)
 }
 
 pub(crate) fn default_openai_model_catalogue() -> Value {
@@ -1145,11 +1212,9 @@ pub async fn grok_responses(
 pub async fn claude_models(
     State(state): State<AppState>,
     headers: HeaderMap,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Response, ApiError> {
     let authorized = authorize_gateway_key(&state, &headers).await?;
-    connected_provider_ids(&state, authorized.into(), AgentProvider::Claude).await?;
-
-    Ok(Json(fetch_or_cached_claude_catalogue(&state.http).await))
+    subscriber_models(&state, authorized.into(), AgentProvider::Claude).await
 }
 
 pub(crate) fn default_claude_model_catalogue() -> Value {
@@ -2790,23 +2855,6 @@ fn gateway_key_from_row(row: GatewayKeyRow) -> Result<GatewayKey, ApiError> {
     })
 }
 
-async fn connected_provider_ids(
-    state: &AppState,
-    selection: GatewaySelection,
-    provider: AgentProvider,
-) -> Result<Vec<Uuid>, ApiError> {
-    let candidates = connected_provider_candidates(state, selection, provider).await?;
-    let ids: Vec<Uuid> = candidates
-        .into_iter()
-        .filter(|candidate| candidate.availability_status != "reauth_required")
-        .map(|candidate| candidate.id)
-        .collect();
-    if ids.is_empty() {
-        return Err(ApiError::Forbidden);
-    }
-    Ok(ids)
-}
-
 async fn connected_provider_candidates(
     state: &AppState,
     selection: GatewaySelection,
@@ -3644,10 +3692,11 @@ mod tests {
         default_claude_model_catalogue, default_openai_model_catalogue,
         ensure_claude_billing_header, filter_current_live_model_catalogue,
         filter_current_live_model_response, gemini_code_assist_request, gemini_model_catalogue,
-        gemini_upstream_disposition, grok_proxy_headers, hash_gateway_key, merged_anthropic_beta,
-        parse_claude_models_markdown, parse_gemini_operation, parse_openai_models_markdown,
-        rate_limit_cooldown, retry_delay, should_retry_same_candidate,
-        strip_unsupported_codex_fields, unwrap_gemini_response, upstream_disposition,
+        gemini_upstream_disposition, grok_proxy_headers, hash_gateway_key,
+        intersect_live_catalogue, merged_anthropic_beta, parse_claude_models_markdown,
+        parse_gemini_operation, parse_openai_models_markdown, rate_limit_cooldown, retry_delay,
+        should_retry_same_candidate, strip_unsupported_codex_fields, unwrap_gemini_response,
+        upstream_disposition,
     };
 
     #[test]
@@ -4063,6 +4112,46 @@ mod tests {
     }
 
     #[test]
+    fn subscriber_catalogue_keeps_only_models_the_account_lists() {
+        let current = default_openai_model_catalogue();
+        let live = json!({ "models": [
+            { "slug": "gpt-6-sol", "visibility": "list" },
+            { "slug": "gpt-5.6-luna" },
+            { "slug": "gpt-6-luna", "visibility": "hide" },
+            { "slug": "gpt-6-astra", "active": false },
+            { "slug": "legacy-model" }
+        ] });
+        let filtered = intersect_live_catalogue(&current, &live).unwrap();
+        let ids: Vec<&str> = filtered["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|model| model["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids, ["gpt-6-sol", "gpt-5.6-luna"]);
+        assert_eq!(filtered["object"], "list");
+    }
+
+    #[test]
+    fn subscriber_catalogue_keeps_current_metadata_for_claude_models() {
+        let current = default_claude_model_catalogue();
+        let live = json!({ "data": [{ "id": "claude-sonnet-5" }, { "id": "claude-old" }] });
+        let filtered = intersect_live_catalogue(&current, &live).unwrap();
+        let models = filtered["data"].as_array().unwrap();
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0]["id"], "claude-sonnet-5");
+        assert_eq!(models[0]["capabilities"]["effort"]["supported"], true);
+    }
+
+    #[test]
+    fn subscriber_catalogue_is_empty_when_the_account_lists_nothing_current() {
+        let current = default_claude_model_catalogue();
+        let filtered = intersect_live_catalogue(&current, &json!({ "data": [] })).unwrap();
+        assert!(filtered["data"].as_array().unwrap().is_empty());
+        assert!(intersect_live_catalogue(&current, &json!({})).is_err());
+    }
+
+    #[test]
     fn default_claude_model_catalogue_includes_current_models_and_sonnet_effort() {
         let catalogue = default_claude_model_catalogue();
         assert_eq!(catalogue["object"], "list");
@@ -4206,6 +4295,9 @@ The `gpt-5.4` and `gpt-5.3-codex` models have retired.
 
 #[cfg(all(test, feature = "database-tests"))]
 mod credential_recovery_tests;
+
+#[cfg(all(test, feature = "database-tests"))]
+mod subscriber_models_tests;
 
 #[cfg(all(test, feature = "database-tests"))]
 mod gemini_gateway_database_tests {
