@@ -1,6 +1,6 @@
 # Shared providers and models
 
-[`apps/api/src/helpers/provider_catalogue/catalogue.json`](../apps/api/src/helpers/provider_catalogue/catalogue.json)
+[`apps/api/src/utils/provider_catalogue/catalogue.json`](../apps/api/src/utils/provider_catalogue/catalogue.json)
 is the editable source for public provider/model metadata. The Gateway,
 Playground, Agents, OpenCode, OMP and tool documentation consume it directly or
 through generated artifacts. It contains no credentials or account entitlements.

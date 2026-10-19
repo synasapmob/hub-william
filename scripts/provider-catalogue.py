@@ -13,7 +13,7 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "apps/api/src/helpers/provider_catalogue/catalogue.json"
+SOURCE = ROOT / "apps/api/src/utils/provider_catalogue/catalogue.json"
 CAPABILITIES = {"chat", "image_input", "realtime_audio", "transcription", "speech_output"}
 EFFORTS = {"minimal", "low", "medium", "high", "xhigh", "max", "ultra"}
 
@@ -205,7 +205,7 @@ def artifacts(catalogue):
             name = 'CALL_' + call["id"].upper().replace('-', '_') + '_' + role.upper() + '_MODEL'
             rust.append('pub(crate) const ' + name + ': &str = ' + json.dumps(mid) + ';')
     result = subprocess.run(["rustfmt", "--edition", "2024"], input='\n'.join(rust)+'\n', text=True, capture_output=True, check=True)
-    yield "apps/api/src/helpers/provider_catalogue/generated.rs", result.stdout
+    yield "apps/api/src/utils/provider_catalogue/generated.rs", result.stdout
 
     for client in ("opencode", "omp", "gateway"):
         filename = "apps/frontend/public/" + client + ".py"
@@ -236,7 +236,7 @@ def artifacts(catalogue):
             call = "; ".join("Playground: " + ("native realtime" if c["kind"] == "native_realtime" else "Local STT → Chat → TTS") for c in calls) or "—"
             protocol = p["native_cli"]["protocol"] if client == "gateway" else p["clients"][client]["npm" if client == "opencode" else "api"]
             body.append('| '+p["connect_label"]+' | '+models+' | '+call+' | `'+protocol+'` |')
-        body.append("\nGenerated from `apps/api/src/helpers/provider_catalogue/catalogue.json`. Model availability is checked live through Hub; this reviewed snapshot is not proof of account access. Call profiles are Playground-only; coding-client lists contain only chat-capable model IDs.")
+        body.append("\nGenerated from `apps/api/src/utils/provider_catalogue/catalogue.json`. Model availability is checked live through Hub; this reviewed snapshot is not proof of account access. Call profiles are Playground-only; coding-client lists contain only chat-capable model IDs.")
         filename = 'contributors/default/tools/'+client+'/'+client+'.md'
         text = (ROOT/filename).read_text()
         yield filename, replace_block(text, "<!-- provider-catalogue: begin (generated) -->", "<!-- provider-catalogue: end -->", formatted('\n'.join(body)+'\n', 'markdown'))

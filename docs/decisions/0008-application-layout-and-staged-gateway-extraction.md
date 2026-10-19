@@ -20,7 +20,7 @@ are implemented.
   TypeScript API client, build tooling, and machine-installer source.
 - `apps/api/` owns the Rust business API: browser auth, provider-connection
   lifecycle, pools, memberships, gateway keys, orders and payments.
-- `apps/api/src/gateway/` remains an API module for this phase. It owns
+- `apps/api/src/api/gateway/` remains an API module for this phase. It owns
   Gateway Key authentication, provider-specific candidate selection, token
   refresh, upstream streaming, provider-scoped failover, and cooldown writes.
 - A future `apps/gateway/` service extracts that module only with an explicit

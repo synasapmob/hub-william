@@ -43,34 +43,34 @@ tests.
 
 ## Source layout
 
-Each feature lives in its own folder under `src/`, so features can be added or
-extracted without touching each other.
+Code is grouped by layer, and every endpoint feature has its own folder, so
+features can be added or extracted without touching each other.
 
 ```text
 src/
-  lib.rs            crate root: declares the modules, exports what main.rs needs
+  lib.rs            crate root: the public surface main.rs and the examples use
   main.rs           the server binary
-  core/             shared infrastructure: config, ApiError, AppState, CORS,
-                    the router and the OpenAPI document
-  helpers/          leaf modules with no endpoints that features share
+  core/             config, ApiError, AppState, CORS; imports nothing else
+  utils/            shared leaf code with no endpoints; depends on core only
     provider_catalogue/   reviewed provider/model metadata (+ catalogue.json)
-  agent/            provider connections, account pools, provider usage
-  auth/             browser accounts and sessions
-  gateway/          gateway keys and the provider-compatible proxy endpoints
-  organizations/    membership, shared agents, recorded usage
-  playground/       model chat and voice calls
-  telegram/         internal endpoints for the Telegram adapter
-  tts/              text to speech
+    tts/                  the Edge TTS engine
+    database.rs           database_error(scope, error)
+  api/              every feature with endpoints, plus the composition root
+    mod.rs  router.rs  openapi.rs     the only files that list features
+    health/  auth/  agent/  gateway/  organizations/  playground/  telegram/  tts/
 ```
 
+- Dependencies point one way: `api` -> `utils` -> `core`. `core` never imports
+  `utils` or `api`, and `utils` never imports `api`.
 - A feature's `mod.rs` is its public face; its submodules stay private and other
   features import only what `mod.rs` re-exports.
 - A feature wires itself in from its own `routes.rs`: `routes()` for its
-  endpoints and an `...Api` struct for its OpenAPI fragment.
-- `core/router.rs` and `core/openapi.rs` are the only places that list features.
-  Adding a feature is a new folder plus one line in each.
-- `helpers/` modules may depend on `core` but never on a feature. Code that
-  needs a feature belongs in that feature, not in `helpers/`.
+  endpoints and an `...Api` struct for its OpenAPI fragment. Adding a feature is
+  a new folder under `api/` plus one line each in `router.rs` and `openapi.rs`.
+- Code with an endpoint lives in `api/`. Reusable logic with none goes in
+  `utils/`; `tts` is split that way: the engine in `utils/tts`, the `POST /tts`
+  handler in `api/tts`.
+- `agent/` holds provider connections, account pools and provider usage.
 - Database-backed tests sit beside their code in `database_tests.rs` and run
   with `--features database-tests`.
 
