@@ -307,6 +307,24 @@ const providerCatalogue: ProviderCatalogue = {
       },
       models: [
         {
+          id: "gemini-4-argon-high",
+          name: "gemini-4-argon-high",
+          status: "current",
+          capabilities: ["chat", "image_input"],
+        },
+        {
+          id: "gemini-4-argon-medium",
+          name: "gemini-4-argon-medium",
+          status: "current",
+          capabilities: ["chat", "image_input"],
+        },
+        {
+          id: "gemini-4-argon-low",
+          name: "gemini-4-argon-low",
+          status: "current",
+          capabilities: ["chat", "image_input"],
+        },
+        {
           id: "gemini-3.8-flash-high",
           name: "gemini-3.8-flash-high",
           status: "current",
