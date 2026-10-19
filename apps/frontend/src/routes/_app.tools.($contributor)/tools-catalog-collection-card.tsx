@@ -1,4 +1,5 @@
 import {
+  AudioLines,
   Download,
   Files,
   Network,
@@ -17,6 +18,7 @@ const collectionIcons: Record<string, LucideIcon> = {
   omp: Terminal,
   "download-reel": Download,
   "edge-tts": Volume2,
+  vosk: AudioLines,
 };
 
 interface ToolsCatalogCollectionCardProps {

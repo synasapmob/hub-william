@@ -15,6 +15,7 @@ describe("supported tool catalogue", () => {
       "omp",
       "download-reel",
       "edge-tts",
+      "vosk",
     ]);
     for (const retired of ["documents", "mcp", "skills", "tags", "github"]) {
       expect(catalogService.findCollection(retired)).toBeNull();

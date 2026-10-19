@@ -18,6 +18,7 @@ import ToolsCatalogCollectionFiles from "./tools-catalog-collection-files";
 import ToolsCatalogDownloadReel from "./tools-catalog-download-reel";
 import ToolsCatalogEdgeTts from "./tools-catalog-edge-tts";
 import ToolsCatalogToolUsage from "./tools-catalog-tool-usage";
+import ToolsCatalogVosk from "./tools-catalog-vosk";
 
 interface CollectionSectionProps {
   label: string;
@@ -120,6 +121,10 @@ export default function ToolsCatalogCollectionDetail({
                 <ToolsCatalogEdgeTts />
               </CollectionSection>
             </>
+          ) : shown.id === "vosk" ? (
+            <CollectionSection label="AUDIO TO TEXT">
+              <ToolsCatalogVosk />
+            </CollectionSection>
           ) : shown.id === "download-reel" ? (
             <>
               <CollectionSection label="How to use via API">
