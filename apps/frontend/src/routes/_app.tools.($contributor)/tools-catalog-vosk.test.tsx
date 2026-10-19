@@ -3,10 +3,11 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import voskService, {
-  type VoskRecording,
-  type VoskTranscribeOptions,
-} from "@/services/vosk";
+import { voskService } from "@/services/vosk/vosk-service";
+import type {
+  VoskRecording,
+  VoskTranscribeOptions,
+} from "@/services/vosk/vosk-types";
 
 import ToolsCatalogVosk from "./tools-catalog-vosk";
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
-import voskService, { type VoskRecording } from "@/services/vosk";
+import { voskService } from "@/services/vosk/vosk-service";
+import type { VoskRecording } from "@/services/vosk/vosk-types";
 
 export type VoskRecorderStatus = "idle" | "starting" | "recording";
 
