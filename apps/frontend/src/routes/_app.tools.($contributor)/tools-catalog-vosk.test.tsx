@@ -22,37 +22,58 @@ function renderVosk() {
   );
 }
 
-async function pickFile(name = "interview.mp3") {
-  await userEvent.click(screen.getByRole("tab", { name: /import/i }));
-
+function pickFile(name = "interview.mp3") {
   return userEvent.upload(
     screen.getByLabelText("Audio file"),
     new File([new Uint8Array([1, 2])], name, { type: "audio/mpeg" }),
   );
 }
 
+function fakeSession() {
+  let finish: (file: File) => void = () => {};
+  let fail: (error: Error) => void = () => {};
+  const session: VoskRecording = {
+    result: new Promise<File>((resolve, reject) => {
+      finish = resolve;
+      fail = reject;
+    }),
+    stop: vi.fn(() =>
+      finish(new File([new Uint8Array([1])], "recording.webm")),
+    ),
+    cancel: vi.fn(() => fail(new Error("Recording cancelled."))),
+  };
+
+  return session;
+}
+
+const transcribeButton = () =>
+  screen.getByRole("button", { name: "Transcribe" });
+
 describe("ToolsCatalogVosk", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("starts on Voice and keeps Transcribe disabled until there is audio", async () => {
+  it("offers Start voice and Import, and Transcribe waits for audio", () => {
     renderVosk();
 
-    expect(screen.getByRole("tab", { name: /voice/i })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-    expect(
-      screen.getByRole("button", { name: "Start recording" }),
-    ).toBeVisible();
-
-    expect(screen.getByRole("button", { name: "Transcribe" })).toBeDisabled();
-
-    await pickFile();
-
-    expect(screen.getByRole("button", { name: "Transcribe" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Start voice" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Import" })).toBeVisible();
+    expect(screen.queryByRole("tab")).toBeNull();
+    expect(transcribeButton()).toBeDisabled();
   });
 
-  it("transcribes with the selected language and shows the transcript", async () => {
+  it("opens the file picker straight from Import", async () => {
+    const user = userEvent.setup();
+    renderVosk();
+    const picker = vi
+      .spyOn(screen.getByLabelText("Audio file"), "click")
+      .mockImplementation(() => {});
+
+    await user.click(screen.getByRole("button", { name: "Import" }));
+
+    expect(picker).toHaveBeenCalledOnce();
+  });
+
+  it("transcribes an imported file with the selected language", async () => {
     const user = userEvent.setup();
     const transcribe = vi
       .spyOn(voskService, "transcribe")
@@ -61,7 +82,12 @@ describe("ToolsCatalogVosk", () => {
 
     await user.selectOptions(screen.getByLabelText("Language"), "vi");
     await pickFile();
-    await user.click(screen.getByRole("button", { name: "Transcribe" }));
+
+    expect(
+      screen.getByText(/Ready to transcribe: interview\.mp3/),
+    ).toBeVisible();
+
+    await user.click(transcribeButton());
 
     expect(await screen.findByLabelText("Transcript text")).toHaveValue(
       "hello from the recording",
@@ -78,7 +104,91 @@ describe("ToolsCatalogVosk", () => {
     ).toBeVisible();
   });
 
-  it("reports progress while the file is processed", async () => {
+  it("toggles Start voice into Stop voice, then transcribes the recording", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(voskService, "record").mockResolvedValue(fakeSession());
+    const transcribe = vi
+      .spyOn(voskService, "transcribe")
+      .mockResolvedValue("spoken words");
+    renderVosk();
+
+    await user.click(screen.getByRole("button", { name: "Start voice" }));
+
+    const stop = await screen.findByRole("button", { name: /Stop voice/ });
+    expect(screen.queryByRole("button", { name: "Start voice" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Import" })).toBeDisabled();
+    expect(transcribeButton()).toBeDisabled();
+
+    await user.click(stop);
+
+    expect(
+      await screen.findByText(/Ready to transcribe: recording\.webm/),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Start voice" })).toBeVisible();
+
+    await user.click(transcribeButton());
+
+    expect(await screen.findByLabelText("Transcript text")).toHaveValue(
+      "spoken words",
+    );
+    expect(transcribe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        file: expect.objectContaining({ name: "recording.webm" }),
+      }),
+    );
+  });
+
+  it("lets an import replace a recording and a recording replace an import", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(voskService, "record").mockImplementation(() =>
+      Promise.resolve(fakeSession()),
+    );
+    renderVosk();
+
+    await user.click(screen.getByRole("button", { name: "Start voice" }));
+    await user.click(await screen.findByRole("button", { name: /Stop voice/ }));
+    await screen.findByText(/recording\.webm/);
+
+    await pickFile("notes.mp3");
+    expect(screen.getByText(/Ready to transcribe: notes\.mp3/)).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Start voice" }));
+    await user.click(await screen.findByRole("button", { name: /Stop voice/ }));
+    expect(
+      await screen.findByText(/Ready to transcribe: recording\.webm/),
+    ).toBeVisible();
+  });
+
+  it("shows why the microphone could not start", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(voskService, "record").mockRejectedValue(
+      new Error("Microphone access was blocked."),
+    );
+    renderVosk();
+
+    await user.click(screen.getByRole("button", { name: "Start voice" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Microphone access was blocked.",
+    );
+    expect(screen.getByRole("button", { name: "Start voice" })).toBeEnabled();
+    expect(transcribeButton()).toBeDisabled();
+  });
+
+  it("releases the microphone when the tool closes mid-recording", async () => {
+    const user = userEvent.setup();
+    const session = fakeSession();
+    vi.spyOn(voskService, "record").mockResolvedValue(session);
+    const { unmount } = renderVosk();
+
+    await user.click(screen.getByRole("button", { name: "Start voice" }));
+    await screen.findByRole("button", { name: /Stop voice/ });
+    unmount();
+
+    expect(session.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("reports progress while the audio is processed", async () => {
     const user = userEvent.setup();
     let finish: (text: string) => void = () => {};
     vi.spyOn(voskService, "transcribe").mockImplementation(
@@ -91,14 +201,13 @@ describe("ToolsCatalogVosk", () => {
     renderVosk();
 
     await pickFile();
-    await user.click(screen.getByRole("button", { name: "Transcribe" }));
+    await user.click(transcribeButton());
 
-    expect(await screen.findByRole("status")).toHaveTextContent(
-      "Transcribing… 50%",
-    );
+    expect(await screen.findByText("Transcribing… 50%")).toBeVisible();
     expect(screen.getByLabelText("Transcript text")).toHaveValue("so far");
     expect(screen.getByLabelText("Language")).toBeDisabled();
-    expect(screen.getByLabelText("Audio file")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Start voice" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Import" })).toBeDisabled();
 
     finish("so far and done");
 
@@ -107,7 +216,7 @@ describe("ToolsCatalogVosk", () => {
         "so far and done",
       ),
     );
-    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByText(/Transcribing… \d+%/)).toBeNull();
   });
 
   it("explains an empty transcript", async () => {
@@ -116,13 +225,13 @@ describe("ToolsCatalogVosk", () => {
     renderVosk();
 
     await pickFile();
-    await user.click(screen.getByRole("button", { name: "Transcribe" }));
+    await user.click(transcribeButton());
 
     expect(await screen.findByText(/No speech was detected/)).toBeVisible();
     expect(screen.queryByRole("button", { name: /Copy/ })).toBeNull();
   });
 
-  it("shows the failure and lets the reader pick another file", async () => {
+  it("shows the failure and clears it when another file is picked", async () => {
     const user = userEvent.setup();
     vi.spyOn(voskService, "transcribe").mockRejectedValue(
       new Error("This file could not be decoded as audio."),
@@ -130,7 +239,7 @@ describe("ToolsCatalogVosk", () => {
     renderVosk();
 
     await pickFile("notes.txt");
-    await user.click(screen.getByRole("button", { name: "Transcribe" }));
+    await user.click(transcribeButton());
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "This file could not be decoded as audio.",
@@ -139,102 +248,5 @@ describe("ToolsCatalogVosk", () => {
     await pickFile("good.wav");
 
     expect(screen.queryByRole("alert")).toBeNull();
-  });
-
-  describe("voice input", () => {
-    function fakeSession() {
-      let finish: (file: File) => void = () => {};
-      let fail: (error: Error) => void = () => {};
-      const session: VoskRecording = {
-        result: new Promise<File>((resolve, reject) => {
-          finish = resolve;
-          fail = reject;
-        }),
-        stop: vi.fn(() =>
-          finish(new File([new Uint8Array([1])], "recording.webm")),
-        ),
-        cancel: vi.fn(() => fail(new Error("Recording cancelled."))),
-      };
-
-      return session;
-    }
-
-    it("records, then transcribes the recording", async () => {
-      const user = userEvent.setup();
-      const session = fakeSession();
-      vi.spyOn(voskService, "record").mockResolvedValue(session);
-      const transcribe = vi
-        .spyOn(voskService, "transcribe")
-        .mockResolvedValue("spoken words");
-      renderVosk();
-
-      await user.click(screen.getByRole("button", { name: "Start recording" }));
-      await user.click(
-        await screen.findByRole("button", { name: /Stop recording/ }),
-      );
-
-      expect(await screen.findByText(/Recording ready/)).toBeVisible();
-
-      await user.click(screen.getByRole("button", { name: "Transcribe" }));
-
-      expect(await screen.findByLabelText("Transcript text")).toHaveValue(
-        "spoken words",
-      );
-      expect(transcribe).toHaveBeenCalledWith(
-        expect.objectContaining({
-          file: expect.objectContaining({ name: "recording.webm" }),
-        }),
-      );
-      expect(
-        screen.getByRole("button", { name: "Record again" }),
-      ).toBeVisible();
-    });
-
-    it("shows why the microphone could not start", async () => {
-      const user = userEvent.setup();
-      vi.spyOn(voskService, "record").mockRejectedValue(
-        new Error("Microphone access was blocked."),
-      );
-      renderVosk();
-
-      await user.click(screen.getByRole("button", { name: "Start recording" }));
-
-      expect(await screen.findByRole("alert")).toHaveTextContent(
-        "Microphone access was blocked.",
-      );
-      expect(screen.getByRole("button", { name: "Transcribe" })).toBeDisabled();
-    });
-
-    it("releases the microphone when the reader leaves Voice", async () => {
-      const user = userEvent.setup();
-      const session = fakeSession();
-      vi.spyOn(voskService, "record").mockResolvedValue(session);
-      renderVosk();
-
-      await user.click(screen.getByRole("button", { name: "Start recording" }));
-      await screen.findByRole("button", { name: /Stop recording/ });
-      await user.click(screen.getByRole("tab", { name: /import/i }));
-
-      expect(session.cancel).toHaveBeenCalledOnce();
-    });
-
-    it("keeps imported and recorded audio separate", async () => {
-      const user = userEvent.setup();
-      const session = fakeSession();
-      vi.spyOn(voskService, "record").mockResolvedValue(session);
-      renderVosk();
-
-      await user.click(screen.getByRole("button", { name: "Start recording" }));
-      await user.click(
-        await screen.findByRole("button", { name: /Stop recording/ }),
-      );
-      await screen.findByText(/Recording ready/);
-
-      await user.click(screen.getByRole("tab", { name: /import/i }));
-      expect(screen.getByRole("button", { name: "Transcribe" })).toBeDisabled();
-
-      await user.click(screen.getByRole("tab", { name: /voice/i }));
-      expect(screen.getByRole("button", { name: "Transcribe" })).toBeEnabled();
-    });
   });
 });

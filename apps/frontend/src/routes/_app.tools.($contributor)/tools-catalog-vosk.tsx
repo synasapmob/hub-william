@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent } from "react";
+import { useRef, useState, type ChangeEvent } from "react";
 import { useMutation } from "@tanstack/react-query";
 import {
   AlertCircle,
@@ -9,22 +9,23 @@ import {
   FileAudio,
   Loader2,
   Mic,
+  Square,
 } from "lucide-react";
 import { tv } from "tailwind-variants";
 
 import Flex from "@/components/ui/flex";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import voskService, {
+  VOSK_MAX_RECORDING_SECONDS,
   type VoskModel,
   type VoskProgress,
 } from "@/services/vosk";
 import { copyText } from "@/utils/utils.clipboard";
 import { downloadText } from "@/utils/utils.download";
 
-import ToolsCatalogVoskMicrophone from "./tools-catalog-vosk-microphone";
+import useToolsCatalogVoskRecorder from "./tools-catalog-vosk-recorder";
 
 const voskStyles = tv({
   slots: {
@@ -35,11 +36,10 @@ const voskStyles = tv({
       "block font-mono text-[11px] font-semibold tracking-wider text-zinc-600 uppercase",
     select:
       "h-9 w-full rounded-lg border border-zinc-300 bg-white px-3 text-xs text-zinc-800 transition-colors focus:border-zinc-500 focus:outline-hidden",
-    inputTabs: "h-9! w-full rounded-lg border border-zinc-300 bg-white p-0.75",
-    inputTab:
-      "gap-1.5 font-mono text-[11px] font-semibold tracking-wider uppercase data-active:bg-zinc-900 data-active:text-white data-active:shadow-none",
-    fileInput:
-      "h-9 w-full cursor-pointer rounded-lg border border-zinc-300 bg-white text-xs text-zinc-800 file:mr-3 file:h-full file:cursor-pointer file:border-0 file:bg-zinc-100 file:px-3 file:text-xs file:font-medium file:text-zinc-700 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden",
+    inputButtons: "grid grid-cols-2 gap-2",
+    inputButton:
+      "h-9 gap-1.5 bg-white px-2 font-mono text-[11px] font-semibold tracking-wider uppercase",
+    hiddenInput: "sr-only",
     hint: "text-[11px] text-zinc-500",
     status: "space-y-2 text-xs text-zinc-600",
     resultCard:
@@ -51,7 +51,12 @@ const voskStyles = tv({
   },
 });
 
-type InputMode = "voice" | "import";
+function formatDuration(totalSeconds: number) {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = String(totalSeconds % 60).padStart(2, "0");
+
+  return `${minutes}:${seconds}`;
+}
 
 function statusLabel(progress: VoskProgress | null, model: VoskModel) {
   if (progress?.phase === "decoding") return "Decoding audio…";
@@ -69,21 +74,27 @@ function transcriptFilename(file: File) {
 export default function ToolsCatalogVosk() {
   const styles = voskStyles();
   const [modelId, setModelId] = useState(voskService.models[0].id);
-  const [mode, setMode] = useState<InputMode>("voice");
-  const [imported, setImported] = useState<File | null>(null);
-  const [recorded, setRecorded] = useState<File | null>(null);
+  const [audio, setAudio] = useState<File | null>(null);
   const [progress, setProgress] = useState<VoskProgress | null>(null);
   const [copied, setCopied] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   const model =
     voskService.models.find((candidate) => candidate.id === modelId) ??
     voskService.models[0];
-  const source = mode === "voice" ? recorded : imported;
 
   const transcription = useMutation({
-    mutationFn: (audio: File) =>
-      voskService.transcribe({ file: audio, model, onProgress: setProgress }),
+    mutationFn: (source: File) =>
+      voskService.transcribe({ file: source, model, onProgress: setProgress }),
   });
+
+  const recorder = useToolsCatalogVoskRecorder({
+    onRecording: (file) => {
+      setAudio(file);
+      transcription.reset();
+    },
+  });
+  const recording = recorder.status === "recording";
 
   const transcript = transcription.isPending
     ? (progress?.text ?? "")
@@ -92,27 +103,22 @@ export default function ToolsCatalogVosk() {
     ? transcript !== ""
     : transcription.isSuccess;
 
-  function handleModeChange(next: string) {
-    setMode(next as InputMode);
-    transcription.reset();
-  }
-
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-    setImported(event.target.files?.[0] ?? null);
-    transcription.reset();
-  }
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-  function handleRecording(file: File | null) {
-    setRecorded(file);
+    setAudio(file);
     transcription.reset();
+    // Clearing the value lets the reader pick the same file again.
+    event.target.value = "";
   }
 
   function handleTranscribe() {
-    if (!source) return;
+    if (!audio) return;
 
     setProgress(null);
     setCopied(false);
-    transcription.mutate(source);
+    transcription.mutate(audio);
   }
 
   async function handleCopy() {
@@ -121,87 +127,115 @@ export default function ToolsCatalogVosk() {
 
   return (
     <div className={styles.container()}>
-      <Tabs value={mode} onValueChange={handleModeChange} className="gap-4">
-        <div className={styles.row()}>
-          <div className={styles.fieldGroup()}>
-            <label htmlFor="vosk-model" className={styles.label()}>
-              Language
-            </label>
-
-            <select
-              id="vosk-model"
-              value={modelId}
-              disabled={transcription.isPending}
-              onChange={(event) => setModelId(event.target.value)}
-              className={styles.select()}
-            >
-              {voskService.models.map((candidate) => (
-                <option key={candidate.id} value={candidate.id}>
-                  {candidate.label} ({candidate.size})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className={styles.fieldGroup()}>
-            <p className={styles.label()}>Input</p>
-
-            <TabsList aria-label="Input" className={styles.inputTabs()}>
-              <TabsTrigger
-                value="voice"
-                disabled={transcription.isPending}
-                className={styles.inputTab()}
-              >
-                <Mic aria-hidden="true" />
-                Voice
-              </TabsTrigger>
-
-              <TabsTrigger
-                value="import"
-                disabled={transcription.isPending}
-                className={styles.inputTab()}
-              >
-                <FileAudio aria-hidden="true" />
-                Import
-              </TabsTrigger>
-            </TabsList>
-          </div>
-        </div>
-
-        <TabsContent value="voice" className="space-y-2">
-          <ToolsCatalogVoskMicrophone
-            recording={recorded}
-            disabled={transcription.isPending}
-            onRecording={handleRecording}
-          />
-        </TabsContent>
-
-        <TabsContent value="import" className="space-y-2">
-          <label htmlFor="vosk-file" className="sr-only">
-            Audio file
+      <div className={styles.row()}>
+        <div className={styles.fieldGroup()}>
+          <label htmlFor="vosk-model" className={styles.label()}>
+            Language
           </label>
 
-          <input
-            id="vosk-file"
-            type="file"
-            accept="audio/*"
-            disabled={transcription.isPending}
-            onChange={handleFileChange}
-            className={styles.fileInput()}
-          />
+          <select
+            id="vosk-model"
+            value={modelId}
+            disabled={transcription.isPending || recording}
+            onChange={(event) => setModelId(event.target.value)}
+            className={styles.select()}
+          >
+            {voskService.models.map((candidate) => (
+              <option key={candidate.id} value={candidate.id}>
+                {candidate.label} ({candidate.size})
+              </option>
+            ))}
+          </select>
+        </div>
 
-          <p className={styles.hint()}>Files up to 50 MB.</p>
-        </TabsContent>
-      </Tabs>
+        <div className={styles.fieldGroup()}>
+          <p className={styles.label()}>Input</p>
+
+          <div className={styles.inputButtons()}>
+            {recording ? (
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={recorder.stop}
+                className={styles.inputButton({ className: "bg-rose-50" })}
+              >
+                <Square aria-hidden="true" className="fill-current" />
+                Stop voice
+                <span className="tabular-nums">
+                  {formatDuration(recorder.seconds)}
+                </span>
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={recorder.start}
+                disabled={
+                  transcription.isPending || recorder.status === "starting"
+                }
+                className={styles.inputButton()}
+              >
+                {recorder.status === "starting" ? (
+                  <Loader2 aria-hidden="true" className="animate-spin" />
+                ) : (
+                  <Mic aria-hidden="true" />
+                )}
+                Start voice
+              </Button>
+            )}
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => fileInput.current?.click()}
+              disabled={transcription.isPending || recorder.status !== "idle"}
+              className={styles.inputButton()}
+            >
+              <FileAudio aria-hidden="true" />
+              Import
+            </Button>
+
+            <input
+              ref={fileInput}
+              type="file"
+              accept="audio/*"
+              tabIndex={-1}
+              aria-label="Audio file"
+              onChange={handleFileChange}
+              className={styles.hiddenInput()}
+            />
+          </div>
+        </div>
+      </div>
+
+      {recording && (
+        <p role="status" className={styles.hint()}>
+          Recording. Speak now, then press Stop voice. It also stops after{" "}
+          {VOSK_MAX_RECORDING_SECONDS / 60} minutes.
+        </p>
+      )}
+
+      {!recording && audio && (
+        <p role="status" className="text-[11px] text-emerald-600">
+          Ready to transcribe: {audio.name}
+        </p>
+      )}
+
+      {recorder.error && (
+        <p role="alert" className="text-[11px] text-rose-700">
+          {recorder.error}
+        </p>
+      )}
 
       <p className={styles.hint()}>
-        Runs in your browser with Vosk. Your audio is never uploaded.
+        Runs in your browser with Vosk. Your audio is never uploaded. Imported
+        files up to 50 MB.
       </p>
 
       <Button
         type="button"
         onClick={handleTranscribe}
-        disabled={transcription.isPending || !source}
+        disabled={transcription.isPending || recording || !audio}
         className="w-full gap-2"
       >
         {transcription.isPending ? (
@@ -245,7 +279,7 @@ export default function ToolsCatalogVosk() {
               {transcription.isPending ? "Transcript so far" : "Transcript"}
             </span>
 
-            {transcript && !transcription.isPending && source && (
+            {transcript && !transcription.isPending && audio && (
               <Flex className="gap-2">
                 <button
                   type="button"
@@ -263,7 +297,7 @@ export default function ToolsCatalogVosk() {
                 <button
                   type="button"
                   onClick={() =>
-                    downloadText(transcriptFilename(source), transcript)
+                    downloadText(transcriptFilename(audio), transcript)
                   }
                   className={styles.action()}
                 >

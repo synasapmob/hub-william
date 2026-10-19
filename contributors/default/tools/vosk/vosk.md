@@ -12,14 +12,15 @@ file.
 
 ## Input
 
-- **Voice** records from your microphone. Press **Start recording**, speak, then
-  press **Stop recording**. Your browser asks for microphone permission the
-  first time; if you block it, allow the microphone for this site in the
-  browser's site settings. Recording stops by itself after 10 minutes, and
-  leaving the Voice tab discards an unfinished recording and turns the
-  microphone off. Microphone access needs a secure page (`https://` or
-  `localhost`).
-- **Import** transcribes an audio file you choose.
+- **Start voice** records from your microphone. Speak, then press **Stop
+  voice**. Your browser asks for microphone permission the first time; if you
+  block it, allow the microphone for this site in the browser's site settings.
+  Recording stops by itself after 10 minutes, and closing the tool discards an
+  unfinished recording and turns the microphone off. Microphone access needs a
+  secure page (`https://` or `localhost`).
+- **Import** opens a file picker to transcribe an audio file you choose.
+
+Whichever you used last is the audio that **Transcribe** converts.
 
 ## Supported imported files
 

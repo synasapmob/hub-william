@@ -22,11 +22,13 @@ final-result request exactly once and in order, so the service counts replies to
 know when recognition is complete and reports progress from them. Files over
 50 MB are rejected because the full waveform is held in memory.
 
-The input is chosen with a Voice | Import switch. Voice records the microphone
+The Input field has two buttons: START VOICE (which becomes STOP VOICE while
+recording) and IMPORT (which opens the file picker directly). Whichever produced
+the audio last is the one transcribed. Voice records the microphone
 with `MediaRecorder` (webm/opus, ogg or mp4, whichever the browser supports) and
 produces a `File` that goes through the same decode and recognition path as an
 import. It is record-then-transcribe, not live dictation. Recording stops after
-10 minutes, and leaving the Voice tab cancels it and releases the microphone.
+10 minutes, and closing the tool cancels it and releases the microphone.
 The clip stays in memory and is not stored.
 
 Models are the small `.tar.gz` Vosk models published by the vosk-browser project
