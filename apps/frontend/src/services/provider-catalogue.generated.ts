@@ -57,6 +57,7 @@ export interface CatalogueGateway {
 }
 export interface CatalogueOpenCodeClient {
   npm: string;
+  base_path?: string;
   auth: "api_key" | "auth_token" | "bearer_header";
   effort_option: string | null;
   metadata_adapter: "codex_app_server" | null;
@@ -226,6 +227,7 @@ const providerCatalogue: ProviderCatalogue = {
       clients: {
         opencode: {
           npm: "@ai-sdk/anthropic",
+          base_path: "/gateway/claude/v1",
           auth: "auth_token",
           effort_option: "effort",
           metadata_adapter: null,

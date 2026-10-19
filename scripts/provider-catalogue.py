@@ -79,7 +79,9 @@ def validate(catalogue):
         fields(p["clients"], (), ("opencode", "omp"))
         oc = p["clients"].get("opencode")
         if oc:
-            fields(oc, ("npm", "auth", "effort_option", "metadata_adapter", "preferred_models"))
+            fields(oc, ("npm", "auth", "effort_option", "metadata_adapter", "preferred_models"), ("base_path",))
+            if "base_path" in oc:
+                path(oc["base_path"])
             require(oc["npm"] in ("@ai-sdk/openai", "@ai-sdk/anthropic", "@ai-sdk/google"), "unknown OpenCode transport adapter")
             require(oc["auth"] in ("api_key", "auth_token", "bearer_header"), "invalid OpenCode auth")
             require(oc["effort_option"] in (None, "effort", "reasoningEffort"), "invalid effort option")
