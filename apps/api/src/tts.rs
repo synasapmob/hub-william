@@ -7,7 +7,7 @@ use axum::{
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio_tungstenite::{connect_async, tungstenite::client::IntoClientRequest};
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -17,6 +17,8 @@ use crate::error::ApiError;
 const WINDOWS_FILE_TIME_EPOCH: u64 = 11_644_473_600;
 const TRUSTED_CLIENT_TOKEN: &str = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
 const CHROMIUM_VERSION: &str = "143.0.3650.75";
+// The free Edge endpoint answers bursts with 429 per IP; waiting briefly and retrying clears it.
+const RETRY_BACKOFF_MS: [u64; 3] = [500, 1500, 3000];
 
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct TtsRequest {
@@ -82,6 +84,20 @@ pub async fn synthesize_speech(request: &TtsRequest) -> Result<Vec<u8>, ApiError
         return Err(ApiError::Validation("Text content is required."));
     }
 
+    let mut attempt = 0;
+
+    loop {
+        match synthesize_once(request).await {
+            Err(ApiError::Provider(_)) if attempt < RETRY_BACKOFF_MS.len() => {
+                tokio::time::sleep(Duration::from_millis(RETRY_BACKOFF_MS[attempt])).await;
+                attempt += 1;
+            }
+            result => return result,
+        }
+    }
+}
+
+async fn synthesize_once(request: &TtsRequest) -> Result<Vec<u8>, ApiError> {
     let client_token = edge_tts_client_token();
     let chromium_version = edge_tts_chromium_version();
     let endpoint = edge_tts_endpoint();
