@@ -37,11 +37,9 @@ pub(crate) use groq_voice::groq_voice_turn_for_user;
 pub(crate) use voice::create_voice_session_for_user;
 
 const OPENAI_RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
-const OPENAI_CODEX_MODELS_URL: &str = "https://chatgpt.com/backend-api/codex/models";
 const OPENAI_MODELS_URL: &str = "https://chatgpt.com/backend-api/models";
 const CLAUDE_MESSAGES_URL: &str = "https://api.anthropic.com/v1/messages";
 // Match the installed OpenCode/OMP gateway installers: Claude defaults to only 20 models.
-const CLAUDE_MODELS_URL: &str = "https://api.anthropic.com/v1/models?limit=1000";
 const CLAUDE_COUNT_TOKENS_URL: &str = "https://api.anthropic.com/v1/messages/count_tokens";
 const GROK_CHAT_URL: &str = "https://cli-chat-proxy.grok.com/v1/chat/completions";
 const GROK_RESPONSES_URL: &str = "https://cli-chat-proxy.grok.com/v1/responses";
@@ -180,7 +178,10 @@ async fn models_for_selection(
                 HeaderValue::from_str(&state.config.codex_client_version)
                     .map_err(|_| ApiError::Internal)?,
             );
-            for base_url in [OPENAI_CODEX_MODELS_URL, OPENAI_MODELS_URL] {
+            for base_url in [
+                state.config.chatgpt_codex_models_url.as_str(),
+                OPENAI_MODELS_URL,
+            ] {
                 let mut url = reqwest::Url::parse(base_url).map_err(|_| ApiError::Internal)?;
                 url.query_pairs_mut()
                     .append_pair("client_version", &state.config.codex_client_version);
@@ -216,7 +217,7 @@ async fn models_for_selection(
                 selection,
                 GatewayUpstream {
                     provider,
-                    url: CLAUDE_MODELS_URL,
+                    url: &state.config.claude_models_url,
                 },
                 Method::GET,
                 &axum::http::Uri::from_static("/"),
@@ -4294,6 +4295,9 @@ The `gpt-5.4` and `gpt-5.3-codex` models have retired.
 
 #[cfg(all(test, feature = "database-tests"))]
 mod credential_recovery_tests;
+
+#[cfg(all(test, feature = "database-tests"))]
+mod subscriber_models_tests;
 
 #[cfg(all(test, feature = "database-tests"))]
 mod gemini_gateway_database_tests {
