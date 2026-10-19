@@ -1,16 +1,27 @@
 # AUDIO TO TEXT
 
-Transcribe a recorded audio file into text with Vosk, an offline speech
-recognition toolkit. Recognition runs in your browser, so the audio never
+Transcribe your voice or a recorded audio file into text with Vosk, an offline
+speech recognition toolkit. Recognition runs in your browser, so the audio never
 leaves your computer.
 
 ## Overview
 
-Pick a language, choose an audio file and press **Transcribe**. The transcript
-fills in while the file is processed, and can be copied or downloaded as a
-`.txt` file.
+Pick a language and an input, then press **Transcribe**. The transcript fills
+in while the audio is processed, and can be copied or downloaded as a `.txt`
+file.
 
-## Supported input
+## Input
+
+- **Voice** records from your microphone. Press **Start recording**, speak, then
+  press **Stop recording**. Your browser asks for microphone permission the
+  first time; if you block it, allow the microphone for this site in the
+  browser's site settings. Recording stops by itself after 10 minutes, and
+  leaving the Voice tab discards an unfinished recording and turns the
+  microphone off. Microphone access needs a secure page (`https://` or
+  `localhost`).
+- **Import** transcribes an audio file you choose.
+
+## Supported imported files
 
 - Any audio file your browser can play, such as `.mp3`, `.wav`, `.m4a`, `.ogg`
   or `.flac`. Support depends on the browser's own codecs.

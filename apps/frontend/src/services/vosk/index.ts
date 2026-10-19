@@ -7,8 +7,11 @@ import {
   VOSK_SAMPLE_RATE,
 } from "./vosk-audio";
 import { VOSK_MODELS, type VoskModel } from "./vosk-models";
+import { startRecording } from "./vosk-recorder";
 
 export type { VoskModel } from "./vosk-models";
+export type { VoskRecording } from "./vosk-recorder";
+export { VOSK_MAX_RECORDING_SECONDS } from "./vosk-recorder";
 
 export type VoskPhase = "model" | "decoding" | "recognizing";
 
@@ -147,6 +150,10 @@ async function transcribe({
   return recognize(runtime, samples, onProgress);
 }
 
-const voskService = { models: VOSK_MODELS, transcribe };
+const voskService = {
+  models: VOSK_MODELS,
+  transcribe,
+  record: startRecording,
+};
 
 export default voskService;

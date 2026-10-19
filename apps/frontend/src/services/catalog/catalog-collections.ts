@@ -41,7 +41,7 @@ const COLLECTION_PRESENTATION: Record<string, CatalogCollectionPresentation> = {
   vosk: {
     label: "AUDIO TO TEXT",
     summary:
-      "Transcribe audio files into text in your browser with Vosk speech recognition. Nothing is uploaded.",
+      "Transcribe your voice or an audio file into text in your browser with Vosk speech recognition. Nothing is uploaded.",
   },
 };
 

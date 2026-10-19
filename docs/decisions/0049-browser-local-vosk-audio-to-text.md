@@ -7,8 +7,8 @@
 
 ## Decision
 
-Add an AUDIO TO TEXT tool (`contributors/default/tools/vosk`) that transcribes an
-uploaded audio file with Vosk in the browser, using `vosk-browser` 0.0.8
+Add an AUDIO TO TEXT tool (`contributors/default/tools/vosk`) that transcribes a
+microphone recording or an imported audio file with Vosk in the browser, using `vosk-browser` 0.0.8
 (Apache-2.0). It runs the Vosk WASM build in a Web Worker and uploads nothing.
 There is no backend route, so unlike TEXT TO AUDIO it has no API or curl usage.
 
@@ -21,6 +21,13 @@ to the recognizer in two-second chunks. The worker answers each chunk and the
 final-result request exactly once and in order, so the service counts replies to
 know when recognition is complete and reports progress from them. Files over
 50 MB are rejected because the full waveform is held in memory.
+
+The input is chosen with a Voice | Import switch. Voice records the microphone
+with `MediaRecorder` (webm/opus, ogg or mp4, whichever the browser supports) and
+produces a `File` that goes through the same decode and recognition path as an
+import. It is record-then-transcribe, not live dictation. Recording stops after
+10 minutes, and leaving the Voice tab cancels it and releases the microphone.
+The clip stays in memory and is not stored.
 
 Models are the small `.tar.gz` Vosk models published by the vosk-browser project
 at `https://ccoreilly.github.io/vosk-browser/models`, the only host found that
@@ -40,11 +47,17 @@ service constructs `Model` directly and listens for both `load` and `error`.
 - Small models are less accurate than Whisper and output lowercase text without
   punctuation. The Playground keeps its Whisper stack unchanged.
 - `vosk-browser` was last published in 2022 and bundles an older Vosk build.
-- There is no cancel control. A long file runs to completion.
+- There is no cancel control for transcription. A long file runs to completion.
+- Voice is record-then-transcribe, not live dictation, so nothing appears until
+  the reader stops recording and presses Transcribe.
 
 ## Verification boundaries
 
 Unit tests cover audio mixing and chunking, the reply-counting completion logic,
-load failure handling, model reuse and the component's states. They use a fake
-recognizer. Recognition quality was checked in a real browser against synthesized
-speech only; it is not established for other microphones, accents or recordings.
+load failure handling, model reuse, the recorder (formats, cancel, time limit,
+permission errors) and the component's states. They use a fake recognizer and a
+fake `MediaRecorder`. Recognition was checked in a real browser against
+synthesized speech: an imported mp3, and the microphone path using Chromium's
+fake capture device playing that speech. A real microphone, the permission
+prompt and other browsers (notably Safari's mp4 recording) were not exercised,
+and accuracy is not established for other speakers, accents or recordings.
