@@ -2074,6 +2074,7 @@ fn antigravity_model_id(model: &str, request: &Value) -> String {
         _ => "medium",
     };
     match model {
+        "gemini-4-argon" => format!("gemini-4-argon-{}", flash_variant()),
         "gemini-3.8-flash" => format!("gemini-3.8-flash-{}", flash_variant()),
         "gemini-3.7-flash" => format!("gemini-3.7-flash-{}", flash_variant()),
         "gemini-3.6-flash" => format!("gemini-3.6-flash-{}", flash_variant()),
@@ -3932,6 +3933,27 @@ mod tests {
 
     #[test]
     fn gemini_native_base_models_map_to_current_agy_effort_ids() {
+        assert_eq!(
+            antigravity_model_id(
+                "gemini-4-argon",
+                &json!({"generationConfig": {"thinkingConfig": {"thinkingBudget": -1}}})
+            ),
+            "gemini-4-argon-high"
+        );
+        assert_eq!(
+            antigravity_model_id(
+                "gemini-4-argon",
+                &json!({"generationConfig": {"thinkingConfig": {"thinkingBudget": 4000}}})
+            ),
+            "gemini-4-argon-medium"
+        );
+        assert_eq!(
+            antigravity_model_id(
+                "gemini-4-argon",
+                &json!({"generationConfig": {"thinkingConfig": {"thinkingBudget": 1000}}})
+            ),
+            "gemini-4-argon-low"
+        );
         assert_eq!(
             antigravity_model_id(
                 "gemini-3.8-flash",
