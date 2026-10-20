@@ -4,7 +4,7 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::core::{AppState, cors};
 
-use super::{ApiDoc, agent, auth, gateway, health, organizations, playground, telegram, tts};
+use super::{ApiDoc, agent, auth, gateway, health, organizations, playground, reel, telegram, tts};
 
 pub fn app(state: AppState) -> Router {
     let cors = cors::layer(
@@ -15,6 +15,7 @@ pub fn app(state: AppState) -> Router {
     Router::new()
         .merge(health::routes())
         .merge(tts::routes())
+        .merge(reel::routes())
         .merge(auth::routes())
         .merge(telegram::routes())
         .merge(organizations::routes())

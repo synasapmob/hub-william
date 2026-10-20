@@ -10,6 +10,7 @@ mod health;
 mod openapi;
 mod organizations;
 mod playground;
+mod reel;
 mod router;
 mod telegram;
 #[cfg(test)]

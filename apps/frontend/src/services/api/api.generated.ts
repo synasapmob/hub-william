@@ -653,6 +653,54 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/reel/download": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["download"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/reel/resolve": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["resolve"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/reel/stream": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["stream"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/tts": {
     parameters: {
       query?: never;
@@ -1082,6 +1130,8 @@ export interface components {
       member_id?: string | null;
       model?: string | null;
     };
+    /** @enum {string} */
+    Platform: "x" | "tiktok" | "facebook";
     PlaygroundAttachment:
       | {
           data: string;
@@ -1138,6 +1188,24 @@ export interface components {
       recovery_email?: string | null;
       username: string;
     };
+    ResolveRequest: {
+      /** @description `x`, `twitter`, `tiktok` or `facebook`; detected from the link when omitted. */
+      platform?: string | null;
+      /** @description Link to one public video or reel. */
+      url?: string;
+    };
+    ResolvedVideo: {
+      author: string;
+      avatar?: string | null;
+      /** Format: double */
+      duration?: number | null;
+      id: string;
+      platform: components["schemas"]["Platform"];
+      thumbnail?: string | null;
+      title: string;
+      variants: components["schemas"]["VideoVariant"][];
+      videoUrl: string;
+    };
     SessionResponse: {
       user: components["schemas"]["AuthenticatedUser"];
     };
@@ -1153,6 +1221,12 @@ export interface components {
       rate?: string;
       text: string;
       voice?: string;
+    };
+    VideoVariant: {
+      /** Format: int64 */
+      bitrate?: number | null;
+      label: string;
+      url: string;
     };
   };
   responses: never;
@@ -2659,6 +2733,164 @@ export interface operations {
         };
       };
       502: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  download: {
+    parameters: {
+      query: {
+        /** @description Media URL returned by `/reel/resolve`. */
+        url: string;
+        /** @description File name offered to the browser when downloading. */
+        filename?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Video bytes as an attachment */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "video/mp4": unknown;
+        };
+      };
+      /** @description Requested byte range */
+      206: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "video/mp4": unknown;
+        };
+      };
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      502: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Every relay slot is busy */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  resolve: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ResolveRequest"];
+      };
+    };
+    responses: {
+      /** @description Direct media URLs for the video */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ResolvedVideo"];
+        };
+      };
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      502: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  stream: {
+    parameters: {
+      query: {
+        /** @description Media URL returned by `/reel/resolve`. */
+        url: string;
+        /** @description File name offered to the browser when downloading. */
+        filename?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Video bytes */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "video/mp4": unknown;
+        };
+      };
+      /** @description Requested byte range */
+      206: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "video/mp4": unknown;
+        };
+      };
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      502: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Every relay slot is busy */
+      503: {
         headers: {
           [name: string]: unknown;
         };
