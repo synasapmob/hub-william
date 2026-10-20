@@ -14,7 +14,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
-    api::{auth::authenticated_user_id, gateway},
+    api::{auth::authenticated_user_id, gateway, limits::SessionUserId},
     core::{ApiError, AppState},
     utils::provider_catalogue::AgentProvider,
 };
@@ -93,6 +93,7 @@ pub async fn authorize_chat(
         return Err(ApiError::Forbidden);
     }
     request.extensions_mut().insert(PlaygroundSession(user_id));
+    request.extensions_mut().insert(SessionUserId(user_id));
     Ok(next.run(request).await)
 }
 

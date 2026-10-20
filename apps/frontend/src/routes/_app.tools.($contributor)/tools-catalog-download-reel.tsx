@@ -1,9 +1,12 @@
 import { useState } from "react";
-import { Download, Loader2, AlertCircle, Sparkles } from "lucide-react";
+import { Download, Loader2, Sparkles } from "lucide-react";
+import { toast } from "sonner";
 import { tv } from "tailwind-variants";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { apiUrl } from "@/utils/utils.api-url";
+import { downloadBlob } from "@/utils/utils.download";
 
 const reelStyles = tv({
   slots: {
@@ -16,8 +19,6 @@ const reelStyles = tv({
     videoWrapper:
       "relative overflow-hidden rounded-lg bg-black aspect-video flex items-center justify-center max-h-80 w-full",
     videoPlayer: "object-contain size-full",
-    errorBanner:
-      "flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800",
   },
 });
 
@@ -29,20 +30,13 @@ interface ResolvedVideo {
 }
 
 export default function ToolsCatalogDownloadReel() {
-  const {
-    container,
-    formRow,
-    select,
-    previewCard,
-    videoWrapper,
-    videoPlayer,
-    errorBanner,
-  } = reelStyles();
+  const { container, formRow, select, previewCard, videoWrapper, videoPlayer } =
+    reelStyles();
 
   const [url, setUrl] = useState("");
   const [platform, setPlatform] = useState<"x" | "tiktok" | "facebook">("x");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
   const [video, setVideo] = useState<ResolvedVideo | null>(null);
 
   const handleUrlChange = (value: string) => {
@@ -65,11 +59,10 @@ export default function ToolsCatalogDownloadReel() {
     if (!url.trim()) return;
 
     setLoading(true);
-    setError(null);
     setVideo(null);
 
     try {
-      const res = await fetch("/api/reel/resolve", {
+      const res = await fetch(apiUrl("/reel/resolve"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -78,14 +71,20 @@ export default function ToolsCatalogDownloadReel() {
         }),
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.message || "Failed to fetch video information.");
+      // A gateway or proxy error can come back with an empty or non-JSON body.
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data) {
+        throw new Error(
+          data?.message ||
+            `Failed to fetch video information (HTTP ${res.status}).`,
+        );
       }
 
       setVideo(data);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Network error occurred");
+      toast.error(
+        err instanceof Error ? err.message : "Network error occurred",
+      );
     } finally {
       setLoading(false);
     }
@@ -94,6 +93,34 @@ export default function ToolsCatalogDownloadReel() {
   const downloadFilename = video
     ? `${video.platform}-${video.id}.mp4`
     : "video.mp4";
+
+  const handleDownload = async () => {
+    if (!video) return;
+
+    setDownloading(true);
+
+    try {
+      const res = await fetch(
+        apiUrl(
+          `/reel/download?url=${encodeURIComponent(video.videoUrl)}&filename=${encodeURIComponent(downloadFilename)}`,
+        ),
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(
+          data?.message || `Failed to download the video (HTTP ${res.status}).`,
+        );
+      }
+
+      downloadBlob(downloadFilename, await res.blob());
+    } catch (err: unknown) {
+      toast.error(
+        err instanceof Error ? err.message : "Network error occurred",
+      );
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   return (
     <div className={container()}>
@@ -142,35 +169,39 @@ export default function ToolsCatalogDownloadReel() {
         </Button>
       </form>
 
-      {error && (
-        <div className={errorBanner()}>
-          <AlertCircle className="size-4 shrink-0 mt-0.5" />
-          <p>{error}</p>
-        </div>
-      )}
-
       {video && (
         <div className={previewCard()}>
           <div className={videoWrapper()}>
             <video
               key={video.videoUrl}
-              src={`/api/reel/stream?url=${encodeURIComponent(video.videoUrl)}`}
+              src={apiUrl(
+                `/reel/stream?url=${encodeURIComponent(video.videoUrl)}`,
+              )}
               poster={video.thumbnail}
               controls
               autoPlay={false}
               playsInline
+              onError={() =>
+                toast.error(
+                  "The preview could not be played. Try again in a moment.",
+                )
+              }
               className={videoPlayer()}
             />
           </div>
 
-          <a
-            href={`/api/reel/download?url=${encodeURIComponent(video.videoUrl)}&filename=${encodeURIComponent(downloadFilename)}`}
-            download={downloadFilename}
-            className="flex h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-600 font-mono text-xs font-semibold text-white transition-colors hover:bg-emerald-500 focus-visible:outline-hidden"
+          <button
+            onClick={handleDownload}
+            disabled={downloading}
+            className="flex h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-600 font-mono text-xs font-semibold text-white transition-colors hover:bg-emerald-500 focus-visible:outline-hidden disabled:opacity-60"
           >
-            <Download className="size-3.5" />
-            Download Video
-          </a>
+            {downloading ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Download className="size-3.5" />
+            )}
+            {downloading ? "Downloading..." : "Download Video"}
+          </button>
         </div>
       )}
     </div>

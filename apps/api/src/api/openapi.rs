@@ -2,7 +2,7 @@ use utoipa::OpenApi;
 
 use crate::core::ErrorResponse;
 
-use super::{agent, auth, gateway, health, organizations, playground, tts};
+use super::{agent, auth, gateway, health, organizations, playground, reel, tts};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -28,6 +28,7 @@ impl OpenApi for ApiDoc {
             gateway::GatewayApi::openapi(),
             playground::PlaygroundApi::openapi(),
             tts::TtsApi::openapi(),
+            reel::ReelApi::openapi(),
             health::HealthApi::openapi(),
         ] {
             document.merge(fragment);

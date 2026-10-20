@@ -238,3 +238,72 @@ async fn cors_allows_every_method_the_browser_api_documents() {
         );
     }
 }
+
+async fn reel_response(method: &str, uri: &str, body: &str) -> (StatusCode, serde_json::Value) {
+    let state = AppState {
+        config: AppConfig::default(),
+        http: Client::new(),
+        gateway_http: Client::new(),
+        pool: PgPoolOptions::new()
+            .connect_lazy("postgres://localhost/hub_william_test")
+            .expect("test database URL should parse"),
+    };
+    let response = app(state)
+        .oneshot(
+            Request::builder()
+                .method(method)
+                .uri(uri)
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_owned()))
+                .expect("reel request should be valid"),
+        )
+        .await
+        .expect("reel route should respond");
+    let status = response.status();
+    let bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("reel response should have a body");
+
+    (status, serde_json::from_slice(&bytes).unwrap_or_default())
+}
+
+#[tokio::test]
+async fn reel_resolve_rejects_links_it_must_not_fetch() {
+    for body in [
+        r#"{}"#,
+        r#"{"url":"   "}"#,
+        r#"{"url":"http://www.facebook.com/reel/1"}"#,
+        r#"{"url":"https://evil.test/x.com/status/1"}"#,
+        r#"{"url":"https://169.254.169.254/latest/meta-data","platform":"facebook"}"#,
+        r#"{"url":"https://x.com/jack/status/20","platform":"facebook"}"#,
+    ] {
+        let (status, payload) = reel_response("POST", "/reel/resolve", body).await;
+
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+        assert_eq!(payload["code"], "validation_error", "{body}");
+        assert!(payload["message"].is_string(), "{body}");
+    }
+}
+
+#[tokio::test]
+async fn reel_media_relay_only_opens_known_cdn_hosts() {
+    for uri in [
+        "/reel/stream?url=https%3A%2F%2F169.254.169.254%2Flatest%2Fmeta-data",
+        "/reel/download?url=http%3A%2F%2Fvideo.twimg.com%2Fa.mp4",
+        "/reel/stream?url=https%3A%2F%2Ffbcdn.net.evil.test%2Fa.mp4",
+    ] {
+        let (status, payload) = reel_response("GET", uri, "").await;
+
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{uri}");
+        assert_eq!(payload["code"], "validation_error", "{uri}");
+    }
+}
+
+#[test]
+fn openapi_documents_the_reel_endpoints() {
+    let document = ApiDoc::openapi();
+
+    for path in ["/reel/resolve", "/reel/stream", "/reel/download"] {
+        assert!(document.paths.paths.contains_key(path), "{path}");
+    }
+}

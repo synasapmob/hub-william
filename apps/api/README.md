@@ -33,6 +33,30 @@ store; it is sent for both authorization-code exchange and token refresh.
 `COOKIE_SECURE=true` enables secure cookies for production. Keep all
 populated values in the runtime secret store.
 
+## Rate limiting
+
+Requests are limited in memory, per process, with one token bucket per route
+group: `30/min` lets 30 requests arrive at once and then refills one every two
+seconds. Every number lives in `Limit::per_minute` in `src/api/limits.rs`, and
+each feature attaches its limiter in its own `routes.rs`. Over the limit the
+API answers `429` with a `Retry-After` header and
+`{ "code": "rate_limited", "message": ... }`.
+
+- Public routes (`/auth/login`, `/auth/register`, `/reel/*`, `/tts`) are keyed by
+  client IP. IPv6 clients are grouped by `/64`; a request with no usable IP
+  shares one bucket.
+- Signed-in routes (agent connections and pools, organization writes,
+  `/auth/refresh`, gateway-key management, the playground) are keyed by user.
+- `/gateway/*` is keyed by gateway key. Failed key attempts are also counted per
+  IP, and an IP that keeps failing gets `429` before the key is even checked.
+
+The client IP is the socket peer unless `TRUST_PROXY_HEADERS=true`, which reads
+the address from `CLIENT_IP_HEADER` (default `x-real-ip`). Only enable it behind
+a proxy that overwrites that header, or callers can pick their own bucket. With
+it off behind a proxy, all clients share the proxy's address and therefore one
+bucket, so confirm the header on the deployed environment before relying on it.
+With several replicas each one counts separately.
+
 The optional `apps/api/scripts/smoke-local-railway.sh` writes synthetic rows
 to the linked Railway database and attempts to delete them on exit. It requires
 a local SSH key registered with Railway (`railway ssh keys add`) and opens a
@@ -171,9 +195,13 @@ timer is an atomic half-open probe.
 An owner can force-refresh the provider credential from pool management or from
 a linked organization agent; a rejected or missing refresh token starts official
 authorization again on the same pool record. The API also refreshes every
-connected OAuth credential once it has gone 30 minutes plus a stable per-account
-offset of up to 15 minutes without rotation, so each account refreshes every
-30-45 minutes whether or not it is used. The same sweep retries accounts the
+connected OAuth credential 30 minutes after its previous refresh, from a stored
+`next_refresh_at`, whether or not it is used. A refresh token that the provider
+reports will expire sooner is refreshed five minutes before it does. A scheduled
+refresh that fails on the network or provider availability is tried once more
+after three seconds (two attempts in all) and otherwise waits for its next
+regular refresh; a refresh token the provider rejects fails at once and is not
+retried. The same sweep retries accounts the
 gateway marked for reconnect, and accounts whose old reconnect prompt expired,
 restoring them when a refresh succeeds. Per-account failures are isolated so one
 stale pool cannot stop the remaining sweep. Around 00:00 Vietnam time, it checks

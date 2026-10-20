@@ -18,5 +18,4 @@ export interface CatalogCollection {
 export interface CatalogArchive {
   name: string;
   url: string;
-  fileCount: number;
 }
