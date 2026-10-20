@@ -1,7 +1,6 @@
-import { useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useMutation } from "@tanstack/react-query";
 import {
-  AlertCircle,
   AudioLines,
   Check,
   Copy,
@@ -11,6 +10,7 @@ import {
   Mic,
   Square,
 } from "lucide-react";
+import { toast } from "sonner";
 import { tv } from "tailwind-variants";
 
 import Flex from "@/components/ui/flex";
@@ -46,8 +46,6 @@ const voskStyles = tv({
       "space-y-3 rounded-lg border border-zinc-200 bg-white p-3 shadow-xs",
     action:
       "flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-2.5 py-1 text-xs font-medium text-zinc-700 shadow-xs transition-colors hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden",
-    errorBanner:
-      "flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800",
   },
 });
 
@@ -86,6 +84,7 @@ export default function ToolsCatalogVosk() {
   const transcription = useMutation({
     mutationFn: (source: File) =>
       voskService.transcribe({ file: source, model, onProgress: setProgress }),
+    onError: (error) => toast.error(error.message),
   });
 
   const recorder = useToolsCatalogVoskRecorder({
@@ -95,6 +94,11 @@ export default function ToolsCatalogVosk() {
     },
   });
   const recording = recorder.status === "recording";
+
+  // The recorder reports why the microphone failed to start or stopped.
+  useEffect(() => {
+    if (recorder.error) toast.error(recorder.error);
+  }, [recorder.error]);
 
   const transcript = transcription.isPending
     ? (progress?.text ?? "")
@@ -221,12 +225,6 @@ export default function ToolsCatalogVosk() {
         </p>
       )}
 
-      {recorder.error && (
-        <p role="alert" className="text-[11px] text-rose-700">
-          {recorder.error}
-        </p>
-      )}
-
       <p className={styles.hint()}>
         Runs in your browser with Vosk. Your audio is never uploaded. Imported
         files up to 50 MB.
@@ -258,17 +256,6 @@ export default function ToolsCatalogVosk() {
           {progress?.phase === "recognizing" && (
             <Progress value={(progress.fraction ?? 0) * 100} />
           )}
-        </div>
-      )}
-
-      {transcription.isError && (
-        <div role="alert" className={styles.errorBanner()}>
-          <AlertCircle
-            aria-hidden="true"
-            className="mt-0.5 size-4 shrink-0 text-rose-600"
-          />
-
-          <p>{transcription.error.message}</p>
         </div>
       )}
 

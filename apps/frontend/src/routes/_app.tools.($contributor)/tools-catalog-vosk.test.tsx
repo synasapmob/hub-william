@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { toast } from "sonner";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { voskService } from "@/services/vosk/vosk-service";
@@ -10,6 +11,8 @@ import type {
 } from "@/services/vosk/vosk-types";
 
 import ToolsCatalogVosk from "./tools-catalog-vosk";
+
+vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 
 function renderVosk() {
   const queryClient = new QueryClient({
@@ -160,7 +163,7 @@ describe("ToolsCatalogVosk", () => {
     ).toBeVisible();
   });
 
-  it("shows why the microphone could not start", async () => {
+  it("toasts why the microphone could not start", async () => {
     const user = userEvent.setup();
     vi.spyOn(voskService, "record").mockRejectedValue(
       new Error("Microphone access was blocked."),
@@ -169,9 +172,12 @@ describe("ToolsCatalogVosk", () => {
 
     await user.click(screen.getByRole("button", { name: "Start voice" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Microphone access was blocked.",
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        "Microphone access was blocked.",
+      ),
     );
+    expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.getByRole("button", { name: "Start voice" })).toBeEnabled();
     expect(transcribeButton()).toBeDisabled();
   });
@@ -232,7 +238,7 @@ describe("ToolsCatalogVosk", () => {
     expect(screen.queryByRole("button", { name: /Copy/ })).toBeNull();
   });
 
-  it("shows the failure and clears it when another file is picked", async () => {
+  it("toasts a transcription failure without rendering a banner", async () => {
     const user = userEvent.setup();
     vi.spyOn(voskService, "transcribe").mockRejectedValue(
       new Error("This file could not be decoded as audio."),
@@ -242,12 +248,12 @@ describe("ToolsCatalogVosk", () => {
     await pickFile("notes.txt");
     await user.click(transcribeButton());
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "This file could not be decoded as audio.",
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        "This file could not be decoded as audio.",
+      ),
     );
-
-    await pickFile("good.wav");
-
     expect(screen.queryByRole("alert")).toBeNull();
+    expect(transcribeButton()).toBeEnabled();
   });
 });
