@@ -48,10 +48,11 @@ const DEFAULT_POLL_SECONDS: u64 = 5;
 /// accounts keep the spread of the times they were first connected.
 const PROVIDER_CREDENTIAL_REFRESH_MINUTES: i64 = 30;
 /// A scheduled refresh that fails because the network or the provider is
-/// unavailable is retried after each of these delays: two retries, three
-/// attempts in all. After the last failure the account waits for its next
+/// unavailable is tried again after this pause, inside the same refresh. Two
+/// attempts in all; after the second failure the account waits for its next
 /// regular refresh.
-const PROVIDER_CREDENTIAL_RETRY_DELAYS_SECONDS: [i64; 2] = [60, 300];
+const PROVIDER_CREDENTIAL_REFRESH_ATTEMPTS: usize = 2;
+const PROVIDER_CREDENTIAL_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(3);
 /// A refresh token that the provider reports will expire is refreshed this long
 /// before it does, and never sooner than the minimum below from now.
 const PROVIDER_CREDENTIAL_EXPIRY_MARGIN_MINUTES: i64 = 5;
@@ -199,7 +200,6 @@ struct CredentialRow {
     credential_nonce: Vec<u8>,
     next_refresh_at: DateTime<Utc>,
     refresh_attempted_at: Option<DateTime<Utc>>,
-    refresh_failure_count: i32,
     refresh_token_expires_at: Option<DateTime<Utc>>,
     updated_at: DateTime<Utc>,
 }
@@ -317,11 +317,12 @@ fn provider_expiry_at(token: &Value, field: &str) -> Option<DateTime<Utc>> {
         .map(|seconds| Utc::now() + Duration::seconds(seconds))
 }
 
-/// When a credential that just refreshed is next due: 30 minutes ahead, or
-/// sooner when the provider reports that its refresh token expires before then,
-/// so a lifetime renewed by the provider is picked up before the old one ends.
-/// An expiry already in the past is ignored; it cannot be refreshed around.
-fn next_refresh_after_success(
+/// When a credential is next due after a refresh or a failed attempt: 30
+/// minutes ahead, or sooner when the provider reports that its refresh token
+/// expires before then, so a lifetime renewed by the provider is picked up
+/// before the old one ends. An expiry already in the past is ignored; it cannot
+/// be refreshed around.
+fn next_regular_refresh_at(
     now: DateTime<Utc>,
     refresh_token_expires_at: Option<DateTime<Utc>>,
 ) -> DateTime<Utc> {
@@ -333,26 +334,6 @@ fn next_refresh_after_success(
         .map_or(regular, |before_expiry| {
             before_expiry.max(now + Duration::seconds(PROVIDER_CREDENTIAL_MIN_RESCHEDULE_SECONDS))
         })
-}
-
-/// What a scheduled refresh that failed on the network or provider availability
-/// leaves behind: the new failure count and when to try again. The first two
-/// failures retry after the short delays; the third gives up for now, resets the
-/// count and waits for the next regular refresh.
-fn next_refresh_after_transient_failure(
-    now: DateTime<Utc>,
-    previous_failures: i32,
-) -> (i32, DateTime<Utc>) {
-    match usize::try_from(previous_failures)
-        .ok()
-        .and_then(|attempt| PROVIDER_CREDENTIAL_RETRY_DELAYS_SECONDS.get(attempt))
-    {
-        Some(delay) => (previous_failures + 1, now + Duration::seconds(*delay)),
-        None => (
-            0,
-            now + Duration::minutes(PROVIDER_CREDENTIAL_REFRESH_MINUTES),
-        ),
-    }
 }
 
 /// A refresh answer that says nothing about the credential itself: the provider
@@ -1395,7 +1376,7 @@ async fn finish_connection(
         encrypt_json(&state.config.credential_encryption_key, &token)?;
     let access_token_expires_at = provider_expiry_at(&token, "expires_in");
     let refresh_token_expires_at = provider_expiry_at(&token, "refresh_token_expires_in");
-    let next_refresh_at = next_refresh_after_success(Utc::now(), refresh_token_expires_at);
+    let next_refresh_at = next_regular_refresh_at(Utc::now(), refresh_token_expires_at);
     let mut transaction = state.pool.begin().await.map_err(database_error)?;
     let identity_lock = i64::from_be_bytes(
         Sha256::digest(account_identity.as_bytes())[..8]
@@ -1428,7 +1409,6 @@ async fn finish_connection(
             access_token_expires_at = EXCLUDED.access_token_expires_at,
             refresh_token_expires_at = EXCLUDED.refresh_token_expires_at,
             next_refresh_at = EXCLUDED.next_refresh_at,
-            refresh_failure_count = 0,
             updated_at = NOW()",
     )
     .bind(target_id)
@@ -2144,39 +2124,61 @@ async fn finish_refresh_reauthorization(
     Ok(RefreshConnectionOutcome::ReauthorizationRequired(updated))
 }
 
-/// Schedule the retry after a scheduled refresh failed on the network or the
-/// provider's availability, inside the transaction that holds the credential
-/// lock so concurrent replicas see one schedule.
-async fn schedule_transient_refresh_retry(
+/// Ask the provider to refresh the credential. A scheduled refresh that fails
+/// on the network or the provider's availability is tried once more after a
+/// short pause, still under the caller's credential lock; any other outcome,
+/// and any request-time refresh, is returned as it came.
+async fn refresh_provider_token_with_retry(
+    state: &AppState,
+    row: &ConnectionRow,
+    provider: AgentProvider,
+    refresh_token: &str,
+    stored_token: &Value,
+    mode: CredentialRefreshMode,
+) -> Result<Value, ProviderRefreshError> {
+    let mut attempt = 1;
+    loop {
+        match refresh_provider_token(state, provider, refresh_token, stored_token).await {
+            Err(ProviderRefreshError::Transient(_))
+                if mode.records_scheduled_attempt()
+                    && attempt < PROVIDER_CREDENTIAL_REFRESH_ATTEMPTS
+                    && !SWEEPS_STOPPING.load(Ordering::SeqCst) =>
+            {
+                eprintln!(
+                    "{} connection {} refresh attempt {attempt}/{PROVIDER_CREDENTIAL_REFRESH_ATTEMPTS} failed; retrying in {}s",
+                    row.provider,
+                    row.id,
+                    PROVIDER_CREDENTIAL_RETRY_DELAY.as_secs()
+                );
+                tokio::time::sleep(PROVIDER_CREDENTIAL_RETRY_DELAY).await;
+                attempt += 1;
+            }
+            result => return result,
+        }
+    }
+}
+
+/// After a scheduled refresh failed on every attempt, wait for the next regular
+/// refresh, sooner when the refresh token is about to end. The token was not
+/// shown to be bad, so the account is not marked for reconnect.
+async fn schedule_regular_refresh_after_failure(
     transaction: &mut Transaction<'_, Postgres>,
     row: &ConnectionRow,
-    previous_failures: i32,
+    refresh_token_expires_at: Option<DateTime<Utc>>,
 ) -> Result<(), ApiError> {
-    let now = Utc::now();
-    let (failures, next_refresh_at) = next_refresh_after_transient_failure(now, previous_failures);
+    let next_refresh_at = next_regular_refresh_at(Utc::now(), refresh_token_expires_at);
     sqlx::query(
-        "UPDATE agent_connection_credentials
-         SET refresh_failure_count = $2, next_refresh_at = $3
-         WHERE connection_id = $1",
+        "UPDATE agent_connection_credentials SET next_refresh_at = $2 WHERE connection_id = $1",
     )
     .bind(row.id)
-    .bind(failures)
     .bind(next_refresh_at)
     .execute(&mut **transaction)
     .await
     .map_err(database_error)?;
-    let attempts = PROVIDER_CREDENTIAL_RETRY_DELAYS_SECONDS.len() + 1;
-    if failures == 0 {
-        eprintln!(
-            "{} connection {} scheduled refresh failed on all {attempts} attempts; next regular attempt at {next_refresh_at}",
-            row.provider, row.id
-        );
-    } else {
-        eprintln!(
-            "{} connection {} scheduled refresh attempt {failures}/{attempts} failed; retrying at {next_refresh_at}",
-            row.provider, row.id
-        );
-    }
+    eprintln!(
+        "{} connection {} scheduled refresh failed on all {PROVIDER_CREDENTIAL_REFRESH_ATTEMPTS} attempts; next attempt at {next_refresh_at}",
+        row.provider, row.id
+    );
     Ok(())
 }
 
@@ -2200,7 +2202,7 @@ async fn refresh_connected_connection(
     let mut transaction = state.pool.begin().await.map_err(database_error)?;
     let credential = sqlx::query_as::<_, CredentialRow>(
         "SELECT credential_ciphertext, credential_nonce, access_token_expires_at,
-         refresh_token_expires_at, refresh_attempted_at, next_refresh_at, refresh_failure_count, updated_at
+         refresh_token_expires_at, refresh_attempted_at, next_refresh_at, updated_at
          FROM agent_connection_credentials
          WHERE connection_id = $1 FOR UPDATE",
     )
@@ -2329,31 +2331,39 @@ async fn refresh_connected_connection(
     let Some(refresh_token) = stored_token.get("refresh_token").and_then(Value::as_str) else {
         return finish_refresh_reauthorization(transaction, row, mode).await;
     };
-    let refreshed =
-        match refresh_provider_token(state, provider, refresh_token, &stored_token).await {
-            Ok(refreshed) => refreshed,
-            Err(ProviderRefreshError::ReauthorizationRequired) => {
-                return finish_refresh_reauthorization(transaction, row, mode).await;
+    let refreshed = match refresh_provider_token_with_retry(
+        state,
+        &row,
+        provider,
+        refresh_token,
+        &stored_token,
+        mode,
+    )
+    .await
+    {
+        Ok(refreshed) => refreshed,
+        Err(ProviderRefreshError::ReauthorizationRequired) => {
+            return finish_refresh_reauthorization(transaction, row, mode).await;
+        }
+        Err(ProviderRefreshError::Transient(error)) => {
+            if mode.records_scheduled_attempt() {
+                schedule_regular_refresh_after_failure(
+                    &mut transaction,
+                    &row,
+                    credential.refresh_token_expires_at,
+                )
+                .await?;
             }
-            Err(ProviderRefreshError::Transient(error)) => {
-                if mode.records_scheduled_attempt() {
-                    schedule_transient_refresh_retry(
-                        &mut transaction,
-                        &row,
-                        credential.refresh_failure_count,
-                    )
-                    .await?;
-                }
-                return finish_refresh_error(transaction, error).await;
-            }
-            Err(ProviderRefreshError::Api(error)) => {
-                return finish_refresh_error(transaction, error).await;
-            }
-        };
+            return finish_refresh_error(transaction, error).await;
+        }
+        Err(ProviderRefreshError::Api(error)) => {
+            return finish_refresh_error(transaction, error).await;
+        }
+    };
     let access_token_expires_at = provider_expiry_at(&refreshed, "expires_in");
     let refresh_token_expires_at = provider_expiry_at(&refreshed, "refresh_token_expires_in")
         .or(credential.refresh_token_expires_at);
-    let next_refresh_at = next_refresh_after_success(Utc::now(), refresh_token_expires_at);
+    let next_refresh_at = next_regular_refresh_at(Utc::now(), refresh_token_expires_at);
     let merged = merge_token_response(stored_token, refreshed);
     let (credential_ciphertext, credential_nonce) =
         match encrypt_json(&state.config.credential_encryption_key, &merged) {
@@ -2368,7 +2378,7 @@ async fn refresh_connected_connection(
         "UPDATE agent_connection_credentials SET credential_ciphertext = $2,
          credential_nonce = $3, access_token_expires_at = $4,
          refresh_token_expires_at = $5, refresh_attempted_at = NOW(),
-         next_refresh_at = $6, refresh_failure_count = 0, updated_at = NOW()
+         next_refresh_at = $6, updated_at = NOW()
          WHERE connection_id = $1",
     )
     .bind(row.id)
@@ -2693,7 +2703,7 @@ async fn stored_credential_row(
 ) -> Result<Option<CredentialRow>, ApiError> {
     sqlx::query_as::<_, CredentialRow>(
         "SELECT credential_ciphertext, credential_nonce, access_token_expires_at,
-         refresh_token_expires_at, refresh_attempted_at, next_refresh_at, refresh_failure_count, updated_at
+         refresh_token_expires_at, refresh_attempted_at, next_refresh_at, updated_at
          FROM agent_connection_credentials
          WHERE connection_id = $1",
     )
@@ -2759,7 +2769,7 @@ pub(crate) async fn mark_reauthorization_required_if_current(
     let mut transaction = state.pool.begin().await.map_err(database_error)?;
     let credential = sqlx::query_as::<_, CredentialRow>(
         "SELECT credential_ciphertext, credential_nonce, access_token_expires_at,
-                refresh_token_expires_at, refresh_attempted_at, next_refresh_at, refresh_failure_count, updated_at
+                refresh_token_expires_at, refresh_attempted_at, next_refresh_at, updated_at
          FROM agent_connection_credentials WHERE connection_id = $1 FOR UPDATE",
     )
     .bind(connection_id)
@@ -3247,13 +3257,12 @@ mod tests {
         AuthorizationSecret, CODEX_REDIRECT_URI, CODEX_SCOPES, CredentialRefreshMode,
         GEMINI_SCOPES, GROK_SCOPES, RECOVERABLE_REAUTHORIZATION_MESSAGES, connection_metadata,
         decrypt_json, encrypt_json, exchange_gemini_code, fetch_claude_profile,
-        gemini_code_assist_body, mask_account_label, merge_token_response,
-        next_refresh_after_success, next_refresh_after_transient_failure, parse_callback_value,
-        provider_account_identity, provider_expiry_at, reauthorization_identity_matches,
-        refresh_provider_token, refresh_requires_reauthorization, refresh_status_is_transient,
-        should_refresh_credential, start_claude_authorization, start_codex_authorization,
-        start_gemini_authorization, start_grok_authorization, token_claims, validate_api_key_input,
-        validate_prompt_url, validate_static_key,
+        gemini_code_assist_body, mask_account_label, merge_token_response, next_regular_refresh_at,
+        parse_callback_value, provider_account_identity, provider_expiry_at,
+        reauthorization_identity_matches, refresh_provider_token, refresh_requires_reauthorization,
+        refresh_status_is_transient, should_refresh_credential, start_claude_authorization,
+        start_codex_authorization, start_gemini_authorization, start_grok_authorization,
+        token_claims, validate_api_key_input, validate_prompt_url, validate_static_key,
     };
     use crate::core::AppConfig;
     use chrono::{Duration, Utc};
@@ -3967,12 +3976,12 @@ mod tests {
         let now = at("2026-09-15T00:00:00Z");
 
         assert_eq!(
-            next_refresh_after_success(now, None),
+            next_regular_refresh_at(now, None),
             now + Duration::minutes(30)
         );
         // A refresh token that outlives the interval does not change it.
         assert_eq!(
-            next_refresh_after_success(now, Some(now + Duration::days(29))),
+            next_regular_refresh_at(now, Some(now + Duration::days(29))),
             now + Duration::minutes(30)
         );
     }
@@ -3983,41 +3992,18 @@ mod tests {
 
         // 26.5 minutes left: refresh five minutes before it ends.
         assert_eq!(
-            next_refresh_after_success(now, Some(now + Duration::seconds(1590))),
+            next_regular_refresh_at(now, Some(now + Duration::seconds(1590))),
             now + Duration::seconds(1590 - 300)
         );
         // Closer than the margin, the next try is a minute away, not a loop.
         assert_eq!(
-            next_refresh_after_success(now, Some(now + Duration::minutes(3))),
+            next_regular_refresh_at(now, Some(now + Duration::minutes(3))),
             now + Duration::seconds(60)
         );
         // An expiry already behind us is ignored rather than refreshed around.
         assert_eq!(
-            next_refresh_after_success(now, Some(now - Duration::minutes(10))),
+            next_regular_refresh_at(now, Some(now - Duration::minutes(10))),
             now + Duration::minutes(30)
-        );
-    }
-
-    #[test]
-    fn a_transient_failure_retries_twice_then_waits_for_the_regular_refresh() {
-        let now = at("2026-09-15T00:00:00Z");
-
-        assert_eq!(
-            next_refresh_after_transient_failure(now, 0),
-            (1, now + Duration::seconds(60))
-        );
-        assert_eq!(
-            next_refresh_after_transient_failure(now, 1),
-            (2, now + Duration::seconds(300))
-        );
-        // The third failure gives up for now and starts counting afresh.
-        assert_eq!(
-            next_refresh_after_transient_failure(now, 2),
-            (0, now + Duration::minutes(30))
-        );
-        assert_eq!(
-            next_refresh_after_transient_failure(now, -1),
-            (0, now + Duration::minutes(30))
         );
     }
 

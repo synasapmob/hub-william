@@ -45,12 +45,12 @@ Two further properties of the old schedule mattered:
 
 ## Decision
 
-- Each credential row stores `next_refresh_at` and `refresh_failure_count`. The
-  sweep selects rows with `next_refresh_at <= NOW()`; the same comparison is
+- Each credential row stores `next_refresh_at`. The sweep selects rows with
+  `next_refresh_at <= NOW()`; the same comparison is
   repeated under the credential row lock, so API replicas still cannot rotate
   one refresh token twice. The Rust and SQL formulas are removed.
 - A successful refresh, and a new or reconnected credential, sets
-  `next_refresh_at` to exactly 30 minutes ahead and clears the failure count.
+  `next_refresh_at` to exactly 30 minutes ahead.
   Accounts keep the spread of the moments they were connected, because each
   schedule is relative to that account's own last refresh. The migration
   backfills existing rows from the old per-account schedule once, so deploying
@@ -65,12 +65,13 @@ Two further properties of the old schedule mattered:
   ChatGPT `refresh_token_invalidated` code) or a missing refresh token marks the
   account. A rejected token fails at once and is not retried.
 - A scheduled refresh that fails on the network, a timeout, a malformed success
-  response, `408`, `429` or any `5xx` is transient. It is retried after one
-  minute and then after five minutes: two retries, three attempts in all. After
-  the third failure the count resets and the account waits for the next regular
-  refresh. A transient failure never marks an account for reconnect, because the
-  token was not shown to be bad. Other `4xx` answers are not retried early and
-  wait for the regular refresh.
+  response, `408`, `429` or any `5xx` is transient. It is tried once more after
+  a three second pause, inside the same refresh and under the same credential
+  lock: two calls to the provider in all. If the second also fails, the account
+  waits for its next regular refresh, or until five minutes before its refresh
+  token ends when that comes sooner. A transient failure never marks an account
+  for reconnect, because the token was not shown to be bad. Other `4xx` answers
+  are not retried and wait for the regular refresh.
 - A request-time refresh (access token near expiry, or rejected by the
   provider) does not use the retry schedule; its caller already handles the
   failure.
@@ -79,8 +80,11 @@ Two further properties of the old schedule mattered:
 
 ## Consequences
 
-- A short provider or network outage no longer costs a regular interval, and
-  no longer leaves an expiring refresh token unrefreshed.
+- A brief provider or network failure is absorbed by the retry. One that lasts
+  longer than the pause costs a regular interval (30 minutes), or less when a
+  refresh token is about to end.
+- The pause is spent while holding the credential row lock, as the provider call
+  already is. Request traffic reads credentials without that lock.
 - A refresh token that really has expired is rejected by the provider on the
   next scheduled attempt, which marks the account exactly as before. It costs
   one extra provider request per such account.

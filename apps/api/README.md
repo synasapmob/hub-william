@@ -174,9 +174,10 @@ authorization again on the same pool record. The API also refreshes every
 connected OAuth credential 30 minutes after its previous refresh, from a stored
 `next_refresh_at`, whether or not it is used. A refresh token that the provider
 reports will expire sooner is refreshed five minutes before it does. A scheduled
-refresh that fails on the network or provider availability is retried after one
-and then five minutes (two retries); a refresh token the provider rejects fails
-at once and is not retried. The same sweep retries accounts the
+refresh that fails on the network or provider availability is tried once more
+after three seconds (two attempts in all) and otherwise waits for its next
+regular refresh; a refresh token the provider rejects fails at once and is not
+retried. The same sweep retries accounts the
 gateway marked for reconnect, and accounts whose old reconnect prompt expired,
 restoring them when a refresh succeeds. Per-account failures are isolated so one
 stale pool cannot stop the remaining sweep. Around 00:00 Vietnam time, it checks

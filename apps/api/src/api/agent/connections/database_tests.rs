@@ -1022,16 +1022,6 @@ async fn assert_next_refresh_in(state: &AppState, id: Uuid, expected_seconds: i6
     );
 }
 
-async fn refresh_failures(state: &AppState, id: Uuid) -> i32 {
-    sqlx::query_scalar(
-        "SELECT refresh_failure_count FROM agent_connection_credentials WHERE connection_id = $1",
-    )
-    .bind(id)
-    .fetch_one(&state.pool)
-    .await
-    .unwrap()
-}
-
 async fn make_refresh_due(state: &AppState, id: Uuid) {
     sqlx::query(
         "UPDATE agent_connection_credentials
@@ -1296,7 +1286,9 @@ async fn due_sweep_refreshes_each_account_only_after_its_thirty_minute_interval(
 }
 
 #[sqlx::test]
-async fn a_scheduled_refresh_that_fails_on_the_provider_retries_twice_then_waits(pool: PgPool) {
+async fn a_scheduled_refresh_that_fails_on_the_provider_tries_twice_three_seconds_apart(
+    pool: PgPool,
+) {
     let (issuer, calls, server) = fake_unstable_issuer(usize::MAX).await;
     let mut state = state(pool);
     state.config.grok_issuer = issuer;
@@ -1304,45 +1296,35 @@ async fn a_scheduled_refresh_that_fails_on_the_provider_retries_twice_then_waits
     let id = connection(&state, owner, "grok").await.id;
     store_refreshable_credential(&state, id, "flaky").await;
     backdate_refresh(&state, id, Duration::minutes(31), None).await;
-    let connected = account("connected", "active", None);
 
-    // First failure: retry in a minute. The credential and account are untouched.
-    let first = refresh_due_provider_credentials(&state).await.unwrap();
-    assert_eq!(counts(&first), [0, 0, 0, 1]);
-    assert_eq!(refresh_failures(&state, id).await, 1);
-    assert_next_refresh_in(&state, id, 60).await;
+    let started = std::time::Instant::now();
+    let summary = refresh_due_provider_credentials(&state).await.unwrap();
+    let elapsed = started.elapsed();
 
-    // Until that minute passes the sweep leaves the account alone.
+    // One retry after a three second pause, and no more: two calls in all.
+    assert_eq!(counts(&summary), [0, 0, 0, 1]);
+    assert_eq!(recorded(&calls), ["flaky", "flaky"]);
+    assert!(
+        elapsed >= std::time::Duration::from_secs(3)
+            && elapsed < std::time::Duration::from_secs(10),
+        "refresh took {elapsed:?}"
+    );
+    // The refresh token was never shown to be bad: the account is untouched and
+    // waits for the next regular refresh instead of the next minute's sweep.
+    assert_next_refresh_in(&state, id, 30 * 60).await;
+    assert_eq!(
+        account_state(&state, id).await,
+        account("connected", "active", None)
+    );
+    assert_eq!(stored_token(&state, id).await["refresh_token"], "flaky");
     let waiting = refresh_due_provider_credentials(&state).await.unwrap();
     assert_eq!(counts(&waiting), [0, 0, 0, 0]);
-    assert_eq!(recorded(&calls).len(), 1);
-
-    // Second failure: retry in five minutes.
-    make_refresh_due(&state, id).await;
-    let second = refresh_due_provider_credentials(&state).await.unwrap();
-    assert_eq!(counts(&second), [0, 0, 0, 1]);
-    assert_eq!(refresh_failures(&state, id).await, 2);
-    assert_next_refresh_in(&state, id, 300).await;
-
-    // Third failure: give up for now, start counting afresh, and wait for the
-    // next regular refresh. The refresh token was never shown to be bad, so the
-    // account is not marked for reconnect.
-    make_refresh_due(&state, id).await;
-    let third = refresh_due_provider_credentials(&state).await.unwrap();
-    assert_eq!(counts(&third), [0, 0, 0, 1]);
-    assert_eq!(refresh_failures(&state, id).await, 0);
-    assert_next_refresh_in(&state, id, 30 * 60).await;
-    assert_eq!(recorded(&calls).len(), 3);
-    assert_eq!(account_state(&state, id).await, connected);
-    let stored = stored_token(&state, id).await;
-    assert_eq!(stored["refresh_token"], "flaky");
+    assert_eq!(recorded(&calls).len(), 2);
     server.abort();
 }
 
 #[sqlx::test]
-async fn a_retry_that_succeeds_clears_the_failure_count_and_resumes_the_regular_interval(
-    pool: PgPool,
-) {
+async fn the_retry_succeeds_when_the_provider_recovers_within_the_pause(pool: PgPool) {
     let (issuer, calls, server) = fake_unstable_issuer(1).await;
     let mut state = state(pool);
     state.config.grok_issuer = issuer;
@@ -1351,18 +1333,44 @@ async fn a_retry_that_succeeds_clears_the_failure_count_and_resumes_the_regular_
     store_refreshable_credential(&state, id, "recovering").await;
     backdate_refresh(&state, id, Duration::minutes(31), None).await;
 
-    let failed = refresh_due_provider_credentials(&state).await.unwrap();
-    assert_eq!(counts(&failed), [0, 0, 0, 1]);
-    assert_eq!(refresh_failures(&state, id).await, 1);
-
-    make_refresh_due(&state, id).await;
-    let retried = refresh_due_provider_credentials(&state).await.unwrap();
-    assert_eq!(counts(&retried), [1, 0, 0, 0]);
-    assert_eq!(refresh_failures(&state, id).await, 0);
-    assert_next_refresh_in(&state, id, 30 * 60).await;
+    let summary = refresh_due_provider_credentials(&state).await.unwrap();
+    assert_eq!(counts(&summary), [1, 0, 0, 0]);
     assert_eq!(recorded(&calls), ["recovering", "recovering"]);
+    assert_next_refresh_in(&state, id, 30 * 60).await;
     let stored = stored_token(&state, id).await;
+    assert_eq!(stored["access_token"], "recovering-access");
     assert_eq!(stored["refresh_token"], "recovering-rotated");
+    assert_eq!(
+        account_state(&state, id).await,
+        account("connected", "active", None)
+    );
+    server.abort();
+}
+
+#[sqlx::test]
+async fn a_failed_refresh_near_the_end_of_a_refresh_token_is_tried_again_before_it_ends(
+    pool: PgPool,
+) {
+    let (issuer, _calls, server) = fake_unstable_issuer(usize::MAX).await;
+    let mut state = state(pool);
+    state.config.grok_issuer = issuer;
+    let owner = user(&state.pool).await;
+    let id = connection(&state, owner, "grok").await.id;
+    store_refreshable_credential(&state, id, "flaky").await;
+    backdate_refresh(&state, id, Duration::minutes(31), None).await;
+    sqlx::query(
+        "UPDATE agent_connection_credentials
+         SET refresh_token_expires_at = NOW() + INTERVAL '10 minutes' WHERE connection_id = $1",
+    )
+    .bind(id)
+    .execute(&state.pool)
+    .await
+    .unwrap();
+
+    let summary = refresh_due_provider_credentials(&state).await.unwrap();
+    assert_eq!(counts(&summary), [0, 0, 0, 1]);
+    // Five minutes before the refresh token ends, not thirty minutes from now.
+    assert_next_refresh_in(&state, id, 10 * 60 - 300).await;
     assert_eq!(
         account_state(&state, id).await,
         account("connected", "active", None)
@@ -1382,7 +1390,7 @@ async fn a_rejected_scheduled_refresh_fails_at_once_without_retries(pool: PgPool
 
     let summary = refresh_due_provider_credentials(&state).await.unwrap();
     assert_eq!(counts(&summary), [0, 0, 1, 0]);
-    assert_eq!(refresh_failures(&state, id).await, 0);
+    assert_eq!(recorded(&calls), ["rejected"]);
     assert_eq!(
         account_state(&state, id).await,
         account(
@@ -1412,7 +1420,6 @@ async fn a_provider_error_that_is_not_unavailability_is_not_retried_early(pool: 
 
     let summary = refresh_due_provider_credentials(&state).await.unwrap();
     assert_eq!(counts(&summary), [0, 0, 0, 1]);
-    assert_eq!(refresh_failures(&state, id).await, 0);
     assert_next_refresh_in(&state, id, 30 * 60).await;
     assert_eq!(
         account_state(&state, id).await,
@@ -1477,20 +1484,12 @@ async fn reconnecting_restarts_the_thirty_minute_schedule(pool: PgPool) {
     let existing = connection(&state, owner, "grok").await;
     store_credential(&state, existing.id, token("grok", "same-sub", "old-access")).await;
     backdate_refresh(&state, existing.id, Duration::hours(3), None).await;
-    sqlx::query(
-        "UPDATE agent_connection_credentials SET refresh_failure_count = 2 WHERE connection_id = $1",
-    )
-    .bind(existing.id)
-    .execute(&state.pool)
-    .await
-    .unwrap();
 
     let attempt = connection(&state, owner, "grok").await;
     finish_connection(&state, attempt, token("grok", "same-sub", "new-access"))
         .await
         .unwrap();
 
-    assert_eq!(refresh_failures(&state, existing.id).await, 0);
     assert_next_refresh_in(&state, existing.id, 30 * 60).await;
 }
 

@@ -1,8 +1,5 @@
 ALTER TABLE agent_connection_credentials
-    ADD COLUMN next_refresh_at TIMESTAMPTZ,
-    ADD COLUMN refresh_failure_count INTEGER NOT NULL DEFAULT 0
-        CONSTRAINT agent_connection_credentials_refresh_failure_count_check
-            CHECK (refresh_failure_count >= 0);
+    ADD COLUMN next_refresh_at TIMESTAMPTZ;
 
 -- Keep each account on the schedule the previous sweep derived (30 minutes plus
 -- a per-account offset of up to 15 minutes), so deploying does not make every
