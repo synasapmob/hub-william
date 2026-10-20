@@ -2817,11 +2817,9 @@ async fn upstream_response_with_usage(
         })
 }
 
-async fn authorize_gateway_key(
-    state: &AppState,
-    headers: &HeaderMap,
-) -> Result<AuthorizedGatewayKey, ApiError> {
-    let key = headers
+/// The gateway key a request presents, if it is shaped like one.
+pub(crate) fn gateway_key_from_headers(headers: &HeaderMap) -> Option<&str> {
+    headers
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
@@ -2831,7 +2829,13 @@ async fn authorize_gateway_key(
                 .and_then(|value| value.to_str().ok())
         })
         .filter(|value| value.starts_with("hw_live_") && value.len() > 24)
-        .ok_or(ApiError::GatewayUnauthorized)?;
+}
+
+async fn authorize_gateway_key(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<AuthorizedGatewayKey, ApiError> {
+    let key = gateway_key_from_headers(headers).ok_or(ApiError::GatewayUnauthorized)?;
     let key_hash = hash_gateway_key(key);
     let authorized = sqlx::query_as::<_, AuthorizedGatewayKey>(
         "SELECT id, user_id, organization_id FROM gateway_keys

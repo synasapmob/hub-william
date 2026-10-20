@@ -141,9 +141,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         hub_william_backend::stop_credential_sweeps();
         let _ = stop_sweeps.send(true);
     };
-    axum::serve(listener, hub_william_backend::app(state))
-        .with_graceful_shutdown(shutdown)
-        .await?;
+    // The peer address is the client IP unless TRUST_PROXY_HEADERS says a proxy
+    // sets it, and rate limiting keys on it.
+    axum::serve(
+        listener,
+        hub_william_backend::app(state)
+            .into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown)
+    .await?;
     let grace = Duration::from_secs(CREDENTIAL_REFRESH_SHUTDOWN_GRACE_SECONDS);
     if tokio::time::timeout(grace, &mut credential_refresh_task)
         .await

@@ -1,4 +1,10 @@
-use axum::{Json, http::StatusCode, response::IntoResponse};
+use std::time::Duration;
+
+use axum::{
+    Json,
+    http::{HeaderValue, StatusCode, header::RETRY_AFTER},
+    response::IntoResponse,
+};
 use serde::Serialize;
 use utoipa::ToSchema;
 
@@ -7,6 +13,11 @@ pub struct ErrorResponse {
     pub code: String,
     pub message: String,
 }
+
+/// Response extension set when a gateway key was missing or wrong, so the
+/// gateway rate limiter can count failed attempts without parsing bodies.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct GatewayAuthFailed;
 
 #[derive(Debug)]
 pub enum ApiError {
@@ -18,13 +29,23 @@ pub enum ApiError {
     NotFound,
     Provider(String),
     RateLimited,
+    /// Carries the whole seconds the caller should wait before retrying.
+    TooManyRequests(u64),
     Unauthorized,
     Validation(&'static str),
     Internal,
 }
 
+impl ApiError {
+    pub(crate) fn too_many_requests(wait: Duration) -> Self {
+        Self::TooManyRequests(wait.as_secs_f64().ceil().max(1.0) as u64)
+    }
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
+        let mut retry_after = None;
+        let mut gateway_auth_failed = false;
         let (status, payload) = match self {
             Self::Busy => (
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -47,13 +68,16 @@ impl IntoResponse for ApiError {
                     message: "You do not have permission to perform this action.".to_owned(),
                 },
             ),
-            Self::GatewayUnauthorized => (
-                StatusCode::UNAUTHORIZED,
-                ErrorResponse {
-                    code: "invalid_gateway_key".to_owned(),
-                    message: "Provide an active Hub William gateway key.".to_owned(),
-                },
-            ),
+            Self::GatewayUnauthorized => {
+                gateway_auth_failed = true;
+                (
+                    StatusCode::UNAUTHORIZED,
+                    ErrorResponse {
+                        code: "invalid_gateway_key".to_owned(),
+                        message: "Provide an active Hub William gateway key.".to_owned(),
+                    },
+                )
+            }
             Self::InvalidCredentials => (
                 StatusCode::UNAUTHORIZED,
                 ErrorResponse {
@@ -82,6 +106,16 @@ impl IntoResponse for ApiError {
                     message: "Every accessible pool for this provider is cooling down.".to_owned(),
                 },
             ),
+            Self::TooManyRequests(seconds) => {
+                retry_after = Some(seconds);
+                (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    ErrorResponse {
+                        code: "rate_limited".to_owned(),
+                        message: format!("Too many requests. Try again in {seconds} seconds."),
+                    },
+                )
+            }
             Self::Unauthorized => (
                 StatusCode::UNAUTHORIZED,
                 ErrorResponse {
@@ -105,6 +139,16 @@ impl IntoResponse for ApiError {
             ),
         };
 
-        (status, Json(payload)).into_response()
+        let mut response = (status, Json(payload)).into_response();
+        if let Some(seconds) = retry_after {
+            response
+                .headers_mut()
+                .insert(RETRY_AFTER, HeaderValue::from(seconds));
+        }
+        if gateway_auth_failed {
+            response.extensions_mut().insert(GatewayAuthFailed);
+        }
+
+        response
     }
 }
