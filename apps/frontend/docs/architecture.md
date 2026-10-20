@@ -165,7 +165,13 @@ directly into Bash with the platform and URL options. Omitting the URL prompts
 through the controlling terminal; positional URLs remain supported. Downloads run on the user's
 computer using yt-dlp, with public video extractors for Facebook and X. It selects
 combined video/audio formats, preserves existing files and does not read browser
-cookies. No media download API or server-side video storage is introduced.
+cookies.
+
+The DOWNLOAD REEL page also offers a fetch-and-preview form. It calls the API's
+`/reel/resolve` to turn a public link into direct media URLs, then `/reel/stream`
+and `/reel/download` to relay the bytes (with `Range` support) from the platform's
+CDN, since those hosts reject browser cross-origin requests. The relay only opens
+known platform CDN hosts and never stores video on the server.
 
 The frontend serves `gateway.py`, `opencode.py` and `omp.py` from `public/`.
 These scripts are independent of the retired Documents installer and use

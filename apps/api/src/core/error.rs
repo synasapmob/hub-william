@@ -10,6 +10,7 @@ pub struct ErrorResponse {
 
 #[derive(Debug)]
 pub enum ApiError {
+    Busy,
     Conflict,
     Forbidden,
     GatewayUnauthorized,
@@ -25,6 +26,13 @@ pub enum ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         let (status, payload) = match self {
+            Self::Busy => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                ErrorResponse {
+                    code: "busy".to_owned(),
+                    message: "Too many downloads are running. Try again in a moment.".to_owned(),
+                },
+            ),
             Self::Conflict => (
                 StatusCode::CONFLICT,
                 ErrorResponse {

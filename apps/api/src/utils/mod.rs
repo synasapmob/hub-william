@@ -6,6 +6,7 @@
 
 mod database;
 pub(crate) mod provider_catalogue;
+pub(crate) mod reel;
 pub(crate) mod tts;
 
 pub(crate) use database::database_error;
