@@ -105,7 +105,7 @@ export default function ToolsCatalogCollectionDetail({
                 className="flex shrink-0 items-center gap-1.5 rounded-lg bg-zinc-900 px-3 py-2 font-mono text-[11px] font-medium text-white transition-colors hover:bg-zinc-800 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
               >
                 <Download aria-hidden="true" className="size-3.5" />
-                Download all ({archive.fileCount})
+                Download all
               </a>
             }
           >
