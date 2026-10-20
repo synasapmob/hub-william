@@ -4,7 +4,6 @@ import { reactRouter } from "@react-router/dev/vite";
 import tailwindcss from "@tailwindcss/vite";
 
 import { catalogEndpoint } from "./scripts/tailwind/vite.catalog-endpoint.ts";
-import { ttsEndpoint } from "./scripts/tailwind/vite.tts-endpoint.ts";
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
@@ -19,7 +18,7 @@ export default defineConfig(({ mode }) => {
     // everywhere else. It has to match `basename` in react-router.config.ts, or
     // the router and the asset URLs disagree about where the site lives.
     base: process.env.VITE_BASE_PATH ?? "/",
-    plugins: [tailwindcss(), reactRouter(), catalogEndpoint(), ttsEndpoint()],
+    plugins: [tailwindcss(), reactRouter(), catalogEndpoint()],
     server: {
       host: "127.0.0.1",
       proxy: devApiTarget

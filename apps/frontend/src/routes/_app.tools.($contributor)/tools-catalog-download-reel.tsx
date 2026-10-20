@@ -4,6 +4,7 @@ import { tv } from "tailwind-variants";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { apiUrl } from "@/utils/utils.api-url";
 
 const reelStyles = tv({
   slots: {
@@ -69,7 +70,7 @@ export default function ToolsCatalogDownloadReel() {
     setVideo(null);
 
     try {
-      const res = await fetch("/api/reel/resolve", {
+      const res = await fetch(apiUrl("/reel/resolve"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -78,9 +79,13 @@ export default function ToolsCatalogDownloadReel() {
         }),
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.message || "Failed to fetch video information.");
+      // A gateway or proxy error can come back with an empty or non-JSON body.
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data) {
+        throw new Error(
+          data?.message ||
+            `Failed to fetch video information (HTTP ${res.status}).`,
+        );
       }
 
       setVideo(data);
@@ -154,7 +159,9 @@ export default function ToolsCatalogDownloadReel() {
           <div className={videoWrapper()}>
             <video
               key={video.videoUrl}
-              src={`/api/reel/stream?url=${encodeURIComponent(video.videoUrl)}`}
+              src={apiUrl(
+                `/reel/stream?url=${encodeURIComponent(video.videoUrl)}`,
+              )}
               poster={video.thumbnail}
               controls
               autoPlay={false}
@@ -164,7 +171,9 @@ export default function ToolsCatalogDownloadReel() {
           </div>
 
           <a
-            href={`/api/reel/download?url=${encodeURIComponent(video.videoUrl)}&filename=${encodeURIComponent(downloadFilename)}`}
+            href={apiUrl(
+              `/reel/download?url=${encodeURIComponent(video.videoUrl)}&filename=${encodeURIComponent(downloadFilename)}`,
+            )}
             download={downloadFilename}
             className="flex h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-600 font-mono text-xs font-semibold text-white transition-colors hover:bg-emerald-500 focus-visible:outline-hidden"
           >

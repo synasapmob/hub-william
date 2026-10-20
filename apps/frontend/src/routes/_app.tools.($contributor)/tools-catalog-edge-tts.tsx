@@ -5,6 +5,7 @@ import { tv } from "tailwind-variants";
 import Flex from "@/components/ui/flex";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { apiUrl } from "@/utils/utils.api-url";
 
 const edgeTtsStyles = tv({
   slots: {
@@ -344,7 +345,7 @@ export default function ToolsCatalogEdgeTts() {
     setErrorMessage(null);
 
     try {
-      const response = await fetch("/api/tts", {
+      const response = await fetch(apiUrl("/tts"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
