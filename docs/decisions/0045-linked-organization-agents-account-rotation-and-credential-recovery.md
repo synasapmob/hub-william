@@ -1,6 +1,6 @@
 # ADR-0045: Linked organization agents, account rotation and credential recovery
 
-- Status: Accepted; the fixed exclusion of verification challenges from recovery is partially superseded by [ADR-0048](0048-recoverable-agy-account-verification.md)
+- Status: Accepted; the fixed exclusion of verification challenges from recovery is partially superseded by [ADR-0048](0048-recoverable-agy-account-verification.md), and the 30-45 minute spread and the wait after a failed attempt by [ADR-0050](0050-stored-credential-refresh-schedule-and-transient-retries.md)
 - Date: 2026-09-29
 - Authority: operator request of 2026-09-29. Organization "Add your existing
   account" must stay linked to the Workspace account (refresh together; deleting
