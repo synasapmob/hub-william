@@ -30,7 +30,6 @@ use super::{
     expire_abandoned_authorizations, finish_connection, gateway_credential, get_connection,
     refresh_all_provider_credentials, refresh_connected_connection, refresh_connection,
     refresh_due_provider_credentials, refresh_nightly_provider_credentials,
-    scheduled_refresh_after,
 };
 use crate::core::{AppConfig, AppState};
 
@@ -949,6 +948,101 @@ async fn fake_grok_issuer() -> (String, ProviderCalls, JoinHandle<()>) {
     (issuer, calls, server)
 }
 
+/// A fake Grok issuer whose first `failures` token requests answer
+/// `503 Service Unavailable`; later ones rotate like `fake_grok_issuer`. A
+/// refresh token starting with `ending-soon` also reports that its lifetime ends
+/// in 1590 seconds.
+async fn fake_unstable_issuer(failures: usize) -> (String, ProviderCalls, JoinHandle<()>) {
+    unstable_issuer(Some(failures), StatusCode::SERVICE_UNAVAILABLE).await
+}
+
+/// A fake Grok issuer that answers every token request with `status`.
+async fn fake_unstable_issuer_with_status(
+    status: StatusCode,
+) -> (String, ProviderCalls, JoinHandle<()>) {
+    unstable_issuer(None, status).await
+}
+
+async fn unstable_issuer(
+    failures: Option<usize>,
+    failure_status: StatusCode,
+) -> (String, ProviderCalls, JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let issuer = format!("http://{}", listener.local_addr().unwrap());
+    let calls = ProviderCalls::default();
+    let token_calls = calls.clone();
+    let seen = Arc::new(AtomicUsize::new(0));
+    let app = Router::new().route(
+        "/oauth2/token",
+        post(move |Form(form): Form<HashMap<String, String>>| {
+            let calls = token_calls.clone();
+            let seen = seen.clone();
+            async move {
+                let refresh_token = form.get("refresh_token").cloned().unwrap_or_default();
+                calls.lock().unwrap().push(refresh_token.clone());
+                let attempt = seen.fetch_add(1, Ordering::SeqCst);
+                if failures.is_none_or(|failures| attempt < failures) {
+                    return (failure_status, Json(json!({"error": "unavailable"})));
+                }
+                let mut body = json!({
+                    "access_token": format!("{refresh_token}-access"),
+                    "refresh_token": format!("{refresh_token}-rotated"),
+                    "expires_in": 3600
+                });
+                if refresh_token.starts_with("ending-soon") {
+                    body["refresh_token_expires_in"] = json!(1590);
+                }
+                (StatusCode::OK, Json(body))
+            }
+        }),
+    );
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (issuer, calls, server)
+}
+
+/// Seconds until the credential's stored `next_refresh_at`, on the database
+/// clock the sweep compares against.
+async fn seconds_until_next_refresh(state: &AppState, id: Uuid) -> f64 {
+    sqlx::query_scalar(
+        "SELECT EXTRACT(EPOCH FROM (next_refresh_at - NOW()))::float8
+         FROM agent_connection_credentials WHERE connection_id = $1",
+    )
+    .bind(id)
+    .fetch_one(&state.pool)
+    .await
+    .unwrap()
+}
+
+async fn assert_next_refresh_in(state: &AppState, id: Uuid, expected_seconds: i64) {
+    let remaining = seconds_until_next_refresh(state, id).await;
+    let expected = expected_seconds as f64;
+    assert!(
+        (expected - 10.0..=expected + 1.0).contains(&remaining),
+        "next refresh in {remaining}s, expected about {expected}s"
+    );
+}
+
+async fn refresh_failures(state: &AppState, id: Uuid) -> i32 {
+    sqlx::query_scalar(
+        "SELECT refresh_failure_count FROM agent_connection_credentials WHERE connection_id = $1",
+    )
+    .bind(id)
+    .fetch_one(&state.pool)
+    .await
+    .unwrap()
+}
+
+async fn make_refresh_due(state: &AppState, id: Uuid) {
+    sqlx::query(
+        "UPDATE agent_connection_credentials
+         SET next_refresh_at = NOW() - INTERVAL '1 second' WHERE connection_id = $1",
+    )
+    .bind(id)
+    .execute(&state.pool)
+    .await
+    .unwrap();
+}
+
 fn recorded(calls: &ProviderCalls) -> Vec<String> {
     let mut calls = calls.lock().unwrap().clone();
     calls.sort();
@@ -987,8 +1081,7 @@ async fn session_jar(pool: &PgPool, user_id: Uuid) -> CookieJar {
     CookieJar::new().add(Cookie::new("hub_session", token))
 }
 
-/// A pending connection whose ID ends in `last_byte`, which fixes its
-/// scheduled refresh offset.
+/// A pending connection whose ID ends in `last_byte`.
 async fn connection_ending_in(
     state: &AppState,
     owner: Uuid,
@@ -1023,7 +1116,8 @@ async fn store_refreshable_credential(state: &AppState, id: Uuid, refresh_token:
 }
 
 /// Backdate a credential's last refresh activity, measured on the database
-/// clock that the due sweep compares against.
+/// clock that the due sweep compares against, and set the schedule the sweep
+/// would have stored then: 30 minutes after the later of the two.
 async fn backdate_refresh(
     state: &AppState,
     id: Uuid,
@@ -1033,7 +1127,10 @@ async fn backdate_refresh(
     sqlx::query(
         "UPDATE agent_connection_credentials
          SET updated_at = NOW() - make_interval(secs => $2),
-             refresh_attempted_at = NOW() - make_interval(secs => $3)
+             refresh_attempted_at = NOW() - make_interval(secs => $3),
+             next_refresh_at = GREATEST(NOW() - make_interval(secs => $2),
+                                        NOW() - make_interval(secs => $3))
+                               + make_interval(mins => 30)
          WHERE connection_id = $1",
     )
     .bind(id)
@@ -1137,52 +1234,24 @@ async fn credential_snapshot(state: &AppState, id: Uuid) -> CredentialSnapshot {
 }
 
 #[sqlx::test]
-async fn due_sweep_refreshes_each_account_only_after_its_thirty_to_forty_five_minute_interval(
-    pool: PgPool,
-) {
+async fn due_sweep_refreshes_each_account_only_after_its_thirty_minute_interval(pool: PgPool) {
     let (issuer, calls, server) = fake_grok_issuer().await;
     let mut state = state(pool);
     state.config.grok_issuer = issuer;
     let owner = user(&state.pool).await;
 
-    // The last ID byte sets the per-account offset: 0x00 refreshes after
-    // exactly 30 minutes and 0xFF after 44m56s, the widest spread.
-    let earliest = connection_ending_in(&state, owner, "grok", 0x00).await.id;
-    let earliest_early = connection_ending_in(&state, owner, "grok", 0x00).await.id;
-    let latest = connection_ending_in(&state, owner, "grok", 0xFF).await.id;
-    let latest_early = connection_ending_in(&state, owner, "grok", 0xFF).await.id;
-    let recently_attempted = connection_ending_in(&state, owner, "grok", 0x00).await.id;
-    assert_eq!(scheduled_refresh_after(earliest), Duration::minutes(30));
-    assert_eq!(
-        scheduled_refresh_after(latest),
-        Duration::seconds(44 * 60 + 56)
-    );
-    assert!(scheduled_refresh_after(latest) < Duration::minutes(45));
-
+    let due = connection(&state, owner, "grok").await.id;
+    let long_overdue = connection(&state, owner, "grok").await.id;
+    let early = connection(&state, owner, "grok").await.id;
+    let recently_attempted = connection(&state, owner, "grok").await.id;
     for (id, refresh_token, updated_ago, attempted_ago) in [
-        // Just past 30 minutes: the earliest offset is due.
-        (
-            earliest,
-            "earliest-due",
-            Duration::seconds(30 * 60 + 5),
-            None,
-        ),
+        // Just past 30 minutes: due, with no per-account offset to wait out.
+        (due, "due", Duration::seconds(30 * 60 + 5), None),
+        // Well past 30 minutes, which the old 30-45 minute spread would have
+        // held back for some accounts.
+        (long_overdue, "long-overdue", Duration::minutes(40), None),
         // Under 30 minutes: no account refreshes this early.
-        (
-            earliest_early,
-            "earliest-early",
-            Duration::seconds(29 * 60 + 30),
-            None,
-        ),
-        // At 45 minutes even the latest offset is due.
-        (latest, "latest-due", Duration::minutes(45), None),
-        // Older than 30 minutes but still inside this account's own offset.
-        (
-            latest_early,
-            "latest-early",
-            Duration::seconds(44 * 60 + 26),
-            None,
-        ),
+        (early, "early", Duration::seconds(29 * 60 + 30), None),
         // An old credential whose last scheduled attempt was recent waits a
         // full interval from that attempt.
         (
@@ -1198,8 +1267,8 @@ async fn due_sweep_refreshes_each_account_only_after_its_thirty_to_forty_five_mi
 
     let summary = refresh_due_provider_credentials(&state).await.unwrap();
     assert_eq!(counts(&summary), [2, 0, 0, 0]);
-    assert_eq!(recorded(&calls), ["earliest-due", "latest-due"]);
-    for (id, refresh_token) in [(earliest, "earliest-due"), (latest, "latest-due")] {
+    assert_eq!(recorded(&calls), ["due", "long-overdue"]);
+    for (id, refresh_token) in [(due, "due"), (long_overdue, "long-overdue")] {
         let stored = stored_token(&state, id).await;
         assert_eq!(stored["access_token"], format!("{refresh_token}-access"));
         assert_eq!(stored["refresh_token"], format!("{refresh_token}-rotated"));
@@ -1207,12 +1276,9 @@ async fn due_sweep_refreshes_each_account_only_after_its_thirty_to_forty_five_mi
             account_state(&state, id).await,
             account("connected", "active", None)
         );
+        assert_next_refresh_in(&state, id, 30 * 60).await;
     }
-    for (id, refresh_token) in [
-        (earliest_early, "earliest-early"),
-        (latest_early, "latest-early"),
-        (recently_attempted, "recently-attempted"),
-    ] {
+    for (id, refresh_token) in [(early, "early"), (recently_attempted, "recently-attempted")] {
         let stored = stored_token(&state, id).await;
         assert_eq!(
             stored["access_token"],
@@ -1225,8 +1291,207 @@ async fn due_sweep_refreshes_each_account_only_after_its_thirty_to_forty_five_mi
     // makes no provider call.
     let repeated = refresh_due_provider_credentials(&state).await.unwrap();
     assert_eq!(counts(&repeated), [0, 0, 0, 0]);
-    assert_eq!(recorded(&calls), ["earliest-due", "latest-due"]);
+    assert_eq!(recorded(&calls), ["due", "long-overdue"]);
     server.abort();
+}
+
+#[sqlx::test]
+async fn a_scheduled_refresh_that_fails_on_the_provider_retries_twice_then_waits(pool: PgPool) {
+    let (issuer, calls, server) = fake_unstable_issuer(usize::MAX).await;
+    let mut state = state(pool);
+    state.config.grok_issuer = issuer;
+    let owner = user(&state.pool).await;
+    let id = connection(&state, owner, "grok").await.id;
+    store_refreshable_credential(&state, id, "flaky").await;
+    backdate_refresh(&state, id, Duration::minutes(31), None).await;
+    let connected = account("connected", "active", None);
+
+    // First failure: retry in a minute. The credential and account are untouched.
+    let first = refresh_due_provider_credentials(&state).await.unwrap();
+    assert_eq!(counts(&first), [0, 0, 0, 1]);
+    assert_eq!(refresh_failures(&state, id).await, 1);
+    assert_next_refresh_in(&state, id, 60).await;
+
+    // Until that minute passes the sweep leaves the account alone.
+    let waiting = refresh_due_provider_credentials(&state).await.unwrap();
+    assert_eq!(counts(&waiting), [0, 0, 0, 0]);
+    assert_eq!(recorded(&calls).len(), 1);
+
+    // Second failure: retry in five minutes.
+    make_refresh_due(&state, id).await;
+    let second = refresh_due_provider_credentials(&state).await.unwrap();
+    assert_eq!(counts(&second), [0, 0, 0, 1]);
+    assert_eq!(refresh_failures(&state, id).await, 2);
+    assert_next_refresh_in(&state, id, 300).await;
+
+    // Third failure: give up for now, start counting afresh, and wait for the
+    // next regular refresh. The refresh token was never shown to be bad, so the
+    // account is not marked for reconnect.
+    make_refresh_due(&state, id).await;
+    let third = refresh_due_provider_credentials(&state).await.unwrap();
+    assert_eq!(counts(&third), [0, 0, 0, 1]);
+    assert_eq!(refresh_failures(&state, id).await, 0);
+    assert_next_refresh_in(&state, id, 30 * 60).await;
+    assert_eq!(recorded(&calls).len(), 3);
+    assert_eq!(account_state(&state, id).await, connected);
+    let stored = stored_token(&state, id).await;
+    assert_eq!(stored["refresh_token"], "flaky");
+    server.abort();
+}
+
+#[sqlx::test]
+async fn a_retry_that_succeeds_clears_the_failure_count_and_resumes_the_regular_interval(
+    pool: PgPool,
+) {
+    let (issuer, calls, server) = fake_unstable_issuer(1).await;
+    let mut state = state(pool);
+    state.config.grok_issuer = issuer;
+    let owner = user(&state.pool).await;
+    let id = connection(&state, owner, "grok").await.id;
+    store_refreshable_credential(&state, id, "recovering").await;
+    backdate_refresh(&state, id, Duration::minutes(31), None).await;
+
+    let failed = refresh_due_provider_credentials(&state).await.unwrap();
+    assert_eq!(counts(&failed), [0, 0, 0, 1]);
+    assert_eq!(refresh_failures(&state, id).await, 1);
+
+    make_refresh_due(&state, id).await;
+    let retried = refresh_due_provider_credentials(&state).await.unwrap();
+    assert_eq!(counts(&retried), [1, 0, 0, 0]);
+    assert_eq!(refresh_failures(&state, id).await, 0);
+    assert_next_refresh_in(&state, id, 30 * 60).await;
+    assert_eq!(recorded(&calls), ["recovering", "recovering"]);
+    let stored = stored_token(&state, id).await;
+    assert_eq!(stored["refresh_token"], "recovering-rotated");
+    assert_eq!(
+        account_state(&state, id).await,
+        account("connected", "active", None)
+    );
+    server.abort();
+}
+
+#[sqlx::test]
+async fn a_rejected_scheduled_refresh_fails_at_once_without_retries(pool: PgPool) {
+    let (issuer, calls, server) = fake_grok_issuer().await;
+    let mut state = state(pool);
+    state.config.grok_issuer = issuer;
+    let owner = user(&state.pool).await;
+    let id = connection(&state, owner, "grok").await.id;
+    store_refreshable_credential(&state, id, "rejected").await;
+    backdate_refresh(&state, id, Duration::minutes(31), None).await;
+
+    let summary = refresh_due_provider_credentials(&state).await.unwrap();
+    assert_eq!(counts(&summary), [0, 0, 1, 0]);
+    assert_eq!(refresh_failures(&state, id).await, 0);
+    assert_eq!(
+        account_state(&state, id).await,
+        account(
+            "connected",
+            "reauth_required",
+            Some(EXPIRED_PROVIDER_AUTHORIZATION_MESSAGE)
+        )
+    );
+
+    // Even once due again, the dead credential is not sent to the provider.
+    make_refresh_due(&state, id).await;
+    let repeated = refresh_due_provider_credentials(&state).await.unwrap();
+    assert_eq!(counts(&repeated), [0, 0, 0, 0]);
+    assert_eq!(recorded(&calls), ["rejected"]);
+    server.abort();
+}
+
+#[sqlx::test]
+async fn a_provider_error_that_is_not_unavailability_is_not_retried_early(pool: PgPool) {
+    let (issuer, calls, server) = fake_unstable_issuer_with_status(StatusCode::FORBIDDEN).await;
+    let mut state = state(pool);
+    state.config.grok_issuer = issuer;
+    let owner = user(&state.pool).await;
+    let id = connection(&state, owner, "grok").await.id;
+    store_refreshable_credential(&state, id, "forbidden").await;
+    backdate_refresh(&state, id, Duration::minutes(31), None).await;
+
+    let summary = refresh_due_provider_credentials(&state).await.unwrap();
+    assert_eq!(counts(&summary), [0, 0, 0, 1]);
+    assert_eq!(refresh_failures(&state, id).await, 0);
+    assert_next_refresh_in(&state, id, 30 * 60).await;
+    assert_eq!(
+        account_state(&state, id).await,
+        account("connected", "active", None)
+    );
+    let repeated = refresh_due_provider_credentials(&state).await.unwrap();
+    assert_eq!(counts(&repeated), [0, 0, 0, 0]);
+    assert_eq!(recorded(&calls).len(), 1);
+    server.abort();
+}
+
+#[sqlx::test]
+async fn an_expired_refresh_token_expiry_is_still_tried_with_the_provider(pool: PgPool) {
+    let (issuer, calls, server) = fake_grok_issuer().await;
+    let mut state = state(pool);
+    state.config.grok_issuer = issuer;
+    let owner = user(&state.pool).await;
+    let id = connection(&state, owner, "grok").await.id;
+    store_refreshable_credential(&state, id, "renewed").await;
+    backdate_refresh(&state, id, Duration::minutes(31), None).await;
+    sqlx::query(
+        "UPDATE agent_connection_credentials
+         SET refresh_token_expires_at = NOW() - INTERVAL '10 minutes' WHERE connection_id = $1",
+    )
+    .bind(id)
+    .execute(&state.pool)
+    .await
+    .unwrap();
+
+    // The provider, not the stored expiry, decides whether the token is dead.
+    let summary = refresh_due_provider_credentials(&state).await.unwrap();
+    assert_eq!(counts(&summary), [1, 0, 0, 0]);
+    assert_eq!(recorded(&calls), ["renewed"]);
+    assert_eq!(
+        account_state(&state, id).await,
+        account("connected", "active", None)
+    );
+    server.abort();
+}
+
+#[sqlx::test]
+async fn a_refresh_token_ending_before_the_interval_pulls_the_next_refresh_forward(pool: PgPool) {
+    let (issuer, _calls, server) = fake_unstable_issuer(0).await;
+    let mut state = state(pool);
+    state.config.grok_issuer = issuer;
+    let owner = user(&state.pool).await;
+    let id = connection(&state, owner, "grok").await.id;
+    store_refreshable_credential(&state, id, "ending-soon").await;
+    backdate_refresh(&state, id, Duration::minutes(31), None).await;
+
+    let summary = refresh_due_provider_credentials(&state).await.unwrap();
+    assert_eq!(counts(&summary), [1, 0, 0, 0]);
+    // The provider reports 1590 seconds left: refresh five minutes before that.
+    assert_next_refresh_in(&state, id, 1590 - 300).await;
+    server.abort();
+}
+
+#[sqlx::test]
+async fn reconnecting_restarts_the_thirty_minute_schedule(pool: PgPool) {
+    let state = state(pool);
+    let owner = user(&state.pool).await;
+    let existing = connection(&state, owner, "grok").await;
+    store_credential(&state, existing.id, token("grok", "same-sub", "old-access")).await;
+    backdate_refresh(&state, existing.id, Duration::hours(3), None).await;
+    sqlx::query(
+        "UPDATE agent_connection_credentials SET refresh_failure_count = 2 WHERE connection_id = $1",
+    )
+    .bind(existing.id)
+    .execute(&state.pool)
+    .await
+    .unwrap();
+
+    let attempt = connection(&state, owner, "grok").await;
+    finish_connection(&state, attempt, token("grok", "same-sub", "new-access"))
+        .await
+        .unwrap();
+
+    assert_eq!(refresh_failures(&state, existing.id).await, 0);
+    assert_next_refresh_in(&state, existing.id, 30 * 60).await;
 }
 
 #[sqlx::test]
