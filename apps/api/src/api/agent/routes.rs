@@ -1,10 +1,14 @@
 use axum::{
     Router,
+    middleware::from_fn_with_state,
     routing::{delete, get, post},
 };
 use utoipa::OpenApi;
 
-use crate::core::AppState;
+use crate::{
+    api::limits::{Limit, UserLimit, limit_by_user},
+    core::AppState,
+};
 
 use super::{
     connections::{
@@ -14,41 +18,63 @@ use super::{
     pools::{create_request, decide_request, invite_member, list, remove_member},
 };
 
-pub(crate) fn routes() -> Router<AppState> {
+pub(crate) fn routes(state: &AppState) -> Router<AppState> {
+    let pool_request = UserLimit::new(state, Limit::PoolRequest);
+    let pool_invite = UserLimit::new(state, Limit::PoolInvite);
+    // Accepting a request and removing a member are both owner moderation.
+    let pool_decision = UserLimit::new(state, Limit::PoolDecision);
+    let key_connect = UserLimit::new(state, Limit::AgentKeyConnect);
+    // Starting and completing the OAuth flow are one connection attempt.
+    let oauth = UserLimit::new(state, Limit::AgentOAuth);
+    let refresh = UserLimit::new(state, Limit::AgentRefresh);
+    let reset_credits = UserLimit::new(state, Limit::AgentResetCredits);
+
     Router::new()
         .route("/agent-pools", get(list))
         .route(
             "/agent-pools/{connection_id}/requests",
-            post(create_request),
+            post(create_request).layer(from_fn_with_state(pool_request, limit_by_user)),
         )
-        .route("/agent-pools/{connection_id}/members", post(invite_member))
+        .route(
+            "/agent-pools/{connection_id}/members",
+            post(invite_member).layer(from_fn_with_state(pool_invite, limit_by_user)),
+        )
         .route(
             "/agent-pools/{connection_id}/members/{username}",
-            delete(remove_member),
+            delete(remove_member).layer(from_fn_with_state(pool_decision.clone(), limit_by_user)),
         )
         .route(
             "/agent-pool-requests/{request_id}/decision",
-            post(decide_request),
+            post(decide_request).layer(from_fn_with_state(pool_decision, limit_by_user)),
         )
         .route("/agent-connections", get(list_connections))
-        .route("/agent-connections/deepseek", post(connect_deepseek))
-        .route("/agent-connections/groq", post(connect_groq))
-        .route("/agent-connections/start", post(start))
+        .route(
+            "/agent-connections/deepseek",
+            post(connect_deepseek).layer(from_fn_with_state(key_connect.clone(), limit_by_user)),
+        )
+        .route(
+            "/agent-connections/groq",
+            post(connect_groq).layer(from_fn_with_state(key_connect, limit_by_user)),
+        )
+        .route(
+            "/agent-connections/start",
+            post(start).layer(from_fn_with_state(oauth.clone(), limit_by_user)),
+        )
         .route(
             "/agent-connections/{connection_id}",
             get(get_connection).delete(disconnect),
         )
         .route(
             "/agent-connections/{connection_id}/complete",
-            post(complete_authorization),
+            post(complete_authorization).layer(from_fn_with_state(oauth, limit_by_user)),
         )
         .route(
             "/agent-connections/{connection_id}/refresh",
-            post(refresh_connection),
+            post(refresh_connection).layer(from_fn_with_state(refresh, limit_by_user)),
         )
         .route(
             "/agent-connections/{connection_id}/reset-credits",
-            post(reset_connection_credits),
+            post(reset_connection_credits).layer(from_fn_with_state(reset_credits, limit_by_user)),
         )
 }
 

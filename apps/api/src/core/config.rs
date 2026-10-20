@@ -1,14 +1,18 @@
 use std::{env, fmt};
 
-use axum::http::HeaderValue;
+use axum::http::{HeaderName, HeaderValue};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 
 #[derive(Clone)]
 pub struct AppConfig {
+    pub client_ip_header: HeaderName,
     pub cookie_secure: bool,
     pub credential_encryption_key: [u8; 32],
     pub frontend_origin: HeaderValue,
     pub telegram_service_token: Option<Vec<u8>>,
+    /// Read the client IP from `client_ip_header` instead of the socket peer.
+    /// Only safe behind a proxy that overwrites that header.
+    pub trust_proxy_headers: bool,
     pub codex_client_version: String,
     pub codex_issuer: String,
     pub claude_authorize_url: String,
@@ -52,6 +56,13 @@ impl AppConfig {
         let cookie_secure = env::var("COOKIE_SECURE")
             .map(|value| value.eq_ignore_ascii_case("true") || value == "1")
             .unwrap_or(false);
+        let trust_proxy_headers = env::var("TRUST_PROXY_HEADERS")
+            .map(|value| value.eq_ignore_ascii_case("true") || value == "1")
+            .unwrap_or(false);
+        let client_ip_header = env::var("CLIENT_IP_HEADER")
+            .unwrap_or_else(|_| "x-real-ip".to_owned())
+            .parse::<HeaderName>()
+            .map_err(|_| ConfigError("CLIENT_IP_HEADER must be a valid header name".to_owned()))?;
         let credential_encryption_key =
             env::var("PROVIDER_CREDENTIAL_ENCRYPTION_KEY").map_err(|_| {
                 ConfigError(
@@ -75,6 +86,7 @@ impl AppConfig {
             })?;
 
         Ok(Self {
+            client_ip_header,
             cookie_secure,
             credential_encryption_key,
             frontend_origin,
@@ -82,6 +94,7 @@ impl AppConfig {
                 .ok()
                 .filter(|token| !token.trim().is_empty())
                 .map(String::into_bytes),
+            trust_proxy_headers,
             codex_client_version: env::var("CODEX_CLIENT_VERSION")
                 .unwrap_or_else(|_| "0.156.0".to_owned()),
             codex_issuer: env::var("CODEX_AUTH_ISSUER")
@@ -142,10 +155,12 @@ impl AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
+            client_ip_header: HeaderName::from_static("x-real-ip"),
             cookie_secure: false,
             credential_encryption_key: [7; 32],
             frontend_origin: HeaderValue::from_static("http://localhost:5173"),
             telegram_service_token: None,
+            trust_proxy_headers: false,
             codex_client_version: "0.156.0".to_owned(),
             codex_issuer: "https://auth.openai.com".to_owned(),
             claude_authorize_url: "https://claude.com/cai/oauth/authorize".to_owned(),
