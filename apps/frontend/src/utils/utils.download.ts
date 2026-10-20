@@ -12,9 +12,8 @@
  * download button is a link to that file instead.
  */
 
-/** One catalogue text file, with its original filename and bytes. */
-export function downloadText(filename: string, contents: string) {
-  const blob = new Blob([contents], { type: "text/plain;charset=utf-8" });
+/** Bytes the caller already holds, such as a fetched video, saved under `filename`. */
+export function downloadBlob(filename: string, blob: Blob) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
 
@@ -25,4 +24,12 @@ export function downloadText(filename: string, contents: string) {
   // Revoking immediately can cancel the download in Safari, which reads the
   // URL after the click returns. A task later is enough and still bounded.
   setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+/** One catalogue text file, with its original filename and bytes. */
+export function downloadText(filename: string, contents: string) {
+  downloadBlob(
+    filename,
+    new Blob([contents], { type: "text/plain;charset=utf-8" }),
+  );
 }

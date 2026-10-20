@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, type ChangeEvent } from "react";
-import { Play, Download, Volume2, Loader2, AlertCircle } from "lucide-react";
+import { Play, Download, Volume2, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { tv } from "tailwind-variants";
 
 import Flex from "@/components/ui/flex";
@@ -19,8 +20,6 @@ const edgeTtsStyles = tv({
     sliderTrack: "flex items-center justify-between text-[11px] text-zinc-500",
     audioCard:
       "space-y-3 rounded-lg border border-zinc-200 bg-white p-3 shadow-xs",
-    errorBanner:
-      "flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800",
   },
 });
 
@@ -308,7 +307,6 @@ export default function ToolsCatalogEdgeTts() {
   const [text, setText] = useState(VOICES_BY_LANG.en[0].sample);
   const [generating, setGenerating] = useState(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const voices = VOICES_BY_LANG[lang] ?? [];
@@ -342,7 +340,6 @@ export default function ToolsCatalogEdgeTts() {
     if (!text.trim()) return;
 
     setGenerating(true);
-    setErrorMessage(null);
 
     try {
       const response = await fetch(apiUrl("/tts"), {
@@ -371,7 +368,7 @@ export default function ToolsCatalogEdgeTts() {
       setAudioUrl(url);
     } catch (err) {
       setAudioUrl(null);
-      setErrorMessage(
+      toast.error(
         err instanceof Error ? err.message : "Tạo giọng đọc thất bại.",
       );
     } finally {
@@ -494,13 +491,6 @@ export default function ToolsCatalogEdgeTts() {
           )}
         </Button>
       </div>
-
-      {errorMessage && (
-        <div className={styles.errorBanner()}>
-          <AlertCircle className="size-4 shrink-0 text-rose-600 mt-0.5" />
-          <p>{errorMessage}</p>
-        </div>
-      )}
 
       {audioUrl && (
         <div className={styles.audioCard()}>
