@@ -158,7 +158,6 @@ class CatalogService {
       url: siteAssetUrl(
         `catalog/collections/${collection.contributor ?? "default"}/tools/${collection.id}.zip`,
       ),
-      fileCount: collection.files.length,
     };
   }
 

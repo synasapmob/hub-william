@@ -29,6 +29,20 @@ class GatewayProxyTest(unittest.TestCase):
         self.assertIn("proxy_pass $api_internal_url;", gateway.group("body"))
         self.assertNotIn("client_max_body_size", browser_api.group("body"))
 
+    def test_catalog_markdown_is_served_as_text_not_a_download(self):
+        document = NGINX_CONFIG.read_text(encoding="utf-8")
+        catalog = re.search(
+            r"location ~ \^/catalog/\.\+\\\.md\$ \{(?P<body>.*?)\n    \}",
+            document,
+            re.DOTALL,
+        )
+
+        self.assertIsNotNone(catalog)
+        body = catalog.group("body")
+        self.assertIn("text/markdown md;", body)
+        self.assertIn("charset utf-8;", body)
+        self.assertIn("charset_types text/markdown;", body)
+
     def test_playground_streaming_upload_limit_is_explicit(self):
         document = NGINX_CONFIG.read_text(encoding="utf-8")
         playground = re.search(r"location = /api/playground/chat \{(?P<body>.*?)\n    \}", document, re.DOTALL)

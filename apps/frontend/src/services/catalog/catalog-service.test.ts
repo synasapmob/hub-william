@@ -77,7 +77,6 @@ describe("supported tool catalogue", () => {
       expect(catalogService.collectionArchive(collection)).toEqual({
         name: `${collection.id}.zip`,
         url: `${window.location.origin}/catalog/collections/default/tools/${collection.id}.zip`,
-        fileCount: files.length,
       });
       for (const file of files) {
         expect(collectionIdForPath(file.path)).toBe(collection.id);

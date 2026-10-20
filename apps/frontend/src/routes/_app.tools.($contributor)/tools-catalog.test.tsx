@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import ToolsCatalog from "./tools-catalog";
 
@@ -14,6 +14,12 @@ function renderTools(initialUrl = "/tools") {
 }
 
 describe("ToolsCatalog", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    Reflect.deleteProperty(URL, "createObjectURL");
+    Reflect.deleteProperty(URL, "revokeObjectURL");
+  });
+
   it("renders one flat node per functional collection", () => {
     renderTools();
 
@@ -42,7 +48,7 @@ describe("ToolsCatalog", () => {
 
     expect(screen.getByRole("dialog")).toBeVisible();
     expect(screen.getByRole("heading", { name: "Gateway" })).toBeVisible();
-    const downloadAll = screen.getByRole("link", { name: /download all/i });
+    const downloadAll = screen.getByRole("link", { name: "Download all" });
     const filesHeading = screen.getByRole("heading", { name: /files \(/i });
 
     expect(downloadAll).toHaveAttribute("download", "gateway.zip");
@@ -59,6 +65,37 @@ describe("ToolsCatalog", () => {
     );
     expect(sourceLink).toHaveAttribute("target", "_blank");
     expect(sourceLink).toHaveAttribute("rel", "noreferrer");
+  });
+
+  it("saves a file only from the download text beside its path", async () => {
+    const user = userEvent.setup();
+    const createObjectURL = vi.fn(() => "blob:gateway-md");
+    const clicked: HTMLAnchorElement[] = [];
+
+    Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      clicked.push(this);
+    });
+    renderTools();
+
+    await user.click(screen.getByRole("button", { name: /GATEWAY/ }));
+    await user.click(
+      screen.getByRole("link", {
+        name: "contributors/default/tools/gateway/gateway.md",
+      }),
+    );
+
+    expect(createObjectURL).not.toHaveBeenCalled();
+
+    await user.click(
+      screen.getByRole("button", { name: "(click here to download)" }),
+    );
+
+    expect(createObjectURL).toHaveBeenCalledOnce();
+    expect(clicked.at(-1)).toHaveAttribute("download", "gateway.md");
+    expect(clicked.at(-1)).toHaveAttribute("href", "blob:gateway-md");
   });
 
   it("searches the files inside a collection without rendering file nodes", async () => {

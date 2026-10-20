@@ -13,6 +13,16 @@ server {
         try_files $uri =404;
     }
 
+    # Catalogue Markdown opens in a new tab as readable text. nginx ships no
+    # mapping for .md, so it would fall back to application/octet-stream and
+    # the browser would download the file instead of showing it.
+    location ~ ^/catalog/.+\.md$ {
+        types { text/markdown md; }
+        charset utf-8;
+        charset_types text/markdown;
+        try_files $uri =404;
+    }
+
     location = /healthz {
         access_log off;
         add_header Content-Type text/plain;
