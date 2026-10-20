@@ -1,10 +1,14 @@
 use axum::{
     Router,
+    middleware::from_fn_with_state,
     routing::{delete, get, post, put},
 };
 use utoipa::OpenApi;
 
-use crate::core::AppState;
+use crate::{
+    api::limits::{Limit, UserLimit, limit_by_user},
+    core::AppState,
+};
 
 use super::{
     accept_invitation, create_organization, decline_invitation, delete_organization, invite_member,
@@ -13,41 +17,56 @@ use super::{
     unshare_agent, usage,
 };
 
-pub(crate) fn routes() -> Router<AppState> {
+pub(crate) fn routes(state: &AppState) -> Router<AppState> {
+    // Every write below spends from one per-user budget; reads are unlimited.
+    let write = from_fn_with_state(
+        UserLimit::new(state, Limit::OrganizationWrite),
+        limit_by_user,
+    );
+
     Router::new()
         .route(
             "/organizations",
-            get(list_organizations).post(create_organization),
+            get(list_organizations).merge(post(create_organization).layer(write.clone())),
         )
         .route("/organization-summaries", get(list_organization_summaries))
         .route("/organization-invitations", get(list_invitations))
         .route(
             "/organization-invitations/{invitation_id}/accept",
-            post(accept_invitation),
+            post(accept_invitation).layer(write.clone()),
         )
         .route(
             "/organization-invitations/{invitation_id}",
-            delete(decline_invitation),
+            delete(decline_invitation).layer(write.clone()),
         )
-        .route("/organizations/{id}", delete(delete_organization))
-        .route("/organizations/{id}/default", put(set_default_organization))
-        .route("/organizations/{id}/membership", delete(leave_organization))
+        .route(
+            "/organizations/{id}",
+            delete(delete_organization).layer(write.clone()),
+        )
+        .route(
+            "/organizations/{id}/default",
+            put(set_default_organization).layer(write.clone()),
+        )
+        .route(
+            "/organizations/{id}/membership",
+            delete(leave_organization).layer(write.clone()),
+        )
         .route("/organizations/{id}/overview", get(overview))
         .route(
             "/organizations/{id}/agents",
-            get(list_agents).post(share_agent),
+            get(list_agents).merge(post(share_agent).layer(write.clone())),
         )
         .route(
             "/organizations/{id}/agents/{connection_id}",
-            delete(unshare_agent),
+            delete(unshare_agent).layer(write.clone()),
         )
         .route(
             "/organizations/{id}/members",
-            get(list_members).post(invite_member),
+            get(list_members).merge(post(invite_member).layer(write.clone())),
         )
         .route(
             "/organizations/{id}/members/{username}",
-            delete(remove_member),
+            delete(remove_member).layer(write),
         )
         .route("/organizations/{id}/usage", get(usage))
 }

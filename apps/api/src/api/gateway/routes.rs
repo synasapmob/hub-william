@@ -1,11 +1,15 @@
 use axum::{
     Router,
     extract::DefaultBodyLimit,
+    middleware::from_fn_with_state,
     routing::{delete, get, post},
 };
 use utoipa::OpenApi;
 
-use crate::core::AppState;
+use crate::{
+    api::limits::{GatewayLimit, Limit, UserLimit, limit_by_user, limit_gateway},
+    core::AppState,
+};
 
 use super::{
     claude_count_tokens, claude_messages, claude_models, create_key, deepseek_chat,
@@ -14,16 +18,25 @@ use super::{
     openai_responses, revoke_key,
 };
 
-pub(crate) fn routes() -> Router<AppState> {
+pub(crate) fn routes(state: &AppState) -> Router<AppState> {
+    let manage = UserLimit::new(state, Limit::GatewayKeyManagement);
+
     Router::new()
-        .route("/gateway-keys", get(list_keys).post(create_key))
-        .route("/gateway-keys/{key_id}", delete(revoke_key))
-        .merge(provider_routes())
+        .route(
+            "/gateway-keys",
+            get(list_keys)
+                .merge(post(create_key).layer(from_fn_with_state(manage.clone(), limit_by_user))),
+        )
+        .route(
+            "/gateway-keys/{key_id}",
+            delete(revoke_key).layer(from_fn_with_state(manage, limit_by_user)),
+        )
+        .merge(provider_routes(state))
 }
 
 /// Provider-compatible endpoints. Prompts carry attachments, so these accept
 /// request bodies of any size, unlike the browser API.
-fn provider_routes() -> Router<AppState> {
+fn provider_routes(state: &AppState) -> Router<AppState> {
     Router::new()
         .route("/gateway/openai/v1/responses", post(openai_responses))
         .route("/gateway/openai/v1/models", get(openai_models))
@@ -48,6 +61,7 @@ fn provider_routes() -> Router<AppState> {
         .route("/gateway/groq/v1/responses", post(groq_responses))
         .route("/gateway/groq/v1/chat/completions", post(groq_chat))
         .layer(DefaultBodyLimit::disable())
+        .layer(from_fn_with_state(GatewayLimit::new(state), limit_gateway))
 }
 
 #[derive(OpenApi)]
