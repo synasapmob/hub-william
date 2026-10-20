@@ -43,12 +43,20 @@ const GROK_SCOPES: &str = "openid profile email offline_access grok-cli:access a
 const GROK_CLIENT_SURFACE: &str = "grok-build";
 const DEFAULT_DEVICE_EXPIRY_SECONDS: i64 = 900;
 const DEFAULT_POLL_SECONDS: u64 = 5;
-/// Background refresh cadence: every connected credential rotates once it has
-/// gone 30 minutes plus a stable per-account offset of up to 15 minutes without
-/// a refresh, so each account refreshes every 30-45 minutes and accounts do not
-/// all reach their provider in the same minute.
-const PROVIDER_CREDENTIAL_REFRESH_BASE_MINUTES: i64 = 30;
-const PROVIDER_CREDENTIAL_REFRESH_SPREAD_SECONDS: i64 = 15 * 60;
+/// Background refresh cadence: every connected credential rotates 30 minutes
+/// after its previous refresh. Each account's `next_refresh_at` is stored, so
+/// accounts keep the spread of the times they were first connected.
+const PROVIDER_CREDENTIAL_REFRESH_MINUTES: i64 = 30;
+/// A scheduled refresh that fails because the network or the provider is
+/// unavailable is tried again after this pause, inside the same refresh. Two
+/// attempts in all; after the second failure the account waits for its next
+/// regular refresh.
+const PROVIDER_CREDENTIAL_REFRESH_ATTEMPTS: usize = 2;
+const PROVIDER_CREDENTIAL_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(3);
+/// A refresh token that the provider reports will expire is refreshed this long
+/// before it does, and never sooner than the minimum below from now.
+const PROVIDER_CREDENTIAL_EXPIRY_MARGIN_MINUTES: i64 = 5;
+const PROVIDER_CREDENTIAL_MIN_RESCHEDULE_SECONDS: i64 = 60;
 const EXPIRED_PROVIDER_AUTHORIZATION_MESSAGE: &str =
     "Provider authorization expired. Refresh this pool to reconnect.";
 const ACCOUNT_VERIFICATION_REQUIRED_MESSAGE: &str =
@@ -190,6 +198,7 @@ struct CredentialRow {
     access_token_expires_at: Option<DateTime<Utc>>,
     credential_ciphertext: Vec<u8>,
     credential_nonce: Vec<u8>,
+    next_refresh_at: DateTime<Utc>,
     refresh_attempted_at: Option<DateTime<Utc>>,
     refresh_token_expires_at: Option<DateTime<Utc>>,
     updated_at: DateTime<Utc>,
@@ -253,14 +262,13 @@ enum RefreshConnectionOutcome {
 enum CredentialRefreshMode {
     Force,
     NearExpiry,
-    /// Scheduled rotation once the credential is older than this account's
-    /// 30-45 minute refresh interval.
-    Stale(Duration),
+    /// Scheduled rotation once the credential reaches its `next_refresh_at`.
+    Stale,
     Nightly(DateTime<Utc>),
     /// Scheduled retry of an account the gateway marked for reconnect. A
     /// successful refresh restores it; a rejected refresh token keeps it
     /// waiting for its owner.
-    Recover(Duration),
+    Recover,
     /// A provider rejected this access token (SHA-256 fingerprint). Refresh
     /// only when it is still the stored token; otherwise another request has
     /// already rotated it and the caller retries with the stored credential.
@@ -269,20 +277,20 @@ enum CredentialRefreshMode {
 
 impl CredentialRefreshMode {
     fn records_scheduled_attempt(self) -> bool {
-        matches!(self, Self::Stale(_) | Self::Nightly(_) | Self::Recover(_))
+        matches!(self, Self::Stale | Self::Nightly(_) | Self::Recover)
     }
 
     fn restores_availability(self) -> bool {
-        matches!(self, Self::Force | Self::Recover(_))
+        matches!(self, Self::Force | Self::Recover)
     }
 
     fn label(self) -> &'static str {
         match self {
             Self::Force => "manual refresh",
             Self::NearExpiry => "request refresh",
-            Self::Stale(_) => "scheduled refresh",
+            Self::Stale => "scheduled refresh",
             Self::Nightly(_) => "nightly check",
-            Self::Recover(_) => "scheduled recovery",
+            Self::Recover => "scheduled recovery",
             Self::Rejected(_) => "rejected-token refresh",
         }
     }
@@ -309,14 +317,33 @@ fn provider_expiry_at(token: &Value, field: &str) -> Option<DateTime<Utc>> {
         .map(|seconds| Utc::now() + Duration::seconds(seconds))
 }
 
-/// This account's scheduled refresh interval: 30 minutes plus a stable offset
-/// of up to 15 minutes derived from the last byte of its ID. The SQL in
-/// `refresh_due_provider_credentials` computes the same value.
-fn scheduled_refresh_after(connection_id: Uuid) -> Duration {
-    Duration::minutes(PROVIDER_CREDENTIAL_REFRESH_BASE_MINUTES)
-        + Duration::seconds(
-            i64::from(connection_id.as_bytes()[15]) * PROVIDER_CREDENTIAL_REFRESH_SPREAD_SECONDS
-                / 256,
+/// When a credential is next due after a refresh or a failed attempt: 30
+/// minutes ahead, or sooner when the provider reports that its refresh token
+/// expires before then, so a lifetime renewed by the provider is picked up
+/// before the old one ends. An expiry already in the past is ignored; it cannot
+/// be refreshed around.
+fn next_regular_refresh_at(
+    now: DateTime<Utc>,
+    refresh_token_expires_at: Option<DateTime<Utc>>,
+) -> DateTime<Utc> {
+    let regular = now + Duration::minutes(PROVIDER_CREDENTIAL_REFRESH_MINUTES);
+    refresh_token_expires_at
+        .filter(|expires_at| *expires_at > now)
+        .map(|expires_at| expires_at - Duration::minutes(PROVIDER_CREDENTIAL_EXPIRY_MARGIN_MINUTES))
+        .filter(|before_expiry| *before_expiry < regular)
+        .map_or(regular, |before_expiry| {
+            before_expiry.max(now + Duration::seconds(PROVIDER_CREDENTIAL_MIN_RESCHEDULE_SECONDS))
+        })
+}
+
+/// A refresh answer that says nothing about the credential itself: the provider
+/// is unavailable, throttling, or slow. Anything else, such as a rejected
+/// client, is not retried before the next regular refresh.
+fn refresh_status_is_transient(status: reqwest::StatusCode) -> bool {
+    status.is_server_error()
+        || matches!(
+            status,
+            reqwest::StatusCode::TOO_MANY_REQUESTS | reqwest::StatusCode::REQUEST_TIMEOUT
         )
 }
 
@@ -345,6 +372,9 @@ pub struct ProviderCredentialRefreshResult {
 
 enum ProviderRefreshError {
     ReauthorizationRequired,
+    /// The network or the provider was unavailable. The refresh token was not
+    /// shown to be bad, so a scheduled refresh retries soon.
+    Transient(ApiError),
     Api(ApiError),
 }
 
@@ -1346,6 +1376,7 @@ async fn finish_connection(
         encrypt_json(&state.config.credential_encryption_key, &token)?;
     let access_token_expires_at = provider_expiry_at(&token, "expires_in");
     let refresh_token_expires_at = provider_expiry_at(&token, "refresh_token_expires_in");
+    let next_refresh_at = next_regular_refresh_at(Utc::now(), refresh_token_expires_at);
     let mut transaction = state.pool.begin().await.map_err(database_error)?;
     let identity_lock = i64::from_be_bytes(
         Sha256::digest(account_identity.as_bytes())[..8]
@@ -1370,13 +1401,14 @@ async fn finish_connection(
     sqlx::query(
         "INSERT INTO agent_connection_credentials
             (connection_id, credential_ciphertext, credential_nonce, access_token_expires_at,
-             refresh_token_expires_at)
-         VALUES ($1, $2, $3, $4, $5)
+             refresh_token_expires_at, next_refresh_at)
+         VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (connection_id) DO UPDATE SET
             credential_ciphertext = EXCLUDED.credential_ciphertext,
             credential_nonce = EXCLUDED.credential_nonce,
             access_token_expires_at = EXCLUDED.access_token_expires_at,
             refresh_token_expires_at = EXCLUDED.refresh_token_expires_at,
+            next_refresh_at = EXCLUDED.next_refresh_at,
             updated_at = NOW()",
     )
     .bind(target_id)
@@ -1384,6 +1416,7 @@ async fn finish_connection(
     .bind(credential_nonce)
     .bind(access_token_expires_at)
     .bind(refresh_token_expires_at)
+    .bind(next_refresh_at)
     .execute(&mut *transaction)
     .await
     .map_err(database_error)?;
@@ -1857,17 +1890,8 @@ pub async fn refresh_due_provider_credentials(
                            WHERE authorizations.connection_id = connections.id
                          ))
                )
-           AND GREATEST(
-                 credentials.updated_at,
-                 COALESCE(credentials.refresh_attempted_at, credentials.updated_at)
-               ) <= NOW() - (
-                 INTERVAL '30 minutes'
-                 + make_interval(secs => get_byte(uuid_send(connections.id), 15) * 900 / 256)
-               )
-         ORDER BY GREATEST(
-                    credentials.updated_at,
-                    COALESCE(credentials.refresh_attempted_at, credentials.updated_at)
-                  ) ASC",
+           AND credentials.next_refresh_at <= NOW()
+         ORDER BY credentials.next_refresh_at ASC",
     )
     .bind(recoverable_messages)
     .fetch_all(&state.pool)
@@ -1876,11 +1900,10 @@ pub async fn refresh_due_provider_credentials(
     let rows = rows
         .into_iter()
         .map(|row| {
-            let interval = scheduled_refresh_after(row.id);
             let mode = if row.availability_status == "reauth_required" {
-                CredentialRefreshMode::Recover(interval)
+                CredentialRefreshMode::Recover
             } else {
-                CredentialRefreshMode::Stale(interval)
+                CredentialRefreshMode::Stale
             };
             (row, mode)
         })
@@ -1938,7 +1961,7 @@ async fn refresh_scheduled_provider_credentials(
                 connection,
             }) => {
                 summary.refreshed += 1;
-                if matches!(mode, CredentialRefreshMode::Recover(_))
+                if matches!(mode, CredentialRefreshMode::Recover)
                     && connection.availability_status != "reauth_required"
                 {
                     summary.recovered += 1;
@@ -2002,12 +2025,20 @@ pub async fn refresh_all_provider_credentials(
     Ok(results)
 }
 
+/// Record an attempt that did not leave a schedule behind, such as one whose
+/// transaction rolled back. An account still overdue waits a regular interval
+/// instead of being picked up again by the next minute's sweep; a schedule the
+/// attempt already set, like a short retry, is kept.
 async fn record_scheduled_refresh_attempt(state: &AppState, connection_id: Uuid) {
     if let Err(error) = sqlx::query(
-        "UPDATE agent_connection_credentials SET refresh_attempted_at = NOW()
+        "UPDATE agent_connection_credentials SET refresh_attempted_at = NOW(),
+             next_refresh_at = CASE WHEN next_refresh_at <= NOW()
+                                    THEN NOW() + make_interval(mins => $2)
+                                    ELSE next_refresh_at END
          WHERE connection_id = $1",
     )
     .bind(connection_id)
+    .bind(PROVIDER_CREDENTIAL_REFRESH_MINUTES as i32)
     .execute(&state.pool)
     .await
     {
@@ -2050,7 +2081,7 @@ async fn finish_refresh_reauthorization(
     let updated = match updated {
         Some(updated) => {
             eprintln!(
-                "{} connection {} requires reauthorization: the provider rejected its stored refresh credential during {}",
+                "{} connection {} requires reauthorization during {}",
                 row.provider,
                 row.id,
                 mode.label()
@@ -2058,7 +2089,7 @@ async fn finish_refresh_reauthorization(
             updated
         }
         None => {
-            if matches!(mode, CredentialRefreshMode::Recover(_)) {
+            if matches!(mode, CredentialRefreshMode::Recover) {
                 // The refresh credential itself is dead, so stop retrying this
                 // account until its owner reconnects it.
                 sqlx::query(
@@ -2093,6 +2124,64 @@ async fn finish_refresh_reauthorization(
     Ok(RefreshConnectionOutcome::ReauthorizationRequired(updated))
 }
 
+/// Ask the provider to refresh the credential. A scheduled refresh that fails
+/// on the network or the provider's availability is tried once more after a
+/// short pause, still under the caller's credential lock; any other outcome,
+/// and any request-time refresh, is returned as it came.
+async fn refresh_provider_token_with_retry(
+    state: &AppState,
+    row: &ConnectionRow,
+    provider: AgentProvider,
+    refresh_token: &str,
+    stored_token: &Value,
+    mode: CredentialRefreshMode,
+) -> Result<Value, ProviderRefreshError> {
+    let mut attempt = 1;
+    loop {
+        match refresh_provider_token(state, provider, refresh_token, stored_token).await {
+            Err(ProviderRefreshError::Transient(_))
+                if mode.records_scheduled_attempt()
+                    && attempt < PROVIDER_CREDENTIAL_REFRESH_ATTEMPTS
+                    && !SWEEPS_STOPPING.load(Ordering::SeqCst) =>
+            {
+                eprintln!(
+                    "{} connection {} refresh attempt {attempt}/{PROVIDER_CREDENTIAL_REFRESH_ATTEMPTS} failed; retrying in {}s",
+                    row.provider,
+                    row.id,
+                    PROVIDER_CREDENTIAL_RETRY_DELAY.as_secs()
+                );
+                tokio::time::sleep(PROVIDER_CREDENTIAL_RETRY_DELAY).await;
+                attempt += 1;
+            }
+            result => return result,
+        }
+    }
+}
+
+/// After a scheduled refresh failed on every attempt, wait for the next regular
+/// refresh, sooner when the refresh token is about to end. The token was not
+/// shown to be bad, so the account is not marked for reconnect.
+async fn schedule_regular_refresh_after_failure(
+    transaction: &mut Transaction<'_, Postgres>,
+    row: &ConnectionRow,
+    refresh_token_expires_at: Option<DateTime<Utc>>,
+) -> Result<(), ApiError> {
+    let next_refresh_at = next_regular_refresh_at(Utc::now(), refresh_token_expires_at);
+    sqlx::query(
+        "UPDATE agent_connection_credentials SET next_refresh_at = $2 WHERE connection_id = $1",
+    )
+    .bind(row.id)
+    .bind(next_refresh_at)
+    .execute(&mut **transaction)
+    .await
+    .map_err(database_error)?;
+    eprintln!(
+        "{} connection {} scheduled refresh failed on all {PROVIDER_CREDENTIAL_REFRESH_ATTEMPTS} attempts; next attempt at {next_refresh_at}",
+        row.provider, row.id
+    );
+    Ok(())
+}
+
 /// A refresh that failed after the provider answered still holds a rotated
 /// credential, so commit it: the provider has already invalidated the token it
 /// was given, and rolling the rotation back would leave a credential that can
@@ -2113,7 +2202,7 @@ async fn refresh_connected_connection(
     let mut transaction = state.pool.begin().await.map_err(database_error)?;
     let credential = sqlx::query_as::<_, CredentialRow>(
         "SELECT credential_ciphertext, credential_nonce, access_token_expires_at,
-         refresh_token_expires_at, refresh_attempted_at, updated_at
+         refresh_token_expires_at, refresh_attempted_at, next_refresh_at, updated_at
          FROM agent_connection_credentials
          WHERE connection_id = $1 FOR UPDATE",
     )
@@ -2174,6 +2263,7 @@ async fn refresh_connected_connection(
         should_refresh_credential(
             mode,
             credential.access_token_expires_at,
+            credential.next_refresh_at,
             last_refresh_activity_at,
             Utc::now(),
         )
@@ -2188,20 +2278,20 @@ async fn refresh_connected_connection(
         });
     }
     if mode.records_scheduled_attempt() {
+        // Move the account a regular interval ahead before talking to the
+        // provider. Every outcome that is not a success or a short retry then
+        // leaves it waiting that long, and an aborted attempt cannot make the
+        // next minute's sweep pick it up again.
         sqlx::query(
-            "UPDATE agent_connection_credentials SET refresh_attempted_at = NOW()
+            "UPDATE agent_connection_credentials SET refresh_attempted_at = NOW(),
+                 next_refresh_at = NOW() + make_interval(mins => $2)
              WHERE connection_id = $1",
         )
         .bind(row.id)
+        .bind(PROVIDER_CREDENTIAL_REFRESH_MINUTES as i32)
         .execute(&mut *transaction)
         .await
         .map_err(database_error)?;
-    }
-    if credential
-        .refresh_token_expires_at
-        .is_some_and(|expires_at| expires_at <= Utc::now())
-    {
-        return finish_refresh_reauthorization(transaction, row, mode).await;
     }
 
     let stored_token: Value = match decrypt_json(
@@ -2241,19 +2331,39 @@ async fn refresh_connected_connection(
     let Some(refresh_token) = stored_token.get("refresh_token").and_then(Value::as_str) else {
         return finish_refresh_reauthorization(transaction, row, mode).await;
     };
-    let refreshed =
-        match refresh_provider_token(state, provider, refresh_token, &stored_token).await {
-            Ok(refreshed) => refreshed,
-            Err(ProviderRefreshError::ReauthorizationRequired) => {
-                return finish_refresh_reauthorization(transaction, row, mode).await;
+    let refreshed = match refresh_provider_token_with_retry(
+        state,
+        &row,
+        provider,
+        refresh_token,
+        &stored_token,
+        mode,
+    )
+    .await
+    {
+        Ok(refreshed) => refreshed,
+        Err(ProviderRefreshError::ReauthorizationRequired) => {
+            return finish_refresh_reauthorization(transaction, row, mode).await;
+        }
+        Err(ProviderRefreshError::Transient(error)) => {
+            if mode.records_scheduled_attempt() {
+                schedule_regular_refresh_after_failure(
+                    &mut transaction,
+                    &row,
+                    credential.refresh_token_expires_at,
+                )
+                .await?;
             }
-            Err(ProviderRefreshError::Api(error)) => {
-                return finish_refresh_error(transaction, error).await;
-            }
-        };
+            return finish_refresh_error(transaction, error).await;
+        }
+        Err(ProviderRefreshError::Api(error)) => {
+            return finish_refresh_error(transaction, error).await;
+        }
+    };
     let access_token_expires_at = provider_expiry_at(&refreshed, "expires_in");
     let refresh_token_expires_at = provider_expiry_at(&refreshed, "refresh_token_expires_in")
         .or(credential.refresh_token_expires_at);
+    let next_refresh_at = next_regular_refresh_at(Utc::now(), refresh_token_expires_at);
     let merged = merge_token_response(stored_token, refreshed);
     let (credential_ciphertext, credential_nonce) =
         match encrypt_json(&state.config.credential_encryption_key, &merged) {
@@ -2267,7 +2377,8 @@ async fn refresh_connected_connection(
     sqlx::query(
         "UPDATE agent_connection_credentials SET credential_ciphertext = $2,
          credential_nonce = $3, access_token_expires_at = $4,
-         refresh_token_expires_at = $5, refresh_attempted_at = NOW(), updated_at = NOW()
+         refresh_token_expires_at = $5, refresh_attempted_at = NOW(),
+         next_refresh_at = $6, updated_at = NOW()
          WHERE connection_id = $1",
     )
     .bind(row.id)
@@ -2275,6 +2386,7 @@ async fn refresh_connected_connection(
     .bind(credential_nonce)
     .bind(access_token_expires_at)
     .bind(refresh_token_expires_at)
+    .bind(next_refresh_at)
     .execute(&mut *transaction)
     .await
     .map_err(database_error)?;
@@ -2387,6 +2499,7 @@ async fn refresh_connected_connection(
 fn should_refresh_credential(
     mode: CredentialRefreshMode,
     access_token_expires_at: Option<DateTime<Utc>>,
+    next_refresh_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
     now: DateTime<Utc>,
 ) -> bool {
@@ -2394,9 +2507,7 @@ fn should_refresh_credential(
         CredentialRefreshMode::Force | CredentialRefreshMode::Rejected(_) => true,
         CredentialRefreshMode::NearExpiry => access_token_expires_at
             .is_some_and(|expires_at| expires_at <= now + Duration::minutes(5)),
-        CredentialRefreshMode::Stale(interval) | CredentialRefreshMode::Recover(interval) => {
-            updated_at <= now - interval
-        }
+        CredentialRefreshMode::Stale | CredentialRefreshMode::Recover => next_refresh_at <= now,
         CredentialRefreshMode::Nightly(day_start_utc) => updated_at < day_start_utc,
     }
 }
@@ -2409,7 +2520,7 @@ async fn restore_refreshed_availability(
     connection_id: Uuid,
     mode: CredentialRefreshMode,
 ) -> Result<(), ApiError> {
-    let recover_only = matches!(mode, CredentialRefreshMode::Recover(_));
+    let recover_only = matches!(mode, CredentialRefreshMode::Recover);
     let restored = sqlx::query(
         "UPDATE agent_connections SET availability_status = 'active',
              rate_limited_until = NULL, retry_claimed_at = NULL, failure_message = NULL,
@@ -2539,6 +2650,7 @@ pub(crate) async fn gateway_credential(
         && !should_refresh_credential(
             CredentialRefreshMode::NearExpiry,
             credential.access_token_expires_at,
+            credential.next_refresh_at,
             credential.updated_at,
             Utc::now(),
         )
@@ -2591,7 +2703,7 @@ async fn stored_credential_row(
 ) -> Result<Option<CredentialRow>, ApiError> {
     sqlx::query_as::<_, CredentialRow>(
         "SELECT credential_ciphertext, credential_nonce, access_token_expires_at,
-         refresh_token_expires_at, refresh_attempted_at, updated_at
+         refresh_token_expires_at, refresh_attempted_at, next_refresh_at, updated_at
          FROM agent_connection_credentials
          WHERE connection_id = $1",
     )
@@ -2657,7 +2769,7 @@ pub(crate) async fn mark_reauthorization_required_if_current(
     let mut transaction = state.pool.begin().await.map_err(database_error)?;
     let credential = sqlx::query_as::<_, CredentialRow>(
         "SELECT credential_ciphertext, credential_nonce, access_token_expires_at,
-                refresh_token_expires_at, refresh_attempted_at, updated_at
+                refresh_token_expires_at, refresh_attempted_at, next_refresh_at, updated_at
          FROM agent_connection_credentials WHERE connection_id = $1 FOR UPDATE",
     )
     .bind(connection_id)
@@ -2765,7 +2877,7 @@ async fn refresh_provider_token(
                 .await
         }
     }
-    .map_err(|error| ProviderRefreshError::Api(upstream_network_error(provider, error)))?;
+    .map_err(|error| ProviderRefreshError::Transient(upstream_network_error(provider, error)))?;
 
     if !response.status().is_success() {
         let status = response.status();
@@ -2773,14 +2885,17 @@ async fn refresh_provider_token(
         if refresh_requires_reauthorization(provider, status, payload.as_ref()) {
             return Err(ProviderRefreshError::ReauthorizationRequired);
         }
-        return Err(ProviderRefreshError::Api(upstream_status_error(
-            provider, status,
-        )));
+        let error = upstream_status_error(provider, status);
+        return Err(if refresh_status_is_transient(status) {
+            ProviderRefreshError::Transient(error)
+        } else {
+            ProviderRefreshError::Api(error)
+        });
     }
 
     parse_token_response(provider, response)
         .await
-        .map_err(ProviderRefreshError::Api)
+        .map_err(ProviderRefreshError::Transient)
 }
 
 fn refresh_requires_reauthorization(
@@ -3142,16 +3257,15 @@ mod tests {
         AuthorizationSecret, CODEX_REDIRECT_URI, CODEX_SCOPES, CredentialRefreshMode,
         GEMINI_SCOPES, GROK_SCOPES, RECOVERABLE_REAUTHORIZATION_MESSAGES, connection_metadata,
         decrypt_json, encrypt_json, exchange_gemini_code, fetch_claude_profile,
-        gemini_code_assist_body, mask_account_label, merge_token_response, parse_callback_value,
-        provider_account_identity, provider_expiry_at, reauthorization_identity_matches,
-        refresh_provider_token, refresh_requires_reauthorization, scheduled_refresh_after,
-        should_refresh_credential, start_claude_authorization, start_codex_authorization,
-        start_gemini_authorization, start_grok_authorization, token_claims, validate_api_key_input,
-        validate_prompt_url, validate_static_key,
+        gemini_code_assist_body, mask_account_label, merge_token_response, next_regular_refresh_at,
+        parse_callback_value, provider_account_identity, provider_expiry_at,
+        reauthorization_identity_matches, refresh_provider_token, refresh_requires_reauthorization,
+        refresh_status_is_transient, should_refresh_credential, start_claude_authorization,
+        start_codex_authorization, start_gemini_authorization, start_grok_authorization,
+        token_claims, validate_api_key_input, validate_prompt_url, validate_static_key,
     };
     use crate::core::AppConfig;
     use chrono::{Duration, Utc};
-    use uuid::Uuid;
 
     #[test]
     fn authorization_secrets_are_encrypted_and_round_trip() {
@@ -3822,42 +3936,98 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn scheduled_credentials_refresh_every_thirty_to_forty_five_minutes() {
-        let now = chrono::DateTime::parse_from_rfc3339("2026-09-15T00:00:00Z")
+    fn at(rfc3339: &str) -> chrono::DateTime<Utc> {
+        chrono::DateTime::parse_from_rfc3339(rfc3339)
             .unwrap()
-            .to_utc();
-        let earliest = Uuid::from_bytes([0; 16]);
-        let mut latest_bytes = [0; 16];
-        latest_bytes[15] = u8::MAX;
-        let latest = Uuid::from_bytes(latest_bytes);
+            .to_utc()
+    }
 
-        assert_eq!(scheduled_refresh_after(earliest), Duration::minutes(30));
-        assert_eq!(
-            scheduled_refresh_after(latest),
-            Duration::seconds(44 * 60 + 56)
-        );
-        for connection_id in [earliest, latest, Uuid::new_v4(), Uuid::new_v4()] {
-            let interval = scheduled_refresh_after(connection_id);
-            assert!(interval >= Duration::minutes(30) && interval < Duration::minutes(45));
+    #[test]
+    fn scheduled_credentials_refresh_when_their_stored_time_arrives() {
+        let now = at("2026-09-15T00:00:00Z");
+
+        for mode in [CredentialRefreshMode::Stale, CredentialRefreshMode::Recover] {
             assert!(!should_refresh_credential(
-                CredentialRefreshMode::Stale(interval),
+                mode,
                 None,
-                now - interval + Duration::seconds(1),
+                now + Duration::seconds(1),
+                now - Duration::hours(2),
                 now,
             ));
             assert!(should_refresh_credential(
-                CredentialRefreshMode::Stale(interval),
+                mode,
                 None,
-                now - interval,
+                now,
+                now - Duration::seconds(1),
                 now,
             ));
             assert!(should_refresh_credential(
-                CredentialRefreshMode::Recover(interval),
+                mode,
                 None,
-                now - interval,
+                now - Duration::minutes(1),
+                now,
                 now,
             ));
+        }
+    }
+
+    #[test]
+    fn a_refreshed_credential_is_due_again_exactly_thirty_minutes_later() {
+        let now = at("2026-09-15T00:00:00Z");
+
+        assert_eq!(
+            next_regular_refresh_at(now, None),
+            now + Duration::minutes(30)
+        );
+        // A refresh token that outlives the interval does not change it.
+        assert_eq!(
+            next_regular_refresh_at(now, Some(now + Duration::days(29))),
+            now + Duration::minutes(30)
+        );
+    }
+
+    #[test]
+    fn a_refresh_token_expiring_before_the_interval_is_refreshed_ahead_of_it() {
+        let now = at("2026-09-15T00:00:00Z");
+
+        // 26.5 minutes left: refresh five minutes before it ends.
+        assert_eq!(
+            next_regular_refresh_at(now, Some(now + Duration::seconds(1590))),
+            now + Duration::seconds(1590 - 300)
+        );
+        // Closer than the margin, the next try is a minute away, not a loop.
+        assert_eq!(
+            next_regular_refresh_at(now, Some(now + Duration::minutes(3))),
+            now + Duration::seconds(60)
+        );
+        // An expiry already behind us is ignored rather than refreshed around.
+        assert_eq!(
+            next_regular_refresh_at(now, Some(now - Duration::minutes(10))),
+            now + Duration::minutes(30)
+        );
+    }
+
+    #[test]
+    fn only_provider_unavailability_is_a_transient_refresh_failure() {
+        use reqwest::StatusCode;
+
+        for status in [
+            StatusCode::INTERNAL_SERVER_ERROR,
+            StatusCode::BAD_GATEWAY,
+            StatusCode::SERVICE_UNAVAILABLE,
+            StatusCode::GATEWAY_TIMEOUT,
+            StatusCode::TOO_MANY_REQUESTS,
+            StatusCode::REQUEST_TIMEOUT,
+        ] {
+            assert!(refresh_status_is_transient(status), "{status}");
+        }
+        for status in [
+            StatusCode::BAD_REQUEST,
+            StatusCode::UNAUTHORIZED,
+            StatusCode::FORBIDDEN,
+            StatusCode::NOT_FOUND,
+        ] {
+            assert!(!refresh_status_is_transient(status), "{status}");
         }
     }
 
@@ -3870,12 +4040,14 @@ mod tests {
         assert!(should_refresh_credential(
             CredentialRefreshMode::Nightly(day_start),
             None,
+            day_start,
             day_start - chrono::Duration::seconds(1),
             day_start,
         ));
         assert!(!should_refresh_credential(
             CredentialRefreshMode::Nightly(day_start),
             None,
+            day_start,
             day_start,
             day_start,
         ));
@@ -3891,11 +4063,13 @@ mod tests {
             CredentialRefreshMode::NearExpiry,
             Some(now + chrono::Duration::minutes(6)),
             now - chrono::Duration::hours(2),
+            now - chrono::Duration::hours(2),
             now,
         ));
         assert!(should_refresh_credential(
             CredentialRefreshMode::NearExpiry,
             Some(now + chrono::Duration::minutes(5)),
+            now,
             now,
             now,
         ));
@@ -3935,7 +4109,7 @@ mod tests {
 
     #[test]
     fn a_verification_challenge_is_recoverable_by_the_sweep() {
-        let mode = CredentialRefreshMode::Recover(Duration::minutes(30));
+        let mode = CredentialRefreshMode::Recover;
 
         assert!(mode.records_scheduled_attempt());
         assert!(mode.restores_availability());

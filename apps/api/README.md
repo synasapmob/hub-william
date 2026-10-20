@@ -195,9 +195,13 @@ timer is an atomic half-open probe.
 An owner can force-refresh the provider credential from pool management or from
 a linked organization agent; a rejected or missing refresh token starts official
 authorization again on the same pool record. The API also refreshes every
-connected OAuth credential once it has gone 30 minutes plus a stable per-account
-offset of up to 15 minutes without rotation, so each account refreshes every
-30-45 minutes whether or not it is used. The same sweep retries accounts the
+connected OAuth credential 30 minutes after its previous refresh, from a stored
+`next_refresh_at`, whether or not it is used. A refresh token that the provider
+reports will expire sooner is refreshed five minutes before it does. A scheduled
+refresh that fails on the network or provider availability is tried once more
+after three seconds (two attempts in all) and otherwise waits for its next
+regular refresh; a refresh token the provider rejects fails at once and is not
+retried. The same sweep retries accounts the
 gateway marked for reconnect, and accounts whose old reconnect prompt expired,
 restoring them when a refresh succeeds. Per-account failures are isolated so one
 stale pool cannot stop the remaining sweep. Around 00:00 Vietnam time, it checks
