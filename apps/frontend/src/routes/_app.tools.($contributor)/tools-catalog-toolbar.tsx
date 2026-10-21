@@ -2,15 +2,12 @@ import { GitPullRequest, Search, X } from "lucide-react";
 
 import Flex from "@/components/ui/flex";
 import { Input } from "@/components/ui/input";
-import { catalogueLabel } from "@/services/catalog/catalog-collections";
 import { GITHUB_REPOSITORY_URL } from "@/services/catalog/catalog-service";
 
 import ToolsCatalogMenu from "./tools-catalog-menu";
 
 interface ToolsCatalogToolbarProps {
   contributor: string | null;
-  /** The catalogue folder on show, or null when there is none. */
-  catalogue: string | null;
   documentCount: number;
   collectionCount: number;
   searchQuery: string;
@@ -20,7 +17,6 @@ interface ToolsCatalogToolbarProps {
 /** Search and catalogue-wide actions, without duplicating collection nodes. */
 export default function ToolsCatalogToolbar({
   contributor,
-  catalogue,
   documentCount,
   collectionCount,
   searchQuery,
@@ -42,7 +38,7 @@ export default function ToolsCatalogToolbar({
               aria-label="Search the catalogue"
               placeholder={
                 contributor
-                  ? `Search @${contributor}'s ${catalogueLabel(catalogue ?? "tools").toLowerCase()}...`
+                  ? `Search @${contributor}'s tools...`
                   : "Search tools and installers..."
               }
               onChange={(event) => onSearchQueryChange(event.target.value)}

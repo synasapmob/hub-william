@@ -94,7 +94,7 @@ export default function ToolsCatalogToolUsage({
     );
   }
 
-  if (collection.id === "hub-skills") {
+  if (collection.id === "skills") {
     return (
       <div className={container()}>
         <div className={section()}>
@@ -102,7 +102,7 @@ export default function ToolsCatalogToolUsage({
 
           <p className={description()}>
             Download all, unzip it, copy each skill folder from{" "}
-            <code>contributors/synasapmob/skills/hub-skills/</code> into{" "}
+            <code>contributors/synasapmob/tools/skills/</code> into{" "}
             <code>~/.agents/skills</code>, and copy <code>rules/AGENTS.md</code>{" "}
             to <code>~/.agents/AGENTS.md</code>.
           </p>
@@ -110,8 +110,8 @@ export default function ToolsCatalogToolUsage({
 
         <div className={section()}>
           <p className={description()}>
-            Prefer one command? Link skills, under Scripts, does the copying and
-            linking for you.
+            Prefer one command? Link skills does the copying and linking for
+            you.
           </p>
         </div>
       </div>

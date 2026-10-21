@@ -52,12 +52,9 @@ apps/frontend/public/{gateway,opencode,omp}.py
                                        standalone tool installers
 apps/frontend/scripts/installers/tests/ installer and gateway proxy tests
 apps/telegram/                         Telegram adapter for the business API
-contributors/*/<catalogue>/            shared and contributed tools, skills and scripts
+contributors/*/tools/                  shared and contributor tool documentation
 infra/                                 deployment configuration
 ```
-
-Development harnesses, skills, hooks and templates remain repository workflow
-sources. They are not part of the app catalogue or its downloadable build.
 
 The Rust API owns authentication, rotating browser sessions, encrypted provider
 connections, account pools, organization membership and shares, and user-scoped
@@ -127,24 +124,23 @@ it into their provider settings. You can also pass `--key=YOUR_GATEWAY_KEY` afte
 `--url` if you prefer to supply a key explicitly. An invalid or revoked key
 stops installation before either config is changed.
 
-Catalogue files are included at build time and remain downloadable as their
-original bytes. `/catalog/index.json` lists the sources;
-`/catalog/collections/<contributor>/<catalogue>/<item>.zip` contains one item. A
-contributor folder may hold several catalogues (`tools`, `skills`, `scripts`);
-`/tools/<contributor>` switches between them.
+Tool documentation is included at build time and remains downloadable as its
+original bytes. `/catalog/index.json` lists tool sources;
+`/catalog/collections/<contributor>/tools/<tool>.zip` contains a tool's documentation.
 
 ### Install the shared skills
 
-The Hub skills (`contributors/synasapmob/skills/hub-skills/`: three skills and the
-shared rules) are one card and one zip. They install into `~/.agents` with one
-command, or by hand from `hub-skills.zip`:
+The **Skills** tool of `@synasapmob` (`contributors/synasapmob/tools/skills/`: three
+skills and the shared rules) is one card and one zip. **Link skills** installs it into
+`~/.agents` with one command, and `unlink.sh` undoes it:
 
 ```sh
-curl -fsSL https://hub-william.site/catalog/contributors/synasapmob/scripts/link-skills/link.sh | bash
+curl -fsSL https://hub-william.site/catalog/contributors/synasapmob/tools/link-skills/link.sh | bash
 ```
 
 It only adds: existing skills are backed up, an existing rules file is kept, and
-existing agent links are left alone. `unlink.sh` beside it undoes the install.
+existing agent links are left alone. To install by hand, download
+`/catalog/collections/synasapmob/tools/skills.zip` and copy its contents into `~/.agents`.
 
 ## Contributing
 
@@ -153,8 +149,7 @@ Community pull requests are for Markdown tool documentation in the author's own
 The Tools catalogue groups docs by contributor and tool; it has no separate
 category field. For API, frontend, installer, workflow, convention, or other
 repository changes, [open an issue](https://github.com/synasapmob/hub-william/issues/new/choose)
-instead. `contributors/default/` and every catalogue other than `tools/` are
-maintained internally. Read the [contribution guide](.github/CONTRIBUTING.md) before
+instead. `contributors/default/` is maintained internally. Read the [contribution guide](.github/CONTRIBUTING.md) before
 opening a pull request.
 
 ## Stack

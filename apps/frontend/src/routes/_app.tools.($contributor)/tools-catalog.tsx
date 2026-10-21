@@ -6,7 +6,6 @@ import type { CatalogCollection } from "@/services/catalog/catalog-types";
 
 import ToolsCatalogCollectionCard from "./tools-catalog-collection-card";
 import ToolsCatalogCollectionDetail from "./tools-catalog-collection-detail";
-import ToolsCatalogSwitch from "./tools-catalog-switch";
 import ToolsCatalogToolbar from "./tools-catalog-toolbar";
 
 function subscribeToNothing() {
@@ -14,17 +13,16 @@ function subscribeToNothing() {
 }
 
 const NODE_PARAM = "node";
-const CATALOGUE_PARAM = "catalogue";
 
 interface ToolsCatalogProps {
   contributor?: string | null;
 }
 
-/** Shared and contributed catalogues: tools, and the skills and scripts a contributor publishes. */
+/** Shared and contributed tools keep their existing catalogue workflow. */
 export default function ToolsCatalog({
   contributor = null,
 }: ToolsCatalogProps) {
-  const catalogues = catalogService.catalogues(contributor);
+  const collections = catalogService.collections(contributor);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchParams, setSearchParams] = useSearchParams();
   const hydrated = useSyncExternalStore(
@@ -32,27 +30,13 @@ export default function ToolsCatalog({
     () => true,
     () => false,
   );
-  const catalogue = catalogService.resolveCatalogue(
-    contributor,
-    hydrated ? searchParams.get(CATALOGUE_PARAM) : null,
-  );
-  const collections = catalogService.collections(contributor, catalogue);
   const selectedCollection = catalogService.findCollection(
     hydrated ? searchParams.get(NODE_PARAM) : null,
     contributor,
-    catalogue,
   );
   const visibleCollections = collections.filter((collection) =>
     catalogService.matchesCollectionQuery(collection, searchQuery),
   );
-
-  function selectCatalogue(next: string) {
-    const params = new URLSearchParams(searchParams);
-
-    params.set(CATALOGUE_PARAM, next);
-    params.delete(NODE_PARAM);
-    setSearchParams(params);
-  }
 
   function selectCollection(collection: CatalogCollection | null) {
     const next = new URLSearchParams(searchParams);
@@ -77,20 +61,11 @@ export default function ToolsCatalog({
 
       <ToolsCatalogToolbar
         contributor={contributor}
-        catalogue={catalogue}
-        documentCount={catalogService.documentCount(contributor, catalogue)}
+        documentCount={catalogService.documentCount(contributor)}
         collectionCount={collections.length}
         searchQuery={searchQuery}
         onSearchQueryChange={setSearchQuery}
       />
-
-      {catalogues.length > 1 ? (
-        <ToolsCatalogSwitch
-          catalogues={catalogues}
-          current={catalogue}
-          onSelect={selectCatalogue}
-        />
-      ) : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-6 sm:py-8">
         {visibleCollections.length > 0 ? (
@@ -106,11 +81,11 @@ export default function ToolsCatalog({
         ) : (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-card/80 px-6 py-16 text-center">
             <p className="text-sm font-medium text-zinc-800">
-              Nothing matches “{searchQuery}”.
+              No tool matches “{searchQuery}”.
             </p>
 
             <p className="mt-1 text-xs text-muted-foreground">
-              Search checks names and their documentation.
+              Search checks tool names and their documentation.
             </p>
           </div>
         )}

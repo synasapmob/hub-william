@@ -30,11 +30,8 @@ fail and may be closed. Splitting an out-of-scope code change across tool docs
 does not make it in scope. Maintainers review content and links before merging;
 passing automation is not acceptance.
 
-Catalogues other than `tools/`, such as the owner's `skills/` and `scripts/`,
-are maintained by the repository owner, not by community pull requests. New
-tools appear automatically in the Tools contributor selector and at
-`/tools/<github-login>` after an accepted change is deployed. There is no
-category field to set.
+New tools appear automatically in the Tools contributor selector and at `/tools/<github-login>` after an accepted change is
+deployed. There is no category field to set.
 
 ## Propose a change outside tool documentation
 

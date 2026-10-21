@@ -1,6 +1,6 @@
 # ADR-0024: Tools, Agents and demo Playground
 
-- Status: Accepted; demo-only Playground scope superseded by ADR-0025; four-page app list superseded by ADR-0027; tools-only catalogue and `libraries/` source superseded by ADR-0051
+- Status: Accepted; demo-only Playground scope superseded by ADR-0025; four-page app list superseded by ADR-0027; `libraries/` source superseded by ADR-0051
 - Date: 2026-09-22
 - Partially supersedes: ADR-0008's inclusion of the Documents machine installer
 

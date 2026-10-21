@@ -7,9 +7,9 @@
 # ~/.agents/.backups first, and a rules file you already have is left alone.
 #
 # Run it from the site:
-#   curl -fsSL https://hub-william.site/catalog/contributors/synasapmob/scripts/link-skills/link.sh | bash
+#   curl -fsSL https://hub-william.site/catalog/contributors/synasapmob/tools/link-skills/link.sh | bash
 # Or point it at a skills folder you unpacked yourself:
-#   bash link.sh --from contributors/synasapmob/skills/hub-skills
+#   bash link.sh --from contributors/synasapmob/tools/skills
 #
 # Undo it with unlink.sh, next to this file.
 # HUB_WILLIAM_ORIGIN and AGENTS_HOME override the site and the target folder.
@@ -18,8 +18,8 @@ set -euo pipefail
 
 ORIGIN="${HUB_WILLIAM_ORIGIN:-https://hub-william.site}"
 AGENTS_HOME="${AGENTS_HOME:-$HOME/.agents}"
-BUNDLE="catalog/collections/synasapmob/skills/hub-skills.zip"
-BUNDLE_ROOT="contributors/synasapmob/skills/hub-skills"
+BUNDLE="catalog/collections/synasapmob/tools/skills.zip"
+BUNDLE_ROOT="contributors/synasapmob/tools/skills"
 
 die() {
   echo "link-skills: $*" >&2

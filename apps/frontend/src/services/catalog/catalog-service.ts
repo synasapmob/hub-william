@@ -1,9 +1,7 @@
 import {
+  collectionIdForPath,
   collectionPresentation,
-  collectionRefForPath,
-  compareCatalogueIds,
   compareCollectionIds,
-  type CollectionRef,
 } from "./catalog-collections";
 import type {
   CatalogArchive,
@@ -15,7 +13,7 @@ export const GITHUB_REPOSITORY_URL =
   "https://github.com/synasapmob/hub-william";
 const PUBLISHED_SITE_ORIGIN = "https://hub-william.site";
 
-const sources = import.meta.glob("../../../../../contributors/*/*/**/*", {
+const sources = import.meta.glob("../../../../../contributors/*/tools/**/*", {
   query: "?raw",
   import: "default",
   eager: true,
@@ -66,108 +64,71 @@ function scriptComment(source: string) {
   };
 }
 
-function describeFile(path: string, source: string): CatalogCollectionFile {
-  const name = path.split("/").at(-1) ?? path;
-  const { title = name, description } = name.endsWith(".md")
-    ? {
-        title: /^#\s+(.+)$/m.exec(source)?.[1],
-        description: summaryFromSource(source),
-      }
-    : scriptComment(source);
-
-  return {
-    path,
-    url: siteAssetUrl(`catalog/${path}`),
-    name,
-    title,
-    description,
-    source,
-  };
-}
-
-const sourceFiles = Object.entries(sources)
+const toolFiles: CatalogCollectionFile[] = Object.entries(sources)
+  .filter(
+    ([path]) =>
+      collectionIdForPath(
+        path.replace(/^.*\/contributors\//, "contributors/"),
+      ) !== null,
+  )
   .map(([path, source]) => {
     const normalized = path.replace(/^.*\/contributors\//, "contributors/");
-    return { path: normalized, ref: collectionRefForPath(normalized), source };
+    const name = normalized.split("/").at(-1) ?? normalized;
+    const { title = name, description } = name.endsWith(".md")
+      ? {
+          title: /^#\s+(.+)$/m.exec(source)?.[1],
+          description: summaryFromSource(source),
+        }
+      : scriptComment(source);
+    return {
+      path: normalized,
+      url: siteAssetUrl(`catalog/${normalized}`),
+      name,
+      title,
+      description,
+      source,
+    };
   })
   .sort((left, right) => left.path.localeCompare(right.path));
 
-const filesByCollection = new Map<
-  string,
-  { ref: CollectionRef; files: CatalogCollectionFile[] }
->();
-for (const { path, ref, source } of sourceFiles) {
-  if (!ref) continue;
-
-  const key = `${ref.owner}/${ref.catalogue}/${ref.id}`;
-  const collection = filesByCollection.get(key) ?? { ref, files: [] };
-  collection.files.push(describeFile(path, source));
-  filesByCollection.set(key, collection);
+const collectionFilesByOwner = new Map<string, CatalogCollectionFile[]>();
+for (const file of toolFiles) {
+  const key = `${file.path.split("/")[1]}/${collectionIdForPath(file.path)}`;
+  const files = collectionFilesByOwner.get(key) ?? [];
+  files.push(file);
+  collectionFilesByOwner.set(key, files);
 }
 
-const allCollections: CatalogCollection[] = [...filesByCollection.values()]
-  .filter(({ files }) => files.some((file) => file.path.endsWith(".md")))
-  .map(({ ref, files }) => ({
-    id: ref.id,
-    catalogue: ref.catalogue,
-    contributor: ref.owner === "default" ? null : ref.owner,
-    ...collectionPresentation(ref.id),
-    files,
-  }))
+const tools: CatalogCollection[] = [...collectionFilesByOwner.entries()]
+  .filter(([, files]) => files.some((file) => file.path.endsWith(".md")))
+  .map(([key, files]) => {
+    const [owner, id] = key.split("/");
+    return {
+      id,
+      contributor: owner === "default" ? null : owner,
+      ...collectionPresentation(id),
+      files,
+    };
+  })
   .sort((left, right) => compareCollectionIds(left.id, right.id));
 
 class CatalogService {
   readonly publishedSiteOrigin = PUBLISHED_SITE_ORIGIN;
 
   /**
-   * List the collections of the shared catalogue, or of one contributor,
-   * optionally narrowed to one catalogue folder
+   * List the tool collections of the shared catalogue, or of one contributor
    */
-  collections(
-    contributor: string | null = null,
-    catalogue: string | null = null,
-  ) {
-    return allCollections.filter(
-      (collection) =>
-        collection.contributor === contributor &&
-        (catalogue === null || collection.catalogue === catalogue),
-    );
-  }
-
-  /**
-   * List the catalogue folders the shared catalogue, or one contributor, publishes
-   */
-  catalogues(contributor: string | null = null) {
-    return [
-      ...new Set(
-        this.collections(contributor).map((collection) => collection.catalogue),
-      ),
-    ].sort(compareCatalogueIds);
-  }
-
-  /**
-   * The catalogue to show: the requested one when it exists, else the first
-   */
-  resolveCatalogue(contributor: string | null, requested: string | null) {
-    const available = this.catalogues(contributor);
-    return (
-      available.find((catalogue) => catalogue === requested?.toLowerCase()) ??
-      available[0] ??
-      null
-    );
+  collections(contributor: string | null = null) {
+    return tools.filter((tool) => tool.contributor === contributor);
   }
 
   /**
    * Find a collection by id, case-insensitively
    */
-  findCollection(
-    id: string | null,
-    contributor: string | null = null,
-    catalogue: string | null = null,
-  ) {
+  findCollection(id: string | null, contributor: string | null = null) {
     return (
-      this.collections(contributor, catalogue).find(
-        (collection) => collection.id === id?.toLowerCase(),
+      this.collections(contributor).find(
+        (tool) => tool.id === id?.toLowerCase(),
       ) ?? null
     );
   }
@@ -178,23 +139,19 @@ class CatalogService {
   contributors() {
     return [
       ...new Set(
-        allCollections
-          .map((collection) => collection.contributor)
+        tools
+          .map((tool) => tool.contributor)
           .filter((name): name is string => name !== null),
       ),
     ].sort();
   }
 
   /**
-   * Count the Markdown documents of the shared catalogue, or of one
-   * contributor, optionally within one catalogue folder
+   * Count the Markdown documents of the shared catalogue, or of one contributor
    */
-  documentCount(
-    contributor: string | null = null,
-    catalogue: string | null = null,
-  ) {
-    return this.collections(contributor, catalogue)
-      .flatMap((collection) => collection.files)
+  documentCount(contributor: string | null = null) {
+    return this.collections(contributor)
+      .flatMap((tool) => tool.files)
       .filter((file) => file.path.endsWith(".md")).length;
   }
 
@@ -228,7 +185,7 @@ class CatalogService {
     return {
       name: `${collection.id}.zip`,
       url: siteAssetUrl(
-        `catalog/collections/${collection.contributor ?? "default"}/${collection.catalogue}/${collection.id}.zip`,
+        `catalog/collections/${collection.contributor ?? "default"}/tools/${collection.id}.zip`,
       ),
     };
   }
@@ -254,7 +211,7 @@ class CatalogService {
    */
   linkSkillsScriptUrl(script: "link.sh" | "unlink.sh", origin?: string) {
     return siteAssetUrl(
-      `catalog/contributors/synasapmob/scripts/link-skills/${script}`,
+      `catalog/contributors/synasapmob/tools/link-skills/${script}`,
       origin,
     );
   }

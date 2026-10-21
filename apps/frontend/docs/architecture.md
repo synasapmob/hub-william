@@ -3,9 +3,8 @@
 Hub William has a React Router frontend and a Rust business API with an
 in-process streaming gateway. The app exposes Home, Tools, Agents, Organization
 and a model Playground. Libraries, Activities and the Documents/MCP machine
-installer are retired; see [ADR-0024](../../../docs/decisions/0024-tools-agents-playground.md),
-[ADR-0027](../../../docs/decisions/0027-organizations-and-session-agent-access.md) and
-[ADR-0051](../../../docs/decisions/0051-catalogue-folders-and-shared-skills.md).
+installer are retired; see [ADR-0024](../../../docs/decisions/0024-tools-agents-playground.md)
+and [ADR-0027](../../../docs/decisions/0027-organizations-and-session-agent-access.md).
 
 ## Frontend routes
 
@@ -14,8 +13,8 @@ installer are retired; see [ADR-0024](../../../docs/decisions/0024-tools-agents-
   retired Documents setup section is removed.
 - `/tools` shows shared tools, currently Gateway, OpenCode, OMP, DOWNLOAD REEL, TEXT TO AUDIO and AUDIO TO TEXT. AUDIO TO TEXT
   transcribes in the browser with Vosk ([ADR-0049](../../../docs/decisions/0049-browser-local-vosk-audio-to-text.md)). The existing
-  contributor selector and `/tools/<contributor>` show contributed tools, skills
-  and scripts; a switch (`?catalogue=`) appears when a contributor publishes more than one. Search checks tool metadata and
+  contributor selector and `/tools/<contributor>` show contributed tools.
+  Search checks tool metadata and
   documentation filenames. Selecting a tool sets `?node=` and opens a sheet
   containing instructions, original source downloads and a generated ZIP.
 - `/agents` groups connected accounts by provider. The viewport-height shell
@@ -111,20 +110,18 @@ route under `src/routes/_app.tools.($contributor)/`.
 
 ## Static tool documentation
 
-`src/services/catalog/` reads `contributors/*/<catalogue>/<item>/` using eager raw
-imports. Every first-level folder of a contributor is a catalogue and every item
-folder is a card.
+`src/services/catalog/` reads `contributors/*/tools/` using eager raw imports.
 Gateway, OpenCode, OMP and DOWNLOAD REEL keep their presentation and ordering; new tool
 folders remain discoverable with a derived label. File titles and descriptions come from their
-existing Markdown; the service does not rewrite sources or render Markdown as
-HTML.
+existing Markdown, or from the leading comment of a script; the service does not
+rewrite sources or render Markdown as HTML. A tool folder may hold other text
+files, such as the shell scripts of `link-skills`.
 
-The build plugin publishes catalogue directories as original files under
-`/catalog/contributors/<owner>/<catalogue>/`, item ZIPs under
-`/catalog/collections/<owner>/<catalogue>/`, and `/catalog/index.json`.
-Archives retain repository-relative paths and deterministic timestamps. Every
-published file is bundled into the frontend as text, so catalogue folders hold
-text files of modest size.
+The build plugin publishes tool directories as original files under
+`/catalog/contributors/<owner>/tools/`, tool ZIPs under
+`/catalog/collections/<owner>/tools/`, and `/catalog/index.json`. Archives retain
+repository-relative paths and deterministic timestamps. Every published file is
+bundled into the frontend as text, so tool folders hold text files of modest size.
 
 Library taxonomies, the retired installer/MCP tool sources, MCP registry
 discovery and whole-repository catalogue archives are removed. Tool contribution

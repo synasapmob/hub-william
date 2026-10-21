@@ -26,7 +26,7 @@ const INSTALL_USAGE_IDS = [
   "gateway",
   "opencode",
   "omp",
-  "hub-skills",
+  "skills",
   "link-skills",
 ];
 

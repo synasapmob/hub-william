@@ -9,8 +9,6 @@ export interface CatalogCollectionFile {
 
 export interface CatalogCollection {
   id: string;
-  /** The contributor folder it lives in: tools, skills, scripts, ... */
-  catalogue: string;
   contributor: string | null;
   label: string;
   summary: string;

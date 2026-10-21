@@ -1,10 +1,10 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { strToU8, zipSync } from "fflate";
 import type { Plugin } from "vite";
 
-import { collectionRefForPath } from "../../src/services/catalog/catalog-collections.js";
+import { collectionIdForPath } from "../../src/services/catalog/catalog-collections.js";
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
 const ARCHIVE_MTIME = new Date("1980-01-01T00:00:00Z");
@@ -14,7 +14,7 @@ interface CatalogFile {
   contents: string;
 }
 
-/** Publish catalogue sources and per-item archives with unchanged bytes. */
+/** Publish tool sources and per-contributor archives with unchanged bytes. */
 export function catalogEndpoint(): Plugin {
   return {
     name: "hub-william-catalog-endpoint",
@@ -36,9 +36,9 @@ export function catalogEndpoint(): Plugin {
             const normalized = relative(REPOSITORY_ROOT, path)
               .split(sep)
               .join("/");
-            const ref = collectionRefForPath(normalized);
-            if (!ref) continue;
-            const key = `${ref.owner}/${ref.catalogue}/${ref.id}`;
+            const id = collectionIdForPath(normalized);
+            if (!id) continue;
+            const key = `${normalized.split("/")[1]}/tools/${id}`;
             const members = grouped.get(key) ?? [];
             members.push({
               path: normalized,
@@ -53,7 +53,8 @@ export function catalogEndpoint(): Plugin {
         withFileTypes: true,
       }).sort((left, right) => left.name.localeCompare(right.name))) {
         if (!owner.isDirectory() || owner.name.startsWith(".")) continue;
-        walk(join(contributorsRoot, owner.name));
+        const directory = join(contributorsRoot, owner.name, "tools");
+        if (existsSync(directory)) walk(directory);
       }
       const collections = [...grouped.entries()].map(([id, members]) => {
         files.push(...members);
@@ -91,7 +92,7 @@ export function catalogEndpoint(): Plugin {
         source: `${JSON.stringify(
           {
             description:
-              "Shared and contributed tool, skill and script documentation and downloads.",
+              "Shared and contributed tool documentation and downloads.",
             repository: "https://github.com/synasapmob/hub-william",
             count: files.length,
             documents: files.map((file) => ({

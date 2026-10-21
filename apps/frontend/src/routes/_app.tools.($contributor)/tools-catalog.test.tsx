@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -194,57 +194,27 @@ describe("ToolsCatalog", () => {
     expect(screen.getByRole("button", { name: "Copied" })).toBeVisible();
   });
 
-  it("offers no catalogue switch when there is a single folder", () => {
-    renderTools();
-
-    expect(
-      screen.queryByRole("group", { name: "Catalogue sections" }),
-    ).toBeNull();
-  });
-
-  it("switches between the skills and scripts a contributor publishes", async () => {
-    const user = userEvent.setup();
+  it("lists a contributor's skills and link script as two plain cards", () => {
     renderTools("/tools/synasapmob", "synasapmob");
 
-    const sections = screen.getByRole("group", { name: "Catalogue sections" });
-
-    expect(
-      within(sections).getByRole("button", { name: "Skills" }),
-    ).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: /HUB SKILLS/ })).toBeVisible();
-    expect(screen.queryByRole("button", { name: /LINK SKILLS/ })).toBeNull();
-
-    await user.click(within(sections).getByRole("button", { name: "Scripts" }));
-
-    expect(
-      within(sections).getByRole("button", { name: "Scripts" }),
-    ).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: /LINK SKILLS/ })).toBeVisible();
-    expect(screen.queryByRole("button", { name: /HUB SKILLS/ })).toBeNull();
+    expect(screen.getByRole("heading", { name: "SKILLS" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "LINK SKILLS" })).toBeVisible();
+    expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(2);
   });
 
-  it("opens the catalogue named in the address", () => {
-    renderTools("/tools/synasapmob?catalogue=scripts", "synasapmob");
+  it("keeps every skill in one sheet with a single download", () => {
+    renderTools("/tools/synasapmob?node=skills", "synasapmob");
 
-    expect(screen.getByRole("button", { name: /LINK SKILLS/ })).toBeVisible();
-    expect(
-      screen.getByRole("searchbox", { name: "Search the catalogue" }),
-    ).toHaveAttribute("placeholder", "Search @synasapmob's scripts...");
-  });
-
-  it("keeps every skill in one card with a single download", () => {
-    renderTools("/tools/synasapmob?node=hub-skills", "synasapmob");
-
-    expect(screen.getByRole("heading", { name: "Hub skills" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Skills" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "Files (4)" })).toBeVisible();
     expect(screen.getByRole("link", { name: "Download all" })).toHaveAttribute(
       "href",
-      `${window.location.origin}/catalog/collections/synasapmob/skills/hub-skills.zip`,
+      `${window.location.origin}/catalog/collections/synasapmob/tools/skills.zip`,
     );
     for (const skill of ["frontend-convention", "mock-data", "operator-cli"]) {
       expect(
         screen.getByRole("link", {
-          name: `contributors/synasapmob/skills/hub-skills/${skill}/SKILL.md`,
+          name: `contributors/synasapmob/tools/skills/${skill}/SKILL.md`,
         }),
       ).toBeVisible();
     }
@@ -254,28 +224,22 @@ describe("ToolsCatalog", () => {
   });
 
   it("shows how to install and remove the linked skills", () => {
-    renderTools(
-      "/tools/synasapmob?catalogue=scripts&node=link-skills",
-      "synasapmob",
-    );
+    renderTools("/tools/synasapmob?node=link-skills", "synasapmob");
 
     expect(screen.getByRole("heading", { name: "Link skills" })).toBeVisible();
     expect(
-      screen.getByRole("heading", { name: "How to install" }),
-    ).toBeVisible();
-    expect(
       screen.getByText(
-        `curl -fsSL ${window.location.origin}/catalog/contributors/synasapmob/scripts/link-skills/link.sh | bash`,
+        `curl -fsSL ${window.location.origin}/catalog/contributors/synasapmob/tools/link-skills/link.sh | bash`,
       ),
     ).toBeVisible();
     expect(
       screen.getByText(
-        `curl -fsSL ${window.location.origin}/catalog/contributors/synasapmob/scripts/link-skills/unlink.sh | bash`,
+        `curl -fsSL ${window.location.origin}/catalog/contributors/synasapmob/tools/link-skills/unlink.sh | bash`,
       ),
     ).toBeVisible();
     expect(screen.getByRole("link", { name: "Download all" })).toHaveAttribute(
       "href",
-      `${window.location.origin}/catalog/collections/synasapmob/scripts/link-skills.zip`,
+      `${window.location.origin}/catalog/collections/synasapmob/tools/link-skills.zip`,
     );
   });
 });

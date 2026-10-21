@@ -6,7 +6,7 @@
 # ~/.agents/AGENTS.md are left alone.
 #
 # Run it from the site:
-#   curl -fsSL https://hub-william.site/catalog/contributors/synasapmob/scripts/link-skills/unlink.sh | bash
+#   curl -fsSL https://hub-william.site/catalog/contributors/synasapmob/tools/link-skills/unlink.sh | bash
 #
 # AGENTS_HOME overrides the folder that link.sh installed into.
 
