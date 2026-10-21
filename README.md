@@ -52,8 +52,7 @@ apps/frontend/public/{gateway,opencode,omp}.py
                                        standalone tool installers
 apps/frontend/scripts/installers/tests/ installer and gateway proxy tests
 apps/telegram/                         Telegram adapter for the business API
-contributors/*/tools/                  shared and contributor tool documentation
-contributors/*/libraries/              repository development workflow sources
+contributors/*/<catalogue>/            shared and contributed tools, skills and scripts
 infra/                                 deployment configuration
 ```
 
@@ -128,9 +127,24 @@ it into their provider settings. You can also pass `--key=YOUR_GATEWAY_KEY` afte
 `--url` if you prefer to supply a key explicitly. An invalid or revoked key
 stops installation before either config is changed.
 
-Tool documentation is included at build time and remains downloadable as its
-original bytes. `/catalog/index.json` lists tool sources;
-`/catalog/collections/<contributor>/tools/<tool>.zip` contains a tool's documentation.
+Catalogue files are included at build time and remain downloadable as their
+original bytes. `/catalog/index.json` lists the sources;
+`/catalog/collections/<contributor>/<catalogue>/<item>.zip` contains one item and
+`/catalog/collections/<contributor>/<catalogue>.zip` a whole catalogue. A
+contributor folder may hold several catalogues (`tools`, `skills`, `scripts`);
+`/tools/<contributor>` switches between them.
+
+### Install the shared skills
+
+The skills and rules in `contributors/synasapmob/skills/` install into `~/.agents`
+with one command, or by hand from the `skills.zip` bundle:
+
+```sh
+curl -fsSL https://hub-william.site/catalog/contributors/synasapmob/scripts/link-skills/link.sh | bash
+```
+
+It only adds: existing skills are backed up, an existing rules file is kept, and
+existing agent links are left alone. `unlink.sh` beside it undoes the install.
 
 ## Contributing
 
@@ -139,8 +153,8 @@ Community pull requests are for Markdown tool documentation in the author's own
 The Tools catalogue groups docs by contributor and tool; it has no separate
 category field. For API, frontend, installer, workflow, convention, or other
 repository changes, [open an issue](https://github.com/synasapmob/hub-william/issues/new/choose)
-instead. `contributors/default/` and `contributors/*/libraries/` are maintained
-internally. Read the [contribution guide](.github/CONTRIBUTING.md) before
+instead. `contributors/default/` and every catalogue other than `tools/` are
+maintained internally. Read the [contribution guide](.github/CONTRIBUTING.md) before
 opening a pull request.
 
 ## Stack

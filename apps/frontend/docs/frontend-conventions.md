@@ -255,8 +255,7 @@ apps/frontend/public/
   omp.py                       # OMP provider installer
 
 contributors/
-  */tools/                     # shared and contributed tool sources
-  */libraries/                 # development workflow sources, not app pages
+  */<catalogue>/               # tools, skills and scripts, one card per item folder
 
 apps/frontend/scripts/installers/
   tests/                       # standalone installer and gateway proxy checks

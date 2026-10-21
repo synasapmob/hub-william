@@ -94,6 +94,41 @@ export default function ToolsCatalogToolUsage({
     );
   }
 
+  if (collection.id === "link-skills") {
+    return (
+      <div className={container()}>
+        <div className={section()}>
+          <p className={label()}>Install</p>
+
+          <p className={description()}>
+            Copies the skills into <code>~/.agents/skills</code>, saves the
+            shared rules as <code>~/.agents/AGENTS.md</code> and links the
+            agents it finds on your machine. A skill or rules file you already
+            have is backed up or left alone, never overwritten.
+          </p>
+
+          <CopyCommand
+            command={`curl -fsSL ${catalogService.linkSkillsScriptUrl("link.sh", siteOrigin)} | bash`}
+          />
+        </div>
+
+        <div className={section()}>
+          <p className={label()}>Remove</p>
+
+          <p className={description()}>
+            Removes the links and moves the installed skills to{" "}
+            <code>~/.agents/.backups</code>. Your own skills stay where they
+            are.
+          </p>
+
+          <CopyCommand
+            command={`curl -fsSL ${catalogService.linkSkillsScriptUrl("unlink.sh", siteOrigin)} | bash`}
+          />
+        </div>
+      </div>
+    );
+  }
+
   if (collection.id === "gateway") {
     const configs = gatewayAgentConfigs(resolveGatewayOrigin(siteOrigin));
 

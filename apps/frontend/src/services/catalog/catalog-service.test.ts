@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { catalogService } from "./catalog-service";
 import {
-  collectionIdForPath,
   collectionPresentation,
+  collectionRefForPath,
   compareCollectionIds,
 } from "./catalog-collections";
 
@@ -23,11 +23,15 @@ describe("supported tool catalogue", () => {
   });
 
   it("keeps new tool contributions discoverable and archives scoped to their owner", () => {
-    const id = collectionIdForPath(
+    const ref = collectionRefForPath(
       "contributors/alice/tools/review-helper/README.md",
     );
-    expect(id).toBe("review-helper");
-    expect(collectionPresentation(id!)).toMatchObject({
+    expect(ref).toEqual({
+      owner: "alice",
+      catalogue: "tools",
+      id: "review-helper",
+    });
+    expect(collectionPresentation(ref!.id)).toMatchObject({
       label: "Review helper",
     });
     expect(
@@ -48,26 +52,45 @@ describe("supported tool catalogue", () => {
     ).toBeNull();
   });
 
-  it("excludes workflow and retired tool sources from the product catalogue", () => {
+  it("excludes loose files and retired tool sources from the catalogue", () => {
+    expect(collectionRefForPath("contributors/default/README.md")).toBeNull();
     expect(
-      collectionIdForPath("contributors/default/libraries/harness/AGENTS.md"),
+      collectionRefForPath("contributors/default/tools/gateway.md"),
     ).toBeNull();
     expect(
-      collectionIdForPath(
+      collectionRefForPath(
         "contributors/default/tools/installer/machine-installer.md",
       ),
     ).toBeNull();
     expect(
-      collectionIdForPath("contributors/default/tools/mcp/mcp-servers.md"),
+      collectionRefForPath("contributors/default/tools/mcp/mcp-servers.md"),
     ).toBeNull();
     expect(
-      collectionIdForPath(
+      collectionRefForPath(
         "contributors/synasapmob/tools/installer/codex-workflow.md",
       ),
     ).toBeNull();
     expect(
-      collectionIdForPath("contributors/default/tools/gateway/gateway.md"),
-    ).toBe("gateway");
+      collectionRefForPath("contributors/default/tools/gateway/gateway.md"),
+    ).toEqual({ owner: "default", catalogue: "tools", id: "gateway" });
+  });
+
+  it("reads any folder a contributor publishes as a catalogue", () => {
+    expect(
+      collectionRefForPath("contributors/synasapmob/skills/mock-data/SKILL.md"),
+    ).toEqual({ owner: "synasapmob", catalogue: "skills", id: "mock-data" });
+    expect(
+      collectionRefForPath(
+        "contributors/synasapmob/scripts/link-skills/link.sh",
+      ),
+    ).toEqual({
+      owner: "synasapmob",
+      catalogue: "scripts",
+      id: "link-skills",
+    });
+    expect(
+      collectionRefForPath("contributors/synasapmob/skills/installer/SKILL.md"),
+    ).not.toBeNull();
   });
 
   it("keeps every tool file in its corresponding download archive", () => {
@@ -79,7 +102,7 @@ describe("supported tool catalogue", () => {
         url: `${window.location.origin}/catalog/collections/default/tools/${collection.id}.zip`,
       });
       for (const file of files) {
-        expect(collectionIdForPath(file.path)).toBe(collection.id);
+        expect(collectionRefForPath(file.path)?.id).toBe(collection.id);
         expect(file.url).toBe(`${window.location.origin}/catalog/${file.path}`);
         expect(file.source).toContain("# ");
       }
@@ -109,6 +132,97 @@ describe("supported tool catalogue", () => {
       "python3 - --url=https://<hub-william-origin>/api\n```",
     );
     expect(file?.source).toContain("hidden prompt");
+  });
+});
+
+describe("contributor catalogues", () => {
+  it("lists the folders a contributor publishes in display order", () => {
+    expect(catalogService.catalogues()).toEqual(["tools"]);
+    expect(catalogService.catalogues("synasapmob")).toEqual([
+      "skills",
+      "scripts",
+    ]);
+    expect(catalogService.catalogues("missing-contributor")).toEqual([]);
+    expect(catalogService.contributors()).toContain("synasapmob");
+  });
+
+  it("keeps each catalogue's collections apart", () => {
+    expect(
+      catalogService.collections("synasapmob", "skills").map((c) => c.id),
+    ).toEqual(["frontend-convention", "mock-data", "operator-cli", "rules"]);
+    expect(
+      catalogService.collections("synasapmob", "scripts").map((c) => c.id),
+    ).toEqual(["link-skills"]);
+    expect(catalogService.findCollection("skills")).toBeNull();
+    expect(
+      catalogService.findCollection("link-skills", "synasapmob", "skills"),
+    ).toBeNull();
+  });
+
+  it("falls back to the first catalogue when the requested one is unknown", () => {
+    expect(catalogService.resolveCatalogue("synasapmob", "scripts")).toBe(
+      "scripts",
+    );
+    expect(catalogService.resolveCatalogue("synasapmob", "SCRIPTS")).toBe(
+      "scripts",
+    );
+    expect(catalogService.resolveCatalogue("synasapmob", "nope")).toBe(
+      "skills",
+    );
+    expect(catalogService.resolveCatalogue("synasapmob", null)).toBe("skills");
+    expect(catalogService.resolveCatalogue("missing-contributor", null)).toBe(
+      null,
+    );
+  });
+
+  it("archives a collection under its own catalogue", () => {
+    const skill = catalogService.findCollection(
+      "mock-data",
+      "synasapmob",
+      "skills",
+    );
+
+    expect(catalogService.collectionArchive(skill!)).toEqual({
+      name: "mock-data.zip",
+      url: `${window.location.origin}/catalog/collections/synasapmob/skills/mock-data.zip`,
+    });
+  });
+
+  it("describes a skill from its text rather than its front matter", () => {
+    const skill = catalogService.findCollection(
+      "mock-data",
+      "synasapmob",
+      "skills",
+    );
+    const file = catalogService.collectionFiles(skill!)[0];
+
+    expect(file.title).toBe("Mock data");
+    expect(file.description).not.toMatch(/^---|name:/);
+  });
+
+  it("describes a script from its own leading comment", () => {
+    const link = catalogService.findCollection(
+      "link-skills",
+      "synasapmob",
+      "scripts",
+    );
+    const script = catalogService
+      .collectionFiles(link!)
+      .find((file) => file.name === "link.sh");
+
+    expect(script?.title).toBe(
+      "link-skills: install the Hub William skills into ~/.agents",
+    );
+    expect(script?.description).toMatch(/^Copies every skill/);
+    expect(script?.description).not.toContain("#");
+  });
+
+  it("serves the link script from the published catalogue", () => {
+    expect(
+      catalogService.linkSkillsScriptUrl("link.sh", "https://hub.example"),
+    ).toBe(
+      "https://hub.example/catalog/contributors/synasapmob/scripts/link-skills/link.sh",
+    );
   });
 });
 

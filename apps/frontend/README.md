@@ -2,7 +2,7 @@
 
 React Router SPA for Home, Tools, Agents, Organization and the model Playground. Home is the
 white paper. Tools reads shared and contributed documentation from
-`../../contributors/*/tools/` at build time, including Gateway, OpenCode and
+`../../contributors/*/<catalogue>/` at build time, including Gateway, OpenCode and
 OMP. Agents and the session-backed Playground use the Rust API. Playground
 streams text from the selected personal or organization-shared account and keeps
 its conversation only while the page remains open. Organization routes show

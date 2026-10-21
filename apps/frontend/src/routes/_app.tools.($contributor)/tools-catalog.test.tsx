@@ -1,14 +1,14 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import ToolsCatalog from "./tools-catalog";
 
-function renderTools(initialUrl = "/tools") {
+function renderTools(initialUrl = "/tools", contributor: string | null = null) {
   return render(
     <MemoryRouter initialEntries={[initialUrl]}>
-      <ToolsCatalog />
+      <ToolsCatalog contributor={contributor} />
     </MemoryRouter>,
   );
 }
@@ -192,5 +192,73 @@ describe("ToolsCatalog", () => {
       `curl -fsSL ${window.location.origin}/download-reel.sh | bash -s -- --platform=tiktok --url='REEL_URL'`,
     );
     expect(screen.getByRole("button", { name: "Copied" })).toBeVisible();
+  });
+
+  it("offers no catalogue switch when there is a single folder", () => {
+    renderTools();
+
+    expect(
+      screen.queryByRole("group", { name: "Catalogue sections" }),
+    ).toBeNull();
+  });
+
+  it("switches between the skills and scripts a contributor publishes", async () => {
+    const user = userEvent.setup();
+    renderTools("/tools/synasapmob", "synasapmob");
+
+    const sections = screen.getByRole("group", { name: "Catalogue sections" });
+
+    expect(
+      within(sections).getByRole("button", { name: "Skills" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.getByRole("button", { name: /FRONTEND CONVENTIONS/ }),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: /LINK SKILLS/ })).toBeNull();
+
+    await user.click(within(sections).getByRole("button", { name: "Scripts" }));
+
+    expect(
+      within(sections).getByRole("button", { name: "Scripts" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /LINK SKILLS/ })).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: /FRONTEND CONVENTIONS/ }),
+    ).toBeNull();
+  });
+
+  it("opens the catalogue named in the address", () => {
+    renderTools("/tools/synasapmob?catalogue=scripts", "synasapmob");
+
+    expect(screen.getByRole("button", { name: /LINK SKILLS/ })).toBeVisible();
+    expect(
+      screen.getByRole("searchbox", { name: "Search the catalogue" }),
+    ).toHaveAttribute("placeholder", "Search @synasapmob's scripts...");
+  });
+
+  it("shows how to install and remove the linked skills", () => {
+    renderTools(
+      "/tools/synasapmob?catalogue=scripts&node=link-skills",
+      "synasapmob",
+    );
+
+    expect(screen.getByRole("heading", { name: "Link skills" })).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: "How to install" }),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        `curl -fsSL ${window.location.origin}/catalog/contributors/synasapmob/scripts/link-skills/link.sh | bash`,
+      ),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        `curl -fsSL ${window.location.origin}/catalog/contributors/synasapmob/scripts/link-skills/unlink.sh | bash`,
+      ),
+    ).toBeVisible();
+    expect(screen.getByRole("link", { name: "Download all" })).toHaveAttribute(
+      "href",
+      `${window.location.origin}/catalog/collections/synasapmob/scripts/link-skills.zip`,
+    );
   });
 });

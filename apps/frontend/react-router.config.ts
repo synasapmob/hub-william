@@ -1,28 +1,30 @@
-import { existsSync, readdirSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { Config } from "@react-router/dev/config";
 
-import { collectionIdForPath } from "./src/services/catalog/catalog-collections.js";
+import { collectionRefForPath } from "./src/services/catalog/catalog-collections.js";
 
 const basePath = process.env.VITE_BASE_PATH ?? "/";
 const contributorsRoot = fileURLToPath(
   new URL("../../contributors", import.meta.url),
 );
 
-function hasToolDocuments(directory: string, relativePath: string): boolean {
-  if (!existsSync(directory)) return false;
+function hasCatalogueDocuments(
+  directory: string,
+  relativePath: string,
+): boolean {
   return readdirSync(directory, { withFileTypes: true }).some((entry) => {
     if (entry.name.startsWith(".")) return false;
     const path = `${relativePath}/${entry.name}`;
     return entry.isDirectory()
-      ? hasToolDocuments(join(directory, entry.name), path)
-      : entry.name.endsWith(".md") && collectionIdForPath(path) !== null;
+      ? hasCatalogueDocuments(join(directory, entry.name), path)
+      : entry.name.endsWith(".md") && collectionRefForPath(path) !== null;
   });
 }
 
-function toolContributors() {
+function catalogueContributors() {
   return readdirSync(contributorsRoot, { withFileTypes: true })
     .filter(
       (entry) =>
@@ -31,9 +33,9 @@ function toolContributors() {
         !entry.name.startsWith("."),
     )
     .filter((entry) =>
-      hasToolDocuments(
-        join(contributorsRoot, entry.name, "tools"),
-        `contributors/${entry.name}/tools`,
+      hasCatalogueDocuments(
+        join(contributorsRoot, entry.name),
+        `contributors/${entry.name}`,
       ),
     )
     .map((entry) => `/tools/${entry.name}`)
@@ -49,6 +51,6 @@ export default {
     "/tools",
     "/agents",
     "/playground",
-    ...toolContributors(),
+    ...catalogueContributors(),
   ],
 } satisfies Config;

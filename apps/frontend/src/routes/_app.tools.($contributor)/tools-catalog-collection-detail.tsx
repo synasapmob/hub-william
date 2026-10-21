@@ -21,6 +21,9 @@ import ToolsCatalogEdgeTts from "./tools-catalog-edge-tts";
 import ToolsCatalogToolUsage from "./tools-catalog-tool-usage";
 import ToolsCatalogVosk from "./tools-catalog-vosk";
 
+/** Collections whose sheet shows how to install them. */
+const INSTALL_USAGE_IDS = ["gateway", "opencode", "omp", "link-skills"];
+
 interface CollectionSectionProps {
   label: string;
   action?: ReactNode;
@@ -136,7 +139,7 @@ export default function ToolsCatalogCollectionDetail({
                 <ToolsCatalogDownloadReel />
               </CollectionSection>
             </>
-          ) : ["gateway", "opencode", "omp"].includes(shown.id) ? (
+          ) : INSTALL_USAGE_IDS.includes(shown.id) ? (
             <CollectionSection label={usageSectionLabel(shown)}>
               <ToolsCatalogToolUsage collection={shown} />
             </CollectionSection>
