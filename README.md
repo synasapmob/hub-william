@@ -129,15 +129,15 @@ stops installation before either config is changed.
 
 Catalogue files are included at build time and remain downloadable as their
 original bytes. `/catalog/index.json` lists the sources;
-`/catalog/collections/<contributor>/<catalogue>/<item>.zip` contains one item and
-`/catalog/collections/<contributor>/<catalogue>.zip` a whole catalogue. A
+`/catalog/collections/<contributor>/<catalogue>/<item>.zip` contains one item. A
 contributor folder may hold several catalogues (`tools`, `skills`, `scripts`);
 `/tools/<contributor>` switches between them.
 
 ### Install the shared skills
 
-The skills and rules in `contributors/synasapmob/skills/` install into `~/.agents`
-with one command, or by hand from the `skills.zip` bundle:
+The Hub skills (`contributors/synasapmob/skills/hub-skills/`: three skills and the
+shared rules) are one card and one zip. They install into `~/.agents` with one
+command, or by hand from `hub-skills.zip`:
 
 ```sh
 curl -fsSL https://hub-william.site/catalog/contributors/synasapmob/scripts/link-skills/link.sh | bash

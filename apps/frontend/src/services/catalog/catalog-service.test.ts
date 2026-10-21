@@ -77,8 +77,10 @@ describe("supported tool catalogue", () => {
 
   it("reads any folder a contributor publishes as a catalogue", () => {
     expect(
-      collectionRefForPath("contributors/synasapmob/skills/mock-data/SKILL.md"),
-    ).toEqual({ owner: "synasapmob", catalogue: "skills", id: "mock-data" });
+      collectionRefForPath(
+        "contributors/synasapmob/skills/hub-skills/mock-data/SKILL.md",
+      ),
+    ).toEqual({ owner: "synasapmob", catalogue: "skills", id: "hub-skills" });
     expect(
       collectionRefForPath(
         "contributors/synasapmob/scripts/link-skills/link.sh",
@@ -149,7 +151,7 @@ describe("contributor catalogues", () => {
   it("keeps each catalogue's collections apart", () => {
     expect(
       catalogService.collections("synasapmob", "skills").map((c) => c.id),
-    ).toEqual(["frontend-convention", "mock-data", "operator-cli", "rules"]);
+    ).toEqual(["hub-skills"]);
     expect(
       catalogService.collections("synasapmob", "scripts").map((c) => c.id),
     ).toEqual(["link-skills"]);
@@ -176,28 +178,47 @@ describe("contributor catalogues", () => {
   });
 
   it("archives a collection under its own catalogue", () => {
-    const skill = catalogService.findCollection(
-      "mock-data",
+    const skills = catalogService.findCollection(
+      "hub-skills",
       "synasapmob",
       "skills",
     );
 
-    expect(catalogService.collectionArchive(skill!)).toEqual({
-      name: "mock-data.zip",
-      url: `${window.location.origin}/catalog/collections/synasapmob/skills/mock-data.zip`,
+    expect(catalogService.collectionArchive(skills!)).toEqual({
+      name: "hub-skills.zip",
+      url: `${window.location.origin}/catalog/collections/synasapmob/skills/hub-skills.zip`,
     });
   });
 
-  it("describes a skill from its text rather than its front matter", () => {
-    const skill = catalogService.findCollection(
-      "mock-data",
+  it("keeps every skill and the shared rules in one collection", () => {
+    const skills = catalogService.findCollection(
+      "hub-skills",
       "synasapmob",
       "skills",
     );
-    const file = catalogService.collectionFiles(skill!)[0];
 
-    expect(file.title).toBe("Mock data");
-    expect(file.description).not.toMatch(/^---|name:/);
+    expect(
+      catalogService.collectionFiles(skills!).map((file) => file.path),
+    ).toEqual([
+      "contributors/synasapmob/skills/hub-skills/frontend-convention/SKILL.md",
+      "contributors/synasapmob/skills/hub-skills/mock-data/SKILL.md",
+      "contributors/synasapmob/skills/hub-skills/operator-cli/SKILL.md",
+      "contributors/synasapmob/skills/hub-skills/rules/AGENTS.md",
+    ]);
+  });
+
+  it("describes a skill from its text rather than its front matter", () => {
+    const skills = catalogService.findCollection(
+      "hub-skills",
+      "synasapmob",
+      "skills",
+    );
+    const file = catalogService
+      .collectionFiles(skills!)
+      .find((entry) => entry.path.endsWith("/mock-data/SKILL.md"));
+
+    expect(file?.title).toBe("Mock data");
+    expect(file?.description).not.toMatch(/^---|name:/);
   });
 
   it("describes a script from its own leading comment", () => {

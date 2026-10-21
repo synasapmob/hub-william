@@ -17,9 +17,8 @@ in `?catalogue=`, beside `?node=`, and an unknown value falls back to the first
 catalogue (tools, skills, scripts, then A to Z). Each item folder is one card and
 needs at least one Markdown file.
 
-The build publishes sources under `/catalog/contributors/<owner>/<catalogue>/`,
-an archive per item under `/catalog/collections/<owner>/<catalogue>/<item>.zip`,
-and a bundle per catalogue at `/catalog/collections/<owner>/<catalogue>.zip`.
+The build publishes sources under `/catalog/contributors/<owner>/<catalogue>/`
+and an archive per item under `/catalog/collections/<owner>/<catalogue>/<item>.zip`;
 `/catalog/index.json` lists both. Archives keep repository-relative paths.
 
 `contributors/*/libraries/` is removed: the Codex agents, harness, hooks,
@@ -27,12 +26,13 @@ templates and workflow skills it held are retired. Git history keeps them.
 
 The operator publishes two catalogues under `contributors/synasapmob/`:
 
-- `skills/`: `frontend-convention`, `operator-cli`, `mock-data`, and
-  `rules/AGENTS.md`, the session-wide rules that cannot wait for a skill to match
-  a task.
+- `skills/hub-skills/`: one item, so one card and one zip, holding
+  `frontend-convention`, `operator-cli`, `mock-data` and `rules/AGENTS.md`, the
+  session-wide rules that cannot wait for a skill to match a task. To use them,
+  download the zip.
 - `scripts/link-skills/`: `link.sh`, `unlink.sh` and their documentation.
 
-`link.sh` downloads the skills bundle, or reads a folder given with `--from`, and
+`link.sh` downloads `hub-skills.zip`, or reads a folder given with `--from`, and
 installs it into `~/.agents`: skills into `skills/`, the rules as `AGENTS.md`. It
 then links `~/.claude` and `~/.codex` skills, and the rules file of Claude Code,
 Codex and DSH, for the agents that exist on the machine. It only adds:

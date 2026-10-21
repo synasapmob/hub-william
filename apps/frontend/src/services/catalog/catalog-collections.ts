@@ -46,25 +46,10 @@ const COLLECTION_PRESENTATION: Record<string, CatalogCollectionPresentation> = {
     summary:
       "Transcribe your voice or an audio file into text in your browser with Vosk speech recognition. Nothing is uploaded.",
   },
-  "frontend-convention": {
-    label: "Frontend conventions",
+  "hub-skills": {
+    label: "Hub skills",
     summary:
-      "Review criteria for React, TypeScript and Tailwind: blank-line blocking, conditionals, props, class composition and layout primitives.",
-  },
-  "mock-data": {
-    label: "Mock data",
-    summary:
-      "Write mock data inline in the file that consumes it, shaped like the real data, unless the project has its own pattern.",
-  },
-  "operator-cli": {
-    label: "Operator CLI",
-    summary:
-      "Use git and gh for repository work, and pick the right browser tool for verification.",
-  },
-  rules: {
-    label: "Agent rules",
-    summary:
-      "The rules every agent follows in every session, such as never saving memory on its own initiative.",
+      "Frontend conventions, operator CLI and mock-data skills, plus the shared agent rules. Download the zip, or install it with Link skills.",
   },
   "link-skills": {
     label: "Link skills",

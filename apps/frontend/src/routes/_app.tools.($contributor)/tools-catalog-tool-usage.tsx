@@ -94,6 +94,30 @@ export default function ToolsCatalogToolUsage({
     );
   }
 
+  if (collection.id === "hub-skills") {
+    return (
+      <div className={container()}>
+        <div className={section()}>
+          <p className={label()}>Use the skills</p>
+
+          <p className={description()}>
+            Download all, unzip it, copy each skill folder from{" "}
+            <code>contributors/synasapmob/skills/hub-skills/</code> into{" "}
+            <code>~/.agents/skills</code>, and copy <code>rules/AGENTS.md</code>{" "}
+            to <code>~/.agents/AGENTS.md</code>.
+          </p>
+        </div>
+
+        <div className={section()}>
+          <p className={description()}>
+            Prefer one command? Link skills, under Scripts, does the copying and
+            linking for you.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (collection.id === "link-skills") {
     return (
       <div className={container()}>

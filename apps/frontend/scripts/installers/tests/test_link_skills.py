@@ -10,7 +10,7 @@ import zipfile
 
 REPOSITORY = Path(__file__).resolve().parents[5]
 CONTRIBUTOR = REPOSITORY / "contributors" / "synasapmob"
-SKILLS = CONTRIBUTOR / "skills"
+SKILLS = CONTRIBUTOR / "skills" / "hub-skills"
 LINK = CONTRIBUTOR / "scripts" / "link-skills" / "link.sh"
 UNLINK = CONTRIBUTOR / "scripts" / "link-skills" / "unlink.sh"
 SKILL_NAMES = sorted(path.parent.name for path in SKILLS.glob("*/SKILL.md"))
@@ -140,7 +140,9 @@ class LinkSkillsTest(unittest.TestCase):
 
     def test_downloads_the_bundle_the_catalogue_publishes(self):
         site = Path(self.directory.name) / "site"
-        bundle = site / "catalog" / "collections" / "synasapmob" / "skills.zip"
+        bundle = (
+            site / "catalog" / "collections" / "synasapmob" / "skills" / "hub-skills.zip"
+        )
         bundle.parent.mkdir(parents=True)
         with zipfile.ZipFile(bundle, "w") as archive:
             for path in sorted(SKILLS.rglob("*")):

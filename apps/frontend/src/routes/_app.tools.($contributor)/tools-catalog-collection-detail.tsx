@@ -22,7 +22,13 @@ import ToolsCatalogToolUsage from "./tools-catalog-tool-usage";
 import ToolsCatalogVosk from "./tools-catalog-vosk";
 
 /** Collections whose sheet shows how to install them. */
-const INSTALL_USAGE_IDS = ["gateway", "opencode", "omp", "link-skills"];
+const INSTALL_USAGE_IDS = [
+  "gateway",
+  "opencode",
+  "omp",
+  "hub-skills",
+  "link-skills",
+];
 
 interface CollectionSectionProps {
   label: string;

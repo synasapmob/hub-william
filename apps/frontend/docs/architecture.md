@@ -121,8 +121,7 @@ HTML.
 
 The build plugin publishes catalogue directories as original files under
 `/catalog/contributors/<owner>/<catalogue>/`, item ZIPs under
-`/catalog/collections/<owner>/<catalogue>/`, one bundle per catalogue at
-`/catalog/collections/<owner>/<catalogue>.zip`, and `/catalog/index.json`.
+`/catalog/collections/<owner>/<catalogue>/`, and `/catalog/index.json`.
 Archives retain repository-relative paths and deterministic timestamps. Every
 published file is bundled into the frontend as text, so catalogue folders hold
 text files of modest size.

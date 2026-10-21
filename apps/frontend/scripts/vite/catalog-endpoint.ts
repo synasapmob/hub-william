@@ -14,17 +14,7 @@ interface CatalogFile {
   contents: string;
 }
 
-function collect(
-  groups: Map<string, CatalogFile[]>,
-  key: string,
-  file: CatalogFile,
-) {
-  const members = groups.get(key) ?? [];
-  members.push(file);
-  groups.set(key, members);
-}
-
-/** Publish catalogue sources, plus per-item and per-catalogue archives, with unchanged bytes. */
+/** Publish catalogue sources and per-item archives with unchanged bytes. */
 export function catalogEndpoint(): Plugin {
   return {
     name: "hub-william-catalog-endpoint",
@@ -36,7 +26,6 @@ export function catalogEndpoint(): Plugin {
       const files: CatalogFile[] = [];
       const url = (path: string) => `${base}catalog/${path}`;
       const grouped = new Map<string, CatalogFile[]>();
-      const bundled = new Map<string, CatalogFile[]>();
       const walk = (directory: string) => {
         for (const name of readdirSync(directory).sort()) {
           if (name.startsWith(".")) continue;
@@ -49,12 +38,13 @@ export function catalogEndpoint(): Plugin {
               .join("/");
             const ref = collectionRefForPath(normalized);
             if (!ref) continue;
-            const file = {
+            const key = `${ref.owner}/${ref.catalogue}/${ref.id}`;
+            const members = grouped.get(key) ?? [];
+            members.push({
               path: normalized,
               contents: readFileSync(path, "utf8"),
-            };
-            collect(grouped, `${ref.owner}/${ref.catalogue}/${ref.id}`, file);
-            collect(bundled, `${ref.owner}/${ref.catalogue}`, file);
+            });
+            grouped.set(key, members);
           }
         }
       };
@@ -65,7 +55,9 @@ export function catalogEndpoint(): Plugin {
         if (!owner.isDirectory() || owner.name.startsWith(".")) continue;
         walk(join(contributorsRoot, owner.name));
       }
-      const archive = (id: string, members: CatalogFile[]) => {
+      const collections = [...grouped.entries()].map(([id, members]) => {
+        files.push(...members);
+
         const entries = Object.fromEntries(
           members.map((file) => [file.path, strToU8(file.contents)]),
         );
@@ -83,14 +75,7 @@ export function catalogEndpoint(): Plugin {
           bytes: zip.byteLength,
           files: members.length,
         };
-      };
-      const collections = [...grouped.entries()].map(([id, members]) => {
-        files.push(...members);
-        return archive(id, members);
       });
-      const catalogues = [...bundled.entries()].map(([id, members]) =>
-        archive(id, members),
-      );
 
       for (const file of files) {
         this.emitFile({
@@ -116,7 +101,6 @@ export function catalogEndpoint(): Plugin {
               bytes: Buffer.byteLength(file.contents),
             })),
             collections,
-            catalogues,
           },
           null,
           2,

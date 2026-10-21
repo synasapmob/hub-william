@@ -211,9 +211,7 @@ describe("ToolsCatalog", () => {
     expect(
       within(sections).getByRole("button", { name: "Skills" }),
     ).toHaveAttribute("aria-pressed", "true");
-    expect(
-      screen.getByRole("button", { name: /FRONTEND CONVENTIONS/ }),
-    ).toBeVisible();
+    expect(screen.getByRole("button", { name: /HUB SKILLS/ })).toBeVisible();
     expect(screen.queryByRole("button", { name: /LINK SKILLS/ })).toBeNull();
 
     await user.click(within(sections).getByRole("button", { name: "Scripts" }));
@@ -222,9 +220,7 @@ describe("ToolsCatalog", () => {
       within(sections).getByRole("button", { name: "Scripts" }),
     ).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: /LINK SKILLS/ })).toBeVisible();
-    expect(
-      screen.queryByRole("button", { name: /FRONTEND CONVENTIONS/ }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /HUB SKILLS/ })).toBeNull();
   });
 
   it("opens the catalogue named in the address", () => {
@@ -234,6 +230,27 @@ describe("ToolsCatalog", () => {
     expect(
       screen.getByRole("searchbox", { name: "Search the catalogue" }),
     ).toHaveAttribute("placeholder", "Search @synasapmob's scripts...");
+  });
+
+  it("keeps every skill in one card with a single download", () => {
+    renderTools("/tools/synasapmob?node=hub-skills", "synasapmob");
+
+    expect(screen.getByRole("heading", { name: "Hub skills" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Files (4)" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Download all" })).toHaveAttribute(
+      "href",
+      `${window.location.origin}/catalog/collections/synasapmob/skills/hub-skills.zip`,
+    );
+    for (const skill of ["frontend-convention", "mock-data", "operator-cli"]) {
+      expect(
+        screen.getByRole("link", {
+          name: `contributors/synasapmob/skills/hub-skills/${skill}/SKILL.md`,
+        }),
+      ).toBeVisible();
+    }
+    expect(
+      screen.getByRole("heading", { name: "How to install" }),
+    ).toBeVisible();
   });
 
   it("shows how to install and remove the linked skills", () => {
