@@ -32,9 +32,11 @@ instead of downloading.
 must trust the site; `curl -fsSL .../link.sh | bash` is that case. With
 `--path=<zip or folder>` it reads the Skills zip the user downloaded, or the folder
 they unzipped it into, and fetches nothing. It installs into `~/.agents`: skills
-into `skills/`, the rules as `AGENTS.md`. It then links `~/.claude` and `~/.codex`
-skills, and the rules file of Claude Code, Codex and DSH, for the agents that exist
-on the machine. It only adds:
+into `skills/`, the rules as `AGENTS.md`. It then links the agents that exist on
+the machine: skills into `~/.claude/skills`, `~/.codex/skills` and agy's
+`~/.gemini/config/skills`, and the rules file of Claude Code, Codex, DSH and agy
+(`~/.gemini/AGENTS.md`). DSH and OpenCode read `~/.agents/skills` themselves. It
+only adds:
 
 - a skill that already exists is moved to `~/.agents/.backups/` first, never into
   `skills/`, where an agent would load it twice;

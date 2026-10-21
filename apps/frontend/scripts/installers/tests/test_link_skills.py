@@ -94,6 +94,19 @@ class LinkSkillsTest(unittest.TestCase):
         )
         self.assertFalse((self.home / ".claude").exists())
 
+    def test_links_agy_into_its_own_global_folders(self):
+        (self.home / ".gemini" / "config").mkdir(parents=True)
+
+        self.link()
+
+        for name in SKILL_NAMES:
+            link = self.home / ".gemini" / "config" / "skills" / name
+            self.assertEqual(os.readlink(link), str(self.agents / "skills" / name))
+        self.assertEqual(
+            os.readlink(self.home / ".gemini" / "AGENTS.md"),
+            str(self.agents / "AGENTS.md"),
+        )
+
     def test_running_twice_changes_nothing(self):
         self.link()
         self.link()
@@ -217,6 +230,7 @@ class LinkSkillsTest(unittest.TestCase):
 
     def test_unlink_removes_what_was_installed_and_nothing_else(self):
         (self.home / ".codex").mkdir()
+        (self.home / ".gemini" / "config").mkdir(parents=True)
         (self.agents / "skills" / "mine").mkdir(parents=True)
         (self.agents / "skills" / "mine" / "SKILL.md").write_text("mine")
         self.link()
@@ -231,6 +245,10 @@ class LinkSkillsTest(unittest.TestCase):
                 list((self.agents / ".backups").glob("*/" + name + "/SKILL.md"))
             )
         self.assertFalse((self.home / ".codex" / "AGENTS.md").is_symlink())
+        self.assertFalse((self.home / ".gemini" / "AGENTS.md").is_symlink())
+        self.assertFalse(
+            (self.home / ".gemini" / "config" / "skills" / SKILL_NAMES[0]).is_symlink()
+        )
         self.assertTrue((self.agents / "AGENTS.md").is_file())
         self.assertEqual((self.agents / "skills" / "mine" / "SKILL.md").read_text(), "mine")
         self.assertFalse((self.agents / ".hub-william-skills").exists())

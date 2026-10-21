@@ -157,16 +157,18 @@ link_to() {
   ln -s "$target" "$path"
 }
 
-for agent in "$HOME/.claude" "$HOME/.codex"; do
+# Agents that keep their own skills folder: Claude Code, Codex and agy.
+for entry in ".claude:skills" ".codex:skills" ".gemini:config/skills"; do
+  agent="$HOME/${entry%%:*}"
   [ -d "$agent" ] || continue
 
   printf '%s' "$installed" | while IFS= read -r name; do
-    link_to "$agent/skills/$name" "$skills_home/$name"
+    link_to "$agent/${entry#*:}/$name" "$skills_home/$name"
   done
 done
 
 if [ -f "$rules" ]; then
-  for file in "$HOME/.claude/CLAUDE.md" "$HOME/.codex/AGENTS.md" "$HOME/.dsh/AGENTS.md"; do
+  for file in "$HOME/.claude/CLAUDE.md" "$HOME/.codex/AGENTS.md" "$HOME/.dsh/AGENTS.md" "$HOME/.gemini/AGENTS.md"; do
     [ -d "$(dirname "$file")" ] || continue
     link_to "$file" "$rules"
   done

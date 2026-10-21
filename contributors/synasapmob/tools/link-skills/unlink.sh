@@ -42,6 +42,7 @@ while IFS= read -r name; do
 
   remove_link "$HOME/.claude/skills/$name" "$skills_home/$name"
   remove_link "$HOME/.codex/skills/$name" "$skills_home/$name"
+  remove_link "$HOME/.gemini/config/skills/$name" "$skills_home/$name"
 
   if [ -d "$skills_home/$name" ] && [ ! -L "$skills_home/$name" ]; then
     mkdir -p "$AGENTS_HOME/.backups/$stamp"
@@ -53,6 +54,7 @@ done <"$manifest"
 remove_link "$HOME/.claude/CLAUDE.md" "$rules"
 remove_link "$HOME/.codex/AGENTS.md" "$rules"
 remove_link "$HOME/.dsh/AGENTS.md" "$rules"
+remove_link "$HOME/.gemini/AGENTS.md" "$rules"
 
 rm "$manifest"
 echo "unlink-skills: done; $rules was left in place"
