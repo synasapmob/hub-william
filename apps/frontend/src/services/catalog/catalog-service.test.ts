@@ -112,6 +112,81 @@ describe("supported tool catalogue", () => {
   });
 });
 
+describe("contributed skills", () => {
+  it("shows a contributor's skills and link script as plain tool cards", () => {
+    expect(catalogService.contributors()).toContain("synasapmob");
+    expect(
+      catalogService.collections("synasapmob").map((tool) => tool.id),
+    ).toEqual(["skills", "link-skills"]);
+    expect(catalogService.findCollection("skills")).toBeNull();
+  });
+
+  it("keeps every skill and the shared rules in one archive", () => {
+    const skills = catalogService.findCollection("skills", "synasapmob");
+
+    expect(catalogService.collectionArchive(skills!)).toEqual({
+      name: "skills.zip",
+      url: `${window.location.origin}/catalog/collections/synasapmob/tools/skills.zip`,
+    });
+    expect(
+      catalogService
+        .collectionFiles(skills!)
+        .filter((file) => ["SKILL.md", "AGENTS.md"].includes(file.name))
+        .map((file) => file.path),
+    ).toEqual([
+      "contributors/synasapmob/tools/skills/frontend-convention/SKILL.md",
+      "contributors/synasapmob/tools/skills/mock-data/SKILL.md",
+      "contributors/synasapmob/tools/skills/operator-cli/SKILL.md",
+      "contributors/synasapmob/tools/skills/rules/AGENTS.md",
+      "contributors/synasapmob/tools/skills/scroll-world/SKILL.md",
+    ]);
+    expect(
+      catalogService
+        .collectionFiles(skills!)
+        .some((file) => file.name === "LICENSE"),
+    ).toBe(true);
+  });
+
+  it("describes a skill from its text rather than its front matter", () => {
+    const skills = catalogService.findCollection("skills", "synasapmob");
+    const file = catalogService
+      .collectionFiles(skills!)
+      .find((entry) => entry.path.endsWith("/mock-data/SKILL.md"));
+
+    expect(file?.title).toBe("Mock data");
+    expect(file?.description).not.toMatch(/^---|name:/);
+  });
+
+  it("shows a tool made of two scripts and no Markdown as a card", () => {
+    const link = catalogService.findCollection("link-skills", "synasapmob");
+
+    expect(
+      catalogService.collectionFiles(link!).map((file) => file.name),
+    ).toEqual(["link.sh", "unlink.sh"]);
+  });
+
+  it("describes a script from its own leading comment", () => {
+    const link = catalogService.findCollection("link-skills", "synasapmob");
+    const script = catalogService
+      .collectionFiles(link!)
+      .find((file) => file.name === "link.sh");
+
+    expect(script?.title).toBe(
+      "link-skills: install the Hub William skills into ~/.agents",
+    );
+    expect(script?.description).toMatch(/^Copies every skill/);
+    expect(script?.description).not.toContain("#");
+  });
+
+  it("serves the link script from the published catalogue", () => {
+    expect(
+      catalogService.linkSkillsScriptUrl("link.sh", "https://hub.example"),
+    ).toBe(
+      "https://hub.example/catalog/contributors/synasapmob/tools/link-skills/link.sh",
+    );
+  });
+});
+
 describe("installer URLs", () => {
   it("serves each retained installer from the current published origin", () => {
     expect(catalogService.gatewayInstallerUrl("https://hub.example")).toBe(

@@ -94,6 +94,61 @@ export default function ToolsCatalogToolUsage({
     );
   }
 
+  if (collection.id === "skills") {
+    return (
+      <div className={container()}>
+        <div className={section()}>
+          <p className={label()}>Use the skills</p>
+
+          <p className={description()}>
+            Download all, unzip it, copy each skill folder from{" "}
+            <code>contributors/synasapmob/tools/skills/</code> into{" "}
+            <code>~/.agents/skills</code>, and copy <code>rules/AGENTS.md</code>{" "}
+            to <code>~/.agents/AGENTS.md</code>.
+          </p>
+        </div>
+
+        <div className={section()}>
+          <p className={description()}>
+            Prefer a command? Link skills copies and links them for you, from
+            Hub William or from this zip.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (collection.id === "link-skills") {
+    const linkCommand = `curl -fsSL ${catalogService.linkSkillsScriptUrl("link.sh", siteOrigin)} | bash`;
+
+    return (
+      <div className={container()}>
+        <div className={section()}>
+          <p className={label()}>1. From Hub William</p>
+
+          <p className={description()}>
+            Fetches the skills from Hub William. Use it only if you trust it.
+          </p>
+
+          <CopyCommand command={linkCommand} />
+        </div>
+
+        <div className={section()}>
+          <p className={label()}>2. From your own copy</p>
+
+          <p className={description()}>
+            Point it at the Skills zip you downloaded, or the folder you
+            unzipped it into. Nothing is fetched.
+          </p>
+
+          <CopyCommand
+            command={`${linkCommand} -s -- --path=~/Downloads/skills.zip`}
+          />
+        </div>
+      </div>
+    );
+  }
+
   if (collection.id === "gateway") {
     const configs = gatewayAgentConfigs(resolveGatewayOrigin(siteOrigin));
 

@@ -5,10 +5,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import ToolsCatalog from "./tools-catalog";
 
-function renderTools(initialUrl = "/tools") {
+function renderTools(initialUrl = "/tools", contributor: string | null = null) {
   return render(
     <MemoryRouter initialEntries={[initialUrl]}>
-      <ToolsCatalog />
+      <ToolsCatalog contributor={contributor} />
     </MemoryRouter>,
   );
 }
@@ -192,5 +192,67 @@ describe("ToolsCatalog", () => {
       `curl -fsSL ${window.location.origin}/download-reel.sh | bash -s -- --platform=tiktok --url='REEL_URL'`,
     );
     expect(screen.getByRole("button", { name: "Copied" })).toBeVisible();
+  });
+
+  it("lists a contributor's skills and link script as two plain cards", () => {
+    renderTools("/tools/synasapmob", "synasapmob");
+
+    expect(screen.getByRole("heading", { name: "SKILLS" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "LINK SKILLS" })).toBeVisible();
+    expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(2);
+  });
+
+  it("keeps every skill in one sheet with a single download", () => {
+    renderTools("/tools/synasapmob?node=skills", "synasapmob");
+
+    expect(screen.getByRole("heading", { name: "Skills" })).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: /^Files \(\d+\)$/ }),
+    ).toBeVisible();
+    expect(screen.getByRole("link", { name: "Download all" })).toHaveAttribute(
+      "href",
+      `${window.location.origin}/catalog/collections/synasapmob/tools/skills.zip`,
+    );
+    for (const skill of [
+      "frontend-convention",
+      "mock-data",
+      "operator-cli",
+      "scroll-world",
+    ]) {
+      expect(
+        screen.getByRole("link", {
+          name: `contributors/synasapmob/tools/skills/${skill}/SKILL.md`,
+        }),
+      ).toBeVisible();
+    }
+    expect(
+      screen.getByRole("heading", { name: "How to install" }),
+    ).toBeVisible();
+  });
+
+  it("offers link.sh from Hub William or from your own copy", () => {
+    renderTools("/tools/synasapmob?node=link-skills", "synasapmob");
+
+    const linkCommand = `curl -fsSL ${window.location.origin}/catalog/contributors/synasapmob/tools/link-skills/link.sh | bash`;
+
+    expect(screen.getByRole("heading", { name: "Link skills" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Files (2)" })).toBeVisible();
+    expect(screen.getByText("1. From Hub William")).toBeVisible();
+    expect(screen.getByText(linkCommand)).toBeVisible();
+    expect(screen.getByText("2. From your own copy")).toBeVisible();
+    expect(
+      screen.getByText(`${linkCommand} -s -- --path=~/Downloads/skills.zip`),
+    ).toBeVisible();
+    for (const script of ["link.sh", "unlink.sh"]) {
+      expect(
+        screen.getByRole("link", {
+          name: `contributors/synasapmob/tools/link-skills/${script}`,
+        }),
+      ).toBeVisible();
+    }
+    expect(screen.getByRole("link", { name: "Download all" })).toHaveAttribute(
+      "href",
+      `${window.location.origin}/catalog/collections/synasapmob/tools/link-skills.zip`,
+    );
   });
 });

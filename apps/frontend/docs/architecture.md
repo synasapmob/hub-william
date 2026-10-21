@@ -113,15 +113,15 @@ route under `src/routes/_app.tools.($contributor)/`.
 `src/services/catalog/` reads `contributors/*/tools/` using eager raw imports.
 Gateway, OpenCode, OMP and DOWNLOAD REEL keep their presentation and ordering; new tool
 folders remain discoverable with a derived label. File titles and descriptions come from their
-existing Markdown; the service does not rewrite sources or render Markdown as
-HTML.
+existing Markdown, or from the leading comment of a script; the service does not
+rewrite sources or render Markdown as HTML. A tool folder may hold other text
+files, such as the shell scripts of `link-skills`.
 
 The build plugin publishes tool directories as original files under
 `/catalog/contributors/<owner>/tools/`, tool ZIPs under
 `/catalog/collections/<owner>/tools/`, and `/catalog/index.json`. Archives retain
-repository-relative paths and deterministic timestamps. Development workflow
-sources in `contributors/*/libraries/` are neither bundled into the frontend
-nor emitted as downloadable catalogue artifacts.
+repository-relative paths and deterministic timestamps. Every published file is
+bundled into the frontend as text, so tool folders hold text files of modest size.
 
 Library taxonomies, the retired installer/MCP tool sources, MCP registry
 discovery and whole-repository catalogue archives are removed. Tool contribution
