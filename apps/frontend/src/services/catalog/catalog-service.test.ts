@@ -129,13 +129,22 @@ describe("contributed skills", () => {
       url: `${window.location.origin}/catalog/collections/synasapmob/tools/skills.zip`,
     });
     expect(
-      catalogService.collectionFiles(skills!).map((file) => file.path),
+      catalogService
+        .collectionFiles(skills!)
+        .filter((file) => ["SKILL.md", "AGENTS.md"].includes(file.name))
+        .map((file) => file.path),
     ).toEqual([
       "contributors/synasapmob/tools/skills/frontend-convention/SKILL.md",
       "contributors/synasapmob/tools/skills/mock-data/SKILL.md",
       "contributors/synasapmob/tools/skills/operator-cli/SKILL.md",
       "contributors/synasapmob/tools/skills/rules/AGENTS.md",
+      "contributors/synasapmob/tools/skills/scroll-world/SKILL.md",
     ]);
+    expect(
+      catalogService
+        .collectionFiles(skills!)
+        .some((file) => file.name === "LICENSE"),
+    ).toBe(true);
   });
 
   it("describes a skill from its text rather than its front matter", () => {

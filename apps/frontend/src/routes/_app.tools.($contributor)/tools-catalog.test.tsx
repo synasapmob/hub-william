@@ -206,12 +206,19 @@ describe("ToolsCatalog", () => {
     renderTools("/tools/synasapmob?node=skills", "synasapmob");
 
     expect(screen.getByRole("heading", { name: "Skills" })).toBeVisible();
-    expect(screen.getByRole("heading", { name: "Files (4)" })).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: /^Files \(\d+\)$/ }),
+    ).toBeVisible();
     expect(screen.getByRole("link", { name: "Download all" })).toHaveAttribute(
       "href",
       `${window.location.origin}/catalog/collections/synasapmob/tools/skills.zip`,
     );
-    for (const skill of ["frontend-convention", "mock-data", "operator-cli"]) {
+    for (const skill of [
+      "frontend-convention",
+      "mock-data",
+      "operator-cli",
+      "scroll-world",
+    ]) {
       expect(
         screen.getByRole("link", {
           name: `contributors/synasapmob/tools/skills/${skill}/SKILL.md`,

@@ -14,9 +14,10 @@ The operator publishes two tools under `contributors/synasapmob/tools/`. They ar
 ordinary tools: no new folder level, tab or filter, and they appear at
 `/tools/synasapmob` like any contributed tool.
 
-- `skills/` (card SKILLS): `frontend-convention`, `operator-cli`, `mock-data` and
-  `rules/AGENTS.md`, the session-wide rules that cannot wait for a skill to match
-  a task. One card, one zip. To use them, download the zip.
+- `skills/` (card SKILLS): `frontend-convention`, `operator-cli`, `mock-data`,
+  the vendored MIT-licensed `scroll-world` (with its `LICENSE` and provenance
+  README), and `rules/AGENTS.md`, the session-wide rules that cannot wait for a
+  skill to match a task. One card, one zip. To use them, download the zip.
 - `link-skills/` (card LINK SKILLS): `link.sh` and `unlink.sh`, nothing else. Its
   instructions are shown in the card's sheet, not in a Markdown file.
 
@@ -50,8 +51,11 @@ Community pull requests keep ADR-0024's scope: Markdown in the author's own
 ## Consequences
 
 - Every published file is bundled into the frontend as text, so tool folders
-  should hold text files of modest size. The vendored `scroll-world` skill (about
-  176 KB) is not published for this reason.
+  should hold text files of modest size. `scroll-world` alone adds about 147 KB of
+  source to the catalogue chunk.
+- Catalogue files are served as they are, so `scroll-world/references/index.html`
+  is a live page on the site's origin. It is the operator's own file; keep it that
+  way, and do not publish HTML or scripts from anyone else under this origin.
 - Install instructions and card text are keyed by tool id, so a tool that reuses
   `skills` or `link-skills` under another contributor would borrow their sheets.
 - `curl | bash` trusts the site's origin, as the existing installers do. The
