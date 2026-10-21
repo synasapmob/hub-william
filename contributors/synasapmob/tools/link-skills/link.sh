@@ -6,10 +6,12 @@
 # copies. It only adds: a skill that already exists is moved to
 # ~/.agents/.backups first, and a rules file you already have is left alone.
 #
-# Run it from the site:
+# Two ways to run it. Without --path it fetches the skills from Hub William, so
+# use that only if you trust it:
 #   curl -fsSL https://hub-william.site/catalog/contributors/synasapmob/tools/link-skills/link.sh | bash
-# Or point it at a skills folder you unpacked yourself:
-#   bash link.sh --from contributors/synasapmob/tools/skills
+# With --path it reads your own copy and fetches nothing. PATH is the Skills zip
+# you downloaded, or the folder you unzipped it into:
+#   bash link.sh --path=~/Downloads/skills.zip
 #
 # Undo it with unlink.sh, next to this file.
 # HUB_WILLIAM_ORIGIN and AGENTS_HOME override the site and the target folder.
@@ -30,34 +32,60 @@ note() {
   echo "link-skills: $*"
 }
 
-source_dir=""
+path=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --from)
-      [ $# -ge 2 ] || die "--from needs a folder"
-      source_dir="$2"
+    --path)
+      [ $# -ge 2 ] || die "--path needs a zip file or a folder"
+      path="$2"
       shift 2
       ;;
-    --from=*)
-      source_dir="${1#--from=}"
+    --path=*)
+      path="${1#--path=}"
       shift
       ;;
     *)
-      die "unknown option: $1 (use --from FOLDER, or no option to download)"
+      die "unknown option: $1 (use --path=ZIP_OR_FOLDER, or no option to fetch from Hub William)"
       ;;
   esac
 done
 
-if [ -z "$source_dir" ]; then
-  command -v curl >/dev/null 2>&1 || die "curl is required"
+# --path=~/x reaches us with the tilde unexpanded.
+case "$path" in
+  "~") path="$HOME" ;;
+  "~/"*) path="$HOME/${path#\~/}" ;;
+esac
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+unpack() {
   command -v unzip >/dev/null 2>&1 || die "unzip is required"
-  work="$(mktemp -d)"
-  trap 'rm -rf "$work"' EXIT
+  unzip -q "$1" -d "$work/unpacked" || die "could not unpack $1"
+}
+
+if [ -z "$path" ]; then
+  command -v curl >/dev/null 2>&1 || die "curl is required"
   curl -fsSL "$ORIGIN/$BUNDLE" -o "$work/skills.zip" || die "could not download $ORIGIN/$BUNDLE"
-  unzip -q "$work/skills.zip" -d "$work/unpacked" || die "could not unpack the skills bundle"
-  source_dir="$work/unpacked/$BUNDLE_ROOT"
+  unpack "$work/skills.zip"
+  source_dir="$work/unpacked"
+elif [ -f "$path" ]; then
+  case "$path" in
+    *.zip) unpack "$path" ;;
+    *) die "not a zip file or a folder: $path" ;;
+  esac
+  source_dir="$work/unpacked"
+elif [ -d "$path" ]; then
+  source_dir="$path"
+else
+  die "not found: $path"
 fi
-[ -d "$source_dir" ] || die "not a folder: $source_dir"
+
+# The zip unpacks to contributors/.../skills; a folder you copied may be that
+# skills folder itself.
+if [ -d "$source_dir/$BUNDLE_ROOT" ]; then
+  source_dir="$source_dir/$BUNDLE_ROOT"
+fi
 
 # Copying through a symlink would write into whatever it points at.
 skills_home="$AGENTS_HOME/skills"

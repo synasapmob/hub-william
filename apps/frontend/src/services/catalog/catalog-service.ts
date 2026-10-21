@@ -100,7 +100,6 @@ for (const file of toolFiles) {
 }
 
 const tools: CatalogCollection[] = [...collectionFilesByOwner.entries()]
-  .filter(([, files]) => files.some((file) => file.path.endsWith(".md")))
   .map(([key, files]) => {
     const [owner, id] = key.split("/");
     return {

@@ -5,7 +5,7 @@
 # installed skills to ~/.agents/.backups so nothing is lost. Your own skills and
 # ~/.agents/AGENTS.md are left alone.
 #
-# Run it from the site:
+# Run it from the site, or from your own copy with `bash unlink.sh`:
 #   curl -fsSL https://hub-william.site/catalog/contributors/synasapmob/tools/link-skills/unlink.sh | bash
 #
 # AGENTS_HOME overrides the folder that link.sh installed into.

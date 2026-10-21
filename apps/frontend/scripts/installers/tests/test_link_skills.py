@@ -32,6 +32,16 @@ def run(script, home, *args, **env):
     )
 
 
+def write_zip(target):
+    """Write the zip the catalogue publishes: repository-relative entries."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(target, "w") as archive:
+        for path in sorted(SKILLS.rglob("*")):
+            if path.is_file():
+                archive.write(path, path.relative_to(REPOSITORY).as_posix())
+    return target
+
+
 class LinkSkillsTest(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -41,7 +51,7 @@ class LinkSkillsTest(unittest.TestCase):
         self.agents = self.home / ".agents"
 
     def link(self, *args, **env):
-        result = run(LINK, self.home, "--from", str(SKILLS), *args, **env)
+        result = run(LINK, self.home, "--path", str(SKILLS), *args, **env)
         self.assertEqual(result.returncode, 0, result.stderr)
         return result
 
@@ -132,20 +142,15 @@ class LinkSkillsTest(unittest.TestCase):
         self.agents.mkdir()
         (self.agents / "skills").symlink_to(elsewhere)
 
-        result = run(LINK, self.home, "--from", str(SKILLS))
+        result = run(LINK, self.home, "--path", str(SKILLS))
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("symlink", result.stderr)
         self.assertEqual(list(elsewhere.iterdir()), [])
 
-    def test_downloads_the_bundle_the_catalogue_publishes(self):
+    def test_without_a_path_it_fetches_the_zip_from_hub_william(self):
         site = Path(self.directory.name) / "site"
-        bundle = site / "catalog" / "collections" / "synasapmob" / "tools" / "skills.zip"
-        bundle.parent.mkdir(parents=True)
-        with zipfile.ZipFile(bundle, "w") as archive:
-            for path in sorted(SKILLS.rglob("*")):
-                if path.is_file():
-                    archive.write(path, path.relative_to(REPOSITORY).as_posix())
+        write_zip(site / "catalog" / "collections" / "synasapmob" / "tools" / "skills.zip")
 
         result = run(LINK, self.home, HUB_WILLIAM_ORIGIN=site.as_uri())
 
@@ -153,6 +158,61 @@ class LinkSkillsTest(unittest.TestCase):
         for name in SKILL_NAMES:
             self.assertTrue((self.agents / "skills" / name / "SKILL.md").is_file())
         self.assertTrue((self.agents / "AGENTS.md").is_file())
+
+    def test_a_path_installs_from_your_own_zip_and_fetches_nothing(self):
+        mine = write_zip(Path(self.directory.name) / "Downloads" / "skills.zip")
+
+        result = run(
+            LINK, self.home, "--path=" + str(mine), HUB_WILLIAM_ORIGIN="file:///nowhere"
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for name in SKILL_NAMES:
+            self.assertTrue((self.agents / "skills" / name / "SKILL.md").is_file())
+
+    def test_a_path_can_be_the_folder_you_unzipped_it_into(self):
+        mine = write_zip(Path(self.directory.name) / "skills.zip")
+        unzipped = Path(self.directory.name) / "unzipped"
+        with zipfile.ZipFile(mine) as archive:
+            archive.extractall(unzipped)
+
+        result = run(LINK, self.home, "--path=" + str(unzipped))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for name in SKILL_NAMES:
+            self.assertTrue((self.agents / "skills" / name / "SKILL.md").is_file())
+
+    def test_a_path_can_be_given_as_a_separate_argument(self):
+        result = run(LINK, self.home, "--path", str(SKILLS))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.agents / "AGENTS.md").is_file())
+
+    def test_a_leading_tilde_in_the_path_means_your_home(self):
+        write_zip(self.home / "Downloads" / "skills.zip")
+
+        result = run(LINK, self.home, "--path=~/Downloads/skills.zip")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for name in SKILL_NAMES:
+            self.assertTrue((self.agents / "skills" / name / "SKILL.md").is_file())
+
+    def test_a_path_that_does_not_exist_stops_without_installing(self):
+        result = run(LINK, self.home, "--path=" + str(self.home / "missing.zip"))
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not found", result.stderr)
+        self.assertFalse(self.agents.exists())
+
+    def test_a_file_that_is_not_a_zip_stops_without_installing(self):
+        notes = self.home / "notes.txt"
+        notes.write_text("hello")
+
+        result = run(LINK, self.home, "--path=" + str(notes))
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not a zip file or a folder", result.stderr)
+        self.assertFalse(self.agents.exists())
 
     def test_unlink_removes_what_was_installed_and_nothing_else(self):
         (self.home / ".codex").mkdir()

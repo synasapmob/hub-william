@@ -17,16 +17,21 @@ ordinary tools: no new folder level, tab or filter, and they appear at
 - `skills/` (card SKILLS): `frontend-convention`, `operator-cli`, `mock-data` and
   `rules/AGENTS.md`, the session-wide rules that cannot wait for a skill to match
   a task. One card, one zip. To use them, download the zip.
-- `link-skills/` (card LINK SKILLS): `link.sh`, `unlink.sh` and their documentation.
+- `link-skills/` (card LINK SKILLS): `link.sh` and `unlink.sh`, nothing else. Its
+  instructions are shown in the card's sheet, not in a Markdown file.
 
-A tool folder may hold files other than Markdown. The catalogue already published
-them; it now takes a script's title and description from its leading comment and
-skips a Markdown file's front matter. nginx serves catalogue scripts as text so
-the path link opens instead of downloading.
+A tool folder may hold files other than Markdown, and no longer needs a Markdown
+file to appear as a card. The catalogue already published such files; it now takes
+a script's title and description from its leading comment and skips a Markdown
+file's front matter. nginx serves catalogue scripts as text so the path link opens
+instead of downloading.
 
-`link.sh` downloads `/catalog/collections/synasapmob/tools/skills.zip`, or reads a
-folder given with `--from`, and installs it into `~/.agents`: skills into
-`skills/`, the rules as `AGENTS.md`. It then links `~/.claude` and `~/.codex`
+`link.sh` runs in one of two ways. Without `--path` it fetches
+`/catalog/collections/synasapmob/tools/skills.zip` from Hub William, so the reader
+must trust the site; `curl -fsSL .../link.sh | bash` is that case. With
+`--path=<zip or folder>` it reads the Skills zip the user downloaded, or the folder
+they unzipped it into, and fetches nothing. It installs into `~/.agents`: skills
+into `skills/`, the rules as `AGENTS.md`. It then links `~/.claude` and `~/.codex`
 skills, and the rules file of Claude Code, Codex and DSH, for the agents that exist
 on the machine. It only adds:
 

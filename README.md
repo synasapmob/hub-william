@@ -131,16 +131,20 @@ original bytes. `/catalog/index.json` lists tool sources;
 ### Install the shared skills
 
 The **Skills** tool of `@synasapmob` (`contributors/synasapmob/tools/skills/`: three
-skills and the shared rules) is one card and one zip. **Link skills** installs it into
-`~/.agents` with one command, and `unlink.sh` undoes it:
+skills and the shared rules) is one card and one zip. **Link skills** (`link.sh` and
+`unlink.sh`) installs it into `~/.agents`, in one of two ways:
 
 ```sh
+# From Hub William, if you trust it: the script fetches the skills itself.
 curl -fsSL https://hub-william.site/catalog/contributors/synasapmob/tools/link-skills/link.sh | bash
+
+# From your own copy: download the Skills zip, then point the script at it.
+# PATH is the zip, or the folder you unzipped it into. Nothing is fetched.
+bash link.sh --path=~/Downloads/skills.zip
 ```
 
 It only adds: existing skills are backed up, an existing rules file is kept, and
-existing agent links are left alone. To install by hand, download
-`/catalog/collections/synasapmob/tools/skills.zip` and copy its contents into `~/.agents`.
+existing agent links are left alone. `unlink.sh` undoes it.
 
 ## Contributing
 

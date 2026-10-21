@@ -148,6 +148,14 @@ describe("contributed skills", () => {
     expect(file?.description).not.toMatch(/^---|name:/);
   });
 
+  it("shows a tool made of two scripts and no Markdown as a card", () => {
+    const link = catalogService.findCollection("link-skills", "synasapmob");
+
+    expect(
+      catalogService.collectionFiles(link!).map((file) => file.name),
+    ).toEqual(["link.sh", "unlink.sh"]);
+  });
+
   it("describes a script from its own leading comment", () => {
     const link = catalogService.findCollection("link-skills", "synasapmob");
     const script = catalogService

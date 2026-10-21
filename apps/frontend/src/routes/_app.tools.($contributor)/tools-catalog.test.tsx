@@ -223,20 +223,31 @@ describe("ToolsCatalog", () => {
     ).toBeVisible();
   });
 
-  it("shows how to install and remove the linked skills", () => {
+  it("offers link.sh from Hub William or from your own copy", () => {
     renderTools("/tools/synasapmob?node=link-skills", "synasapmob");
 
     expect(screen.getByRole("heading", { name: "Link skills" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Files (2)" })).toBeVisible();
     expect(
       screen.getByText(
         `curl -fsSL ${window.location.origin}/catalog/contributors/synasapmob/tools/link-skills/link.sh | bash`,
       ),
     ).toBeVisible();
     expect(
+      screen.getByText("bash link.sh --path=~/Downloads/skills.zip"),
+    ).toBeVisible();
+    expect(
       screen.getByText(
         `curl -fsSL ${window.location.origin}/catalog/contributors/synasapmob/tools/link-skills/unlink.sh | bash`,
       ),
     ).toBeVisible();
+    for (const script of ["link.sh", "unlink.sh"]) {
+      expect(
+        screen.getByRole("link", {
+          name: `contributors/synasapmob/tools/link-skills/${script}`,
+        }),
+      ).toBeVisible();
+    }
     expect(screen.getByRole("link", { name: "Download all" })).toHaveAttribute(
       "href",
       `${window.location.origin}/catalog/collections/synasapmob/tools/link-skills.zip`,

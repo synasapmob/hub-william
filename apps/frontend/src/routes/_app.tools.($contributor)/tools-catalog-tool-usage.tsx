@@ -110,8 +110,8 @@ export default function ToolsCatalogToolUsage({
 
         <div className={section()}>
           <p className={description()}>
-            Prefer one command? Link skills does the copying and linking for
-            you.
+            Prefer a command? Link skills copies and links them for you, from
+            Hub William or from this zip.
           </p>
         </div>
       </div>
@@ -122,13 +122,12 @@ export default function ToolsCatalogToolUsage({
     return (
       <div className={container()}>
         <div className={section()}>
-          <p className={label()}>Install</p>
+          <p className={label()}>From Hub William</p>
 
           <p className={description()}>
-            Copies the skills into <code>~/.agents/skills</code>, saves the
-            shared rules as <code>~/.agents/AGENTS.md</code> and links the
-            agents it finds on your machine. A skill or rules file you already
-            have is backed up or left alone, never overwritten.
+            Fetches the skills from Hub William and installs them into{" "}
+            <code>~/.agents</code>. Use it only if you trust Hub William, and
+            read <code>link.sh</code> first.
           </p>
 
           <CopyCommand
@@ -137,12 +136,25 @@ export default function ToolsCatalogToolUsage({
         </div>
 
         <div className={section()}>
+          <p className={label()}>From your own copy</p>
+
+          <p className={description()}>
+            Download Skills and this tool, then point <code>link.sh</code> at
+            the Skills zip, or at the folder you unzipped it into. Nothing is
+            fetched. Without <code>--path</code> it uses Hub William.
+          </p>
+
+          <CopyCommand command="bash link.sh --path=~/Downloads/skills.zip" />
+        </div>
+
+        <div className={section()}>
           <p className={label()}>Remove</p>
 
           <p className={description()}>
             Removes the links and moves the installed skills to{" "}
             <code>~/.agents/.backups</code>. Your own skills stay where they
-            are.
+            are. Run <code>bash unlink.sh</code> from your own copy instead if
+            you prefer.
           </p>
 
           <CopyCommand
