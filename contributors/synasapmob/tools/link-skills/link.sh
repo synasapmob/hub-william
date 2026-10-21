@@ -158,9 +158,14 @@ link_to() {
   ln -s "$target" "$path"
 }
 
-# Which agents need a link, and why. Each was run against a home where only
-# ~/.agents held the skills and the rules (October 2026; check again when an agent
-# updates):
+# Which agents use their own config and which use the shared ~/.agents:
+#
+#   own config   Claude Code and agy; they never read ~/.agents, so they are linked
+#   ~/.agents    DSH, and OpenCode for skills (its rules were not checked)
+#   mixed        Codex: skills from ~/.agents, rules from ~/.codex/AGENTS.md
+#
+# Each agent was run against a home where only ~/.agents held the skills and the
+# rules (October 2026; check again when an agent updates):
 #
 #   agent        skills from ~/.agents/skills   rules from ~/.agents/AGENTS.md
 #   Claude Code  no                             no
