@@ -5,6 +5,8 @@ export const TOOL_IDS = [
   "download-reel",
   "edge-tts",
   "vosk",
+  "skills",
+  "link-skills",
 ] as const;
 
 interface CatalogCollectionPresentation {
@@ -42,6 +44,16 @@ const COLLECTION_PRESENTATION: Record<string, CatalogCollectionPresentation> = {
     label: "AUDIO TO TEXT",
     summary:
       "Transcribe your voice or an audio file into text in your browser with Vosk speech recognition. Nothing is uploaded.",
+  },
+  skills: {
+    label: "Skills",
+    summary:
+      "Frontend conventions, operator CLI, mock-data and scroll-world skills, plus the shared agent rules. Download the zip, or install it with Link skills.",
+  },
+  "link-skills": {
+    label: "Link skills",
+    summary:
+      "Install the Skills into ~/.agents with one command, or copy them by hand.",
   },
 };
 

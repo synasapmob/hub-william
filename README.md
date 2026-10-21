@@ -53,12 +53,8 @@ apps/frontend/public/{gateway,opencode,omp}.py
 apps/frontend/scripts/installers/tests/ installer and gateway proxy tests
 apps/telegram/                         Telegram adapter for the business API
 contributors/*/tools/                  shared and contributor tool documentation
-contributors/*/libraries/              repository development workflow sources
 infra/                                 deployment configuration
 ```
-
-Development harnesses, skills, hooks and templates remain repository workflow
-sources. They are not part of the app catalogue or its downloadable build.
 
 The Rust API owns authentication, rotating browser sessions, encrypted provider
 connections, account pools, organization membership and shares, and user-scoped
@@ -132,6 +128,24 @@ Tool documentation is included at build time and remains downloadable as its
 original bytes. `/catalog/index.json` lists tool sources;
 `/catalog/collections/<contributor>/tools/<tool>.zip` contains a tool's documentation.
 
+### Install the shared skills
+
+The **Skills** tool of `@synasapmob` (`contributors/synasapmob/tools/skills/`: four
+skills and the shared rules) is one card and one zip. **Link skills** (`link.sh` and
+`unlink.sh`) installs it into `~/.agents`, in one of two ways:
+
+```sh
+# From Hub William, if you trust it: the script fetches the skills itself.
+curl -fsSL https://hub-william.site/catalog/contributors/synasapmob/tools/link-skills/link.sh | bash
+
+# From your own copy: download the Skills zip, then point the script at it.
+# PATH is the zip, or the folder you unzipped it into. Nothing is fetched.
+curl -fsSL https://hub-william.site/catalog/contributors/synasapmob/tools/link-skills/link.sh | bash -s -- --path=~/Downloads/skills.zip
+```
+
+It only adds: existing skills are backed up, an existing rules file is kept, and
+existing agent links are left alone. `unlink.sh` undoes it.
+
 ## Contributing
 
 Community pull requests are for Markdown tool documentation in the author's own
@@ -139,8 +153,7 @@ Community pull requests are for Markdown tool documentation in the author's own
 The Tools catalogue groups docs by contributor and tool; it has no separate
 category field. For API, frontend, installer, workflow, convention, or other
 repository changes, [open an issue](https://github.com/synasapmob/hub-william/issues/new/choose)
-instead. `contributors/default/` and `contributors/*/libraries/` are maintained
-internally. Read the [contribution guide](.github/CONTRIBUTING.md) before
+instead. `contributors/default/` is maintained internally. Read the [contribution guide](.github/CONTRIBUTING.md) before
 opening a pull request.
 
 ## Stack

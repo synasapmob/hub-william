@@ -30,9 +30,7 @@ fail and may be closed. Splitting an out-of-scope code change across tool docs
 does not make it in scope. Maintainers review content and links before merging;
 passing automation is not acceptance.
 
-`contributors/*/libraries/` contains internal repository workflow sources, not
-public tool contributions. New tools appear automatically in the Tools
-contributor selector and at `/tools/<github-login>` after an accepted change is
+New tools appear automatically in the Tools contributor selector and at `/tools/<github-login>` after an accepted change is
 deployed. There is no category field to set.
 
 ## Propose a change outside tool documentation

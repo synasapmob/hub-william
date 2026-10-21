@@ -31,6 +31,7 @@ function siteAssetUrl(path: string, requestedOrigin?: string) {
 function summaryFromSource(source: string) {
   return (
     source
+      .replace(/^---\n[\s\S]*?\n---\n/, "")
       .replace(/^#\s+.+\n/, "")
       .split(/\n\s*\n/)
       .map((block) => block.trim())
@@ -39,6 +40,28 @@ function summaryFromSource(source: string) {
       )
       ?.replace(/\s+/g, " ") ?? "Tool documentation."
   );
+}
+
+/** A script documents itself in its leading comment: first line the title, first paragraph the description. */
+function scriptComment(source: string) {
+  const lines: string[] = [];
+  for (const line of source.split("\n")) {
+    if (line.startsWith("#!")) continue;
+    if (!line.startsWith("#")) break;
+    lines.push(line.replace(/^#\s?/, ""));
+  }
+
+  const [title, ...rest] = lines;
+  const description = rest
+    .join("\n")
+    .trim()
+    .split(/\n\s*\n/)[0];
+  return {
+    title: title || undefined,
+    description: description
+      ? description.replace(/\s+/g, " ")
+      : "Source file.",
+  };
 }
 
 const toolFiles: CatalogCollectionFile[] = Object.entries(sources)
@@ -51,12 +74,18 @@ const toolFiles: CatalogCollectionFile[] = Object.entries(sources)
   .map(([path, source]) => {
     const normalized = path.replace(/^.*\/contributors\//, "contributors/");
     const name = normalized.split("/").at(-1) ?? normalized;
+    const { title = name, description } = name.endsWith(".md")
+      ? {
+          title: /^#\s+(.+)$/m.exec(source)?.[1],
+          description: summaryFromSource(source),
+        }
+      : scriptComment(source);
     return {
       path: normalized,
       url: siteAssetUrl(`catalog/${normalized}`),
       name,
-      title: /^#\s+(.+)$/m.exec(source)?.[1] ?? name,
-      description: summaryFromSource(source),
+      title,
+      description,
       source,
     };
   })
@@ -71,7 +100,6 @@ for (const file of toolFiles) {
 }
 
 const tools: CatalogCollection[] = [...collectionFilesByOwner.entries()]
-  .filter(([, files]) => files.some((file) => file.path.endsWith(".md")))
   .map(([key, files]) => {
     const [owner, id] = key.split("/");
     return {
@@ -175,6 +203,16 @@ class CatalogService {
 
   downloadReelScriptUrl(origin?: string) {
     return siteAssetUrl("download-reel.sh", origin);
+  }
+
+  /**
+   * The published script that installs, or removes, the shared skills
+   */
+  linkSkillsScriptUrl(script: "link.sh" | "unlink.sh", origin?: string) {
+    return siteAssetUrl(
+      `catalog/contributors/synasapmob/tools/link-skills/${script}`,
+      origin,
+    );
   }
 }
 

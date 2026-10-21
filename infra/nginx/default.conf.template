@@ -23,6 +23,14 @@ server {
         try_files $uri =404;
     }
 
+    # Catalogue shell scripts open in a new tab as readable text for the same
+    # reason: nginx has no mapping for .sh. curl is not affected either way.
+    location ~ ^/catalog/.+\.sh$ {
+        types { text/plain sh; }
+        charset utf-8;
+        try_files $uri =404;
+    }
+
     location = /healthz {
         access_log off;
         add_header Content-Type text/plain;

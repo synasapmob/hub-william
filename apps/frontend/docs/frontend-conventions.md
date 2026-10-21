@@ -256,7 +256,6 @@ apps/frontend/public/
 
 contributors/
   */tools/                     # shared and contributed tool sources
-  */libraries/                 # development workflow sources, not app pages
 
 apps/frontend/scripts/installers/
   tests/                       # standalone installer and gateway proxy checks
