@@ -75,24 +75,30 @@ class LinkSkillsTest(unittest.TestCase):
         )
         self.assertFalse((self.agents / "skills" / "rules").exists())
 
-    def test_links_only_the_agents_present_on_this_machine(self):
-        (self.home / ".codex").mkdir()
-        (self.home / ".dsh").mkdir()
+    def test_links_only_where_an_agent_does_not_read_agents_home(self):
+        for folder in (".claude", ".codex", ".dsh"):
+            (self.home / folder).mkdir()
 
         self.link()
 
+        agents_rules = str(self.agents / "AGENTS.md")
         for name in SKILL_NAMES:
-            link = self.home / ".codex" / "skills" / name
+            # Claude Code ignores ~/.agents, so it gets its own skill links.
+            link = self.home / ".claude" / "skills" / name
             self.assertEqual(os.readlink(link), str(self.agents / "skills" / name))
-        self.assertEqual(
-            os.readlink(self.home / ".codex" / "AGENTS.md"),
-            str(self.agents / "AGENTS.md"),
-        )
-        self.assertEqual(
-            os.readlink(self.home / ".dsh" / "AGENTS.md"),
-            str(self.agents / "AGENTS.md"),
-        )
-        self.assertFalse((self.home / ".claude").exists())
+            # Codex and DSH read ~/.agents/skills, so linking would only repeat it.
+            self.assertFalse((self.home / ".codex" / "skills" / name).exists())
+            self.assertFalse((self.home / ".dsh" / "skills" / name).exists())
+        self.assertEqual(os.readlink(self.home / ".claude" / "CLAUDE.md"), agents_rules)
+        # Codex reads its rules from ~/.codex; DSH reads ~/.agents/AGENTS.md.
+        self.assertEqual(os.readlink(self.home / ".codex" / "AGENTS.md"), agents_rules)
+        self.assertFalse((self.home / ".dsh" / "AGENTS.md").exists())
+
+    def test_agents_that_are_not_installed_get_no_folder(self):
+        self.link()
+
+        for folder in (".claude", ".codex", ".dsh", ".gemini"):
+            self.assertFalse((self.home / folder).exists())
 
     def test_links_agy_into_its_own_global_folders(self):
         (self.home / ".gemini" / "config").mkdir(parents=True)
@@ -229,6 +235,7 @@ class LinkSkillsTest(unittest.TestCase):
         self.assertFalse(self.agents.exists())
 
     def test_unlink_removes_what_was_installed_and_nothing_else(self):
+        (self.home / ".claude").mkdir()
         (self.home / ".codex").mkdir()
         (self.home / ".gemini" / "config").mkdir(parents=True)
         (self.agents / "skills" / "mine").mkdir(parents=True)
@@ -244,6 +251,8 @@ class LinkSkillsTest(unittest.TestCase):
             self.assertTrue(
                 list((self.agents / ".backups").glob("*/" + name + "/SKILL.md"))
             )
+        self.assertFalse((self.home / ".claude" / "CLAUDE.md").is_symlink())
+        self.assertFalse((self.home / ".claude" / "skills" / SKILL_NAMES[0]).is_symlink())
         self.assertFalse((self.home / ".codex" / "AGENTS.md").is_symlink())
         self.assertFalse((self.home / ".gemini" / "AGENTS.md").is_symlink())
         self.assertFalse(

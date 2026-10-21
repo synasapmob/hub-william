@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # unlink-skills: remove the Hub William skills that link.sh installed
 #
-# Removes the agent links that point at the installed skills, then moves the
+# Removes the links that link.sh made for Claude Code, Codex and agy, then moves the
 # installed skills to ~/.agents/.backups so nothing is lost. Your own skills and
 # ~/.agents/AGENTS.md are left alone.
 #
@@ -41,7 +41,6 @@ while IFS= read -r name; do
   [ -n "$name" ] || continue
 
   remove_link "$HOME/.claude/skills/$name" "$skills_home/$name"
-  remove_link "$HOME/.codex/skills/$name" "$skills_home/$name"
   remove_link "$HOME/.gemini/config/skills/$name" "$skills_home/$name"
 
   if [ -d "$skills_home/$name" ] && [ ! -L "$skills_home/$name" ]; then
@@ -53,7 +52,6 @@ done <"$manifest"
 
 remove_link "$HOME/.claude/CLAUDE.md" "$rules"
 remove_link "$HOME/.codex/AGENTS.md" "$rules"
-remove_link "$HOME/.dsh/AGENTS.md" "$rules"
 remove_link "$HOME/.gemini/AGENTS.md" "$rules"
 
 rm "$manifest"

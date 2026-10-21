@@ -2,9 +2,10 @@
 # link-skills: install the Hub William skills into ~/.agents
 #
 # Copies every skill into ~/.agents/skills, saves the shared rules as
-# ~/.agents/AGENTS.md, then links the agents found on this machine to those
-# copies. It only adds: a skill that already exists is moved to
-# ~/.agents/.backups first, and a rules file you already have is left alone.
+# ~/.agents/AGENTS.md, then links the agents that do not read ~/.agents themselves
+# (see the table below) to those copies. It only adds: a skill that already exists
+# is moved to ~/.agents/.backups first, and a rules file you already have is left
+# alone.
 #
 # Two ways to run it. Without --path it fetches the skills from Hub William, so
 # use that only if you trust it:
@@ -157,8 +158,28 @@ link_to() {
   ln -s "$target" "$path"
 }
 
-# Agents that keep their own skills folder: Claude Code, Codex and agy.
-for entry in ".claude:skills" ".codex:skills" ".gemini:config/skills"; do
+# Which agents need a link, and why. Each was run against a home where only
+# ~/.agents held the skills and the rules (October 2026; check again when an agent
+# updates):
+#
+#   agent        skills from ~/.agents/skills   rules from ~/.agents/AGENTS.md
+#   Claude Code  no                             no
+#   Codex        yes                            no
+#   DSH          yes                            yes
+#   OpenCode     yes                            not checked
+#   agy          no                             no
+#
+# So a link is made only where an agent does not read ~/.agents itself:
+#   Claude Code  skills  ~/.claude/skills/<name>          rules  ~/.claude/CLAUDE.md
+#   Codex        none                                     rules  ~/.codex/AGENTS.md
+#   agy          skills  ~/.gemini/config/skills/<name>   rules  ~/.gemini/AGENTS.md
+#
+# agy keeps its global skills and rules under ~/.gemini; its only .agents/skills is
+# the one inside a project, so ~/.agents/skills is invisible to it. Without these
+# links it lists only its built-in skills and has no rules.
+
+# Skills: "<agent folder>:<its skills folder>".
+for entry in ".claude:skills" ".gemini:config/skills"; do
   agent="$HOME/${entry%%:*}"
   [ -d "$agent" ] || continue
 
@@ -168,7 +189,7 @@ for entry in ".claude:skills" ".codex:skills" ".gemini:config/skills"; do
 done
 
 if [ -f "$rules" ]; then
-  for file in "$HOME/.claude/CLAUDE.md" "$HOME/.codex/AGENTS.md" "$HOME/.dsh/AGENTS.md" "$HOME/.gemini/AGENTS.md"; do
+  for file in "$HOME/.claude/CLAUDE.md" "$HOME/.codex/AGENTS.md" "$HOME/.gemini/AGENTS.md"; do
     [ -d "$(dirname "$file")" ] || continue
     link_to "$file" "$rules"
   done
