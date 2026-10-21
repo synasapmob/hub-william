@@ -119,46 +119,30 @@ export default function ToolsCatalogToolUsage({
   }
 
   if (collection.id === "link-skills") {
+    const linkCommand = `curl -fsSL ${catalogService.linkSkillsScriptUrl("link.sh", siteOrigin)} | bash`;
+
     return (
       <div className={container()}>
         <div className={section()}>
-          <p className={label()}>From Hub William</p>
+          <p className={label()}>1. From Hub William</p>
 
           <p className={description()}>
-            Fetches the skills from Hub William and installs them into{" "}
-            <code>~/.agents</code>. Use it only if you trust Hub William, and
-            read <code>link.sh</code> first.
+            Fetches the skills from Hub William. Use it only if you trust it.
           </p>
 
-          <CopyCommand
-            command={`curl -fsSL ${catalogService.linkSkillsScriptUrl("link.sh", siteOrigin)} | bash`}
-          />
+          <CopyCommand command={linkCommand} />
         </div>
 
         <div className={section()}>
-          <p className={label()}>From your own copy</p>
+          <p className={label()}>2. From your own copy</p>
 
           <p className={description()}>
-            Download Skills and this tool, then point <code>link.sh</code> at
-            the Skills zip, or at the folder you unzipped it into. Nothing is
-            fetched. Without <code>--path</code> it uses Hub William.
-          </p>
-
-          <CopyCommand command="bash link.sh --path=~/Downloads/skills.zip" />
-        </div>
-
-        <div className={section()}>
-          <p className={label()}>Remove</p>
-
-          <p className={description()}>
-            Removes the links and moves the installed skills to{" "}
-            <code>~/.agents/.backups</code>. Your own skills stay where they
-            are. Run <code>bash unlink.sh</code> from your own copy instead if
-            you prefer.
+            Point it at the Skills zip you downloaded, or the folder you
+            unzipped it into. Nothing is fetched.
           </p>
 
           <CopyCommand
-            command={`curl -fsSL ${catalogService.linkSkillsScriptUrl("unlink.sh", siteOrigin)} | bash`}
+            command={`${linkCommand} -s -- --path=~/Downloads/skills.zip`}
           />
         </div>
       </div>

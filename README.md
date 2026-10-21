@@ -140,7 +140,7 @@ curl -fsSL https://hub-william.site/catalog/contributors/synasapmob/tools/link-s
 
 # From your own copy: download the Skills zip, then point the script at it.
 # PATH is the zip, or the folder you unzipped it into. Nothing is fetched.
-bash link.sh --path=~/Downloads/skills.zip
+curl -fsSL https://hub-william.site/catalog/contributors/synasapmob/tools/link-skills/link.sh | bash -s -- --path=~/Downloads/skills.zip
 ```
 
 It only adds: existing skills are backed up, an existing rules file is kept, and

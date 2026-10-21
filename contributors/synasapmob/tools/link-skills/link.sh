@@ -11,7 +11,8 @@
 #   curl -fsSL https://hub-william.site/catalog/contributors/synasapmob/tools/link-skills/link.sh | bash
 # With --path it reads your own copy and fetches nothing. PATH is the Skills zip
 # you downloaded, or the folder you unzipped it into:
-#   bash link.sh --path=~/Downloads/skills.zip
+#   curl -fsSL https://hub-william.site/catalog/contributors/synasapmob/tools/link-skills/link.sh | bash -s -- --path=~/Downloads/skills.zip
+# Or run a downloaded copy of this file: bash link.sh --path=~/Downloads/skills.zip
 #
 # Undo it with unlink.sh, next to this file.
 # HUB_WILLIAM_ORIGIN and AGENTS_HOME override the site and the target folder.

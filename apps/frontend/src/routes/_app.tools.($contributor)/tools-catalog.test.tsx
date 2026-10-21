@@ -226,20 +226,15 @@ describe("ToolsCatalog", () => {
   it("offers link.sh from Hub William or from your own copy", () => {
     renderTools("/tools/synasapmob?node=link-skills", "synasapmob");
 
+    const linkCommand = `curl -fsSL ${window.location.origin}/catalog/contributors/synasapmob/tools/link-skills/link.sh | bash`;
+
     expect(screen.getByRole("heading", { name: "Link skills" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "Files (2)" })).toBeVisible();
+    expect(screen.getByText("1. From Hub William")).toBeVisible();
+    expect(screen.getByText(linkCommand)).toBeVisible();
+    expect(screen.getByText("2. From your own copy")).toBeVisible();
     expect(
-      screen.getByText(
-        `curl -fsSL ${window.location.origin}/catalog/contributors/synasapmob/tools/link-skills/link.sh | bash`,
-      ),
-    ).toBeVisible();
-    expect(
-      screen.getByText("bash link.sh --path=~/Downloads/skills.zip"),
-    ).toBeVisible();
-    expect(
-      screen.getByText(
-        `curl -fsSL ${window.location.origin}/catalog/contributors/synasapmob/tools/link-skills/unlink.sh | bash`,
-      ),
+      screen.getByText(`${linkCommand} -s -- --path=~/Downloads/skills.zip`),
     ).toBeVisible();
     for (const script of ["link.sh", "unlink.sh"]) {
       expect(
