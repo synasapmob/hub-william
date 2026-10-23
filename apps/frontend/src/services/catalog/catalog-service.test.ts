@@ -135,6 +135,7 @@ describe("contributed skills", () => {
         .map((file) => file.path),
     ).toEqual([
       "contributors/synasapmob/tools/skills/frontend-convention/SKILL.md",
+      "contributors/synasapmob/tools/skills/linear-task-scope/SKILL.md",
       "contributors/synasapmob/tools/skills/mock-data/SKILL.md",
       "contributors/synasapmob/tools/skills/operator-cli/SKILL.md",
       "contributors/synasapmob/tools/skills/rules/AGENTS.md",

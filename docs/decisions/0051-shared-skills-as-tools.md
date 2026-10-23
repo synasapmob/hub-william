@@ -15,7 +15,7 @@ ordinary tools: no new folder level, tab or filter, and they appear at
 `/tools/synasapmob` like any contributed tool.
 
 - `skills/` (card SKILLS): `frontend-convention`, `operator-cli`, `mock-data`,
-  the vendored MIT-licensed `scroll-world` (with its `LICENSE` and provenance
+  `linear-task-scope`, the vendored MIT-licensed `scroll-world` (with its `LICENSE` and provenance
   README), and `rules/AGENTS.md`, the session-wide rules that cannot wait for a
   skill to match a task. One card, one zip. To use them, download the zip.
 - `link-skills/` (card LINK SKILLS): `link.sh` and `unlink.sh`, nothing else. Its
