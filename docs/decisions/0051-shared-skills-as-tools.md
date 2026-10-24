@@ -15,7 +15,7 @@ ordinary tools: no new folder level, tab or filter, and they appear at
 `/tools/synasapmob` like any contributed tool.
 
 - `skills/` (card SKILLS): `frontend-convention`, `operator-cli`, `mock-data`,
-  the vendored MIT-licensed `scroll-world` (with its `LICENSE` and provenance
+  `linear-task-scope`, the vendored MIT-licensed `scroll-world` (with its `LICENSE` and provenance
   README), and `rules/AGENTS.md`, the session-wide rules that cannot wait for a
   skill to match a task. One card, one zip. To use them, download the zip.
 - `link-skills/` (card LINK SKILLS): `link.sh` and `unlink.sh`, nothing else. Its
@@ -38,11 +38,16 @@ nothing else (the table in `link.sh` records the result): Claude Code gets skill
 links and `~/.claude/CLAUDE.md`; Codex reads `~/.agents/skills` but needs
 `~/.codex/AGENTS.md`; agy keeps its global skills and rules under `~/.gemini`, so it
 gets links in `~/.gemini/config/skills` and `~/.gemini/AGENTS.md`. DSH reads both
-from `~/.agents`, and OpenCode reads the skills. It only adds:
+from `~/.agents`, and OpenCode reads the skills. It never deletes the user's work:
 
 - a skill that already exists is moved to `~/.agents/.backups/` first, never into
   `skills/`, where an agent would load it twice;
-- a rules file that already exists is kept, and the shipped one is saved beside it;
+- a rules file that already exists is kept and the shipped one is saved beside it,
+  unless it is still an unedited copy of an earlier install. Then it is moved to
+  the backups and the shipped one replaces it, so running `link.sh` again is enough
+  to update the rules. "Unedited" means its sha256 equals the one `link.sh` recorded
+  in `~/.agents/.hub-william-rules` when it installed that copy, or equals the copy
+  that shipped before the record existed. Without a sha256 tool the file is kept;
 - a path that already exists is not replaced by a link;
 - a symlinked `~/.agents/skills` stops the script, because copying through it
   would write into the folder it points at.
