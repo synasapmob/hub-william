@@ -1,7 +1,9 @@
 """Exercise the skills link scripts against a temporary home, never the real one."""
 
+import hashlib
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -14,6 +16,20 @@ SKILLS = CONTRIBUTOR / "tools" / "skills"
 LINK = CONTRIBUTOR / "tools" / "link-skills" / "link.sh"
 UNLINK = CONTRIBUTOR / "tools" / "link-skills" / "unlink.sh"
 SKILL_NAMES = sorted(path.parent.name for path in SKILLS.glob("*/SKILL.md"))
+
+# The shared rules as they shipped before link.sh kept a record of what it installed.
+LEGACY_RULES = """# Global agent rules
+
+Rules that every agent follows in every session.
+
+## Memory
+
+- Never save memory on your own initiative. Do not write to `AGENTS.md`, to notes files,
+  or to any memory store unless the task itself requires it.
+- When you learn something worth keeping, do not save it. Add one short notice at the very
+  end of your reply: what you learned, where you would save it, and ask whether to keep it.
+- Save only after the user agrees. If they decline, drop it and do not propose it again.
+"""
 
 
 def run(script, home, *args, **env):
@@ -152,6 +168,83 @@ class LinkSkillsTest(unittest.TestCase):
             (self.agents / "AGENTS.hub-william.md").read_text(),
             (SKILLS / "rules" / "AGENTS.md").read_text(),
         )
+
+    def link_from(self, source, **env):
+        result = run(LINK, self.home, "--path", str(source), **env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result
+
+    def skills_with_rules(self, rules):
+        """A copy of the Skills folder whose shared rules read `rules`."""
+        copy = Path(self.directory.name) / "older" / "skills"
+        shutil.copytree(SKILLS, copy)
+        (copy / "rules" / "AGENTS.md").write_text(rules)
+        return copy
+
+    def test_linking_again_updates_rules_you_have_not_edited(self):
+        self.link_from(self.skills_with_rules("old rules\n"))
+        self.assertEqual((self.agents / "AGENTS.md").read_text(), "old rules\n")
+
+        result = self.link()
+
+        self.assertEqual(
+            (self.agents / "AGENTS.md").read_text(),
+            (SKILLS / "rules" / "AGENTS.md").read_text(),
+        )
+        backups = list((self.agents / ".backups").glob("*/AGENTS.md"))
+        self.assertEqual([path.read_text() for path in backups], ["old rules\n"])
+        self.assertIn("updated " + str(self.agents / "AGENTS.md"), result.stdout)
+        self.assertFalse((self.agents / "AGENTS.hub-william.md").exists())
+
+    def test_rules_you_edited_after_installing_are_kept(self):
+        self.link_from(self.skills_with_rules("old rules\n"))
+        (self.agents / "AGENTS.md").write_text("old rules\nmine\n")
+
+        self.link()
+
+        self.assertEqual((self.agents / "AGENTS.md").read_text(), "old rules\nmine\n")
+        self.assertEqual(
+            (self.agents / "AGENTS.hub-william.md").read_text(),
+            (SKILLS / "rules" / "AGENTS.md").read_text(),
+        )
+        self.assertFalse((self.agents / ".backups").exists())
+
+    def test_rules_from_before_the_record_existed_are_updated(self):
+        self.agents.mkdir()
+        (self.agents / "AGENTS.md").write_text(LEGACY_RULES)
+
+        self.link()
+
+        self.assertEqual(
+            (self.agents / "AGENTS.md").read_text(),
+            (SKILLS / "rules" / "AGENTS.md").read_text(),
+        )
+        backups = list((self.agents / ".backups").glob("*/AGENTS.md"))
+        self.assertEqual([path.read_text() for path in backups], [LEGACY_RULES])
+
+    def test_the_legacy_hash_in_link_sh_is_the_hash_of_that_copy(self):
+        self.assertIn(hashlib.sha256(LEGACY_RULES.encode()).hexdigest(), LINK.read_text())
+
+    def test_a_symlinked_rules_file_is_kept(self):
+        mine = Path(self.directory.name) / "my-rules.md"
+        mine.write_text(LEGACY_RULES)
+        self.agents.mkdir()
+        (self.agents / "AGENTS.md").symlink_to(mine)
+
+        self.link()
+
+        self.assertTrue((self.agents / "AGENTS.md").is_symlink())
+        self.assertEqual(mine.read_text(), LEGACY_RULES)
+
+    def test_a_copy_left_beside_the_rules_is_removed_once_they_are_updated(self):
+        self.agents.mkdir()
+        (self.agents / "AGENTS.md").write_text(LEGACY_RULES)
+        shipped = (SKILLS / "rules" / "AGENTS.md").read_text()
+        (self.agents / "AGENTS.hub-william.md").write_text(shipped)
+
+        self.link()
+
+        self.assertFalse((self.agents / "AGENTS.hub-william.md").exists())
 
     def test_an_existing_agent_file_is_left_as_it_is(self):
         (self.home / ".claude").mkdir()
