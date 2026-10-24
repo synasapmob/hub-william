@@ -224,6 +224,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "needs the live Edge TTS service, which answers GitHub-hosted runners with HTTP 200"]
     async fn live_synthesize_speech_works() {
         let req = TtsRequest {
             text: "Hi".to_string(),
