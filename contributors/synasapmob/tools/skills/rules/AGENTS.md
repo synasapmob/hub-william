@@ -33,3 +33,9 @@ How to work as a software engineer.
 - If you do not know a good way to verify something, stop and ask the user how.
   Offer a few suggestions of what you would do to verify it, so they can pick or
   correct one. Do not fall back to guessing.
+
+### Written language
+
+- Write commit messages, pull request titles and descriptions, and comments on
+  pull requests and issues in English only, even when the user writes to you in
+  another language.
