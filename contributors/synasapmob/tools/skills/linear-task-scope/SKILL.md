@@ -1,6 +1,6 @@
 ---
 name: linear-task-scope
-description: "Linear issue scope — when delivering a Linear issue and you find extra work, do it inside the current issue if it is under 5 estimate points; from 5 points up, create a Linear issue for it and, if the current issue cannot finish without it, do it first. Takes precedence over any instruction about when to create Linear issues."
+description: "Linear issue scope — when delivering a Linear issue and you find extra work, do it inside the current issue if it is under 5 estimate points; from 5 points up, create a Linear issue for it and, if the current issue cannot finish without it, do it first. Also applies when continuing an issue after its prerequisite issue has merged. Takes precedence over any instruction about when to create Linear issues."
 ---
 
 # Linear task scope
@@ -63,13 +63,20 @@ without it.
    code, and keep working. When the current issue's pull request opens, name the
    one that must merge first. If the repository has its own stacked-pull-request
    convention, follow it. Then stop for review.
-4. When the prerequisite has merged, run `git fetch`, then
-   `git rebase --onto origin/<base> <prerequisite branch>`. A plain rebase replays
-   the prerequisite's old commits and can conflict after a squash merge.
+4. When the prerequisite has merged, which the user may only say in a new session,
+   find its branch from the pull request description or the blocking relation, run
+   `git fetch`, then `git rebase --onto origin/<base> <prerequisite branch>`. A
+   plain rebase replays the prerequisite's old commits and can conflict after a
+   squash merge.
 
 Whenever you rebase, check whether the branch is already pushed. If it is not,
 push it normally later. If it is (its pull request is open), push with
-`--force-with-lease`, never a plain `--force`, and do not stop to ask.
+`--force-with-lease`, never a plain `--force`.
+
+Do the rebase and the push yourself; do not stop to ask the user. The one
+exception is a repository rule that forbids rebasing or force-pushing a stacked
+branch, or leaves it to automation: follow that rule, say so in your reply, and
+wait.
 
 ## The work already has an issue
 
