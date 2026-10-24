@@ -3,9 +3,10 @@
 #
 # Copies every skill into ~/.agents/skills, saves the shared rules as
 # ~/.agents/AGENTS.md, then links the agents that do not read ~/.agents themselves
-# (see the table below) to those copies. It only adds: a skill that already exists
-# is moved to ~/.agents/.backups first, and a rules file you already have is left
-# alone.
+# (see the table below) to those copies. It never deletes your work: a skill that
+# already exists is moved to ~/.agents/.backups first, and so is a rules file that
+# is still an unedited copy of an earlier install, before the new one replaces it.
+# A rules file you edited is left alone, with the new rules saved beside it.
 #
 # Two ways to run it. Without --path it fetches the skills from Hub William, so
 # use that only if you trust it:
@@ -129,15 +130,55 @@ manifest="$AGENTS_HOME/.hub-william-skills"
 } | sort -u >"$manifest.tmp"
 mv "$manifest.tmp" "$manifest"
 
-# A single shared file is more likely to be yours than a skill, so keep it.
+# A single shared file is more likely to be yours than a skill, so it is replaced
+# only while it is still an unedited copy of what this script installed. That is
+# known from the hash of the last copy installed, kept in rules_record, or from
+# LEGACY_RULES_SHA256, the one copy that shipped before the record existed. A file
+# you edited, or a symlink, is kept.
+LEGACY_RULES_SHA256="6b3e7fe58f2cddee9e3eb7d2776d695e2e42974f2a99243a27ba1b3041e1a661"
 rules="$AGENTS_HOME/AGENTS.md"
-if [ -f "$source_dir/rules/AGENTS.md" ]; then
+rules_record="$AGENTS_HOME/.hub-william-rules"
+rules_beside="$AGENTS_HOME/AGENTS.hub-william.md"
+shipped_rules="$source_dir/rules/AGENTS.md"
+
+# The hash of a file, or nothing when this machine has no sha256 tool.
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | cut -d' ' -f1
+  fi
+}
+
+unedited_rules() {
+  local current known
+  current="$(sha256_of "$1")"
+  [ -n "$current" ] || return 1
+  known="$(cat "$rules_record" 2>/dev/null || true)"
+  [ "$current" = "$LEGACY_RULES_SHA256" ] || [ "$current" = "$known" ]
+}
+
+if [ -f "$shipped_rules" ]; then
   if [ ! -e "$rules" ] && [ ! -L "$rules" ]; then
-    cp "$source_dir/rules/AGENTS.md" "$rules"
+    cp "$shipped_rules" "$rules"
+    sha256_of "$rules" >"$rules_record"
     note "saved the shared rules as $rules"
-  elif ! cmp -s "$source_dir/rules/AGENTS.md" "$rules"; then
-    cp "$source_dir/rules/AGENTS.md" "$AGENTS_HOME/AGENTS.hub-william.md"
-    note "kept your $rules; the Hub William rules are in $AGENTS_HOME/AGENTS.hub-william.md"
+  elif cmp -s "$shipped_rules" "$rules"; then
+    [ -L "$rules" ] || sha256_of "$rules" >"$rules_record"
+  elif [ ! -L "$rules" ] && unedited_rules "$rules"; then
+    mkdir -p "$AGENTS_HOME/.backups/$stamp"
+    mv "$rules" "$AGENTS_HOME/.backups/$stamp/AGENTS.md"
+    cp "$shipped_rules" "$rules"
+    sha256_of "$rules" >"$rules_record"
+    note "updated $rules; the previous copy is in $AGENTS_HOME/.backups/$stamp/AGENTS.md"
+  else
+    cp "$shipped_rules" "$rules_beside"
+    note "kept your $rules; the Hub William rules are in $rules_beside"
+  fi
+
+  # The copy saved beside your file is redundant once AGENTS.md holds the same rules.
+  if [ -f "$rules_beside" ] && cmp -s "$shipped_rules" "$rules" && cmp -s "$shipped_rules" "$rules_beside"; then
+    rm -f -- "$rules_beside"
   fi
 fi
 
