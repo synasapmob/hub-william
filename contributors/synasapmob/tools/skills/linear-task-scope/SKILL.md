@@ -54,13 +54,22 @@ without it.
 
 1. Assign the new issue to the user, move it to In Progress, and set "prerequisite
    issue blocks current issue".
-2. Branch from the base branch with the issue's Linear branch name, implement it,
-   and open a pull request into the base branch.
-3. Branch the current issue from the prerequisite's branch, keep working, open its
-   pull request and name the one that must merge first. Then stop for review.
-4. When the user says the prerequisite merged: `git fetch`, then
-   `git rebase --onto origin/<base> <prerequisite branch>` and push with
-   `--force-with-lease`.
+2. Branch from the base branch with the issue's Linear branch name and implement
+   it. Open its pull request only when its tests pass and its acceptance criteria
+   are checked: an open pull request means the prerequisite is done. You may do
+   this yourself or hand it to another agent or session; if you do, wait for that
+   pull request to exist before moving on.
+3. Rebase the current issue's branch onto the prerequisite's branch to get its
+   code, and keep working. When the current issue's pull request opens, name the
+   one that must merge first. If the repository has its own stacked-pull-request
+   convention, follow it. Then stop for review.
+4. When the prerequisite has merged, run `git fetch`, then
+   `git rebase --onto origin/<base> <prerequisite branch>`. A plain rebase replays
+   the prerequisite's old commits and can conflict after a squash merge.
+
+Whenever you rebase, check whether the branch is already pushed. If it is not,
+push it normally later. If it is (its pull request is open), push with
+`--force-with-lease`, never a plain `--force`, and do not stop to ask.
 
 ## The work already has an issue
 
@@ -98,6 +107,7 @@ pull request or issue if needed:
 
 - Split one outcome into several issues.
 - Create an issue for work under the threshold.
-- Edit, comment on or take over an issue someone else holds.
+- Edit, comment on, link to or take over an issue someone else holds. A link also
+  shows on their issue.
 - Write a temporary mock to get around a teammate's unfinished work, unless the
   user asks.
