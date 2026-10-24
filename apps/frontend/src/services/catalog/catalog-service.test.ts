@@ -5,6 +5,7 @@ import {
   collectionIdForPath,
   collectionPresentation,
   compareCollectionIds,
+  listedCatalogPaths,
 } from "./catalog-collections";
 
 describe("supported tool catalogue", () => {
@@ -141,11 +142,40 @@ describe("contributed skills", () => {
       "contributors/synasapmob/tools/skills/rules/AGENTS.md",
       "contributors/synasapmob/tools/skills/scroll-world/SKILL.md",
     ]);
+  });
+
+  it("lists a skill by its SKILL.md and not by the files it bundles", () => {
+    const skills = catalogService.findCollection("skills", "synasapmob");
+
     expect(
-      catalogService
-        .collectionFiles(skills!)
-        .some((file) => file.name === "LICENSE"),
-    ).toBe(true);
+      catalogService.collectionFiles(skills!).map((file) => file.path),
+    ).toEqual([
+      "contributors/synasapmob/tools/skills/frontend-convention/SKILL.md",
+      "contributors/synasapmob/tools/skills/linear-task-scope/SKILL.md",
+      "contributors/synasapmob/tools/skills/mock-data/SKILL.md",
+      "contributors/synasapmob/tools/skills/operator-cli/SKILL.md",
+      "contributors/synasapmob/tools/skills/rules/AGENTS.md",
+      "contributors/synasapmob/tools/skills/scroll-world/SKILL.md",
+    ]);
+  });
+
+  it("keeps the files outside any skill folder listed", () => {
+    expect(
+      listedCatalogPaths([
+        "contributors/a/tools/pack/one/SKILL.md",
+        "contributors/a/tools/pack/one/LICENSE",
+        "contributors/a/tools/pack/one/references/deep/guide.md",
+        "contributors/a/tools/pack/one/references/run.py",
+        "contributors/a/tools/pack/rules/AGENTS.md",
+        "contributors/a/tools/other/other.md",
+        "contributors/a/tools/other/helper.sh",
+      ]),
+    ).toEqual([
+      "contributors/a/tools/pack/one/SKILL.md",
+      "contributors/a/tools/pack/rules/AGENTS.md",
+      "contributors/a/tools/other/other.md",
+      "contributors/a/tools/other/helper.sh",
+    ]);
   });
 
   it("describes a skill from its text rather than its front matter", () => {
