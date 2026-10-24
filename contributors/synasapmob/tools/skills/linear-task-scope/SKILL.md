@@ -9,48 +9,47 @@ Decide what to do with work you find while delivering a Linear issue. This skill
 takes precedence over any repository, workflow or skill instruction about when to
 create issues.
 
-The **current issue** is the one you were asked to deliver. A **prerequisite
-issue** is one whose work the current issue cannot finish without.
+- The current issue is the one you were asked to deliver.
+- A prerequisite issue is one whose work the current issue cannot finish without.
 
 ## Estimate the found work
 
 Estimate it on its own, not together with the current issue, in the team's own
-scale. If the team does not define its points, read them as relative effort,
-including review, tests and docs:
+scale.
 
-| Points | Roughly |
-|---:|---|
-| 1 | under half a day |
-| 2 | about a day |
-| 3 | one to two days |
-| 5 | two to three days |
-| 8 | close to a sprint |
-
-The threshold is 5 points, about two days of work or more. Use another threshold
-if the user gives one. If the team does not use numeric points, apply the same
-threshold by time. These are rough guides to effort, not promises about elapsed
-time.
+- If the team does not define its points, read them as relative effort, including
+  review, tests and docs: 1 is under half a day, 2 about a day, 3 one to two days,
+  5 two to three days, 8 close to a sprint.
+- The threshold is 5 points, about two days of work or more. Use another
+  threshold if the user gives one.
+- If the team does not use numeric points, apply the same threshold by time.
+- These are rough guides to effort, not promises about elapsed time.
 
 ## Under 5 points: do it in the current issue
 
-Same branch, same pull request, no new issue. Record it for the final report.
+Keep it on the same branch and in the same pull request.
+
+- Do not create an issue for it.
+- Record it for the final report.
 
 ## 5 points or more: create an issue
 
-Check "The work already has an issue" first. Otherwise create one issue per
-separately finishable outcome, never several for one outcome. Give it an estimate,
-enough context to work from, a link back to the current issue, the same team and
-project, and the title and labels the team's conventions ask for.
+Create one issue per separately finishable outcome, never several for one outcome.
 
-### It does not block the current issue
+- If the work already has an issue, follow "The work already has an issue" instead
+  of creating one.
+- Give the new issue an estimate, enough context to work from, a link back to the
+  current issue, the same team and project, and the title and labels the team's
+  conventions ask for.
+- If it does not block the current issue, leave it unassigned in the backlog,
+  linked back in its description only, and keep working on the current issue.
+- If it blocks the current issue, do it first, as in "Do the prerequisite first".
+  It blocks when the current issue's acceptance criteria cannot be met or verified
+  without it.
 
-Leave it unassigned in the backlog, linked back in its description only, and keep
-working on the current issue.
+## Do the prerequisite first
 
-### It blocks the current issue
-
-It blocks when the current issue's acceptance criteria cannot be met or verified
-without it.
+Use this when the new issue blocks the current issue.
 
 1. Assign the new issue to the user, move it to In Progress, and set "prerequisite
    issue blocks current issue".
@@ -69,46 +68,44 @@ without it.
    plain rebase replays the prerequisite's old commits and can conflict after a
    squash merge.
 
-Whenever you rebase, check whether the branch is already pushed. If it is not,
-push it normally later. If it is (its pull request is open), push with
-`--force-with-lease`, never a plain `--force`.
+## Rebase and push
 
-Do the rebase and the push yourself; do not stop to ask the user. The one
-exception is a repository rule that forbids rebasing or force-pushing a stacked
-branch, or leaves it to automation: follow that rule, say so in your reply, and
-wait.
+Rebasing rewrites history, so the push depends on whether the branch is already
+pushed.
+
+- If the branch is not pushed yet, push it normally later.
+- If it is pushed (its pull request is open), push with `--force-with-lease`,
+  never a plain `--force`.
+- Do the rebase and the push yourself; do not stop to ask the user.
+- If a repository rule forbids rebasing or force-pushing a stacked branch, or
+  leaves it to automation, follow that rule instead, say so in your reply, and
+  wait.
 
 ## The work already has an issue
 
 Do not create a duplicate. Read its owner, status and linked branches or pull
 requests, then:
 
-| Issue state | Does not block | Blocks |
-|---|---|---|
-| Done and merged | nothing | pull the base branch and continue |
-| Assigned, or has a branch or pull request | report only | stop the blocked part and tell the user |
-| Unowned: no assignee, Backlog or Todo, no branch or pull request, no comment saying someone is on it | report only | take it as a prerequisite issue, if its scope matches |
-
-A canceled duplicate does not count.
+- If it is done and merged, do nothing when it does not block you; when it blocks
+  you, pull the base branch and continue.
+- If it is assigned, or has a branch or pull request, only report it when it does
+  not block you; when it blocks you, stop the blocked part and tell the user.
+- If nobody holds it (no assignee, Backlog or Todo, no branch or pull request, no
+  comment saying someone is on it), only report it when it does not block you;
+  when it blocks you and its scope matches, take it as a prerequisite issue.
+- A canceled duplicate does not count.
 
 ## Report at the end
 
 Report only what happened. If nothing below applies, add nothing to the reply.
-Otherwise end the final reply with only the numbered lists that apply.
+Otherwise end the final reply with only the lists that apply, each with a title
+line and numbered items (1, 2, 3).
 
-**Out-of-scope work included in this PR**, so the user can split it into its own
-pull request or issue if needed:
-
-1. What it is, why it went in here, the files, a rough estimate.
-2. ...
-
-**Issues created**
-
-1. ID, title, why, done now or parked.
-
-**Existing issues found and left alone**
-
-1. ID, owner, status.
+- Out-of-scope work included in this PR, so the user can split it into its own
+  pull request or issue if needed. Each item: what it is, why it went in here, the
+  files, a rough estimate.
+- Issues created. Each item: ID, title, why, done now or parked.
+- Existing issues found and left alone. Each item: ID, owner, status.
 
 ## Never
 
