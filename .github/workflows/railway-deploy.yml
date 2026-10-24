@@ -30,7 +30,8 @@ jobs:
         run: |
           if [ -z "$RAILWAY_TOKEN" ]; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::RAILWAY_TOKEN is not configured; production deployment skipped."
+            echo "::error::RAILWAY_TOKEN is not configured; production was not deployed."
+            exit 1
           else
             echo "configured=true" >> "$GITHUB_OUTPUT"
           fi
@@ -58,24 +59,34 @@ jobs:
 
           deploy_service() {
             local service="$1"
-            local result deployment_id status previous_status=""
+            local result listing deployment_id status previous_status=""
 
+            # With --json the CLI prints its errors on stdout, so show them here.
             result="$(railway up \
               --project "$RAILWAY_PROJECT_ID" \
               --environment production \
               --service "$service" \
               --message "main ${GITHUB_SHA}" \
-              --detach --json)"
-            deployment_id="$(jq -er '.deploymentId' <<< "$result")"
+              --detach --json)" || {
+              echo "::error::$service: railway up failed: ${result:-no output}"
+              return 1
+            }
+            deployment_id="$(jq -er '.deploymentId' <<< "$result")" || {
+              echo "::error::$service: no deployment id in the railway up output: $result"
+              return 1
+            }
             echo "$service queued as $deployment_id"
 
             for attempt in $(seq 1 90); do
-              status="$(railway deployment list \
+              listing="$(railway deployment list \
                 --project "$RAILWAY_PROJECT_ID" \
                 --environment production \
                 --service "$service" \
-                --limit 100 --json |
-                jq -r --arg id "$deployment_id" '[.[] | select(.id == $id) | .status][0] // ""')"
+                --limit 100 --json)" || {
+                echo "::error::$service: railway deployment list failed: ${listing:-no output}"
+                return 1
+              }
+              status="$(jq -r --arg id "$deployment_id" '[.[] | select(.id == $id) | .status][0] // ""' <<< "$listing")"
 
               if [[ "$status" != "$previous_status" ]]; then
                 echo "$service $deployment_id ($attempt/90): ${status:-waiting for deployment record}"
