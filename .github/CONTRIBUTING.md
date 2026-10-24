@@ -46,7 +46,8 @@ for a suspected vulnerability; follow [SECURITY.md](SECURITY.md) instead.
 
 The repository owner branches from `dev` and opens pull requests into `dev`.
 The owner promotes a verified `dev` into `main`; feature pull requests do not
-target `main`. The `main` branch is the Railway production source. Owner changes
+target `main`. The `main` branch is the Railway production source and `dev` is
+the Railway staging source. Owner changes
 to the application, installers, tests, or workflow sources follow the
 [architecture](../apps/frontend/docs/architecture.md), accepted
 [decisions](../docs/decisions/README.md), and, for user-visible frontend work,

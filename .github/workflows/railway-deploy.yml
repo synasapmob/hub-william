@@ -4,25 +4,33 @@ on:
   push:
     branches:
       - main
+      - dev
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# `main` deploys production and `dev` deploys staging. Each environment keeps its
+# own queue, so a staging deploy never waits for production.
 concurrency:
-  group: railway-production
+  group: railway-${{ github.ref_name == 'main' && 'production' || 'staging' }}
   cancel-in-progress: false
 
 jobs:
   deploy:
-    name: Deploy production
-    if: github.repository == 'synasapmob/hub-william' && github.ref == 'refs/heads/main'
+    name: Deploy ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+    if: >-
+      github.repository == 'synasapmob/hub-william' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
     runs-on: ubuntu-latest
-    environment: production
+    environment: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
     timeout-minutes: 60
     env:
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
       RAILWAY_PROJECT_ID: f7d4909b-9c94-4dc5-b416-be61b9943909
+      DEPLOY_ENVIRONMENT: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+      # Staging has no Telegram adapter deployment.
+      DEPLOY_SERVICES: ${{ github.ref_name == 'main' && 'api telegram frontend' || 'api frontend' }}
 
     steps:
       - name: Check Railway token
@@ -30,7 +38,7 @@ jobs:
         run: |
           if [ -z "$RAILWAY_TOKEN" ]; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::error::RAILWAY_TOKEN is not configured; production was not deployed."
+            echo "::error::RAILWAY_TOKEN is not configured; $DEPLOY_ENVIRONMENT was not deployed."
             exit 1
           else
             echo "configured=true" >> "$GITHUB_OUTPUT"
@@ -64,9 +72,9 @@ jobs:
             # With --json the CLI prints its errors on stdout, so show them here.
             result="$(railway up \
               --project "$RAILWAY_PROJECT_ID" \
-              --environment production \
+              --environment "$DEPLOY_ENVIRONMENT" \
               --service "$service" \
-              --message "main ${GITHUB_SHA}" \
+              --message "${GITHUB_REF_NAME} ${GITHUB_SHA}" \
               --detach --json)" || {
               echo "::error::$service: railway up failed: ${result:-no output}"
               return 1
@@ -80,7 +88,7 @@ jobs:
             for attempt in $(seq 1 90); do
               listing="$(railway deployment list \
                 --project "$RAILWAY_PROJECT_ID" \
-                --environment production \
+                --environment "$DEPLOY_ENVIRONMENT" \
                 --service "$service" \
                 --limit 100 --json)" || {
                 echo "::error::$service: railway deployment list failed: ${listing:-no output}"
@@ -111,6 +119,6 @@ jobs:
             return 1
           }
 
-          deploy_service api
-          deploy_service telegram
-          deploy_service frontend
+          for service in $DEPLOY_SERVICES; do
+            deploy_service "$service"
+          done
