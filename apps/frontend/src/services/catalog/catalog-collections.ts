@@ -80,6 +80,27 @@ export function collectionIdForPath(path: string): string | null {
   return id;
 }
 
+const SKILL_ENTRY = "SKILL.md";
+
+/**
+ * A skill is listed by its SKILL.md alone: the LICENSE, README and references it
+ * bundles stay in the archive and at their published URLs, but are not listed.
+ * The archive builder does not call this, so the zip keeps every file.
+ */
+export function listedCatalogPaths(paths: readonly string[]) {
+  const skillFolders = paths
+    .filter((path) => path.split("/").at(-1) === SKILL_ENTRY)
+    .map((path) => path.slice(0, -SKILL_ENTRY.length));
+
+  return paths.filter(
+    (path) =>
+      !skillFolders.some(
+        (folder) =>
+          path.startsWith(folder) && path !== `${folder}${SKILL_ENTRY}`,
+      ),
+  );
+}
+
 export function collectionPresentation(id: string) {
   const known = COLLECTION_PRESENTATION[id];
   if (known) return known;

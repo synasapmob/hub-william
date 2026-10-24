@@ -2,6 +2,7 @@ import {
   collectionIdForPath,
   collectionPresentation,
   compareCollectionIds,
+  listedCatalogPaths,
 } from "./catalog-collections";
 import type {
   CatalogArchive,
@@ -91,8 +92,12 @@ const toolFiles: CatalogCollectionFile[] = Object.entries(sources)
   })
   .sort((left, right) => left.path.localeCompare(right.path));
 
+const listedPaths = new Set(
+  listedCatalogPaths(toolFiles.map((file) => file.path)),
+);
+
 const collectionFilesByOwner = new Map<string, CatalogCollectionFile[]>();
-for (const file of toolFiles) {
+for (const file of toolFiles.filter((entry) => listedPaths.has(entry.path))) {
   const key = `${file.path.split("/")[1]}/${collectionIdForPath(file.path)}`;
   const files = collectionFilesByOwner.get(key) ?? [];
   files.push(file);
