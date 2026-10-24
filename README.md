@@ -100,12 +100,14 @@ writes without changing the operator's installed agent settings.
 Owner pull requests run full CI; community pull requests run the trusted
 contribution-scope check without executing their changed files. After a verified
 `dev` change is promoted to `main`, the
-Railway workflow deploys the API, Telegram adapter and frontend to the existing
-production project. Add a production-scoped Railway project token as the GitHub
-Actions secret `RAILWAY_TOKEN`; until it is present, deployment is explicitly
-skipped. After adding it, run **Deploy to Railway** manually from `main` if no
-new `main` push is planned. Runtime credentials and database settings stay in
-Railway variables, not GitHub. GitHub Pages and Vercel publishing are retired.
+Railway workflow deploys the API, Telegram adapter and frontend to the
+`production` environment. A push to `dev` deploys the API and frontend to the
+`staging` environment, which has no Telegram adapter. Each environment has its
+own Railway project token, stored as the Actions secret `RAILWAY_TOKEN` of the
+GitHub environment with the same name; a run fails when it is missing. After
+fixing a secret, rerun the failed run, or run **Deploy to Railway** manually from
+`dev` or `main`. Runtime credentials and database settings stay in Railway
+variables, not GitHub. GitHub Pages and Vercel publishing are retired.
 
 ## Tool installation
 
