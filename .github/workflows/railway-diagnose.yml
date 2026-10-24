@@ -19,6 +19,10 @@ jobs:
       RAILWAY_PROJECT_ID: f7d4909b-9c94-4dc5-b416-be61b9943909
 
     steps:
+      - name: Is the token present
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then echo "RAILWAY_TOKEN is EMPTY"; else echo "RAILWAY_TOKEN has ${#RAILWAY_TOKEN} characters"; fi
+
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
