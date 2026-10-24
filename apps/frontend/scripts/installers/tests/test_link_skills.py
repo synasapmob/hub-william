@@ -74,7 +74,13 @@ class LinkSkillsTest(unittest.TestCase):
     def test_the_published_skills_are_the_ones_installed(self):
         self.assertEqual(
             SKILL_NAMES,
-            ["frontend-convention", "mock-data", "operator-cli", "scroll-world"],
+            [
+                "frontend-convention",
+                "linear-task-scope",
+                "mock-data",
+                "operator-cli",
+                "scroll-world",
+            ],
         )
 
     def test_installs_skills_and_rules_into_agents_home(self):

@@ -130,7 +130,7 @@ original bytes. `/catalog/index.json` lists tool sources;
 
 ### Install the shared skills
 
-The **Skills** tool of `@synasapmob` (`contributors/synasapmob/tools/skills/`: four
+The **Skills** tool of `@synasapmob` (`contributors/synasapmob/tools/skills/`: five
 skills and the shared rules) is one card and one zip. **Link skills** (`link.sh` and
 `unlink.sh`) installs it into `~/.agents`, in one of two ways:
 

@@ -215,6 +215,7 @@ describe("ToolsCatalog", () => {
     );
     for (const skill of [
       "frontend-convention",
+      "linear-task-scope",
       "mock-data",
       "operator-cli",
       "scroll-world",

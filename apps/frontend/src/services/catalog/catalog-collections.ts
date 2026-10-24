@@ -48,7 +48,7 @@ const COLLECTION_PRESENTATION: Record<string, CatalogCollectionPresentation> = {
   skills: {
     label: "Skills",
     summary:
-      "Frontend conventions, operator CLI, mock-data and scroll-world skills, plus the shared agent rules. Download the zip, or install it with Link skills.",
+      "Frontend conventions, operator CLI, mock-data, Linear task scope and scroll-world skills, plus the shared agent rules. Download the zip, or install it with Link skills.",
   },
   "link-skills": {
     label: "Link skills",
