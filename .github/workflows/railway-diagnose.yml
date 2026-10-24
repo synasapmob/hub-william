@@ -1,0 +1,58 @@
+name: Railway diagnose
+
+# Temporary. Runs read-only Railway calls with the production token and prints
+# the output that the deploy workflow swallows. Delete after use.
+on:
+  push:
+    branches:
+      - fix/railway-deploy-diagnose
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    name: Diagnose Railway token
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_PROJECT_ID: f7d4909b-9c94-4dc5-b416-be61b9943909
+
+    steps:
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Install Railway CLI
+        run: npm install --global @railway/cli@5.49.6
+
+      - name: Read-only call on a real service
+        run: |
+          set +e
+          railway --version
+          start=$(date +%s.%N)
+          railway deployment list \
+            --project "$RAILWAY_PROJECT_ID" \
+            --environment production \
+            --service frontend \
+            --limit 1 --json >out.txt 2>err.txt
+          rc=$?
+          echo "exit=$rc seconds=$(echo "$(date +%s.%N) - $start" | bc)"
+          echo "--- stdout"; head -c 800 out.txt; echo
+          echo "--- stderr"; head -c 800 err.txt; echo
+
+      - name: The deploy command against a service that does not exist
+        run: |
+          set +e
+          start=$(date +%s.%N)
+          railway up \
+            --project "$RAILWAY_PROJECT_ID" \
+            --environment production \
+            --service diagnose-no-such-service \
+            --message "diagnose" \
+            --detach --json >out.txt 2>err.txt
+          rc=$?
+          echo "exit=$rc seconds=$(echo "$(date +%s.%N) - $start" | bc)"
+          echo "--- stdout"; head -c 800 out.txt; echo
+          echo "--- stderr"; head -c 800 err.txt; echo
