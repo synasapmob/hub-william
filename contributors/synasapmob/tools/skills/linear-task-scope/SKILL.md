@@ -59,14 +59,14 @@ Use this when the new issue blocks the current issue.
    this yourself or hand it to another agent or session; if you do, wait for that
    pull request to exist before moving on.
 3. Rebase the current issue's branch onto the prerequisite's branch to get its
-   code, and keep working. When the current issue's pull request opens, name the
-   one that must merge first. If the repository has its own stacked-pull-request
-   convention, follow it. Then stop for review.
+   code, and keep working. Do not push that branch or open its pull request until
+   the prerequisite has merged. When the current issue is done locally, tell the
+   user it is waiting for the prerequisite's pull request, then stop.
 4. When the prerequisite has merged, which the user may only say in a new session,
-   find its branch from the pull request description or the blocking relation, run
-   `git fetch`, then `git rebase --onto origin/<base> <prerequisite branch>`. A
-   plain rebase replays the prerequisite's old commits and can conflict after a
-   squash merge.
+   find its branch from its issue or pull request, run `git fetch`, then
+   `git rebase --onto origin/<base> <prerequisite branch>`, push normally and open
+   the pull request into the base branch. A plain rebase replays the
+   prerequisite's old commits and can conflict after a squash merge.
 
 ## Rebase and push
 
@@ -76,10 +76,9 @@ pushed.
 - If the branch is not pushed yet, push it normally later.
 - If it is pushed (its pull request is open), push with `--force-with-lease`,
   never a plain `--force`.
+- Never push commits of a prerequisite that has not merged.
 - Do the rebase and the push yourself; do not stop to ask the user.
-- If a repository rule forbids rebasing or force-pushing a stacked branch, or
-  leaves it to automation, follow that rule instead, say so in your reply, and
-  wait.
+- If a repository rule forbids force-pushing, follow it instead and say so.
 
 ## The work already has an issue
 
