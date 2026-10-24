@@ -206,9 +206,7 @@ describe("ToolsCatalog", () => {
     renderTools("/tools/synasapmob?node=skills", "synasapmob");
 
     expect(screen.getByRole("heading", { name: "Skills" })).toBeVisible();
-    expect(
-      screen.getByRole("heading", { name: /^Files \(\d+\)$/ }),
-    ).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Files (6)" })).toBeVisible();
     expect(screen.getByRole("link", { name: "Download all" })).toHaveAttribute(
       "href",
       `${window.location.origin}/catalog/collections/synasapmob/tools/skills.zip`,
@@ -226,6 +224,11 @@ describe("ToolsCatalog", () => {
         }),
       ).toBeVisible();
     }
+    expect(
+      screen.queryByRole("link", {
+        name: /scroll-world\/(LICENSE|README|references)/,
+      }),
+    ).toBeNull();
     expect(
       screen.getByRole("heading", { name: "How to install" }),
     ).toBeVisible();
