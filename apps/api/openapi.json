@@ -852,10 +852,10 @@
             }
           },
           "204": {
-            "description": "No browser session has been started"
+            "description": "No access or refresh session cookie: nothing to refresh"
           },
           "401": {
-            "description": "No active session",
+            "description": "Access session missing or expired; a refresh session may restore it",
             "content": {
               "application/json": {
                 "schema": {

@@ -1956,14 +1956,14 @@ export interface operations {
           "application/json": components["schemas"]["SessionResponse"];
         };
       };
-      /** @description No browser session has been started */
+      /** @description No access or refresh session cookie: nothing to refresh */
       204: {
         headers: {
           [name: string]: unknown;
         };
         content?: never;
       };
-      /** @description No active session */
+      /** @description Access session missing or expired; a refresh session may restore it */
       401: {
         headers: {
           [name: string]: unknown;
