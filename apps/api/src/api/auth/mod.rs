@@ -200,14 +200,22 @@ pub async fn login(
     path = "/auth/session",
     responses(
         (status = 200, description = "Current authenticated user", body = SessionResponse),
-        (status = 204, description = "No browser session has been started"),
-        (status = 401, description = "No active session", body = crate::core::ErrorResponse)
+        (status = 204, description = "No access or refresh session cookie: nothing to refresh"),
+        (status = 401, description = "Access session missing or expired; a refresh session may restore it", body = crate::core::ErrorResponse)
     ),
     tag = "auth"
 )]
 pub async fn session(State(state): State<AppState>, jar: CookieJar) -> Result<Response, ApiError> {
     if jar.get(SESSION_COOKIE).is_none() {
-        return Ok(StatusCode::NO_CONTENT.into_response());
+        // Both cookies are HttpOnly, so only the server can tell a visitor who never
+        // signed in from one whose access cookie has expired. The refresh cookie
+        // outlives the access cookie, so 401 tells the client a refresh can succeed
+        // and 204 tells it not to try.
+        return if jar.get(REFRESH_COOKIE).is_some() {
+            Err(ApiError::Unauthorized)
+        } else {
+            Ok(StatusCode::NO_CONTENT.into_response())
+        };
     }
     let user = authenticated_user(&state, &jar).await?;
 
@@ -513,10 +521,44 @@ fn internal_error(error: sqlx::Error) -> ApiError {
 
 #[cfg(test)]
 mod tests {
+    use axum::{extract::State, http::StatusCode, response::IntoResponse};
+    use axum_extra::extract::{CookieJar, cookie::Cookie};
+
     use super::{
-        hash_password, new_token, normalize_recovery_email, normalize_username, session_cookies,
-        verify_password,
+        REFRESH_COOKIE, hash_password, new_token, normalize_recovery_email, normalize_username,
+        session, session_cookies, verify_password,
     };
+    use crate::core::{AppConfig, AppState};
+
+    fn state_without_database() -> AppState {
+        AppState {
+            config: AppConfig::default(),
+            http: reqwest::Client::new(),
+            gateway_http: reqwest::Client::new(),
+            pool: sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://localhost/hub_william_test")
+                .unwrap(),
+        }
+    }
+
+    #[tokio::test]
+    async fn session_without_any_cookie_has_nothing_to_refresh() {
+        let response = session(State(state_without_database()), CookieJar::new())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn session_with_only_a_refresh_cookie_asks_the_client_to_refresh() {
+        let jar = CookieJar::new().add(Cookie::new(REFRESH_COOKIE, "refresh"));
+        let error = session(State(state_without_database()), jar)
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.into_response().status(), StatusCode::UNAUTHORIZED);
+    }
 
     #[test]
     fn username_is_normalized_and_restricted() {

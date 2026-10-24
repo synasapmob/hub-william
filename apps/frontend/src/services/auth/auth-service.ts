@@ -93,8 +93,11 @@ class AuthService {
   }
 
   /**
-   * Resolve the signed-in user, refreshing an expired session once. Resolves
-   * to null when signed out or when the service cannot be reached.
+   * Resolve the signed-in user, refreshing an expired access session once. The
+   * API answers 401 only when a refresh cookie can restore the session and 204
+   * when the browser holds no session cookie, so a visitor who never signed in
+   * makes one request and no refresh. Resolves to null when signed out or when
+   * the service cannot be reached.
    */
   async session(): Promise<AuthenticatedUser | null> {
     try {
@@ -102,9 +105,7 @@ class AuthService {
 
       if (current.data) return userFromApi(current.data.user);
 
-      if (current.response.status !== 204 && current.response.status !== 401) {
-        return null;
-      }
+      if (current.response.status !== 401) return null;
 
       const refreshed = await this.client.POST("/auth/refresh");
 
