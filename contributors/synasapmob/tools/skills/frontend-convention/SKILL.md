@@ -1,6 +1,6 @@
 ---
 name: frontend-convention
-description: "Frontend conventions for React, TypeScript and Tailwind — blank-line blocking in TS and JSX, merging adjacent conditionals on the same value, inlining values and handlers that are used once, carrying list indexes instead of searching for them, passing cohesive state objects instead of flat prop lists, adding DOM attributes only when a consumer uses them, composing classes with tailwind-variants, and choosing between space-y, Flex and Center layout primitives."
+description: "Frontend conventions for React, TypeScript and Tailwind — blank-line blocking in TS and JSX, merging adjacent conditionals on the same value, inlining values and handlers that are used once, carrying list indexes instead of searching for them, passing cohesive state objects instead of flat prop lists, typing children with PropsWithChildren, adding DOM attributes and ARIA only when a consumer uses them, composing classes with tailwind-variants, and choosing between space-y, Flex and Center layout primitives."
 ---
 
 # Frontend conventions
