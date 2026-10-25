@@ -1,6 +1,6 @@
 ---
 name: frontend-convention
-description: "Frontend conventions for React, TypeScript and Tailwind — blank-line blocking in TS and JSX, merging adjacent conditionals on the same value, carrying list indexes instead of searching for them, passing cohesive state objects instead of flat prop lists, adding DOM attributes only when a consumer uses them, composing classes with tailwind-variants, and choosing between space-y, Flex and Center layout primitives."
+description: "Frontend conventions for React, TypeScript and Tailwind — blank-line blocking in TS and JSX, merging adjacent conditionals on the same value, inlining values and handlers that are used once, carrying list indexes instead of searching for them, passing cohesive state objects instead of flat prop lists, adding DOM attributes only when a consumer uses them, composing classes with tailwind-variants, and choosing between space-y, Flex and Center layout primitives."
 ---
 
 # Frontend conventions
@@ -89,6 +89,52 @@ Write a numeric check as a boolean (`items.length > 0`) or a ternary. In
 Native when it lands outside a text component.
 
 Keep the blank line between siblings inside a merged block.
+
+
+## Inline single-use values and handlers
+
+Write a value or a function where it is used when nothing else reads it. Do not
+create a variable or a named function with exactly one consumer.
+
+- Put a derived prop value, such as a title, a label or a class, directly in the
+  prop instead of a `const` that is read once.
+- Put an event handler directly in its prop as an arrow function, whatever its
+  length. A handler with an early `return` or a `try/catch` stays inline too.
+- Keep a name only when two or more places use it.
+
+```tsx
+<Button
+  title={
+    drawer.screen === "subjects"
+      ? "Môn học của bạn"
+      : drawer.screen === "add"
+        ? "Thêm môn mới"
+        : "Chọn ngôn ngữ"
+  }
+  onClick={() => setOpen(true)}
+/>
+```
+
+```tsx
+<Button
+  onClick={() => {
+    if (!isCameraOn) {
+      setIsCameraOn(true);
+
+      return;
+    }
+
+    try {
+      pick(camera.capture());
+    } catch (cause) {
+      fail(cause instanceof Error ? cause.message : "Không chụp được ảnh.");
+    }
+  }}
+/>
+```
+
+Declaring `const title` or `function takePhoto()` for a prop that reads it once
+adds a name to track and moves the logic away from the element that uses it.
 
 
 ## Carry the index, do not search for it
