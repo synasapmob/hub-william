@@ -1,6 +1,6 @@
 ---
 name: frontend-convention
-description: "Frontend conventions for React, TypeScript and Tailwind — blank-line blocking in TS and JSX, merging adjacent conditionals on the same value, carrying list indexes instead of searching for them, passing cohesive state objects instead of flat prop lists, adding DOM attributes only when a consumer uses them, composing classes with tailwind-variants, and choosing between space-y, Flex and Center layout primitives."
+description: "Frontend conventions for React, TypeScript and Tailwind — blank-line blocking in TS and JSX, merging adjacent conditionals on the same value, inlining values and handlers that are used once, carrying list indexes instead of searching for them, passing cohesive state objects instead of flat prop lists, typing children with PropsWithChildren, adding DOM attributes and ARIA only when a consumer uses them, composing classes with tailwind-variants, and choosing between space-y, Flex and Center layout primitives."
 ---
 
 # Frontend conventions
@@ -11,7 +11,9 @@ components, domain types and design tokens when applying the examples.
 Keep this document standalone. Present its conventions directly, without source
 attribution.
 
-## Separate blocks with one blank line
+## Code structure
+
+### Separate blocks with one blank line
 
 Put one blank line between meaningful responsibilities in TypeScript and
 between meaningful sibling regions in multi-line JSX.
@@ -53,7 +55,7 @@ useEffect(() => {
 ```
 
 
-## Check each condition once
+### Check each condition once
 
 When adjacent sibling blocks branch on the same value, merge them into one
 condition. Check the value a second time only when another element sits
@@ -91,7 +93,53 @@ Native when it lands outside a text component.
 Keep the blank line between siblings inside a merged block.
 
 
-## Carry the index, do not search for it
+### Inline single-use values and handlers
+
+Write a value or a function where it is used when nothing else reads it. Do not
+create a variable or a named function with exactly one consumer.
+
+- Put a derived prop value, such as a title, a label or a class, directly in the
+  prop instead of a `const` that is read once.
+- Put an event handler directly in its prop as an arrow function, whatever its
+  length. A handler with an early `return` or a `try/catch` stays inline too.
+- Keep a name only when two or more places use it.
+
+```tsx
+<Button
+  title={
+    drawer.screen === "subjects"
+      ? "Môn học của bạn"
+      : drawer.screen === "add"
+        ? "Thêm môn mới"
+        : "Chọn ngôn ngữ"
+  }
+  onClick={() => setOpen(true)}
+/>
+```
+
+```tsx
+<Button
+  onClick={() => {
+    if (!isCameraOn) {
+      setIsCameraOn(true);
+
+      return;
+    }
+
+    try {
+      pick(camera.capture());
+    } catch (cause) {
+      fail(cause instanceof Error ? cause.message : "Không chụp được ảnh.");
+    }
+  }}
+/>
+```
+
+Declaring `const title` or `function takePhoto()` for a prop that reads it once
+adds a name to track and moves the logic away from the element that uses it.
+
+
+### Carry the index, do not search for it
 
 Take an item's position from the iteration that produces it. Do not call
 `indexOf` or `findIndex` inside a render loop to recover a position that the
@@ -115,7 +163,9 @@ rendering n items costs O(n²), and it returns the first match when the same ite
 appears twice.
 
 
-## Pass cohesive state objects
+## Components and props
+
+### Pass cohesive state objects
 
 When a child needs several related values, pass the object that owns them.
 Preserve the ownership boundary instead of flattening it into a long props list.
@@ -161,7 +211,7 @@ Keep the boundary focused:
   survive ordinary unused-variable checks.
 
 
-## Type children with `PropsWithChildren`
+### Type children with `PropsWithChildren`
 
 Use `PropsWithChildren` from `react` when `children` is the only prop a component
 takes. When the component takes other props as well, extend `PropsWithChildren`
@@ -192,12 +242,13 @@ Do not declare `children?: ReactNode`, and do not import `ReactNode` only to typ
 its type, such as accepting a `string` rather than any renderable node.
 
 
-## Add attributes only when they work
+### Add attributes only when they work
 
-Prefer native semantic elements and existing primitives. Add `type`, `aria-*`,
-`id`, `role`, `title` or `data-*` only when it serves a concrete behavior,
-relationship, test, tooltip or accessibility consumer that the element does not
-already provide.
+Prefer native semantic elements and existing primitives. Add `type`, `aria-*`
+(such as `aria-label` and `aria-describedby`), `id`, `role`, `title`, a
+description or `data-*` only when it serves a concrete behavior, relationship,
+test, tooltip or accessibility consumer that the element does not already
+provide.
 
 An icon-only control needs an accessible name. Use visible or visually hidden
 text when appropriate:
@@ -222,6 +273,19 @@ validation behavior.
 consumer uses it. An attribute copied from generated scaffolding is not useful
 merely because it was there before.
 
+**A test is a consumer.** Add `aria-label`, `title` or `data-*` when a test
+queries the element, in the same change as the test. Do not add one ahead of a
+test that does not exist.
+
+**State lives on its owner.** Put `aria-disabled`, `aria-pressed` and similar on
+the element that owns the state, such as a widget, not on a wrapper like a
+`section`.
+
+**References must resolve.** Every `aria-labelledby` and `aria-describedby`
+points to an id that is rendered. An unresolved `aria-labelledby` leaves the
+element with no accessible name. Pair the reference with an element that carries
+the id, an `sr-only` heading when nothing visible fits, or drop the attribute.
+
 Before removing an attribute, search outside the component for consumers such
 as `querySelector`, attribute selectors, `getByTitle` and direct DOM reads.
 Migrate the consumer in the same change or keep the attribute. Do not remove
@@ -229,7 +293,9 @@ working accessibility metadata mechanically: `aria-hidden="true"` on a
 decorative SVG has a purpose even without a code reference.
 
 
-## Express styling with `tailwind-variants`
+## Styling and layout
+
+### Express styling with `tailwind-variants`
 
 Use `tv` from `tailwind-variants` as the class composition API. Do not introduce
 `cn`, `clsx`, `class-variance-authority` or a separate `tailwind-merge` helper.
@@ -322,7 +388,7 @@ Resolve and compare every old and new variant combination, and compare emitted
 CSS when the change is intended to preserve styling.
 
 
-## Reach for the layout primitives
+### Reach for the layout primitives
 
 Use `space-y-*` or `space-x-*` for a plain stack whose children only need spacing.
 
