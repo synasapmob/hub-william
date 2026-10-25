@@ -11,7 +11,9 @@ components, domain types and design tokens when applying the examples.
 Keep this document standalone. Present its conventions directly, without source
 attribution.
 
-## Separate blocks with one blank line
+## Code structure
+
+### Separate blocks with one blank line
 
 Put one blank line between meaningful responsibilities in TypeScript and
 between meaningful sibling regions in multi-line JSX.
@@ -53,7 +55,7 @@ useEffect(() => {
 ```
 
 
-## Check each condition once
+### Check each condition once
 
 When adjacent sibling blocks branch on the same value, merge them into one
 condition. Check the value a second time only when another element sits
@@ -91,7 +93,7 @@ Native when it lands outside a text component.
 Keep the blank line between siblings inside a merged block.
 
 
-## Inline single-use values and handlers
+### Inline single-use values and handlers
 
 Write a value or a function where it is used when nothing else reads it. Do not
 create a variable or a named function with exactly one consumer.
@@ -137,7 +139,7 @@ Declaring `const title` or `function takePhoto()` for a prop that reads it once
 adds a name to track and moves the logic away from the element that uses it.
 
 
-## Carry the index, do not search for it
+### Carry the index, do not search for it
 
 Take an item's position from the iteration that produces it. Do not call
 `indexOf` or `findIndex` inside a render loop to recover a position that the
@@ -161,7 +163,9 @@ rendering n items costs O(n²), and it returns the first match when the same ite
 appears twice.
 
 
-## Pass cohesive state objects
+## Components and props
+
+### Pass cohesive state objects
 
 When a child needs several related values, pass the object that owns them.
 Preserve the ownership boundary instead of flattening it into a long props list.
@@ -207,7 +211,7 @@ Keep the boundary focused:
   survive ordinary unused-variable checks.
 
 
-## Type children with `PropsWithChildren`
+### Type children with `PropsWithChildren`
 
 Use `PropsWithChildren` from `react` when `children` is the only prop a component
 takes. When the component takes other props as well, extend `PropsWithChildren`
@@ -238,7 +242,7 @@ Do not declare `children?: ReactNode`, and do not import `ReactNode` only to typ
 its type, such as accepting a `string` rather than any renderable node.
 
 
-## Add attributes only when they work
+### Add attributes only when they work
 
 Prefer native semantic elements and existing primitives. Add `type`, `aria-*`
 (such as `aria-label` and `aria-describedby`), `id`, `role`, `title`, a
@@ -289,7 +293,9 @@ working accessibility metadata mechanically: `aria-hidden="true"` on a
 decorative SVG has a purpose even without a code reference.
 
 
-## Express styling with `tailwind-variants`
+## Styling and layout
+
+### Express styling with `tailwind-variants`
 
 Use `tv` from `tailwind-variants` as the class composition API. Do not introduce
 `cn`, `clsx`, `class-variance-authority` or a separate `tailwind-merge` helper.
@@ -382,7 +388,7 @@ Resolve and compare every old and new variant combination, and compare emitted
 CSS when the change is intended to preserve styling.
 
 
-## Reach for the layout primitives
+### Reach for the layout primitives
 
 Use `space-y-*` or `space-x-*` for a plain stack whose children only need spacing.
 
