@@ -240,10 +240,11 @@ its type, such as accepting a `string` rather than any renderable node.
 
 ## Add attributes only when they work
 
-Prefer native semantic elements and existing primitives. Add `type`, `aria-*`,
-`id`, `role`, `title` or `data-*` only when it serves a concrete behavior,
-relationship, test, tooltip or accessibility consumer that the element does not
-already provide.
+Prefer native semantic elements and existing primitives. Add `type`, `aria-*`
+(such as `aria-label` and `aria-describedby`), `id`, `role`, `title`, a
+description or `data-*` only when it serves a concrete behavior, relationship,
+test, tooltip or accessibility consumer that the element does not already
+provide.
 
 An icon-only control needs an accessible name. Use visible or visually hidden
 text when appropriate:
@@ -267,6 +268,19 @@ validation behavior.
 **`data-*` needs a reader.** Keep an attribute when a selector, test or DOM
 consumer uses it. An attribute copied from generated scaffolding is not useful
 merely because it was there before.
+
+**A test is a consumer.** Add `aria-label`, `title` or `data-*` when a test
+queries the element, in the same change as the test. Do not add one ahead of a
+test that does not exist.
+
+**State lives on its owner.** Put `aria-disabled`, `aria-pressed` and similar on
+the element that owns the state, such as a widget, not on a wrapper like a
+`section`.
+
+**References must resolve.** Every `aria-labelledby` and `aria-describedby`
+points to an id that is rendered. An unresolved `aria-labelledby` leaves the
+element with no accessible name. Pair the reference with an element that carries
+the id, an `sr-only` heading when nothing visible fits, or drop the attribute.
 
 Before removing an attribute, search outside the component for consumers such
 as `querySelector`, attribute selectors, `getByTitle` and direct DOM reads.
