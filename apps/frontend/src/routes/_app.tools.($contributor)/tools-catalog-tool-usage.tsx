@@ -158,10 +158,12 @@ export default function ToolsCatalogToolUsage({
           <p className={label()}>1. Browse your agents' memory</p>
 
           <p className={description()}>
-            Opens a terminal browser of the memory your agents save themselves.
-            Press Right to open a folder or read a file, and D to move what the
-            cursor is on to the Trash after a preview. Nothing is deleted for
-            good. Needs Python 3.9 or newer on macOS or Linux.
+            Opens a terminal browser with a memory tab (what your agents save
+            themselves) and a rules tab (the instruction files and skills you
+            write, such as CLAUDE.md, AGENTS.md and SKILL.md). Press 2 or 3 to
+            switch tabs, Right to open a folder or read a file, and D to move
+            what the cursor is on to the Trash after a preview. Nothing is
+            deleted for good. Needs Python 3.9 or newer on macOS or Linux.
           </p>
 
           <CopyCommand command={runCommand} />
@@ -171,7 +173,8 @@ export default function ToolsCatalogToolUsage({
           <p className={label()}>2. Print the table only</p>
 
           <p className={description()}>
-            For scripts, or when there is no terminal. Nothing is changed.
+            For scripts, or when there is no terminal. Nothing is changed. Add
+            --tab=rules to print the rules tab.
           </p>
 
           <CopyCommand command={`${runCommand} - --list`} />

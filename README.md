@@ -133,16 +133,18 @@ original bytes. `/catalog/index.json` lists tool sources;
 ### Browse and manage what agents remember
 
 **Memory** (`contributors/synasapmob/tools/memory/`) opens a terminal browser of what Claude
-Code, Codex, Grok and agy remember: the lessons they save about you. Open an agent to see its
-global memory and each project, open a file to read it (read-only), and press `d` to move what the
-cursor is on to the Trash after a preview. Databases and generated indexes are never changed, and
-nothing is deleted for good. It needs Python 3.9 or newer on macOS or Linux and makes no network
-request:
+Code, Codex, Grok and agy remember. The `memory` tab shows the lessons they save about you; the
+`rules` tab shows the instruction files you write (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`) and the
+skills you give them, with `~/.agents` as a row of its own. Switch tabs with `1`, `2` and `3`, open
+an agent to see its global files and each project, open a file to read it (read-only), and press
+`d` to move what the cursor is on (memory, a rule, a skill or a link) to the Trash after a
+preview, which also names any link it would break. Databases are never changed, and nothing is
+deleted for good. It needs Python 3.9 or newer on macOS or Linux and makes no network request:
 
 ```sh
 curl -fsSL https://hub-william.site/catalog/contributors/synasapmob/tools/memory/memory.py | python3
 
-# Print the table without the interface; nothing is changed.
+# Print the table without the interface; nothing is changed (add --tab=rules for the rules tab).
 curl -fsSL https://hub-william.site/catalog/contributors/synasapmob/tools/memory/memory.py | python3 - --list
 ```
 
