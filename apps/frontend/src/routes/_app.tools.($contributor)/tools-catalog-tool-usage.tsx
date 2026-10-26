@@ -149,6 +149,37 @@ export default function ToolsCatalogToolUsage({
     );
   }
 
+  if (collection.id === "cache-agents") {
+    const runCommand = `curl -fsSL ${catalogService.cacheAgentsScriptUrl(siteOrigin)} | python3`;
+
+    return (
+      <div className={container()}>
+        <div className={section()}>
+          <p className={label()}>1. Browse and clear</p>
+
+          <p className={description()}>
+            Opens a terminal browser of the folders your agents keep in your
+            home folder. Press D to move cache to the Trash after a preview. It
+            never deletes for good and never touches transcripts, memory or
+            settings. Needs Python 3.9 or newer on macOS or Linux.
+          </p>
+
+          <CopyCommand command={runCommand} />
+        </div>
+
+        <div className={section()}>
+          <p className={label()}>2. Print the table only</p>
+
+          <p className={description()}>
+            For scripts, or when there is no terminal. Nothing is changed.
+          </p>
+
+          <CopyCommand command={`${runCommand} - --list`} />
+        </div>
+      </div>
+    );
+  }
+
   if (collection.id === "gateway") {
     const configs = gatewayAgentConfigs(resolveGatewayOrigin(siteOrigin));
 

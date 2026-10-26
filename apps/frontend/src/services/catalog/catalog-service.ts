@@ -219,6 +219,16 @@ class CatalogService {
       origin,
     );
   }
+
+  /**
+   * The published script that browses and clears the agents' cache
+   */
+  cacheAgentsScriptUrl(origin?: string) {
+    return siteAssetUrl(
+      "catalog/contributors/synasapmob/tools/cache-agents/cache-agents.py",
+      origin,
+    );
+  }
 }
 
 export const catalogService = new CatalogService();

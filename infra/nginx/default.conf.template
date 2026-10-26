@@ -23,10 +23,11 @@ server {
         try_files $uri =404;
     }
 
-    # Catalogue shell scripts open in a new tab as readable text for the same
-    # reason: nginx has no mapping for .sh. curl is not affected either way.
-    location ~ ^/catalog/.+\.sh$ {
-        types { text/plain sh; }
+    # Catalogue shell and Python scripts open in a new tab as readable text for
+    # the same reason: nginx has no mapping for .sh or .py. curl is not affected
+    # either way.
+    location ~ ^/catalog/.+\.(sh|py)$ {
+        types { text/plain sh py; }
         charset utf-8;
         try_files $uri =404;
     }

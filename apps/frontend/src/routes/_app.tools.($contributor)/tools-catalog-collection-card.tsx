@@ -2,6 +2,7 @@ import {
   AudioLines,
   Download,
   Files,
+  HardDrive,
   Network,
   Terminal,
   Volume2,
@@ -20,6 +21,7 @@ const collectionIcons: Record<string, LucideIcon> = {
   "download-reel": Download,
   "edge-tts": Volume2,
   vosk: AudioLines,
+  "cache-agents": HardDrive,
 };
 
 interface ToolsCatalogCollectionCardProps {

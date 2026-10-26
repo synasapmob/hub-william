@@ -194,12 +194,13 @@ describe("ToolsCatalog", () => {
     expect(screen.getByRole("button", { name: "Copied" })).toBeVisible();
   });
 
-  it("lists a contributor's skills and link script as two plain cards", () => {
+  it("lists a contributor's skills, link script and cache tool as plain cards", () => {
     renderTools("/tools/synasapmob", "synasapmob");
 
     expect(screen.getByRole("heading", { name: "SKILLS" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "LINK SKILLS" })).toBeVisible();
-    expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(2);
+    expect(screen.getByRole("heading", { name: "CACHE AGENTS" })).toBeVisible();
+    expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(3);
   });
 
   it("keeps every skill in one sheet with a single download", () => {
@@ -257,6 +258,29 @@ describe("ToolsCatalog", () => {
     expect(screen.getByRole("link", { name: "Download all" })).toHaveAttribute(
       "href",
       `${window.location.origin}/catalog/collections/synasapmob/tools/link-skills.zip`,
+    );
+  });
+
+  it("offers cache-agents.py to run or to print as a table", () => {
+    renderTools("/tools/synasapmob?node=cache-agents", "synasapmob");
+
+    const runCommand = `curl -fsSL ${window.location.origin}/catalog/contributors/synasapmob/tools/cache-agents/cache-agents.py | python3`;
+
+    expect(screen.getByRole("heading", { name: "Cache agents" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Files (1)" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "How to run" })).toBeVisible();
+    expect(screen.getByText("1. Browse and clear")).toBeVisible();
+    expect(screen.getByText(runCommand)).toBeVisible();
+    expect(screen.getByText("2. Print the table only")).toBeVisible();
+    expect(screen.getByText(`${runCommand} - --list`)).toBeVisible();
+    expect(
+      screen.getByRole("link", {
+        name: "contributors/synasapmob/tools/cache-agents/cache-agents.py",
+      }),
+    ).toBeVisible();
+    expect(screen.getByRole("link", { name: "Download all" })).toHaveAttribute(
+      "href",
+      `${window.location.origin}/catalog/collections/synasapmob/tools/cache-agents.zip`,
     );
   });
 });

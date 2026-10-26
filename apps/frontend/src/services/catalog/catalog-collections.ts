@@ -7,6 +7,7 @@ export const TOOL_IDS = [
   "vosk",
   "skills",
   "link-skills",
+  "cache-agents",
 ] as const;
 
 interface CatalogCollectionPresentation {
@@ -54,6 +55,11 @@ const COLLECTION_PRESENTATION: Record<string, CatalogCollectionPresentation> = {
     label: "Link skills",
     summary:
       "Install the Skills into ~/.agents with one command, or copy them by hand.",
+  },
+  "cache-agents": {
+    label: "Cache agents",
+    summary:
+      "See what Claude Code, Codex and Gemini keep on disk in a terminal browser, and move their cache to the Trash. Nothing leaves your computer.",
   },
 };
 
