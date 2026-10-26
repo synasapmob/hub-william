@@ -151,10 +151,20 @@ class FindingMemoryTest(HomeTestCase):
     def test_every_agent_is_listed_largest_first_with_its_type(self):
         agents = self.library().root.visible()
 
-        self.assertEqual(sorted(agent.name for agent in agents), ["claude", "codex", "gemini", "shared"])
+        self.assertEqual(sorted(agent.name for agent in agents), ["agy", "claude", "codex", "grok"])
         self.assertEqual([agent.size for agent in agents], sorted((a.size for a in agents), reverse=True))
         types = dict((agent.name, mem.entry_status(agent)) for agent in agents)
-        self.assertEqual(types, {"claude": "mixed", "codex": "mixed", "gemini": "rules", "shared": "rules"})
+        self.assertEqual(types, {"claude": "mixed", "codex": "mixed", "agy": "rules", "grok": "empty"})
+
+    def test_the_shared_file_has_no_row_of_its_own_but_shows_through_each_link(self):
+        library = self.library()
+
+        self.assertEqual([agent.name for agent in library.root.visible()].count("shared"), 0)
+        for agent, parent in (("claude", "Global"), ("codex", None), ("agy", None)):
+            names = (agent, parent) if parent else (agent,)
+            entry = entry_at(library, *names)
+            links = [c for c in entry.visible() if c.link]
+            self.assertEqual([c.link for c in links], [os.path.realpath(self.home / ".agents" / "AGENTS.md")], agent)
 
     def test_claude_shows_global_then_the_projects_that_have_something(self):
         claude = entry_at(self.library(), "claude")
@@ -186,7 +196,7 @@ class FindingMemoryTest(HomeTestCase):
         os.remove(self.home / ".gemini" / "AGENTS.md")
         os.symlink(self.home / "nowhere", self.home / ".gemini" / "AGENTS.md")
 
-        names = [child.name for child in entry_at(self.library(), "gemini").visible()]
+        names = [child.name for child in entry_at(self.library(), "agy").visible()]
 
         self.assertEqual(names, ["GEMINI.md"])
 
@@ -198,27 +208,44 @@ class FindingMemoryTest(HomeTestCase):
             self.assertEqual(agent.size, sum(child.size for child in agent.visible()), agent.name)
         self.assertEqual(entry_at(library, "claude", "~/code/app", "memory").paths, 2)
 
+    def test_no_folder_and_no_files_both_show_empty_but_the_messages_differ(self):
+        shutil.rmtree(self.home / ".gemini")  # agy: no folder at all
+        os.remove(self.home / ".codex" / "AGENTS.md")  # codex: a folder with nothing to show
+        shutil.rmtree(self.home / ".codex" / "memories")
+        os.remove(self.home / ".codex" / "memories_1.sqlite")
+        browser = self.browser()
+        types = dict((row.name, mem.entry_status(row)) for row in browser.rows())
+
+        self.assertEqual(types["agy"], "empty")
+        self.assertEqual(types["codex"], "empty")
+        self.assertTrue(os.path.isdir(self.home / ".codex"))
+        for name, text in (("agy", "agy has no folder here"), ("codex", "codex has no memory files yet")):
+            browser.select([row.name for row in browser.rows()].index(name))
+            browser.handle_key("right")
+            self.assertIn(text, browser.message)
+            self.assertEqual(len(browser.stack), 1)
+
     def test_a_missing_agent_is_listed_but_cannot_be_opened(self):
         shutil.rmtree(self.home / ".gemini")
         browser = self.browser()
-        browser.select([row.name for row in browser.rows()].index("gemini"))
+        browser.select([row.name for row in browser.rows()].index("agy"))
 
-        self.assertEqual(mem.entry_status(browser.current()), "missing")
+        self.assertEqual(mem.entry_status(browser.current()), "empty")
         browser.handle_key("right")
 
         self.assertEqual(len(browser.stack), 1)
-        self.assertIn("gemini has no folder here", browser.message)
+        self.assertIn("agy has no folder here", browser.message)
 
     def test_an_agent_with_a_folder_but_no_memory_is_empty(self):
         os.remove(self.home / ".gemini" / "AGENTS.md")
         os.remove(self.home / ".gemini" / "GEMINI.md")
         browser = self.browser()
-        browser.select([row.name for row in browser.rows()].index("gemini"))
+        browser.select([row.name for row in browser.rows()].index("agy"))
 
         self.assertEqual(mem.entry_status(browser.current()), "empty")
         browser.handle_key("right")
 
-        self.assertIn("gemini has no memory files yet", browser.message)
+        self.assertIn("agy has no memory files yet", browser.message)
 
     def test_nothing_with_no_size_is_listed_below_an_agent(self):
         write(self.home / ".claude" / "projects" / "-gone-project" / "memory" / "blank.md", "")
@@ -300,6 +327,92 @@ class DatabaseTest(HomeTestCase):
 
         self.assertIn("layout this tool does not know", browser.message)
 
+    def test_a_database_in_wal_mode_whose_side_files_are_gone_is_still_read(self):
+        """Seen live: after Codex finished, the database had no -wal or -shm and a read-only open failed."""
+        path = self.home / ".codex" / "memories_1.sqlite"
+        connection = sqlite3.connect(str(path))
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.commit()
+        connection.close()
+        for side in ("-wal", "-shm"):
+            if os.path.exists(str(path) + side):
+                os.remove(str(path) + side)
+        browser = self.browser()  # older SQLite cannot open this read-only; a newer one can
+
+        go(browser, "codex", "memories_1.sqlite")
+
+        self.assertEqual(sorted(row.name for row in browser.rows()), ["fix-flaky-test", "thread-bbbb2"])
+        self.assertNotIn("layout", browser.message)
+
+    def test_when_the_read_only_open_fails_the_database_is_opened_as_immutable(self):
+        """Forces the failure seen live, whatever the SQLite version, and checks the fallback."""
+        real = sqlite3.connect
+        modes = []
+
+        def connect(target, *args, **kwargs):
+            modes.append(target.split("?")[1])
+            if "mode=ro" in target:
+                raise sqlite3.OperationalError("unable to open database file")
+            return real(target, *args, **kwargs)
+
+        with mock.patch.object(mem.sqlite3, "connect", connect):
+            browser = self.browser()
+            go(browser, "codex", "memories_1.sqlite")
+
+        self.assertEqual(modes, ["mode=ro", "immutable=1"])
+        self.assertEqual(sorted(row.name for row in browser.rows()), ["fix-flaky-test", "thread-bbbb2"])
+
+    def test_an_error_that_is_not_about_opening_is_not_retried(self):
+        real = sqlite3.connect
+        modes = []
+
+        def connect(target, *args, **kwargs):
+            modes.append(target.split("?")[1])
+            return real(target, *args, **kwargs)
+
+        make_database(self.home / ".codex" / "memories_1.sqlite.other", [], table="something_else")
+        os.replace(self.home / ".codex" / "memories_1.sqlite.other", self.home / ".codex" / "memories_1.sqlite")
+        with mock.patch.object(mem.sqlite3, "connect", connect):
+            browser = self.browser()
+            go(browser, "codex", "memories_1.sqlite")
+
+        self.assertEqual(modes, ["mode=ro"])
+        self.assertIn("layout this tool does not know", browser.message)
+
+    @unittest.skipIf(not hasattr(os, "geteuid") or os.geteuid() == 0, "root can open any file")
+    def test_a_database_that_cannot_be_opened_says_so_not_that_the_layout_is_unknown(self):
+        path = self.home / ".codex" / "memories_1.sqlite"
+        path.chmod(0)
+        self.addCleanup(path.chmod, 0o600)
+        browser = self.browser()
+
+        go(browser, "codex", "memories_1.sqlite")
+
+        self.assertIn("could not be opened read-only", browser.message)
+        self.assertNotIn("layout", browser.message)
+
+    def test_git_internals_of_a_memory_folder_are_not_listed_or_counted(self):
+        write(self.home / ".codex" / "memories" / ".git" / "objects" / "ab" / "cdef", "git object\n")
+        write(self.home / ".codex" / "memories" / ".git" / "HEAD", "ref: refs/heads/main\n")
+        write(self.home / ".codex" / "memories" / "raw_memories.md", "# memories\n")
+        library = self.library()
+        folder = entry_at(library, "codex", "memories")
+
+        self.assertEqual(sorted(child.name for child in folder.visible()), ["one.md", "raw_memories.md"])
+        self.assertEqual(folder.paths, 2)
+
+    def test_deleting_the_memory_folder_moves_the_git_repository_with_it(self):
+        write(self.home / ".codex" / "memories" / ".git" / "HEAD", "ref: refs/heads/main\n")
+        browser = self.browser()
+        browser.select([row.name for row in browser.rows()].index("codex"))
+
+        browser.handle_key("d")
+        browser.handle_key("y")
+
+        self.assertFalse((self.home / ".codex" / "memories").exists())
+        files, _ = mem.trash_locations(str(self.home))
+        self.assertTrue(any(Path(files, name, ".git", "HEAD").exists() for name in os.listdir(files)))
+
     def test_the_database_is_opened_read_only_and_left_unchanged(self):
         path = self.home / ".codex" / "memories_1.sqlite"
         before = path.read_bytes()
@@ -310,6 +423,123 @@ class DatabaseTest(HomeTestCase):
         browser.handle_key("d")
 
         self.assertEqual(path.read_bytes(), before)
+
+
+class GrokTest(HomeTestCase):
+    """Grok keeps a global scope and one scope per workspace: topics, observations and a generated index."""
+
+    def setUp(self):
+        super().setUp()
+        memory = self.home / ".grok" / "memory-v2"
+        write(memory / "global" / "MEMORY.md", "# Global memory index\n\n- **Placeholder word** (`topics/placeholder-word.md`)\n")
+        write(memory / "global" / "topics" / "placeholder-word.md", "# Placeholder word\n\nThe placeholder word is abc-memory-test.\n")
+        write(memory / "global" / "observations" / "_inbox" / "obs-1.md", "- prefers short answers\n")
+        write(memory / "global" / "index.sqlite", "search index " * 20)
+        write(memory / "global" / "memory_state.sqlite", "state " * 50)
+        write(memory / "global" / "archive" / "old.md", "archived\n")
+        workspace = memory / "workspaces" / "atlas-web-1a2b3c4d"
+        write(workspace / "MEMORY.md", "# Workspace memory index\n")
+        write(workspace / "topics" / "conventions.md", "Use pnpm.\n")
+        write(workspace / "index.sqlite", "x" * 100)
+        (memory / "workspaces" / "empty-9f8e7d6c" / "topics").mkdir(parents=True)
+        write(self.home / ".grok" / "rules" / "style.md", "# style\n- be brief\n")
+
+    def names(self, *path):
+        return sorted(child.name for child in entry_at(self.library(), *path).visible())
+
+    def test_grok_shows_global_and_each_workspace_with_the_hash_removed(self):
+        self.assertEqual(self.names("grok"), ["Global", "atlas-web"])
+        self.assertEqual(mem.entry_status(entry_at(self.library(), "grok")), "mixed")
+
+    def test_global_holds_the_rules_the_index_the_topics_and_the_observations(self):
+        library = self.library()
+
+        self.assertEqual(self.names("grok", "Global"), ["MEMORY.md", "observations", "style.md", "topics"])
+        types = dict((c.name, mem.entry_status(c)) for c in entry_at(library, "grok", "Global").visible())
+        self.assertEqual(types, {"MEMORY.md": "memory", "observations": "memory", "style.md": "rules", "topics": "memory"})
+        self.assertEqual(self.names("grok", "Global", "observations"), ["_inbox"])
+
+    def test_the_state_files_and_the_archive_are_never_listed(self):
+        for path in (("grok", "Global"), ("grok", "atlas-web")):
+            for name in self.names(*path):
+                self.assertNotIn("sqlite", name)
+                self.assertNotEqual(name, "archive")
+
+    def test_a_workspace_with_nothing_in_it_is_not_listed(self):
+        self.assertNotIn("empty", " ".join(self.names("grok")))
+
+    def test_a_topic_can_be_read(self):
+        browser = self.browser()
+
+        go(browser, "grok", "Global", "topics", "placeholder-word.md")
+
+        self.assertIn("The placeholder word is abc-memory-test.", "\n".join(lines_of(browser)))
+
+    def test_the_generated_index_cannot_be_deleted(self):
+        browser = self.browser()
+        go(browser, "grok", "Global")
+        browser.select([row.name for row in browser.rows()].index("MEMORY.md"))
+
+        browser.handle_key("d")
+
+        self.assertIsNone(browser.dialog)
+        self.assertIn("read-only", browser.message)
+        self.assertTrue((self.home / ".grok" / "memory-v2" / "global" / "MEMORY.md").exists())
+
+    def test_d_on_global_moves_the_topics_and_observations_and_nothing_else(self):
+        browser = self.browser()
+        go(browser, "grok")
+        browser.select([row.name for row in browser.rows()].index("Global"))
+
+        browser.handle_key("d")
+        self.assertEqual(sorted(item.name for item in browser.dialog.plan.items), ["observations", "topics"])
+        browser.handle_key("y")
+
+        root = self.home / ".grok" / "memory-v2" / "global"
+        self.assertFalse((root / "topics").exists())
+        self.assertFalse((root / "observations").exists())
+        for kept in (root / "MEMORY.md", root / "index.sqlite", root / "memory_state.sqlite",
+                     root / "archive" / "old.md", self.home / ".grok" / "rules" / "style.md"):
+            self.assertTrue(kept.exists(), kept)
+        self.assertEqual(len(self.trashed()), 2)
+        self.assertTrue(all(name.startswith("grok-global-") for name in self.trashed()), self.trashed())
+
+    def test_d_on_a_workspace_moves_only_its_topics(self):
+        browser = self.browser()
+        go(browser, "grok")
+        browser.select([row.name for row in browser.rows()].index("atlas-web"))
+
+        browser.handle_key("d")
+        browser.handle_key("y")
+
+        workspace = self.home / ".grok" / "memory-v2" / "workspaces" / "atlas-web-1a2b3c4d"
+        self.assertFalse((workspace / "topics").exists())
+        self.assertTrue((workspace / "MEMORY.md").exists())
+        self.assertTrue((self.home / ".grok" / "memory-v2" / "global" / "topics" / "placeholder-word.md").exists())
+
+    def test_one_topic_can_be_moved_alone(self):
+        browser = self.browser()
+        go(browser, "grok", "Global", "topics")
+        browser.select(0)
+
+        browser.handle_key("d")
+        self.assertEqual([item.name for item in browser.dialog.plan.items], ["placeholder-word.md"])
+        browser.handle_key("y")
+
+        self.assertFalse((self.home / ".grok" / "memory-v2" / "global" / "topics" / "placeholder-word.md").exists())
+        self.assertTrue((self.home / ".grok" / "memory-v2" / "global" / "observations" / "_inbox" / "obs-1.md").exists())
+
+    def test_a_workspace_label_loses_only_a_trailing_eight_digit_hash(self):
+        self.assertEqual(mem.project_label("hub-william-3899205e", "/h", "hash"), "hub-william")
+        self.assertEqual(mem.project_label("plain", "/h", "hash"), "plain")
+        self.assertEqual(mem.project_label("abc-1234567", "/h", "hash"), "abc-1234567")
+        self.assertEqual(mem.project_label("3899205e", "/h", "hash"), "3899205e")
+
+    def test_grok_without_rules_or_memory_folders_is_simply_empty(self):
+        shutil.rmtree(self.home / ".grok" / "memory-v2")
+        shutil.rmtree(self.home / ".grok" / "rules")
+
+        self.assertEqual(mem.entry_status(entry_at(self.library(), "grok")), "empty")
 
 
 class FormatTest(unittest.TestCase):
@@ -490,14 +720,14 @@ class RenderingTest(HomeTestCase):
         self.assertEqual(len(screen), 1)
         self.assertIn("Terminal too small", screen[0])
 
-    def test_a_home_with_no_agents_lists_them_all_as_missing(self):
+    def test_a_home_with_no_agents_lists_them_all_as_empty(self):
         for name in (".claude", ".codex", ".gemini", ".agents"):
             shutil.rmtree(self.home / name)
 
         screen = "\n".join(lines_of(self.browser()))
 
-        for name in ("claude", "codex", "gemini", "shared"):
-            self.assertRegex(screen, name + r"\s+-\s+-\s+-\s+missing")
+        for name in ("claude", "codex", "agy", "grok"):
+            self.assertRegex(screen, name + r"\s+-\s+-\s+-\s+empty")
 
 
 class DeletingTest(HomeTestCase):
@@ -569,7 +799,7 @@ class DeletingTest(HomeTestCase):
 
     def test_instruction_files_and_databases_cannot_be_deleted(self):
         for names in (("claude", "Global", "CLAUDE.md"), ("claude", "~/code/app", "CLAUDE.md"),
-                      ("codex", "memories_1.sqlite"), ("codex", "AGENTS.md"), ("gemini",), ("shared",)):
+                      ("codex", "memories_1.sqlite"), ("codex", "AGENTS.md"), ("agy",)):
             browser = self.go_to(*names)
 
             browser.handle_key("d")
@@ -589,12 +819,12 @@ class DeletingTest(HomeTestCase):
 
     def test_a_missing_agent_has_nothing_to_delete(self):
         shutil.rmtree(self.home / ".gemini")
-        browser = self.go_to("gemini")
+        browser = self.go_to("agy")
 
         browser.handle_key("d")
 
         self.assertIsNone(browser.dialog)
-        self.assertIn("gemini has no folder here: nothing to delete.", browser.message)
+        self.assertIn("agy has no folder here: nothing to delete.", browser.message)
 
     def test_anything_but_y_cancels(self):
         for key in ("n", "enter", "esc", "x"):
@@ -977,7 +1207,7 @@ class CommandLineTest(HomeTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertRegex(result.stdout, r"memory\s+total [\d.]+ (B|KB), \d+ paths")
         self.assertRegex(result.stdout, r"claude\s+\d+\s+[\d.]+ (B|KB)\s+now\s+mixed")
-        self.assertRegex(result.stdout, r"shared\s+1\s+\d+ B\s+now\s+rules")
+        self.assertNotIn("shared", result.stdout)  # the shared file shows through each agent's own link
         self.assertEqual(snapshot(), before)
 
     def test_list_for_one_agent_shows_global_and_projects(self):
@@ -992,7 +1222,7 @@ class CommandLineTest(HomeTestCase):
         result = self.run_script("--list", "--agent=codex", "--home", str(self.home))
 
         self.assertIn("AGENTS.md -> ~/.agents/AGENTS.md", result.stdout)
-        self.assertRegex(result.stdout, r"memories_1\.sqlite\s+2\s+[\d.]+ KB\s+\S+\s+learned")
+        self.assertRegex(result.stdout, r"memories_1\.sqlite\s+2\s+[\d.]+ KB\s+\S+\s+memory")
 
     def test_an_unknown_agent_is_an_error(self):
         result = self.run_script("--agent=nope", "--home", str(self.home))
@@ -1013,7 +1243,7 @@ class CommandLineTest(HomeTestCase):
         result = self.run_script("--list", "--home", str(empty))
 
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout.count("missing"), 4)
+        self.assertEqual(result.stdout.count("empty"), 4)
 
     def test_the_tool_folder_holds_only_the_script(self):
         """The catalogue publishes every file in the folder, so no bytecode may sit beside it."""

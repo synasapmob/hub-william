@@ -2,7 +2,7 @@
 # memory: see and manage what your coding agents remember
 #
 # A terminal browser for agent memory: the instruction files you write for them (CLAUDE.md,
-# AGENTS.md, GEMINI.md) and the lessons they save about you, for Claude Code, Codex and Gemini.
+# AGENTS.md, GEMINI.md) and the lessons they save about you, for Claude Code, Codex, Grok and agy.
 # It lists each one with its size, how many files it holds and when it last changed, lets you
 # open a folder to look inside and read a file, and moves learned memory to the Trash. Your
 # instruction files are read-only here, and nothing is ever deleted for good. Nothing leaves
@@ -38,7 +38,7 @@ except ImportError:  # Windows ships no curses
     curses = None
 
 RULES = "rules"  # instruction files that you write: read-only here
-LEARNED = "learned"  # what an agent saved by itself
+LEARNED = "memory"  # what an agent saved by itself
 MIXED = "mixed"
 
 MIN_WIDTH = 64
@@ -47,25 +47,33 @@ MAX_VIEW = 256 * 1024
 MAX_MEMORIES = 500
 
 # Where each agent keeps its memory, as paths under the home folder. "instructions" are files
-# you write; "memory" lists folders of files the agent writes (learned memory, which may be
-# moved to the Trash); "databases" are SQLite files the agent writes (shown, never changed);
-# "projects" names the folder that holds one subfolder per project, the name of the memory
-# folder inside each, and the instruction files that may sit in the project itself. The paths
-# come from the agents' documentation and from what exists on one machine, so add to them with
-# care.
-ProjectSpec = namedtuple("ProjectSpec", "folder memory instructions")
-AgentSpec = namedtuple("AgentSpec", "name folder instructions memory databases projects")
+# you write and "rules_dirs" are folders of such files; "memory" lists folders of files the agent
+# writes (learned memory, which may be moved to the Trash); "indexes" are files an agent generates
+# from its memory (shown, never changed); "databases" are SQLite files the agent writes (shown,
+# never changed); "projects" names the folder that holds one subfolder per project (or workspace),
+# the names of the memory folders inside each, the instruction files that may sit in the project
+# itself, and how a subfolder's name becomes a label. The paths come from the agents'
+# documentation and from what exists on one machine, so add to them with care.
+ProjectSpec = namedtuple("ProjectSpec", "folder memory instructions index label", defaults=((), "path"))
+AgentSpec = namedtuple(
+    "AgentSpec", "name folder instructions memory databases projects rules_dirs indexes",
+    defaults=((), ()),
+)
 AGENTS = (
     AgentSpec(
         "claude", ".claude", (".claude/CLAUDE.md",), (), (),
         ProjectSpec(
-            ".claude/projects", "memory",
+            ".claude/projects", ("memory",),
             ("CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md", "AGENTS.md", "GEMINI.md"),
         ),
     ),
     AgentSpec("codex", ".codex", (".codex/AGENTS.md",), (".codex/memories",), (".codex/memories_1.sqlite",), None),
-    AgentSpec("gemini", ".gemini", (".gemini/AGENTS.md", ".gemini/GEMINI.md"), (), (), None),
-    AgentSpec("shared", ".agents", (".agents/AGENTS.md",), (), (), None),
+    AgentSpec(
+        "grok", ".grok", (), (".grok/memory-v2/global/topics", ".grok/memory-v2/global/observations"), (),
+        ProjectSpec(".grok/memory-v2/workspaces", ("topics", "observations"), (), ("MEMORY.md",), "hash"),
+        rules_dirs=(".grok/rules",), indexes=(".grok/memory-v2/global/MEMORY.md",),
+    ),
+    AgentSpec("agy", ".gemini", (".gemini/AGENTS.md", ".gemini/GEMINI.md"), (), (), None),
 )
 
 UNICODE_CHARS = {
@@ -166,7 +174,9 @@ def find_project(folder):
     return walk(os.sep, 0)
 
 
-def project_label(folder, home):
+def project_label(folder, home, style="path"):
+    if style == "hash":  # Grok names a workspace folder "<name>-<8 hex digits>"
+        return re.sub(r"-[0-9a-f]{8}$", "", folder) or folder
     found = find_project(folder)
     return tilde(found, home) if found else folder
 
@@ -193,6 +203,8 @@ def file_entry(path, kind, agent):
 
 def scan_memory(path, agent, root):
     """Learned memory: a folder or file the agent wrote. Sizes are the text sizes; symlinks are skipped."""
+    if os.path.basename(path) == ".git":
+        return None  # Codex keeps its memory folder under git; the repository is not memory
     try:
         info = os.lstat(path)
     except OSError:
@@ -221,18 +233,27 @@ def scan_memory(path, agent, root):
 
 
 def read_memories(path):
-    """The memories in a Codex database as (name, text, time) tuples, or None if its layout is unknown."""
-    try:
-        connection = sqlite3.connect("file:%s?mode=ro" % quote(path), uri=True)
+    """The memories in a Codex database as (name, text, time) tuples; raises sqlite3.Error if it cannot be read.
+
+    A database in WAL mode cannot be opened read-only once its side files are gone, so then it is
+    opened as immutable, which also reads it and cannot change it.
+    """
+    query = (
+        "SELECT thread_id, rollout_slug, rollout_summary, raw_memory, generated_at"
+        " FROM stage1_outputs ORDER BY generated_at DESC LIMIT %d" % MAX_MEMORIES
+    )
+    rows = None
+    for mode in ("mode=ro", "immutable=1"):
         try:
-            rows = connection.execute(
-                "SELECT thread_id, rollout_slug, rollout_summary, raw_memory, generated_at"
-                " FROM stage1_outputs ORDER BY generated_at DESC LIMIT %d" % MAX_MEMORIES
-            ).fetchall()
-        finally:
-            connection.close()
-    except sqlite3.Error:
-        return None
+            connection = sqlite3.connect("file:%s?%s" % (quote(path), mode), uri=True)
+            try:
+                rows = connection.execute(query).fetchall()
+            finally:
+                connection.close()
+            break
+        except sqlite3.OperationalError as error:
+            if "unable to open" not in str(error) or mode == "immutable=1":
+                raise
     found = []
     for thread, slug, summary, raw, generated in rows:
         name = slug or str(thread)[:12]
@@ -253,9 +274,15 @@ def database_entry(path, agent):
     entry = Entry(os.path.basename(path), path, True, LEARNED, agent)
     entry.size = info.st_size
     entry.mtime = info.st_mtime
-    memories = read_memories(path)
-    if memories is None:
-        entry.note = "%s has a layout this tool does not know, so its memories are not shown." % entry.name
+    try:
+        memories = read_memories(path)
+    except sqlite3.Error as error:
+        known = "no such" in str(error) or "not a database" in str(error)
+        entry.note = (
+            "%s has a layout this tool does not know, so its memories are not shown." % entry.name
+            if known
+            else "%s could not be opened read-only (%s)." % (entry.name, error)
+        )
         return entry
     seen = {}
     for name, text, moment in memories:
@@ -285,6 +312,20 @@ def load_agent(spec, home, places):
     def global_entries():
         for relative in spec.instructions:
             entry = file_entry(os.path.join(home, relative), RULES, spec.name)
+            if entry is not None:
+                yield entry
+        for relative in spec.rules_dirs:
+            try:
+                names = sorted(os.listdir(os.path.join(home, relative)))
+            except OSError:
+                names = []
+            for name in names:
+                if name.endswith(".md"):
+                    entry = file_entry(os.path.join(home, relative, name), RULES, spec.name)
+                    if entry is not None:
+                        yield entry
+        for relative in spec.indexes:
+            entry = file_entry(os.path.join(home, relative), LEARNED, spec.name)
             if entry is not None:
                 yield entry
         for relative in spec.memory:
@@ -319,12 +360,17 @@ def load_agent(spec, home, places):
         root = os.path.realpath(os.path.join(folder, name))
         if not os.path.isdir(root):
             continue
-        project = Entry(project_label(name, home), None, True, RULES, spec.name)
-        places.setdefault(root, set()).add(spec.projects.memory)
-        memory = scan_memory(os.path.join(root, spec.projects.memory), spec.name, root)
-        if memory is not None:
-            project.add(memory)
-        found = find_project(name)
+        project = Entry(project_label(name, home, spec.projects.label), None, True, RULES, spec.name)
+        for memory_name in spec.projects.memory:
+            places.setdefault(root, set()).add(memory_name)
+            memory = scan_memory(os.path.join(root, memory_name), spec.name, root)
+            if memory is not None:
+                project.add(memory)
+        for index_name in spec.projects.index:
+            entry = file_entry(os.path.join(root, index_name), LEARNED, spec.name)
+            if entry is not None:
+                project.add(entry)
+        found = find_project(name) if spec.projects.label == "path" else None
         for relative in spec.projects.instructions if found else ():
             entry = file_entry(os.path.join(found, relative), RULES, spec.name)
             if entry is not None:
@@ -419,7 +465,7 @@ def kinds_of(entry):
 
 def entry_status(entry):
     if entry.size <= 0 and entry.always:
-        return "missing" if entry.missing else "empty"
+        return "empty"  # no folder, or nothing in it; the message says which
     found = kinds_of(entry)
     return MIXED if len(found) > 1 else next(iter(found))
 
