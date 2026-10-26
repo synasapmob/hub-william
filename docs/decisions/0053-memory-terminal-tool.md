@@ -13,17 +13,18 @@
 2. **Learned memory**: lessons the agent saves about the operator and the project, such as
    "never call `useEffect` in a utils helper".
 
-Where each agent keeps them. A path marked "seen" exists on the operator's machine; the rest
-comes from the agents' documentation and was not run:
+Where each agent keeps them. "Seen" means it exists on the operator's machine; "tried" means an
+agent was run there with a made-up placeholder; the rest comes from the agents' documentation:
 
-| Agent  | Instruction files                                                                                         | Learned memory                                                                                                |
-| ------ | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| Claude | `~/.claude/CLAUDE.md` (seen, a symlink); a project's `CLAUDE.md`, `CLAUDE.local.md`, `.claude/CLAUDE.md`  | `~/.claude/projects/<project>/memory/`, a `MEMORY.md` index and topic files (seen: 28 folders, all empty)     |
-| Codex  | `~/.codex/AGENTS.md` (seen, a symlink)                                                                    | `~/.codex/memories_1.sqlite` (seen, table `stage1_outputs`, no rows); the docs also name `~/.codex/memories/` |
-| Gemini | `~/.gemini/AGENTS.md` (seen, a symlink); the docs name `~/.gemini/GEMINI.md`, where `save_memory` appends | in `GEMINI.md`, under "Gemini Added Memories" (not seen)                                                      |
-| Shared | `~/.agents/AGENTS.md` (seen), the file the three symlinks above point to                                  | none                                                                                                          |
+| Agent  | Instruction files                                                                                        | Learned memory                                                                                                                                                                                                                                                                                                     |
+| ------ | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Claude | `~/.claude/CLAUDE.md` (seen, a symlink); a project's `CLAUDE.md`, `CLAUDE.local.md`, `.claude/CLAUDE.md` | `~/.claude/projects/<project>/memory/`: a `MEMORY.md` index and topic files, one folder per project and per worktree (tried: a saved note landed there, and Claude Code added metadata lines to it)                                                                                                                |
+| Codex  | `~/.codex/AGENTS.md` (seen, a symlink)                                                                   | `~/.codex/memories/`, a git repository with `raw_memories.md` and an `extensions/` folder, plus `~/.codex/memories_1.sqlite`; both are global. The feature is off by default; one short run with it on created the folder but did not save the placeholder, which fits memory being built later from past sessions |
+| Grok   | `~/.grok/rules/*.md`; a project's `AGENTS.md` or `CLAUDE.md` (from its manual)                           | `~/.grok/memory-v2/global/` and `workspaces/<name>-<hash>/`, each with `topics/`, `observations/_inbox/` and a generated `MEMORY.md` (tried: a saved note landed in `global/topics/`). Off by default; worktrees of one repository share a workspace                                                               |
+| agy    | `~/.gemini/AGENTS.md` (seen, a symlink); `GEMINI.md` is named by the Gemini CLI docs but was not seen    | not identified: agy keeps its conversations under `~/.gemini/antigravity-cli/` and a headless run refused to save a note                                                                                                                                                                                           |
 
-On that machine the operator's rules keep agents from saving memory on their own, so the learned
+The three symlinks seen above (Claude, Codex and agy) all point at one file, `~/.agents/AGENTS.md`, so a change to it
+reaches every agent. On that machine the operator's rules keep agents from saving memory on their own, so the learned
 memory is empty and most of what the tool shows is instruction files. A page on the deployed
 site cannot read a visitor's disk, so the tool has to run on the user's own machine, like the
 installers and `link-skills`.
@@ -43,10 +44,11 @@ itself arrives on stdin it reads the keyboard from `/dev/tty`. Without a termina
 error, and `--list` prints the table instead and changes nothing. `--home=PATH` scans another
 home folder, which the tests rely on.
 
-**Screens.** The first screen lists the four agents (`claude`, `codex`, `gemini`, `shared`), each
-with `PATHS` (files, or memories in a database), `SIZE`, `AGE` and `TYPE`: `rules`, `learned` or
-`mixed`. An agent whose folder does not exist is listed as `missing`, and one with nothing in it as
-`empty`, with dashes for the numbers; Right on such a row says why it cannot be opened. Right opens
+**Screens.** The first screen lists the four agents (`claude`, `codex`, `grok`, `agy`), each
+with `PATHS` (files, or memories in a database), `SIZE`, `AGE` and `TYPE`: `rules`
+(instruction files you write), `memory` (what an agent saved itself) or `mixed` (both). An agent
+whose folder does not exist, or that has nothing in it, is listed as `empty`, with dashes for the
+numbers; Right on such a row says which of the two it is and why it cannot be opened. Right opens
 a row and Left goes back:
 
 - Claude shows `Global` (its instruction file) and one row per project that has something: the
@@ -54,12 +56,13 @@ a row and Left goes back:
   path with `/` and `.` both written as `-`, so the script decodes the name only to a path that
   exists, and shows the raw name otherwise. Project instruction files are found only for projects
   Claude lists.
-- Codex, Gemini and shared show their files directly. A Codex memory database shows one read-only
+- Grok shows `Global` (its rules, the generated index, and the global topics and observations) and one row per workspace, named without the trailing hash. Its state files (a database, a search index, archived observations) are never listed, and the generated `MEMORY.md` is read-only.
+- Codex and agy show their files directly. A Codex memory database shows one read-only
   row per memory.
 
 An entry whose size is zero is never listed below an agent, and `PATHS` counts only what could be
 listed. Sizes are the text sizes. A symlinked instruction file shows its target and counts the
-target's size, so the shared file appears once for each agent that links to it. A `disk` tab is
+target's size, so the shared `~/.agents/AGENTS.md` appears once for each agent that links to it, and has no row of its own. A `disk` tab is
 drawn but not built yet.
 
 **Reading.** Right on a file opens a read-only view with long lines wrapped. The arrows scroll
@@ -92,7 +95,7 @@ and a new run starts at the first screen.
 
 **Left out on purpose.** Editing or adding memory; removing a deleted topic file's line from
 Claude's `MEMORY.md` index (it may keep a line that points at a file that is gone); deleting rows
-of a database; OpenCode and DSH, where no memory files were found; project instruction files for
+of a database; OpenCode, OMP and DSH, where no memory files were found; agy's own memory, which was not identified; project instruction files for
 projects Claude does not list; the disk tab; and Windows.
 
 ## Consequences
@@ -101,7 +104,7 @@ projects Claude does not list; the disk tab; and Windows.
   version, and a path that exists nowhere is simply not shown.
 - Codex's memory database layout (`stage1_outputs`) was read from one machine, which had no rows.
   A different layout is shown as a database the tool does not know, not read.
-- The script is about 48 KB, bundled into the frontend as text with the other catalogue files.
+- The script is about 50 KB, bundled into the frontend as text with the other catalogue files.
 - nginx serves `/catalog/*.py` as text, as it does `.sh`, so the link opens in the browser. curl is
   unaffected.
 - `curl | python3` trusts the site's origin, as the installers do. The script can also be
