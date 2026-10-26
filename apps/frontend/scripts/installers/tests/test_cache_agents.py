@@ -54,7 +54,7 @@ def encode(path):
 def go(browser, *names):
     """Open each named row in turn, whatever order the sizes put them in."""
     for name in names:
-        browser.cursors[-1] = [row.name for row in browser.rows()].index(name)
+        browser.select([row.name for row in browser.rows()].index(name))
         browser.handle_key("right")
 
 
@@ -209,15 +209,28 @@ class ProjectNameTest(HomeTestCase):
 
 
 class LoadingTest(HomeTestCase):
-    def test_agents_are_listed_by_size_and_an_empty_one_is_hidden(self):
-        names = [agent.name for agent in self.library().root.visible()]
+    def test_every_supported_agent_is_listed_largest_first_then_by_name(self):
+        library = self.library()
 
-        self.assertEqual(names, ["claude", "codex"])
+        self.assertEqual(
+            [agent.name for agent in library.root.visible()],
+            ["claude", "codex", "dsh", "gemini", "grok", "omp", "opencode"],
+        )
+        statuses = dict((agent.name, ca.entry_status(agent)) for agent in library.root.visible())
+        self.assertEqual(statuses["gemini"], "empty")
+        for name in ("dsh", "grok", "omp", "opencode"):
+            self.assertEqual(statuses[name], "missing", name)
 
-    def test_an_agent_that_is_not_installed_is_skipped(self):
+    def test_an_agent_that_is_not_installed_is_still_listed_but_cannot_be_opened(self):
         shutil.rmtree(self.home / ".codex")
+        browser = self.browser()
+        browser.select([row.name for row in browser.rows()].index("codex"))
 
-        self.assertEqual([agent.name for agent in self.library().root.visible()], ["claude"])
+        self.assertEqual(ca.entry_status(browser.current()), "missing")
+        browser.handle_key("right")
+
+        self.assertEqual(len(browser.stack), 1)
+        self.assertIn("codex is not installed", browser.message)
 
     def test_claude_is_global_then_projects_by_size(self):
         claude = self.library().root.visible()[0]
@@ -279,29 +292,18 @@ class BrowsingTest(HomeTestCase):
         browser = self.browser()
         browser.handle_key("up")
         self.assertEqual(browser.current().name, "claude")
-        for _ in range(10):
+        for _ in range(20):
             browser.handle_key("down")
-        self.assertEqual(browser.current().name, "codex")
+        self.assertEqual(browser.current().name, "opencode")
         browser.handle_key("home")
         self.assertEqual(browser.current().name, "claude")
         browser.handle_key("end")
-        self.assertEqual(browser.current().name, "codex")
-
-    def test_a_file_cannot_be_opened(self):
-        browser = self.browser()
-        for key in ("right", "down", "right", "right"):
-            browser.handle_key(key)
-
-        self.assertEqual(len(browser.stack), 3)
-
-        browser.handle_key("right")
-        self.assertEqual(len(browser.stack), 3)
-        self.assertIn("Nothing to open", browser.message)
+        self.assertEqual(browser.current().name, "opencode")
 
     def test_nothing_with_no_size_is_ever_listed(self):
         browser = self.browser()
         seen = []
-        stack = [browser.library.root]
+        stack = list(browser.library.root.visible())  # agents are listed even without a size
         while stack:
             node = stack.pop()
             for child in node.visible():
@@ -391,7 +393,7 @@ class RenderingTest(HomeTestCase):
         self.assertEqual(len(screen), 20)
         self.assertEqual(len(marked), 1)
         self.assertIn(browser.current().name, marked[0])
-        self.assertGreater(browser.offsets[-1], 0)
+        self.assertGreater(browser.scroll[browser.key()], 0)
 
     def test_a_small_terminal_gets_a_message_not_a_broken_screen(self):
         screen = lines_of(self.browser(), 40, 8)
@@ -399,13 +401,15 @@ class RenderingTest(HomeTestCase):
         self.assertEqual(len(screen), 1)
         self.assertIn("Terminal too small", screen[0])
 
-    def test_nothing_found_says_so(self):
+    def test_a_home_with_no_agents_lists_them_all_as_missing(self):
         shutil.rmtree(self.home / ".claude")
         shutil.rmtree(self.home / ".codex")
+        shutil.rmtree(self.home / ".gemini")
 
         screen = "\n".join(lines_of(self.browser()))
 
-        self.assertIn("No agent folders with data found", screen)
+        for name in ("claude", "codex", "gemini", "opencode", "dsh", "grok", "omp"):
+            self.assertRegex(screen, name + r"\s+-\s+-\s+-\s+missing")
 
 
 class DeletingTest(HomeTestCase):
@@ -469,7 +473,7 @@ class DeletingTest(HomeTestCase):
         self.type_phrase(browser)
 
         self.assertLess(browser.library.root.size, before)
-        self.assertEqual([agent.name for agent in browser.rows()], ["claude", "codex"])
+        self.assertEqual([agent.name for agent in browser.rows()][:2], ["claude", "codex"])
 
     def test_global_of_one_agent_asks_yes_or_no_and_leaves_other_agents_alone(self):
         browser = self.browser()
@@ -623,7 +627,8 @@ class GuardTest(HomeTestCase):
         library = self.library()
         outside = self.home / "outside"
         write(outside / "x.bin")
-        entry = ca.scan(str(outside), ca.CACHE, "claude", set())
+        root = os.path.realpath(self.home / ".claude")
+        entry = ca.scan(str(outside), ca.CACHE, "claude", set(), root)
 
         moved, failed = ca.run_plan(ca.Plan("test", [entry], 0), library)
 
@@ -678,7 +683,8 @@ class CommandLineTest(HomeTestCase):
         self.assertRegex(result.stdout, r"cache-agents\s+total [\d.]+ (KB|MB), \d+ paths")
         self.assertRegex(result.stdout, r"claude\s+\d+\s+[\d.]+ (KB|MB)\s+now\s+mixed")
         self.assertRegex(result.stdout, r"codex\s+\d+\s+[\d.]+ (KB|MB)\s+now\s+mixed")
-        self.assertNotIn("gemini", result.stdout)
+        self.assertRegex(result.stdout, r"gemini\s+-\s+-\s+-\s+empty")
+        self.assertRegex(result.stdout, r"opencode\s+-\s+-\s+-\s+missing")
         self.assertEqual(snapshot(), before)
 
     def test_list_for_one_agent_shows_global_and_projects(self):
@@ -708,7 +714,7 @@ class CommandLineTest(HomeTestCase):
         result = self.run_script("--list", "--home", str(empty))
 
         self.assertEqual(result.returncode, 0)
-        self.assertIn("Nothing found", result.stdout)
+        self.assertEqual(result.stdout.count("missing"), 7)
 
     def test_the_tool_folder_holds_only_the_script(self):
         """The catalogue publishes every file in the folder, so no bytecode may sit beside it."""
@@ -726,7 +732,359 @@ class CommandLineTest(HomeTestCase):
 
         self.assertTrue(lines[0].startswith("cache-agents: "))
         self.assertEqual(lines[1], "")
-        self.assertIn("Claude Code, Codex and Gemini", lines[2])
+        self.assertIn("terminal browser", lines[2])
+
+
+class PositionTest(HomeTestCase):
+    """The cursor of each folder is remembered while the tool runs, and only then."""
+
+    def test_a_folder_remembers_the_cursor_when_you_come_back_to_it(self):
+        browser = self.browser()
+        go(browser, "claude", "Global")
+        browser.handle_key("down")
+        browser.handle_key("down")
+        inside = browser.current().name
+        self.assertNotEqual(inside, browser.rows()[0].name)
+
+        browser.handle_key("left")
+        self.assertEqual(browser.current().name, "Global")
+        browser.handle_key("right")
+
+        self.assertEqual(browser.current().name, inside)
+
+    def test_each_folder_keeps_its_own_cursor(self):
+        browser = self.browser()
+        go(browser, "claude", "Global")
+        browser.handle_key("down")
+        in_global = browser.current().name
+        browser.handle_key("left")
+        browser.handle_key("down")
+        browser.handle_key("right")
+        self.assertEqual(browser.current().name, "session.jsonl")
+        browser.handle_key("left")
+        browser.handle_key("up")
+        browser.handle_key("right")
+
+        self.assertEqual(browser.current().name, in_global)
+
+    def test_the_position_survives_a_rescan(self):
+        browser = self.browser()
+        go(browser, "claude", "Global")
+        browser.handle_key("down")
+        name = browser.current().name
+
+        browser.handle_key("r")
+
+        self.assertEqual(browser.current().name, name)
+        self.assertEqual([entry.name for entry in browser.stack], ["cache-agents", "claude", "Global"])
+
+    def test_deleting_the_row_under_the_cursor_leaves_the_cursor_nearby(self):
+        browser = self.browser()
+        go(browser, "claude", "Global")
+        browser.select([row.name for row in browser.rows()].index("cache"))
+        before = browser.index()
+
+        browser.handle_key("D")
+        browser.handle_key("y")
+
+        rows = browser.rows()
+        self.assertNotIn("cache", [row.name for row in rows])
+        self.assertEqual(browser.index(), min(before, len(rows) - 1))
+
+    def test_a_new_run_starts_from_the_top(self):
+        browser = self.browser()
+        go(browser, "claude", "Global")
+        browser.handle_key("down")
+
+        fresh = self.browser()
+
+        self.assertEqual(len(fresh.stack), 1)
+        self.assertEqual(fresh.index(), 0)
+
+
+class ViewerTest(HomeTestCase):
+    """Reading a file: text only, read-only, and careful with what it shows."""
+
+    def setUp(self):
+        super().setUp()
+        self.docs = self.home / ".gemini" / "docs"
+        self.put("note.txt", "\n".join("line %d" % number for number in range(1, 101)).encode())
+        self.put("data.json", b'{"a": 1, "b": [1, 2, 3], "name": "x"}')
+        self.put("log.jsonl", b'{"n": 1}\n{"n": 2, "tags": ["a"]}\nnot json\n')
+        self.put("picture.png", b"\x89PNG\r\n\x1a\n" + b"\0" * 30000)
+        self.put("image.dmg", b"\xff\xfe" * 12000)
+        self.put("mcp-auth.json", b'{"token": "s3cret-value"}')
+        self.put("big.log", "".join("log line %06d\n" % number for number in range(30000)).encode())
+        self.put("escape.txt", b"plain \x1b[31mred\x1b[0m bell\x07 end\n")
+        self.put("long.txt", b"w" * 500 + b"\nshort\n")
+        self.put("accents.txt", "\u00e9".encode() * 200000)
+
+    def put(self, name, data):
+        self.docs.mkdir(parents=True, exist_ok=True)
+        (self.docs / name).write_bytes(data)
+
+    def open_file(self, name):
+        browser = self.browser()
+        go(browser, "gemini", "docs", name)
+        return browser
+
+    def screen(self, browser, width=100, height=20):
+        return "\n".join(lines_of(browser, width, height))
+
+    def test_a_text_file_opens_and_scrolls(self):
+        browser = self.open_file("note.txt")
+
+        self.assertIsNotNone(browser.viewer)
+        self.assertRegex(self.screen(browser), r"\u2502\s+1 line 1\s+\u2502")
+        for _ in range(3):
+            browser.handle_key("down")
+        self.assertRegex(self.screen(browser), r"\u2502\s+4 line 4\s+\u2502")
+        browser.handle_key("end")
+        self.assertIn("line 100", self.screen(browser))
+        for _ in range(5):
+            browser.handle_key("down")
+        self.assertIn("line 100", self.screen(browser))
+        browser.handle_key("home")
+        self.assertRegex(self.screen(browser), r"\u2502\s+1 line 1\s+\u2502")
+        browser.handle_key("pagedown")
+        self.assertNotIn("line 1 ", self.screen(browser))
+
+    def test_left_goes_back_to_the_list_with_the_cursor_on_the_file(self):
+        browser = self.open_file("note.txt")
+
+        browser.handle_key("left")
+
+        self.assertIsNone(browser.viewer)
+        self.assertEqual(browser.current().name, "note.txt")
+        self.assertEqual(browser.stack[-1].name, "docs")
+
+    def test_a_json_file_is_pretty_printed_and_p_shows_it_raw(self):
+        browser = self.open_file("data.json")
+
+        pretty = self.screen(browser)
+        self.assertIn('"a": 1,', pretty)
+        self.assertNotIn('{"a": 1, "b"', pretty)
+        browser.handle_key("p")
+
+        self.assertIn('{"a": 1, "b": [1, 2, 3], "name": "x"}', self.screen(browser))
+
+    def test_a_jsonl_file_shows_one_record_per_line_and_p_spreads_them(self):
+        browser = self.open_file("log.jsonl")
+
+        raw = self.screen(browser)
+        self.assertIn('{"n": 1}', raw)
+        self.assertIn('{"n": 2, "tags": ["a"]}', raw)
+        browser.handle_key("p")
+
+        pretty = self.screen(browser, 100, 30)
+        self.assertIn('"n": 2,', pretty)
+        self.assertIn("not json", pretty)
+
+    def test_p_on_plain_text_says_it_cannot(self):
+        browser = self.open_file("note.txt")
+        self.assertNotIn("pretty-print", self.screen(browser))
+
+        browser.handle_key("p")
+
+        self.assertIn("Only .json and .jsonl", self.screen(browser))
+
+    def test_files_that_are_not_text_are_not_opened(self):
+        for name in ("picture.png", "image.dmg"):
+            browser = self.open_file(name)
+
+            self.assertIsNone(browser.viewer, name)
+            self.assertIn("is not readable text", browser.message, name)
+            self.assertEqual(browser.current().name, name)
+
+    def test_a_credential_file_asks_before_showing_anything(self):
+        browser = self.open_file("mcp-auth.json")
+
+        gate = self.screen(browser)
+        self.assertIn("may contain secrets", gate)
+        self.assertNotIn("s3cret-value", gate)
+        browser.handle_key("down")
+        browser.handle_key("p")
+        self.assertNotIn("s3cret-value", self.screen(browser))
+        browser.handle_key("enter")
+
+        self.assertIn("s3cret-value", self.screen(browser))
+
+    def test_escape_leaves_the_gate_without_showing_the_file(self):
+        browser = self.open_file("mcp-auth.json")
+
+        browser.handle_key("esc")
+
+        self.assertIsNone(browser.viewer)
+        self.assertNotIn("s3cret-value", self.screen(browser))
+
+    def test_only_the_start_of_a_big_file_is_read(self):
+        browser = self.open_file("big.log")
+
+        self.assertIn("first 256 KB of", self.screen(browser))
+        browser.handle_key("end")
+        self.assertNotIn("log line 029999", self.screen(browser))
+
+    def test_a_character_cut_at_the_limit_does_not_hide_the_file(self):
+        document = ca.read_document(str(self.docs / "accents.txt"))
+
+        self.assertIsInstance(document, ca.Document)
+        self.assertTrue(document.truncated)
+        self.assertTrue(document.text.startswith("\u00e9"))
+
+    def test_control_characters_never_reach_the_screen(self):
+        screen = self.screen(self.open_file("escape.txt"))
+
+        self.assertNotIn("\x1b", screen)
+        self.assertNotIn("\x07", screen)
+        self.assertIn("red", screen)
+
+    def test_a_long_line_wraps_inside_the_screen(self):
+        browser = self.open_file("long.txt")
+        rows = browser.viewer.wrapped(80 - 2 - 8)
+
+        self.assertEqual(rows[0][0], 1)
+        self.assertIsNone(rows[1][0])
+        self.assertTrue(all(len(text) <= 70 for _, text in rows))
+        self.assertIn(2, [number for number, _ in rows])
+
+    def test_every_viewer_line_is_exactly_the_screen_wide(self):
+        for name in ("note.txt", "mcp-auth.json"):
+            for width, height in ((64, 12), (100, 30)):
+                browser = self.open_file(name)
+                widths = {sum(len(text) for text, _ in spans) for spans in browser.render(width, height)}
+                self.assertEqual(widths, {width}, (name, width, height))
+
+    def test_the_viewer_cannot_delete_anything(self):
+        browser = self.open_file("note.txt")
+        before = (self.docs / "note.txt").read_bytes()
+
+        browser.handle_key("D")
+
+        self.assertIsNone(browser.dialog)
+        self.assertIn("read-only", browser.message)
+        self.assertEqual((self.docs / "note.txt").read_bytes(), before)
+        browser.handle_key("q")
+        self.assertFalse(browser.running)
+
+    def test_symlinks_and_pipes_are_not_read(self):
+        os.symlink(self.docs / "note.txt", self.docs / "link.txt")
+
+        self.assertEqual(
+            ca.read_document(str(self.docs / "link.txt")), "is a symlink, which is not followed"
+        )
+        if hasattr(os, "mkfifo"):
+            os.mkfifo(self.docs / "pipe")
+            self.assertEqual(ca.read_document(str(self.docs / "pipe")), "is not a regular file")
+
+    def test_names_that_look_like_credentials(self):
+        for name in ("mcp-auth.json", ".credentials.json", "oauth_token.json", ".env", "server.pem",
+                     "id_rsa", "API.KEY", "secrets.yml"):
+            self.assertTrue(ca.looks_secret(name), name)
+        for name in ("AUTHORS.md", "settings.json", "session.jsonl", "tokenizer.json", "note.txt"):
+            self.assertFalse(ca.looks_secret(name), name)
+
+
+class AgentsTest(HomeTestCase):
+    """Agents with more than one folder, and agents that are missing or empty."""
+
+    def add_opencode(self):
+        write(self.home / ".config" / "opencode" / "opencode.json", BLOCK)
+        write(self.home / ".local" / "share" / "opencode" / "opencode.db", 5 * BLOCK)
+        write(self.home / ".cache" / "opencode" / "models.json", 2 * BLOCK)
+        write(self.home / ".opencode" / "bin" / "opencode", 3 * BLOCK)
+
+    def test_an_agent_with_several_folders_shows_one_row_for_each(self):
+        self.add_opencode()
+        browser = self.browser()
+
+        go(browser, "opencode")
+
+        self.assertEqual(
+            [row.name for row in browser.rows()],
+            ["~/.local/share/opencode", "~/.opencode", "~/.cache/opencode", "~/.config/opencode"],
+        )
+
+    def test_only_the_opencode_cache_folder_is_cache(self):
+        self.add_opencode()
+
+        removable = sorted((item.agent, item.name) for item in ca.prunable(self.library().root))
+
+        self.assertIn(("opencode", "models.json"), removable)
+        self.assertNotIn(("opencode", "opencode.db"), removable)
+        self.assertNotIn(("opencode", "opencode.json"), removable)
+        self.assertNotIn(("opencode", "bin"), removable)
+
+    def test_delete_on_the_cache_folder_moves_only_its_files(self):
+        self.add_opencode()
+        browser = self.browser()
+        go(browser, "opencode")
+        browser.select([row.name for row in browser.rows()].index("~/.cache/opencode"))
+
+        browser.handle_key("D")
+        browser.handle_key("y")
+
+        self.assertFalse((self.home / ".cache" / "opencode" / "models.json").exists())
+        self.assertTrue((self.home / ".local" / "share" / "opencode" / "opencode.db").exists())
+        self.assertTrue((self.home / ".config" / "opencode" / "opencode.json").exists())
+        self.assertIn("opencode-models.json", self.trashed())
+
+    def test_delete_on_a_data_folder_of_opencode_is_refused(self):
+        self.add_opencode()
+        browser = self.browser()
+        go(browser, "opencode")
+        browser.select([row.name for row in browser.rows()].index("~/.local/share/opencode"))
+
+        browser.handle_key("D")
+
+        self.assertIsNone(browser.dialog)
+        self.assertIn("holds data, not cache", browser.message)
+
+    def test_dsh_grok_and_omp_can_be_browsed_but_have_no_cache(self):
+        write(self.home / ".dsh" / "profiles" / "a.bin")
+        write(self.home / ".dsh-tui" / "history.jsonl")
+        write(self.home / ".grok" / "config.toml")
+        write(self.home / ".omp" / "agent" / "models.yml")
+        library = self.library()
+        agents = dict((agent.name, agent) for agent in library.root.visible())
+
+        for name in ("dsh", "grok", "omp"):
+            self.assertEqual(ca.entry_status(agents[name]), ca.KEEP, name)
+            self.assertEqual(ca.prunable(agents[name]), [], name)
+        self.assertEqual([row.name for row in agents["dsh"].visible()], ["~/.dsh", "~/.dsh-tui"])
+
+    def test_an_empty_agent_is_listed_but_cannot_be_opened(self):
+        browser = self.browser()
+        browser.select([row.name for row in browser.rows()].index("gemini"))
+
+        browser.handle_key("right")
+
+        self.assertEqual(len(browser.stack), 1)
+        self.assertIn("gemini is empty", browser.message)
+        self.assertIn("empty", self.row_of(browser, "gemini"))
+
+    def row_of(self, browser, name):
+        return next(
+            line for line in lines_of(browser)
+            if line.startswith("\u2502") and line[1:].strip(" >").startswith(name)
+        )
+
+    def test_missing_and_empty_rows_show_dashes_not_zeros(self):
+        browser = self.browser()
+
+        for name in ("gemini", "opencode", "dsh", "grok", "omp"):
+            row = self.row_of(browser, name)
+            self.assertNotIn(" 0 B", row, name)
+            self.assertRegex(row, r"-\s+-\s+-\s+(missing|empty)", name)
+
+    def test_delete_all_only_offers_what_exists(self):
+        browser = self.browser()
+        browser.handle_key("D")
+        preview = "\n".join(lines_of(browser))
+
+        for text in ("claude", "codex"):
+            self.assertIn(text, preview)
+        for text in ("opencode", "gemini", "grok", "omp", "dsh"):
+            self.assertNotIn("%s  ~/" % text, preview)
 
 
 @unittest.skipIf(pty is None, "needs a pseudo-terminal")
@@ -813,6 +1171,21 @@ class TerminalTest(HomeTestCase):
         self.assertFalse((self.home / ".claude" / "cache").exists())
         self.assertTrue((self.home / ".claude" / "settings.json").exists())
         self.assertIn("claude-cache", self.trashed())
+
+    def test_browsing_writes_nothing_to_the_home_folder(self):
+        def snapshot():
+            return sorted(str(path) for path in self.home.rglob("*") if "Library" not in path.parts)
+
+        before = snapshot()
+        pid, descriptor = self.start()
+        self.assertTrue(self.read_until(descriptor, rb"delete all cache"), self.output[-400:])
+        for key in (b"\x1bOC", b"\x1bOB", b"\x1bOC", b"\x1bOD", b"\x1bOD"):
+            os.write(descriptor, key)
+            time.sleep(0.15)
+        os.write(descriptor, b"q")
+
+        self.assertEqual(self.wait_for_exit(pid, descriptor), 0)
+        self.assertEqual(snapshot(), before)
 
     def test_a_piped_script_still_gets_the_keyboard(self):
         """curl | python3 leaves stdin at end of file, so the tool reads /dev/tty instead."""

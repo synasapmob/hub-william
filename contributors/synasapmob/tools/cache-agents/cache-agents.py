@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 # cache-agents: see what your coding agents keep on disk, and clear their cache
 #
-# A terminal browser for the folders that Claude Code, Codex and Gemini fill in your home
-# directory. It lists each agent with its size, the number of paths inside and when it last
-# changed, lets you open a folder to look inside, and moves cache to the Trash. It never
-# deletes a file for good, and it never touches transcripts, memory, settings, skills or
-# anything else that is not a cache. Nothing leaves your computer.
+# A terminal browser for the folders that coding agents fill in your home directory: Claude
+# Code, Codex, Gemini, OpenCode, DSH, Grok and OMP. It lists each agent with its size, the
+# number of paths inside and when it last changed, lets you open a folder to look inside and
+# read a text file, and moves cache to the Trash. It never deletes a file for good, and it
+# never touches transcripts, memory, settings, skills or anything else that is not a cache.
+# Nothing leaves your computer.
 #
 # Run it from Hub William (it reads and writes only under your home folder, and needs a
 # terminal on macOS or Linux with Python 3.9 or newer):
@@ -13,13 +14,16 @@
 # Or run a downloaded copy: python3 cache-agents.py
 # Print the table without the interface, changing nothing: python3 cache-agents.py --list
 #
-# Keys: arrows or h j k l move, Right or Enter opens a folder, Left goes back, D deletes the
-# cache under the cursor (or all of it on the first screen) after a preview and a
-# confirmation, r scans again, q quits.
+# Keys: arrows or h j k l move, Right or Enter opens a folder or reads a text file, Left goes
+# back, D deletes the cache under the cursor (or all of it on the first screen) after a
+# preview and a confirmation, r scans again, q quits. Each folder remembers where the cursor
+# was while the tool runs; a new run starts from the top.
 
 import argparse
+import json
 import locale
 import os
+import re
 import shutil
 import stat
 import sys
@@ -39,21 +43,35 @@ MIXED = "mixed"
 MIN_WIDTH = 64
 MIN_HEIGHT = 12
 STALE_SECONDS = 30 * 86400
+MAX_VIEW = 256 * 1024
 
-# Where each agent keeps its files, under the home folder. "projects" names the folder that
-# holds one subfolder per project; "cache" lists the top-level entries that are safe to
-# clear. Everything not listed there is data and is never offered for deletion. The lists
-# come from the folder names, not from the agents' documentation, so add to them with care.
-AgentSpec = namedtuple("AgentSpec", "name folder projects cache")
+# Where each agent keeps its files, as folders under the home folder. "projects" names the
+# folder that holds one subfolder per project; "cache" lists the top-level entries that are
+# safe to clear ("*" for a folder that is nothing but cache). Everything not listed there is
+# data and is never offered for deletion. The lists come from the folder names, not from the
+# agents' documentation, so add to them with care. An agent with several folders shows one
+# row for each.
+Place = namedtuple("Place", "folder projects cache")
+AgentSpec = namedtuple("AgentSpec", "name places")
 AGENTS = (
     AgentSpec(
         "claude",
-        ".claude",
-        "projects",
-        ("cache", "shell-snapshots", "paste-cache", "telemetry", "session-env"),
+        (Place(".claude", "projects", ("cache", "shell-snapshots", "paste-cache", "telemetry", "session-env")),),
     ),
-    AgentSpec("codex", ".codex", None, ("cache",)),
-    AgentSpec("gemini", ".gemini", None, ()),
+    AgentSpec("codex", (Place(".codex", None, ("cache",)),)),
+    AgentSpec("gemini", (Place(".gemini", None, ()),)),
+    AgentSpec(
+        "opencode",
+        (
+            Place(".config/opencode", None, ()),
+            Place(".local/share/opencode", None, ()),
+            Place(".cache/opencode", None, ("*",)),
+            Place(".opencode", None, ()),
+        ),
+    ),
+    AgentSpec("dsh", (Place(".dsh", None, ()), Place(".dsh-tui", None, ()))),
+    AgentSpec("grok", (Place(".grok", None, ()),)),
+    AgentSpec("omp", (Place(".omp", None, ()),)),
 )
 
 UNICODE_CHARS = {
@@ -74,18 +92,24 @@ ASCII_CHARS = {
 class Entry(object):
     """A file, a folder, or a group of them (path is None) with what is inside it added up."""
 
-    __slots__ = ("name", "path", "is_dir", "kind", "agent", "size", "paths", "mtime", "children")
+    __slots__ = (
+        "name", "path", "is_dir", "kind", "agent", "root", "size", "paths", "mtime", "children",
+        "always", "missing",
+    )
 
-    def __init__(self, name, path=None, is_dir=True, kind=KEEP, agent=None):
+    def __init__(self, name, path=None, is_dir=True, kind=KEEP, agent=None, root=None):
         self.name = name
         self.path = path
         self.is_dir = is_dir
         self.kind = kind
         self.agent = agent
+        self.root = root
         self.size = 0
         self.paths = 0
         self.mtime = 0.0
         self.children = []
+        self.always = False  # an agent is listed even when it has no size
+        self.missing = False  # none of an agent's folders exist
 
     def add(self, child):
         self.children.append(child)
@@ -97,8 +121,8 @@ class Entry(object):
         self.children.sort(key=lambda child: (-child.size, child.name))
 
     def visible(self):
-        """What the screens list: an entry with no size is never shown."""
-        return [child for child in self.children if child.size > 0]
+        """What the screens list: an entry with no size is not shown, except an agent."""
+        return [child for child in self.children if child.size > 0 or child.always]
 
 
 def disk_usage(info, seen):
@@ -112,13 +136,13 @@ def disk_usage(info, seen):
     return blocks * 512 if blocks is not None else info.st_size
 
 
-def scan(path, kind, agent, seen):
+def scan(path, kind, agent, seen, root=None):
     """Measure a path and everything under it. Symlinks count as one path and are not followed."""
     try:
         info = os.lstat(path)
     except OSError:
         return None
-    entry = Entry(os.path.basename(path), path, stat.S_ISDIR(info.st_mode), kind, agent)
+    entry = Entry(os.path.basename(path), path, stat.S_ISDIR(info.st_mode), kind, agent, root)
     entry.size = disk_usage(info, seen)
     entry.mtime = info.st_mtime
     if entry.is_dir:
@@ -127,7 +151,7 @@ def scan(path, kind, agent, seen):
         except OSError:
             names = []
         for name in names:
-            child = scan(os.path.join(path, name), kind, agent, seen)
+            child = scan(os.path.join(path, name), kind, agent, seen, root)
             if child is not None:
                 entry.add(child)
         entry.sort()
@@ -180,70 +204,95 @@ def decode_project(folder, home):
     return tilde(found, home) if found else folder
 
 
-def load_agent(spec, home, seen):
-    """One agent as a group: Global, then each project, or just its entries when it has none."""
-    root = os.path.realpath(os.path.join(home, spec.folder))
-    try:
-        names = sorted(os.listdir(root))
-    except OSError:
-        return None
+def is_cache_name(place, name):
+    return "*" in place.cache or name in place.cache
+
+
+def load_agent(spec, home, seen, places):
+    """One agent as a group, listed even when none of its folders exist.
+
+    An agent with one folder shows Global and then each project (or just its entries when it
+    has no project folder); an agent with several folders shows one row for each.
+    """
     agent = Entry(spec.name, None, True, KEEP, spec.name)
-    shared = Entry("Global", None, True, KEEP, spec.name)
-    projects = []
-    for name in names:
-        path = os.path.join(root, name)
-        if spec.projects and name == spec.projects and os.path.isdir(path):
-            try:
-                folders = sorted(os.listdir(path))
-            except OSError:
-                folders = []
-            for folder in folders:
-                project = scan(os.path.join(path, folder), KEEP, spec.name, seen)
-                if project is not None:
-                    project.name = decode_project(folder, home)
-                    projects.append(project)
+    agent.always = True
+    found = []
+    for place in spec.places:
+        root = os.path.realpath(os.path.join(home, place.folder))
+        try:
+            names = sorted(os.listdir(root))
+        except OSError:
             continue
-        child = scan(path, CACHE if name in spec.cache else KEEP, spec.name, seen)
-        if child is not None:
-            shared.add(child)
-    shared.sort()
-    if projects:
-        agent.add(shared)
-        projects.sort(key=lambda project: (-project.size, project.name))
-        for project in projects:
-            agent.add(project)
-    else:
-        for child in shared.children:
-            agent.add(child)
-    return agent, root
+        places[root] = place
+        found.append((place, root, names))
+    agent.missing = not found
+
+    def read(place, root, names):
+        for name in names:
+            kind = CACHE if is_cache_name(place, name) else KEEP
+            child = scan(os.path.join(root, name), kind, spec.name, seen, root)
+            if child is not None:
+                yield child
+
+    if len(spec.places) > 1:
+        for place, root, names in found:
+            folder = Entry("~/" + place.folder, None, True, KEEP, spec.name)
+            for child in read(place, root, names):
+                folder.add(child)
+            folder.sort()
+            agent.add(folder)
+        agent.sort()
+    elif found:
+        place, root, names = found[0]
+        shared = Entry("Global", None, True, KEEP, spec.name)
+        projects = []
+        for name in names:
+            path = os.path.join(root, name)
+            if place.projects and name == place.projects and os.path.isdir(path):
+                try:
+                    folders = sorted(os.listdir(path))
+                except OSError:
+                    folders = []
+                for folder in folders:
+                    project = scan(os.path.join(path, folder), KEEP, spec.name, seen, root)
+                    if project is not None:
+                        project.name = decode_project(folder, home)
+                        projects.append(project)
+                continue
+            for child in read(place, root, [name]):
+                shared.add(child)
+        shared.sort()
+        if projects:
+            agent.add(shared)
+            projects.sort(key=lambda project: (-project.size, project.name))
+            for project in projects:
+                agent.add(project)
+        else:
+            for child in shared.children:
+                agent.add(child)
+    return agent
 
 
 class Library(object):
-    """Every agent found under one home folder, as scanned at one moment."""
+    """Every agent under one home folder, as scanned at one moment."""
 
-    def __init__(self, home, root, roots, scanned_at):
+    def __init__(self, home, root, places, scanned_at):
         self.home = home
         self.root = root
-        self.roots = roots
+        self.places = places
         self.scanned_at = scanned_at
 
 
 def load(home, now=None, progress=None, specs=AGENTS):
     seen = set()
+    places = {}
     root = Entry("cache-agents")
-    roots = {}
     for spec in specs:
         if progress is not None:
             progress(spec.name)
-        found = load_agent(spec, home, seen)
-        if found is None:
-            continue
-        agent, real_root = found
-        roots[spec.name] = real_root
-        if agent.size > 0:
-            root.add(agent)
+        root.add(load_agent(spec, home, seen, places))
     root.sort()
-    return Library(home, root, roots, time.time() if now is None else now)
+    return Library(home, root, places, time.time() if now is None else now)
 
 
 # --- Formatting ------------------------------------------------------------------------
@@ -297,6 +346,8 @@ def prunable(entry):
 
 
 def entry_status(entry):
+    if entry.size <= 0 and entry.always:
+        return "missing" if entry.missing else "empty"
     removable = sum(item.size for item in prunable(entry))
     if removable <= 0:
         return KEEP
@@ -312,18 +363,15 @@ class Plan(object):
         self.paths = sum(item.paths for item in items)
 
 
-AGENT_BY_NAME = dict((spec.name, spec) for spec in AGENTS)
-
-
 def refusal(entry, library):
     """Why an entry must not be deleted, or None. Checked again just before every move."""
-    spec = AGENT_BY_NAME.get(entry.agent)
-    root = library.roots.get(entry.agent)
-    if entry.kind != CACHE or entry.path is None or spec is None or root is None:
+    place = library.places.get(entry.root)
+    if entry.kind != CACHE or entry.path is None or place is None:
         return "not a cache"
+    root = entry.root
     if not entry.path.startswith(root + os.sep):
         return "outside the agent folder"
-    if entry.path[len(root) + 1:].split(os.sep)[0] not in spec.cache:
+    if not is_cache_name(place, entry.path[len(root) + 1:].split(os.sep)[0]):
         return "not a cache"
     if not os.path.lexists(entry.path):
         return "already gone"
@@ -390,6 +438,120 @@ def run_plan(plan, library, now=None):
     return moved, failed
 
 
+# --- Reading a file --------------------------------------------------------------------
+
+Document = namedtuple("Document", "text size truncated")
+SECRET_WORDS = frozenset(
+    "auth oauth token tokens secret secrets credential credentials password passwords passwd apikey".split()
+)
+
+
+def looks_secret(name):
+    """A name that suggests credentials: the viewer asks before it shows such a file."""
+    lower = name.lower()
+    if lower in (".env", "id_rsa", "id_ed25519") or lower.endswith((".pem", ".key", ".p12", ".pfx", ".env")):
+        return True
+    return any(word in SECRET_WORDS for word in re.split(r"[^a-z0-9]+", lower))
+
+
+def read_document(path):
+    """The first part of a text file as a Document, or a reason (a string) it cannot be shown."""
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as error:
+        if os.path.islink(path):
+            return "is a symlink, which is not followed"
+        return "cannot be opened (%s)" % (error.strerror or "error")
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode):
+            return "is not a regular file"
+        data = b""
+        while len(data) <= MAX_VIEW:
+            chunk = os.read(descriptor, MAX_VIEW + 1 - len(data))
+            if not chunk:
+                break
+            data += chunk
+    except OSError as error:
+        return "cannot be read (%s)" % (error.strerror or "error")
+    finally:
+        os.close(descriptor)
+    truncated = len(data) > MAX_VIEW
+    data = data[:MAX_VIEW]
+    unreadable = "is not readable text (a %s file)" % format_size(info.st_size)
+    if b"\0" in data[:8192]:
+        return unreadable
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as error:
+        if not truncated or error.start < len(data) - 4:
+            return unreadable
+        text = data[: error.start].decode("utf-8")
+    return Document(text, info.st_size, truncated)
+
+
+def clean_line(line):
+    """A line fit for the screen: tabs expanded and control characters made visible."""
+    line = line.replace("\r", "").expandtabs(4)
+    return "".join(char if char.isprintable() else "·" for char in line)
+
+
+class Viewer(object):
+    """A read-only view of one text file."""
+
+    def __init__(self, entry, trail, document, gate):
+        self.entry = entry
+        self.trail = trail
+        self.document = document
+        self.gate = gate
+        self.top = 0
+        self.page = 10
+        name = entry.name.lower()
+        self.kind = "jsonl" if name.endswith((".jsonl", ".ndjson")) else "json" if name.endswith(".json") else "text"
+        self.pretty = self.kind == "json"
+        self.cache = {}
+
+    def can_pretty(self):
+        return self.kind in ("json", "jsonl")
+
+    def lines(self):
+        text = self.document.text
+        if self.pretty and self.kind == "json":
+            try:
+                text = json.dumps(json.loads(text), indent=2, ensure_ascii=False)
+            except ValueError:
+                pass
+        lines = text.split("\n")
+        if self.pretty and self.kind == "jsonl":
+            spread = []
+            for line in lines:
+                try:
+                    value = json.loads(line)
+                except ValueError:
+                    spread.append(line)
+                    continue
+                if isinstance(value, (dict, list)):
+                    spread.extend(json.dumps(value, indent=2, ensure_ascii=False).split("\n"))
+                    spread.append("")
+                else:
+                    spread.append(line)
+            lines = spread
+        return [clean_line(line) for line in lines]
+
+    def wrapped(self, width):
+        """(line number or None, text) for every row, long lines broken to the width."""
+        key = (self.pretty, width)
+        if key not in self.cache:
+            rows = []
+            for number, line in enumerate(self.lines(), 1):
+                pieces = [line[start:start + width] for start in range(0, len(line), width)] or [""]
+                for index, piece in enumerate(pieces):
+                    rows.append((number if index == 0 else None, piece))
+            self.cache = {key: rows}
+        return self.cache[key]
+
+
 # --- The screen ------------------------------------------------------------------------
 
 
@@ -412,11 +574,12 @@ class Browser(object):
         self.clock = clock
         self.chars = ASCII_CHARS if ascii_only else UNICODE_CHARS
         self.stack = [library.root]
-        self.cursors = [0]
-        self.offsets = [0]
+        self.memory = {}  # folder names -> the row the cursor was on
+        self.scroll = {}  # folder names -> the first row shown
         self.tab = 1
         self.message = ""
         self.dialog = None
+        self.viewer = None
         self.running = True
         self.page = 5
 
@@ -426,40 +589,67 @@ class Browser(object):
     def node(self):
         return self.stack[-1]
 
+    def key(self):
+        return tuple(entry.name for entry in self.stack[1:])
+
     def rows(self):
         return self.node.visible()
 
+    def index(self):
+        name = self.memory.get(self.key())
+        for number, row in enumerate(self.rows()):
+            if row.name == name:
+                return number
+        return 0
+
     def current(self):
         rows = self.rows()
+        return rows[self.index()] if rows else None
+
+    def select(self, number):
+        rows = self.rows()
         if not rows:
-            return None
-        return rows[min(self.cursors[-1], len(rows) - 1)]
+            return
+        self.memory[self.key()] = rows[max(0, min(len(rows) - 1, number))].name
 
     def move(self, delta):
-        count = len(self.rows())
-        if count:
-            self.cursors[-1] = max(0, min(count - 1, self.cursors[-1] + delta))
+        self.select(self.index() + delta)
 
     def open(self):
         entry = self.current()
-        if entry is None or not entry.is_dir or not entry.visible():
-            self.message = "Nothing to open: this is a file or an empty folder."
+        if entry is None:
             return
-        self.stack.append(entry)
-        self.cursors.append(0)
-        self.offsets.append(0)
+        if entry.always and not entry.visible():
+            self.message = (
+                "%s is not installed: none of its folders exist." if entry.missing
+                else "%s is empty: nothing to open."
+            ) % entry.name
+        elif not entry.is_dir:
+            self.open_file(entry)
+        elif entry.visible():
+            self.stack.append(entry)
+        else:
+            self.message = "Nothing to open: every entry in this folder is empty."
+
+    def open_file(self, entry):
+        document = read_document(entry.path)
+        if isinstance(document, str):
+            self.message = "%s %s." % (entry.name, document)
+            return
+        trail = [item.name for item in self.stack[1:]] + [entry.name]
+        self.viewer = Viewer(entry, trail, document, looks_secret(entry.name))
 
     def back(self):
         if len(self.stack) > 1:
             self.stack.pop()
-            self.cursors.pop()
-            self.offsets.pop()
 
     def reload(self):
         """Scan again and return to the same place, or the nearest one that still exists."""
         if self.loader is None:
             return
         names = [entry.name for entry in self.stack[1:]]
+        before = self.index()
+        row = self.memory.get(self.key())
         self.library = self.loader()
         stack = [self.library.root]
         for name in names:
@@ -470,9 +660,8 @@ class Browser(object):
         while len(stack) > 1 and not stack[-1].visible():
             stack.pop()
         self.stack = stack
-        self.cursors = (self.cursors + [0] * len(stack))[: len(stack)]
-        self.offsets = (self.offsets + [0] * len(stack))[: len(stack)]
-        self.move(0)
+        if len(stack) - 1 == len(names) and row not in [r.name for r in self.rows()]:
+            self.select(before)  # the row is gone: stay near where it was
 
     # Deleting
 
@@ -533,9 +722,45 @@ class Browser(object):
 
     # Keys
 
+    def viewer_key(self, key):
+        viewer = self.viewer
+        self.message = ""
+        if key == "resize":
+            return
+        if key in ("left", "esc", "backspace", "h"):
+            self.viewer = None
+        elif key == "q":
+            self.running = False
+        elif viewer.gate:
+            if key == "enter":
+                viewer.gate = False
+        elif key in ("up", "k"):
+            viewer.top = max(0, viewer.top - 1)
+        elif key in ("down", "j"):
+            viewer.top += 1
+        elif key == "pageup":
+            viewer.top = max(0, viewer.top - viewer.page)
+        elif key in ("pagedown", " "):
+            viewer.top += viewer.page
+        elif key in ("home", "g"):
+            viewer.top = 0
+        elif key in ("end", "G"):
+            viewer.top = 1 << 30
+        elif key == "p":
+            if viewer.can_pretty():
+                viewer.pretty = not viewer.pretty
+                viewer.top = 0
+            else:
+                self.message = "Only .json and .jsonl files can be pretty-printed."
+        elif key in ("D", "d"):
+            self.message = "The viewer is read-only. Press Left to go back."
+
     def handle_key(self, key):
         if self.dialog is not None:
             self.dialog_key(key)
+            return
+        if self.viewer is not None:
+            self.viewer_key(key)
             return
         self.message = ""
         if key == "q":
@@ -555,9 +780,9 @@ class Browser(object):
         elif key == "pagedown":
             self.move(self.page)
         elif key in ("home", "g"):
-            self.move(-len(self.rows()))
+            self.select(0)
         elif key in ("end", "G"):
-            self.move(len(self.rows()))
+            self.select(len(self.rows()))
         elif key in ("right", "enter", "l"):
             self.open()
         elif key in ("left", "backspace", "h"):
@@ -595,16 +820,20 @@ class Browser(object):
         return [(text, "dim")]
 
     def columns(self, inner):
-        return inner - 39
+        return inner - 41
 
     def cells(self, entry, name_width):
         now = self.clock()
+        name = fit(entry.name, name_width, self.chars, tail=True)
+        status = entry_status(entry).ljust(7)
+        if entry.size <= 0:
+            return name, "-".rjust(9), "-".rjust(9), "-".rjust(4), status
         return (
-            fit(entry.name, name_width, self.chars, tail=True),
+            name,
             format(entry.paths, ",").rjust(9),
             format_size(entry.size).rjust(9),
             format_age(now - entry.mtime).rjust(4),
-            entry_status(entry).ljust(5),
+            status,
         )
 
     def row(self, entry, selected, inner):
@@ -613,6 +842,8 @@ class Browser(object):
         gap = "  "
         if selected:
             return [(" " + marker + name + gap + paths + gap + size + gap + age + gap + status + " ", "cursor")]
+        if entry.size <= 0:
+            return [(" " + marker + name + gap + paths + gap + size + gap + age + gap + status + " ", "dim")]
         stale = self.clock() - entry.mtime > STALE_SECONDS
         tone = {CACHE: "ok", MIXED: "warn", KEEP: "dim"}[status.strip()]
         return [
@@ -627,7 +858,7 @@ class Browser(object):
         gap = "  "
         text = (
             "   " + "NAME".ljust(self.columns(inner)) + gap + "PATHS".rjust(9) + gap
-            + "SIZE".rjust(9) + gap + "AGE".rjust(4) + gap + "KIND".ljust(5) + " "
+            + "SIZE".rjust(9) + gap + "AGE".rjust(4) + gap + "KIND".ljust(7) + " "
         )
         return [(text, "head")]
 
@@ -635,7 +866,9 @@ class Browser(object):
         chars = self.chars
         if self.tab == 0:
             return "[2] cache-agents  [q] quit"
-        move = "[%s] move  [%s] open" % (chars["updown"], chars["right"])
+        entry = self.current()
+        reading = "read" if entry is not None and not entry.is_dir else "open"
+        move = "[%s] move  [%s] %s" % (chars["updown"], chars["right"], reading)
         back = "  [%s] back" % chars["left"] if len(self.stack) > 1 else ""
         if len(self.stack) == 1:
             removable = sum(item.size for item in prunable(self.node))
@@ -645,7 +878,6 @@ class Browser(object):
                 else "[D] nothing to delete"
             )
         else:
-            entry = self.current()
             removable = sum(item.size for item in prunable(entry)) if entry else 0
             action = (
                 '[D] delete cache of "%s" (%s)' % (entry.name, format_size(removable))
@@ -658,18 +890,7 @@ class Browser(object):
         age = self.clock() - self.library.scanned_at
         return "scanned just now" if age < 60 else "scanned %s ago" % format_age(age)
 
-    def render(self, width, height):
-        if width < MIN_WIDTH or height < MIN_HEIGHT:
-            return [[("Terminal too small: need %dx%d, have %dx%d." % (
-                MIN_WIDTH, MIN_HEIGHT, width, height), "danger")]]
-        if self.dialog is not None:
-            return self.render_dialog(width, height)
-        inner = width - 2
-        chars = self.chars
-        rows = self.rows() if self.tab == 1 else []
-        list_height = height - 10
-        self.page = max(1, list_height - 1)
-
+    def tab_line(self, inner):
         tabs = [(" ", "normal")]
         tabs.append(("[1 disk]" if self.tab == 0 else "1 disk", "tab" if self.tab == 0 else "dim"))
         tabs.append(("  ", "normal"))
@@ -679,6 +900,21 @@ class Browser(object):
         right = self.scanned_text() + " "
         tabs.append((" " * max(1, inner - used - len(right)), "normal"))
         tabs.append((right, "dim"))
+        return self.boxed(tabs, inner)
+
+    def render(self, width, height):
+        if width < MIN_WIDTH or height < MIN_HEIGHT:
+            return [[("Terminal too small: need %dx%d, have %dx%d." % (
+                MIN_WIDTH, MIN_HEIGHT, width, height), "danger")]]
+        if self.dialog is not None:
+            return self.render_dialog(width, height)
+        if self.viewer is not None:
+            return self.render_viewer(width, height)
+        inner = width - 2
+        chars = self.chars
+        rows = self.rows() if self.tab == 1 else []
+        list_height = height - 10
+        self.page = max(1, list_height - 1)
 
         total_size = sum(row.size for row in rows)
         total_paths = sum(row.paths for row in rows)
@@ -691,7 +927,7 @@ class Browser(object):
 
         lines = [
             self.rule("tl", "tr", width, "hub-william"),
-            self.boxed(tabs, inner),
+            self.tab_line(inner),
             self.rule("ml", "mr", width),
             self.boxed([(crumb, "bold"), (summary, "normal")], inner),
             self.rule("ml", "mr", width),
@@ -701,20 +937,15 @@ class Browser(object):
         if self.tab == 0:
             body = [[(" The disk tab is not available yet. Press 2 to go back.", "dim")]]
         elif not rows:
-            empty = (
-                "No agent folders with data found in %s." % self.library.home
-                if len(self.stack) == 1
-                else "Nothing to show here: every entry is empty."
-            )
-            body = [[(" " + empty, "dim")]]
+            body = [[(" Nothing to show here: every entry is empty.", "dim")]]
         else:
-            cursor = min(self.cursors[-1], len(rows) - 1)
-            offset = self.offsets[-1]
-            offset = min(offset, cursor)
+            cursor = self.index()
+            key = self.key()
+            offset = min(self.scroll.get(key, 0), cursor)
             offset = max(offset, cursor - list_height + 1)
-            self.offsets[-1] = offset
-            body = [self.row(row, index == cursor, inner)
-                    for index, row in enumerate(rows) if offset <= index < offset + list_height]
+            self.scroll[key] = offset
+            body = [self.row(row, number == cursor, inner)
+                    for number, row in enumerate(rows) if offset <= number < offset + list_height]
         for number in range(list_height):
             lines.append(self.boxed(body[number] if number < len(body) else [], inner))
 
@@ -723,6 +954,57 @@ class Browser(object):
             self.rule("ml", "mr", width),
             self.boxed(status, inner),
             self.boxed([(" " + fit(self.keys(), inner - 2, chars), "dim")], inner),
+            self.rule("bl", "br", width),
+        ]
+        return lines
+
+    def render_viewer(self, width, height):
+        inner = width - 2
+        chars = self.chars
+        viewer = self.viewer
+        content_height = height - 8
+        viewer.page = max(1, content_height - 1)
+        document = viewer.document
+        size = format_size(document.size)
+        info = ("first %s of %s" % (format_size(MAX_VIEW), size) if document.truncated else size) + " "
+        trail = chars["crumb"].join(["cache-agents"] + viewer.trail)
+        crumb = " " + fit(trail, max(1, inner - len(info) - 1), chars, tail=True)
+
+        if viewer.gate:
+            body = [
+                [(" This file may contain secrets: its name looks like a credential.", "danger")],
+                [(" Nothing is shown until you ask for it.", "dim")],
+                [],
+                [(" Press Enter to show it, or %s to go back." % chars["left"], "bold")],
+            ]
+            position = ""
+        else:
+            rows = viewer.wrapped(inner - 8)
+            viewer.top = max(0, min(viewer.top, max(0, len(rows) - content_height)))
+            shown = rows[viewer.top: viewer.top + content_height]
+            body = []
+            for number, text in shown:
+                gutter = ("%6d " % number) if number is not None else " " * 7
+                body.append([(" " + gutter, "dim"), (text, "normal")])
+            position = " rows %d-%d of %d" % (viewer.top + 1, viewer.top + len(shown), len(rows)) if shown else " empty"
+
+        lines = [
+            self.rule("tl", "tr", width, "hub-william"),
+            self.tab_line(inner),
+            self.rule("ml", "mr", width),
+            self.boxed([(crumb, "bold"), (info, "normal")], inner),
+            self.rule("ml", "mr", width),
+        ]
+        for number in range(content_height):
+            lines.append(self.boxed(body[number] if number < len(body) else [], inner))
+        keys = "[%s] scroll  [PgUp/PgDn] page  [g/G] top/end%s  [%s] back  [q] quit" % (
+            chars["updown"], "  [p] pretty-print" if viewer.can_pretty() else "", chars["left"])
+        if viewer.gate:
+            keys = "[Enter] show  [%s] back  [q] quit" % chars["left"]
+        lines += [
+            self.rule("ml", "mr", width),
+            self.boxed([(" " + (self.message or position.strip()), "normal")], inner),
+            self.boxed([(" " + fit(keys, inner - 2, chars), "dim")], inner),
             self.rule("bl", "br", width),
         ]
         return lines
@@ -785,9 +1067,12 @@ def list_view(library, agent=None):
         format(sum(r.paths for r in rows), ","))]
     lines.append("%s  %9s  %9s  %4s  %s" % ("NAME".ljust(name_width), "PATHS", "SIZE", "AGE", "KIND"))
     for row in rows:
+        if row.size <= 0:
+            paths = size = age = "-"
+        else:
+            paths, size, age = format(row.paths, ","), format_size(row.size), format_age(now - row.mtime)
         lines.append("%s  %9s  %9s  %4s  %s" % (
-            fit(row.name, name_width, ASCII_CHARS, tail=True), format(row.paths, ","),
-            format_size(row.size), format_age(now - row.mtime), entry_status(row)))
+            fit(row.name, name_width, ASCII_CHARS, tail=True), paths, size, age, entry_status(row)))
     return lines
 
 
@@ -891,7 +1176,7 @@ def main(argv=None):
     if args.list or args.agent:
         lines = list_view(load(home), args.agent)
         if lines is None:
-            print("cache-agents: no agent named %r with data under %s" % (args.agent, home), file=sys.stderr)
+            print("cache-agents: no agent named %r under %s" % (args.agent, home), file=sys.stderr)
             return 2
         print("\n".join(lines))
         return 0
