@@ -149,6 +149,39 @@ export default function ToolsCatalogToolUsage({
     );
   }
 
+  if (collection.id === "memory") {
+    const runCommand = `curl -fsSL ${catalogService.memoryScriptUrl(siteOrigin)} | python3`;
+
+    return (
+      <div className={container()}>
+        <div className={section()}>
+          <p className={label()}>1. Browse your agents' memory</p>
+
+          <p className={description()}>
+            Opens a terminal browser of the instruction files you write
+            (CLAUDE.md, AGENTS.md, GEMINI.md) and the memory your agents save
+            themselves. Press Right to open a folder or read a file, and D to
+            move learned memory to the Trash after a preview. Instruction files
+            are read-only and nothing is deleted for good. Needs Python 3.9 or
+            newer on macOS or Linux.
+          </p>
+
+          <CopyCommand command={runCommand} />
+        </div>
+
+        <div className={section()}>
+          <p className={label()}>2. Print the table only</p>
+
+          <p className={description()}>
+            For scripts, or when there is no terminal. Nothing is changed.
+          </p>
+
+          <CopyCommand command={`${runCommand} - --list`} />
+        </div>
+      </div>
+    );
+  }
+
   if (collection.id === "gateway") {
     const configs = gatewayAgentConfigs(resolveGatewayOrigin(siteOrigin));
 
