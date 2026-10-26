@@ -60,3 +60,4 @@ record and mark the old one superseded rather than rewriting its history.
 - [ADR-0050: Stored credential refresh schedule and transient retries](0050-stored-credential-refresh-schedule-and-transient-retries.md)
 - [ADR-0051: Shared skills as tools and the link script](0051-shared-skills-as-tools.md)
 - [ADR-0052: Deploy each branch to its own Railway environment](0052-deploy-each-branch-to-its-environment.md)
+- [ADR-0053: Cache agents, a terminal tool for what agents keep on disk](0053-cache-agents-terminal-tool.md)
