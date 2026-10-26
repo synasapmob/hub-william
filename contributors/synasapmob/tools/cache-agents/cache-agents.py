@@ -833,12 +833,12 @@ def draw(screen, lines, styles):
     for y, spans in enumerate(lines[:height]):
         x = 0
         for text, style in spans:
-            room = width - x - (1 if y == height - 1 else 0)
+            room = width - x
             if room > 0:
                 try:
                     screen.addstr(y, x, text[:room], styles.get(style, 0))
                 except curses.error:
-                    pass
+                    pass  # writing the last cell of the screen draws it, then cannot move on
             x += len(text)
     screen.refresh()
 
