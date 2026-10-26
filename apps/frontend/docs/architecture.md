@@ -180,8 +180,8 @@ upstream provider credentials remain encrypted on the server. OpenCode and OMP
 discover current models through the gateway.
 
 The `synasapmob` tools also include `cache-agents.py`, a terminal browser of the folders
-Claude Code, Codex and Gemini keep in the home folder, with a `D` key that moves their
-cache to the Trash ([ADR-0053](../../../docs/decisions/0053-cache-agents-terminal-tool.md)).
+Claude Code, Codex, Gemini, OpenCode, DSH, Grok and OMP keep in the home folder, with a
+read-only text viewer and a `D` key that moves their cache to the Trash ([ADR-0053](../../../docs/decisions/0053-cache-agents-terminal-tool.md)).
 It is a catalogue file under `contributors/synasapmob/tools/cache-agents/`, served from
 `/catalog/` like `link.sh`, not an installer in `public/`. It uses only Python's standard
 library, runs on the user's computer and makes no network request; its tests sit with the

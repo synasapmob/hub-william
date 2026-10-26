@@ -133,11 +133,12 @@ original bytes. `/catalog/index.json` lists tool sources;
 ### Browse and clear what agents keep on disk
 
 **Cache agents** (`contributors/synasapmob/tools/cache-agents/`) opens a terminal
-browser of the folders Claude Code, Codex and Gemini keep in your home folder, with
-size, number of paths and age for each. Open an agent to see its global files and each
-project, and press `D` to move cache to the Trash after a preview. It never deletes for
-good and never offers transcripts, memory, settings or skills. It needs Python 3.9 or
-newer on macOS or Linux and makes no network request:
+browser of the folders Claude Code, Codex, Gemini, OpenCode, DSH, Grok and OMP keep in
+your home folder, with size, number of paths and age for each. Open an agent to see its
+global files and each project, open a text file to read it (read-only), and press `D` to
+move cache to the Trash after a preview. It never deletes for good and never offers
+transcripts, memory, settings or skills. It needs Python 3.9 or newer on macOS or Linux
+and makes no network request:
 
 ```sh
 curl -fsSL https://hub-william.site/catalog/contributors/synasapmob/tools/cache-agents/cache-agents.py | python3
