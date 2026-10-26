@@ -98,7 +98,7 @@ def entry_at(library, *names):
 
 
 class HomeTestCase(unittest.TestCase):
-    """A home folder with what the agents keep: rules, learned memory and a Codex database."""
+    """A home folder with what the agents keep: learned memory, a Codex database and, which the tool must leave out, rules."""
 
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
@@ -154,59 +154,45 @@ class FindingMemoryTest(HomeTestCase):
         self.assertEqual(sorted(agent.name for agent in agents), ["agy", "claude", "codex", "grok"])
         self.assertEqual([agent.size for agent in agents], sorted((a.size for a in agents), reverse=True))
         types = dict((agent.name, mem.entry_status(agent)) for agent in agents)
-        self.assertEqual(types, {"claude": "mixed", "codex": "mixed", "agy": "rules", "grok": "empty"})
+        self.assertEqual(types, {"claude": "memory", "codex": "memory", "agy": "empty", "grok": "empty"})
 
-    def test_the_shared_file_has_no_row_of_its_own_but_shows_through_each_link(self):
+    def test_the_memory_tab_holds_no_instruction_files(self):
         library = self.library()
+        stack = [library.root]
+        kinds = set()
+        while stack:
+            node = stack.pop()
+            if not node.is_dir:
+                kinds.add(node.kind)
+            stack.extend(node.visible())
 
-        self.assertEqual([agent.name for agent in library.root.visible()].count("shared"), 0)
-        for agent, parent in (("claude", "Global"), ("codex", None), ("agy", None)):
-            names = (agent, parent) if parent else (agent,)
-            entry = entry_at(library, *names)
-            links = [c for c in entry.visible() if c.link]
-            self.assertEqual([c.link for c in links], [os.path.realpath(self.home / ".agents" / "AGENTS.md")], agent)
+        self.assertEqual(kinds, {mem.LEARNED})
+        self.assertNotIn("Global", [child.name for child in entry_at(library, "claude").visible()])
+        self.assertNotIn("CLAUDE.md", [c.name for c in entry_at(library, "claude", "~/code/app").visible()])
+        self.assertEqual([child.name for child in entry_at(library, "codex").visible()].count("AGENTS.md"), 0)
 
-    def test_claude_shows_global_then_the_projects_that_have_something(self):
+    def test_claude_shows_the_projects_that_have_memory(self):
         claude = entry_at(self.library(), "claude")
 
         names = [child.name for child in claude.visible()]
 
-        self.assertEqual(names[0], "Global")
-        self.assertEqual(sorted(names), sorted(["Global", "~/code/app", "-gone-project"]))
+        self.assertEqual(sorted(names), sorted(["~/code/app", "-gone-project"]))
         self.assertNotIn("-empty", names)
 
-    def test_a_project_holds_its_memory_folder_and_its_instruction_file(self):
+    def test_a_project_holds_its_memory_folder(self):
         project = entry_at(self.library(), "claude", "~/code/app")
 
-        self.assertEqual([child.name for child in project.visible()], ["memory", "CLAUDE.md"])
+        self.assertEqual([child.name for child in project.visible()], ["memory"])
         self.assertEqual([c.name for c in entry_at(self.library(), "claude", "~/code/app", "memory").visible()],
                          ["feedback_helpers.md", "MEMORY.md"])
-        self.assertEqual(mem.entry_status(project), "mixed")
-        self.assertEqual(mem.entry_status(entry_at(self.library(), "claude", "~/code/app", "CLAUDE.md")), "rules")
-
-    def test_a_symlinked_instruction_file_shows_where_it_points_and_its_size(self):
-        library = self.library()
-        link = entry_at(library, "claude", "Global", "CLAUDE.md")
-
-        self.assertEqual(link.link, os.path.realpath(self.home / ".agents" / "AGENTS.md"))
-        self.assertEqual(link.size, len(RULES_TEXT))
-        self.assertEqual(mem.entry_status(link), "rules")
-
-    def test_a_dangling_symlink_is_not_listed(self):
-        os.remove(self.home / ".gemini" / "AGENTS.md")
-        os.symlink(self.home / "nowhere", self.home / ".gemini" / "AGENTS.md")
-
-        names = [child.name for child in entry_at(self.library(), "agy").visible()]
-
-        self.assertEqual(names, ["GEMINI.md"])
+        self.assertEqual(mem.entry_status(project), "memory")
 
     def test_paths_count_files_and_every_screen_adds_up(self):
         library = self.library()
-
         for agent in library.root.visible():
             self.assertEqual(agent.paths, sum(child.paths for child in agent.visible()), agent.name)
             self.assertEqual(agent.size, sum(child.size for child in agent.visible()), agent.name)
-        self.assertEqual(entry_at(library, "claude", "~/code/app", "memory").paths, 2)
+        self.assertEqual(entry_at(self.library(), "claude", "~/code/app", "memory").paths, 2)
 
     def test_no_folder_and_no_files_both_show_empty_but_the_messages_differ(self):
         shutil.rmtree(self.home / ".gemini")  # agy: no folder at all
@@ -271,6 +257,34 @@ class FindingMemoryTest(HomeTestCase):
             mem.project_label(encode(self.home / "code" / "hub-william"), str(self.home)), "~/code/hub-william"
         )
 
+    def test_a_dot_inside_a_folder_name_is_found(self):
+        (self.home / "work" / "my.app").mkdir(parents=True)
+        (self.home / "work" / "hub-william.site").mkdir()
+
+        for name in ("my.app", "hub-william.site"):
+            folder = encode(self.home / "work" / name)
+
+            self.assertEqual(mem.find_project(folder), str(self.home / "work" / name), name)
+            self.assertEqual(mem.project_label(folder, str(self.home)), "~/work/" + name)
+
+    def test_a_folder_name_that_starts_with_a_dash_is_found(self):
+        (self.home / "-odd" / "code" / "app").mkdir(parents=True)
+
+        self.assertEqual(mem.find_project(encode(self.home / "-odd" / "code" / "app")), str(self.home / "-odd" / "code" / "app"))
+
+    def test_a_path_that_does_not_exist_is_not_found(self):
+        self.assertIsNone(mem.find_project(encode(self.home / "nowhere" / "app")))
+        self.assertIsNone(mem.find_project("no-leading-dash"))
+
+    def test_a_project_in_a_dotted_folder_shows_its_label_and_its_memory(self):
+        app = self.home / "work" / "my.app"
+        write(self.home / ".claude" / "projects" / encode(app) / "memory" / "note.md", "a lesson\n")
+        app.mkdir(parents=True)
+
+        memory = entry_at(self.library(), "claude", "~/work/my.app", "memory")
+
+        self.assertEqual([child.name for child in memory.visible()], ["note.md"])
+
     def test_a_project_is_found_even_when_its_folder_is_a_dot_folder(self):
         (self.home / "code" / ".claude" / "worktrees" / "fix").mkdir(parents=True)
 
@@ -300,16 +314,13 @@ class DatabaseTest(HomeTestCase):
         self.assertIn("Fixed a flaky test.", screen)
         self.assertIn("raw: seed the clock", screen)
 
-    def test_a_database_with_no_memories_says_so(self):
+    def test_a_database_with_no_memories_is_not_listed(self):
         make_database(self.home / ".codex" / "memories_1.sqlite.new", [])
         os.replace(self.home / ".codex" / "memories_1.sqlite.new", self.home / ".codex" / "memories_1.sqlite")
-        browser = self.browser()
+        library = self.library()
 
-        go(browser, "codex", "memories_1.sqlite")
-
-        self.assertEqual(len(browser.stack), 2)
-        self.assertIn("No memories are stored in memories_1.sqlite yet", browser.message)
-
+        self.assertNotIn("memories_1.sqlite", [child.name for child in entry_at(library, "codex").visible()])
+        self.assertEqual(mem.prunable(entry_at(library, "codex")), [entry_at(library, "codex", "memories")])
     def test_a_database_with_a_layout_we_do_not_know_is_not_read(self):
         os.remove(self.home / ".codex" / "memories_1.sqlite")
         make_database(self.home / ".codex" / "memories_1.sqlite", [], table="something_else")
@@ -442,21 +453,20 @@ class GrokTest(HomeTestCase):
         write(workspace / "topics" / "conventions.md", "Use pnpm.\n")
         write(workspace / "index.sqlite", "x" * 100)
         (memory / "workspaces" / "empty-9f8e7d6c" / "topics").mkdir(parents=True)
-        write(self.home / ".grok" / "rules" / "style.md", "# style\n- be brief\n")
 
     def names(self, *path):
         return sorted(child.name for child in entry_at(self.library(), *path).visible())
 
     def test_grok_shows_global_and_each_workspace_with_the_hash_removed(self):
         self.assertEqual(self.names("grok"), ["Global", "atlas-web"])
-        self.assertEqual(mem.entry_status(entry_at(self.library(), "grok")), "mixed")
+        self.assertEqual(mem.entry_status(entry_at(self.library(), "grok")), "memory")
 
-    def test_global_holds_the_rules_the_index_the_topics_and_the_observations(self):
+    def test_global_holds_the_index_the_topics_and_the_observations(self):
         library = self.library()
 
-        self.assertEqual(self.names("grok", "Global"), ["MEMORY.md", "observations", "style.md", "topics"])
+        self.assertEqual(self.names("grok", "Global"), ["MEMORY.md", "observations", "topics"])
         types = dict((c.name, mem.entry_status(c)) for c in entry_at(library, "grok", "Global").visible())
-        self.assertEqual(types, {"MEMORY.md": "memory", "observations": "memory", "style.md": "rules", "topics": "memory"})
+        self.assertEqual(types, {"MEMORY.md": "memory", "observations": "memory", "topics": "memory"})
         self.assertEqual(self.names("grok", "Global", "observations"), ["_inbox"])
 
     def test_the_state_files_and_the_archive_are_never_listed(self):
@@ -499,7 +509,7 @@ class GrokTest(HomeTestCase):
         self.assertFalse((root / "topics").exists())
         self.assertFalse((root / "observations").exists())
         for kept in (root / "MEMORY.md", root / "index.sqlite", root / "memory_state.sqlite",
-                     root / "archive" / "old.md", self.home / ".grok" / "rules" / "style.md"):
+                     root / "archive" / "old.md"):
             self.assertTrue(kept.exists(), kept)
         self.assertEqual(len(self.trashed()), 2)
         self.assertTrue(all(name.startswith("grok-global-") for name in self.trashed()), self.trashed())
@@ -529,17 +539,223 @@ class GrokTest(HomeTestCase):
         self.assertFalse((self.home / ".grok" / "memory-v2" / "global" / "topics" / "placeholder-word.md").exists())
         self.assertTrue((self.home / ".grok" / "memory-v2" / "global" / "observations" / "_inbox" / "obs-1.md").exists())
 
+    def test_a_scope_that_holds_only_the_generated_index_is_not_listed(self):
+        """Seen live: a workspace with an empty topics folder and only Grok's index looked deletable."""
+        memory = self.home / ".grok" / "memory-v2"
+        shutil.rmtree(memory / "global")
+        shutil.rmtree(memory / "workspaces" / "atlas-web-1a2b3c4d")
+        write(memory / "workspaces" / "hub-william-3899205e" / "MEMORY.md", "# Workspace memory index\n")
+        (memory / "workspaces" / "hub-william-3899205e" / "topics").mkdir()
+        (memory / "workspaces" / "hub-william-3899205e" / "observations" / "_inbox").mkdir(parents=True)
+        write(memory / "global" / "MEMORY.md", "# Global memory index\n")
+
+        self.assertEqual(self.names("grok"), [])  # an index with no notes says nothing
+        self.assertEqual(mem.entry_status(entry_at(self.library(), "grok")), "empty")
+
+    def test_the_index_is_shown_again_as_soon_as_there_is_a_note(self):
+        write(self.home / ".grok" / "memory-v2" / "workspaces" / "hub-william-3899205e" / "MEMORY.md", "# index\n")
+        write(self.home / ".grok" / "memory-v2" / "workspaces" / "hub-william-3899205e" / "topics" / "a.md", "note\n")
+
+        self.assertEqual(self.names("grok", "hub-william"), ["MEMORY.md", "topics"])
+
+    def test_refusing_to_delete_names_what_is_read_only(self):
+        browser = self.browser()
+        go(browser, "codex")
+        browser.select([row.name for row in browser.rows()].index("memories_1.sqlite"))
+
+        browser.handle_key("d")
+
+        self.assertIsNone(browser.dialog)
+        self.assertIn("generated indexes and databases are read-only", browser.message)
+
     def test_a_workspace_label_loses_only_a_trailing_eight_digit_hash(self):
         self.assertEqual(mem.project_label("hub-william-3899205e", "/h", "hash"), "hub-william")
         self.assertEqual(mem.project_label("plain", "/h", "hash"), "plain")
         self.assertEqual(mem.project_label("abc-1234567", "/h", "hash"), "abc-1234567")
         self.assertEqual(mem.project_label("3899205e", "/h", "hash"), "3899205e")
 
-    def test_grok_without_rules_or_memory_folders_is_simply_empty(self):
+    def test_grok_without_memory_folders_is_simply_empty(self):
         shutil.rmtree(self.home / ".grok" / "memory-v2")
-        shutil.rmtree(self.home / ".grok" / "rules")
 
         self.assertEqual(mem.entry_status(entry_at(self.library(), "grok")), "empty")
+
+
+class TabsTest(HomeTestCase):
+    def test_the_tabs_are_numbered_and_the_active_one_is_marked(self):
+        browser = self.browser()
+        self.assertIn("1 disk  [2 memory]", next(text for text in lines_of(browser) if "1 disk" in text))
+
+        browser.handle_key("1")
+        self.assertIn("[1 disk]  2 memory", next(text for text in lines_of(browser) if "1 disk" in text))
+
+    def test_the_number_keys_and_tab_switch_tabs(self):
+        browser = self.browser()
+
+        self.assertEqual(browser.tab, 1)
+        browser.handle_key("1")
+        self.assertEqual(browser.tab, 0)
+        browser.handle_key("2")
+        self.assertEqual(browser.tab, 1)
+        order = []
+        for _ in range(3):
+            browser.handle_key("tab")
+            order.append(browser.tab)
+        self.assertEqual(order, [0, 1, 0])
+
+    def test_a_key_for_a_tab_that_does_not_exist_does_nothing(self):
+        browser = self.browser()
+
+        browser.handle_key("3")
+
+        self.assertEqual(browser.tab, 1)
+        self.assertIn("claude", "\n".join(lines_of(browser)))
+
+    def test_the_memory_tab_keeps_its_place_when_you_look_at_the_disk_tab(self):
+        browser = self.browser()
+        go(browser, "claude", "~/code/app")
+        browser.handle_key("1")
+        browser.handle_key("2")
+
+        self.assertEqual([entry.name for entry in browser.stack], ["memory", "claude", "~/code/app"])
+
+    def test_a_new_run_starts_on_the_memory_tab_at_the_top(self):
+        first = self.browser()
+        go(first, "claude")
+        second = self.browser()
+
+        self.assertEqual((second.tab, len(second.stack), second.index()), (1, 1, 0))
+
+    def test_the_memory_tab_shows_the_delete_hint_and_the_disk_tab_does_not(self):
+        browser = self.browser()
+        self.assertIn("[D] delete", "\n".join(lines_of(browser)))
+        browser.handle_key("1")
+
+        text = "\n".join(lines_of(browser))
+        self.assertNotIn("[D] delete", text)
+        self.assertIn("[2] memory", text)
+
+
+class ScrollingPreviewTest(HomeTestCase):
+    """A delete preview with more rows than the screen has: the arrows scroll it, and nothing else cancels it."""
+
+    def many(self, count=20):
+        for number in range(count):
+            write(self.home / ".claude" / "projects" / ("-proj-%02d" % number) / "memory" / "note.md", "a lesson\n")
+
+    def preview(self):
+        browser = self.browser()
+        browser.select([row.name for row in browser.rows()].index("claude"))
+        browser.handle_key("d")
+        return browser
+
+    def shown(self, browser, height):
+        return "\n".join(lines_of(browser, 100, height))
+
+    def test_a_long_preview_scrolls_and_says_which_rows_are_shown(self):
+        self.many()
+        browser = self.preview()
+        total = len(browser.dialog.plan.items)
+
+        first = self.shown(browser, 20)
+        browser.handle_key("down")
+        second = self.shown(browser, 20)
+
+        self.assertEqual(total, 22)
+        self.assertRegex(first, r"rows 1-\d+ of %d" % total)
+        self.assertIn("kept (read-only)", first)
+        self.assertIn("[Esc] cancel  [q] quit", first)
+        self.assertRegex(second, r"rows 2-\d+ of %d" % total)
+        self.assertIsNotNone(browser.dialog)
+
+    def test_every_row_can_be_reached_and_the_ends_wrap(self):
+        self.many()
+        browser = self.preview()
+        total = len(browser.dialog.plan.items)
+        seen = set()
+        for _ in range(total + 2):
+            seen.update(re.findall(r"-proj-\d\d", self.shown(browser, 20)))
+            browser.handle_key("down")
+
+        self.assertEqual(len(seen), 20)
+        self.assertEqual(browser.dialog.top, (total + 2) % (browser.dialog.max_top + 1))
+        browser.handle_key("home")
+        self.shown(browser, 20)
+        browser.handle_key("up")
+        self.assertEqual(browser.dialog.top, browser.dialog.max_top)
+        browser.handle_key("down")
+        self.assertEqual(browser.dialog.top, 0)
+
+    def test_pages_home_and_end_move_through_the_preview(self):
+        self.many()
+        browser = self.preview()
+        self.shown(browser, 20)
+
+        browser.handle_key("pagedown")
+        self.assertEqual(browser.dialog.top, browser.dialog.page)
+        browser.handle_key("end")
+        self.assertRegex(self.shown(browser, 20), r"rows (\d+)-(\d+) of \2\b")
+        browser.handle_key("pageup")
+        self.assertLess(browser.dialog.top, browser.dialog.max_top)
+        browser.handle_key("g")
+        self.assertEqual(browser.dialog.top, 0)
+        browser.handle_key("G")
+        self.shown(browser, 20)
+        self.assertEqual(browser.dialog.top, browser.dialog.max_top)
+
+    def test_scrolling_never_cancels_and_y_moves_every_item_not_only_the_shown_ones(self):
+        self.many()
+        browser = self.preview()
+        total = len(browser.dialog.plan.items)
+        for key in ("down", "down", "pagedown", "end", "up", "j", "k"):
+            browser.handle_key(key)
+            self.shown(browser, 20)
+
+            self.assertIsNotNone(browser.dialog, key)
+        self.assertEqual(self.trashed(), [])
+
+        browser.handle_key("y")
+
+        self.assertIn("Moved", browser.message)
+        self.assertEqual(len(self.trashed()), total)
+        self.assertFalse((self.home / ".claude" / "projects" / "-proj-19" / "memory").exists())
+
+    def test_the_scroll_position_stays_valid_when_the_terminal_grows(self):
+        self.many()
+        browser = self.preview()
+        self.shown(browser, 16)
+        browser.handle_key("end")
+        self.shown(browser, 16)
+
+        tall = self.shown(browser, 60)
+
+        self.assertNotIn("rows ", tall)  # everything fits now
+        self.assertEqual(browser.dialog.top, 0)
+        self.assertIn("[↑↓] move", tall)
+
+    def test_the_move_hint_is_there_even_when_nothing_scrolls(self):
+        browser = self.preview()
+
+        text = self.shown(browser, 30)
+
+        self.assertNotIn("rows ", text)
+        self.assertRegex(text, r"\[↑↓\] move\s+\[Esc\] cancel  \[q\] quit")
+
+    def test_the_hints_in_ascii_mode_say_up_down(self):
+        self.many()
+        browser = self.browser(ascii_only=True)
+        browser.select([row.name for row in browser.rows()].index("claude"))
+        browser.handle_key("d")
+
+        self.assertIn("[Up/Down] move", self.shown(browser, 20))
+
+    def test_the_preview_never_gets_taller_than_the_terminal(self):
+        self.many()
+        browser = self.preview()
+
+        for width, height in ((64, 12), (64, 14), (100, 20), (160, 50)):
+            lines = browser.render(width, height)
+            self.assertEqual({sum(len(t) for t, _ in spans) for spans in lines}, {width})
+            self.assertLessEqual(len(lines), max(height, 13), (width, height))
 
 
 class FormatTest(unittest.TestCase):
@@ -678,12 +894,6 @@ class RenderingTest(HomeTestCase):
         for text in ("NAME", "PATHS", "SIZE", "AGE", "TYPE", "claude", "codex", "[2 memory]", "[D] delete"):
             self.assertIn(text, screen)
 
-    def test_a_symlink_row_shows_its_target(self):
-        browser = self.browser()
-        go(browser, "claude", "Global")
-
-        self.assertIn("CLAUDE.md → ~/.agents/AGENTS.md", "\n".join(lines_of(browser)))
-
     def test_the_hints_are_spread_across_the_line_and_short(self):
         line = next(text for text in lines_of(self.browser(), 100, 30) if "[D] delete" in text)
 
@@ -694,9 +904,9 @@ class RenderingTest(HomeTestCase):
 
     def test_the_breadcrumb_names_where_you_are(self):
         browser = self.browser()
-        go(browser, "claude", "Global")
+        go(browser, "claude", "~/code/app")
 
-        self.assertIn("memory › claude › Global", "\n".join(lines_of(browser)))
+        self.assertIn("memory › claude › ~/code/app", "\n".join(lines_of(browser)))
 
     def test_a_long_list_scrolls_with_the_cursor(self):
         for number in range(40):
@@ -797,17 +1007,23 @@ class DeletingTest(HomeTestCase):
         self.assertTrue((self.home / ".codex" / "AGENTS.md").is_symlink())
         self.assertEqual(self.trashed(), ["codex-codex-memories"])
 
-    def test_instruction_files_and_databases_cannot_be_deleted(self):
-        for names in (("claude", "Global", "CLAUDE.md"), ("claude", "~/code/app", "CLAUDE.md"),
-                      ("codex", "memories_1.sqlite"), ("codex", "AGENTS.md"), ("agy",)):
-            browser = self.go_to(*names)
+    def test_a_database_cannot_be_deleted(self):
+        browser = self.go_to("codex", "memories_1.sqlite")
 
-            browser.handle_key("d")
+        browser.handle_key("d")
 
-            self.assertIsNone(browser.dialog, names)
-            self.assertIn("read-only", browser.message, names)
-        self.assertTrue((self.home / ".agents" / "AGENTS.md").exists())
+        self.assertIsNone(browser.dialog)
+        self.assertIn("read-only", browser.message)
+        self.assertTrue((self.home / ".codex" / "memories_1.sqlite").exists())
         self.assertEqual(self.trashed(), [])
+
+    def test_an_agent_with_no_memory_has_nothing_to_delete(self):
+        browser = self.go_to("agy")
+
+        browser.handle_key("d")
+
+        self.assertIsNone(browser.dialog)
+        self.assertIn("agy has no memory files yet: nothing to delete.", browser.message)
 
     def test_a_row_of_a_database_cannot_be_deleted(self):
         browser = self.go_to("codex", "memories_1.sqlite", "fix-flaky-test")
@@ -826,23 +1042,49 @@ class DeletingTest(HomeTestCase):
         self.assertIsNone(browser.dialog)
         self.assertIn("agy has no folder here: nothing to delete.", browser.message)
 
-    def test_anything_but_y_cancels(self):
-        for key in ("n", "enter", "esc", "x"):
+    def test_n_enter_and_esc_cancel(self):
+        for key in ("n", "N", "enter", "esc"):
             browser = self.go_to("claude")
             browser.handle_key("d")
             browser.handle_key(key)
 
             self.assertIsNone(browser.dialog, key)
+            self.assertIn("Cancelled", browser.message, key)
+            self.assertTrue(browser.running)
         self.assertTrue((self.home / ".claude" / "projects" / "-gone-project" / "memory").exists())
 
-    def test_the_question_and_cancel_share_one_line_spread_to_both_edges(self):
+    def test_other_keys_are_ignored_and_the_question_stays_open(self):
+        browser = self.go_to("claude")
+        browser.handle_key("d")
+
+        for key in ("x", " ", "a", "left", "right", "r", "1", "3", "tab", "d"):
+            browser.handle_key(key)
+
+            self.assertIsNotNone(browser.dialog, key)
+        self.assertEqual((browser.tab, len(browser.stack)), (1, 1))
+        self.assertEqual(self.trashed(), [])
+
+    def test_q_quits_without_moving_anything(self):
+        browser = self.go_to("claude")
+        browser.handle_key("d")
+
+        browser.handle_key("q")
+
+        self.assertFalse(browser.running)
+        self.assertIsNone(browser.dialog)
+        self.assertEqual(self.trashed(), [])
+        self.assertTrue((self.home / ".claude" / "projects" / "-gone-project" / "memory").exists())
+
+    def test_the_question_has_a_line_and_the_few_hints_sit_at_both_edges_below_it(self):
         browser = self.go_to("claude")
         browser.handle_key("d")
 
         lines = lines_of(browser)
-        line = next(text for text in lines if "Move to the Trash?" in text)
+        question = next(i for i, text in enumerate(lines) if "Move to the Trash?" in text)
 
-        self.assertRegex(line, r"^│ Move to the Trash\?  \[y/N\]\s{3,}\[Esc\] cancel │$")
+        self.assertRegex(lines[question], r"^│ Move to the Trash\?  \[y/N\]\s*│$")
+        self.assertNotIn("cancel", lines[question])
+        self.assertRegex(lines[question + 1], r"^│ \[↑↓\] move\s{3,}\[Esc\] cancel  \[q\] quit │$")  # even with nothing to scroll
         self.assertEqual(sum("[Esc] cancel" in text for text in lines), 1)
         self.assertTrue(lines[-1].startswith("└"))
 
@@ -922,16 +1164,17 @@ class GuardTest(HomeTestCase):
         self.assertTrue((precious / "keep.txt").exists())
         self.assertEqual(self.trashed(), [])
 
-    def test_an_instruction_file_marked_deletable_is_still_refused(self):
+    def test_an_entry_that_is_not_marked_deletable_is_refused(self):
         library = self.library()
-        entry = entry_at(library, "claude", "~/code/app", "CLAUDE.md")
-        entry.deletable = True
+        entry = entry_at(library, "claude", "~/code/app", "memory", "MEMORY.md")
+        entry.deletable = False
 
         moved, failed = mem.run_plan(mem.Plan("test", [entry], 0), library)
 
         self.assertEqual(moved, [])
         self.assertEqual([reason for _, reason in failed], ["not learned memory"])
-        self.assertTrue((self.home / "code" / "app" / "CLAUDE.md").exists())
+        self.assertTrue(os.path.exists(entry.path))
+        self.assertEqual(self.trashed(), [])
 
     def test_a_file_that_is_not_in_the_memory_folder_is_refused(self):
         library = self.library()
@@ -1166,13 +1409,6 @@ class ViewerTest(HomeTestCase):
         self.assertIn("read-only", browser.message)
         self.assertEqual((self.docs / "note.txt").read_bytes(), before)
 
-    def test_a_symlinked_instruction_file_is_read_through_its_link(self):
-        browser = self.browser()
-        go(browser, "claude", "Global", "CLAUDE.md")
-
-        self.assertIsNotNone(browser.viewer)
-        self.assertIn("Never save memory on your own.", self.screen(browser))
-
     def test_symlinks_and_pipes_are_not_read_directly(self):
         os.symlink(self.docs / "note.txt", self.docs / "link.txt")
 
@@ -1206,22 +1442,21 @@ class CommandLineTest(HomeTestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertRegex(result.stdout, r"memory\s+total [\d.]+ (B|KB), \d+ paths")
-        self.assertRegex(result.stdout, r"claude\s+\d+\s+[\d.]+ (B|KB)\s+now\s+mixed")
-        self.assertNotIn("shared", result.stdout)  # the shared file shows through each agent's own link
+        self.assertRegex(result.stdout, r"claude\s+\d+\s+[\d.]+ (B|KB)\s+now\s+memory")
+        self.assertNotIn("AGENTS.md", result.stdout)  # instruction files are not memory
         self.assertEqual(snapshot(), before)
 
-    def test_list_for_one_agent_shows_global_and_projects(self):
+    def test_list_for_one_agent_shows_its_projects(self):
         result = self.run_script("--list", "--agent=claude", "--home", str(self.home))
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("memory > claude", result.stdout)
-        self.assertIn("Global", result.stdout)
         self.assertIn("~/code/app", result.stdout)
+        self.assertNotIn("Global", result.stdout)
 
-    def test_list_shows_where_a_symlink_points(self):
+    def test_list_shows_the_memory_database(self):
         result = self.run_script("--list", "--agent=codex", "--home", str(self.home))
 
-        self.assertIn("AGENTS.md -> ~/.agents/AGENTS.md", result.stdout)
         self.assertRegex(result.stdout, r"memories_1\.sqlite\s+2\s+[\d.]+ KB\s+\S+\s+memory")
 
     def test_an_unknown_agent_is_an_error(self):

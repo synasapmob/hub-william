@@ -158,12 +158,10 @@ export default function ToolsCatalogToolUsage({
           <p className={label()}>1. Browse your agents' memory</p>
 
           <p className={description()}>
-            Opens a terminal browser of the instruction files you write
-            (CLAUDE.md, AGENTS.md, GEMINI.md) and the memory your agents save
-            themselves. Press Right to open a folder or read a file, and D to
-            move learned memory to the Trash after a preview. Instruction files
-            are read-only and nothing is deleted for good. Needs Python 3.9 or
-            newer on macOS or Linux.
+            Opens a terminal browser of the memory your agents save themselves.
+            Press Right to open a folder or read a file, and D to move what the
+            cursor is on to the Trash after a preview. Nothing is deleted for
+            good. Needs Python 3.9 or newer on macOS or Linux.
           </p>
 
           <CopyCommand command={runCommand} />

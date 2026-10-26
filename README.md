@@ -133,11 +133,11 @@ original bytes. `/catalog/index.json` lists tool sources;
 ### Browse and manage what agents remember
 
 **Memory** (`contributors/synasapmob/tools/memory/`) opens a terminal browser of what Claude
-Code, Codex, Grok and agy remember: the instruction files you write (`CLAUDE.md`, `AGENTS.md`,
-`GEMINI.md`) and the lessons they save about you. Open an agent to see its global files and each
-project, open a file to read it (read-only), and press `d` to move learned memory to the Trash
-after a preview. Instruction files and databases are never changed, and nothing is deleted for
-good. It needs Python 3.9 or newer on macOS or Linux and makes no network request:
+Code, Codex, Grok and agy remember: the lessons they save about you. Open an agent to see its
+global memory and each project, open a file to read it (read-only), and press `d` to move what the
+cursor is on to the Trash after a preview. Databases and generated indexes are never changed, and
+nothing is deleted for good. It needs Python 3.9 or newer on macOS or Linux and makes no network
+request:
 
 ```sh
 curl -fsSL https://hub-william.site/catalog/contributors/synasapmob/tools/memory/memory.py | python3
