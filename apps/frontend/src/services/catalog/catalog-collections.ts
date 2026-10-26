@@ -59,7 +59,7 @@ const COLLECTION_PRESENTATION: Record<string, CatalogCollectionPresentation> = {
   "cache-agents": {
     label: "Cache agents",
     summary:
-      "See what Claude Code, Codex and Gemini keep on disk in a terminal browser, and move their cache to the Trash. Nothing leaves your computer.",
+      "See what Claude Code, Codex, Gemini, OpenCode, DSH and more keep on disk in a terminal browser, read their text files, and move their cache to the Trash. Nothing leaves your computer.",
   },
 };
 

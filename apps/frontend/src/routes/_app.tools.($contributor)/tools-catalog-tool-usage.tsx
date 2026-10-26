@@ -159,9 +159,10 @@ export default function ToolsCatalogToolUsage({
 
           <p className={description()}>
             Opens a terminal browser of the folders your agents keep in your
-            home folder. Press D to move cache to the Trash after a preview. It
-            never deletes for good and never touches transcripts, memory or
-            settings. Needs Python 3.9 or newer on macOS or Linux.
+            home folder. Press Right to open a folder or read a text file, and D
+            to move cache to the Trash after a preview. It never deletes for
+            good and never touches transcripts, memory or settings. Needs Python
+            3.9 or newer on macOS or Linux.
           </p>
 
           <CopyCommand command={runCommand} />
