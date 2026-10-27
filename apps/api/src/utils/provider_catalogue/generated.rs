@@ -41,5 +41,3 @@ impl AgentProvider {
 }
 
 pub(crate) const CALL_CODEX_REALTIME_MODEL: &str = "gpt-live-1-codex";
-pub(crate) const CALL_GROQ_CHAT_MODEL: &str = "openai/gpt-oss-20b";
-pub(crate) const CALL_GROQ_TTS_MODEL: &str = "canopylabs/orpheus-v1-english";

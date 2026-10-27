@@ -1,63 +1,14 @@
-# Architecture decisions
+# Decisions
 
-These records govern the whole repository. Frontend-only implementation and
-convention documents live in `apps/frontend/docs/`; decisions here define boundaries
-between applications and infrastructure.
+The [architecture documents](../architecture.md) describe how the system works
+today. A record here exists only for a constraint or a reason that the code
+cannot show.
 
-Records are append-only in status: replace an accepted decision with a newer
-record and mark the old one superseded rather than rewriting its history.
+A record states what is true now. When the code changes, edit the record to
+match, and delete it when it stops being useful. The list is numbered without
+gaps: when a record is deleted, the later ones move up and their references
+change with them.
 
-- [ADR-0001: Monorepo application boundaries](0001-monorepo-application-boundaries.md)
-- [ADR-0002: Public browsing and session-gated pool requests](0002-public-browsing-and-session-auth.md)
-- [ADR-0003: Provider OAuth and a user-scoped agent gateway](0003-provider-oauth-and-user-scoped-gateway.md)
-- [ADR-0004: Railway private backend behind the frontend origin](0004-railway-private-backend.md)
-- [ADR-0005: Accepted pool membership grants gateway access](0005-accepted-pool-gateway-access.md)
-- [ADR-0006: Provider-scoped multi-pool gateway failover](0006-provider-scoped-multi-pool-failover.md)
-- [ADR-0007: Pool cooldown and owner membership controls](0007-pool-cooldown-and-owner-membership-controls.md)
-- [ADR-0008: Application layout and staged gateway extraction](0008-application-layout-and-staged-gateway-extraction.md)
-- [ADR-0009: Telegram webhook adapter boundary](0009-telegram-webhook-adapter-boundary.md)
-- [ADR-0010: Credential-aware pool recovery](0010-credential-aware-pool-recovery.md)
-- [ADR-0011: Readable masked account labels](0011-readable-masked-account-labels.md)
-- [ADR-0012: Current Grok device authorization](0012-current-grok-device-authorization.md)
-- [ADR-0013: Periodic provider credential refresh](0013-periodic-provider-credential-refresh.md)
-- [ADR-0014: Google OAuth Gemini subscription gateway](0014-google-oauth-gemini-subscription-gateway.md)
-- [ADR-0015: DeepSeek API keys and OpenCode gateway installation](0015-deepseek-api-key-and-opencode-gateway.md)
-- [ADR-0016: OpenCode subscription protocol compatibility](0016-opencode-subscription-protocol-compatibility.md)
-- [ADR-0017: OMP one-command provider installation](0017-omp-one-command-provider-installation.md)
-- [ADR-0018: Provider-backed AGY model discovery](0018-provider-backed-agy-model-discovery.md)
-- [ADR-0019: Current Antigravity model and generation contract](0019-current-antigravity-model-contract.md)
-- [ADR-0020: DeepSeek Responses for coding-agent clients](0020-deepseek-responses-for-coding-agent-clients.md)
-- [ADR-0021: Transparent request sizing for agent gateway routes](0021-transparent-request-sizing-agent-gateway.md)
-- [ADR-0022: Bounded transient gateway retries](0022-bounded-transient-gateway-retries.md)
-- [ADR-0023: Unlimited account pool membership](0023-unlimited-account-pool-membership.md)
-- [ADR-0024: Tools, Agents and demo Playground](0024-tools-agents-playground.md)
-- [ADR-0025: Session-backed model Playground](0025-session-backed-playground.md)
-- [ADR-0026: Railway-only deployment](0026-railway-only-deployment.md)
-- [ADR-0027: Organizations and session agent access](0027-organizations-and-session-agent-access.md)
-- [ADR-0028: Gemini forbidden pool failover](0028-gemini-forbidden-pool-failover.md)
-- [ADR-0029: Current provider model catalogue convention](0029-current-provider-model-catalogues.md)
-- [ADR-0030: Nightly connected-account credential check](0030-nightly-connected-account-credential-check.md)
-- [ADR-0031: Explicit AGY account verification challenge](0031-explicit-agy-account-verification.md)
-- [ADR-0032: Native voice in Playground](0032-playground-native-voice.md)
-
-- [ADR-0033: Groq API-key Chat and composed Call](0033-groq-api-key-chat-and-call.md)
-- [ADR-0034: Saved media choices and interruptible Groq calls](0034-playground-call-streaming-and-interruption.md)
-- [ADR-0035: Local call recordings and public profile avatars](0035-local-call-recordings-and-profile-avatars.md)
-- [ADR-0036: GitHub-only profile avatars](0036-github-only-profile-avatars.md)
-- [ADR-0037: Browser-local speech recognition](0037-browser-local-speech-recognition.md)
-- [ADR-0038: Shared provider and model catalogue](0038-shared-provider-model-catalogue.md)
-- [ADR-0039: Local language detection and buffered speech](0039-local-language-detection-and-buffered-speech.md)
-- [ADR-0040: Browser speech activity detection before Whisper](0040-browser-speech-activity-detection.md)
-- [ADR-0041: Uniform local Whisper calls and speech preparation](0041-uniform-local-whisper-calls.md)
-- [ADR-0042: Piper local speech output](0042-piper-local-speech-output.md)
-- [ADR-0043: Vietnamese Piper speech](0043-vietnamese-piper-speech.md)
-- [ADR-0044: English-only local call speech](0044-english-only-local-call-speech.md)
-- [ADR-0045: Linked organization agents, account rotation and credential recovery](0045-linked-organization-agents-account-rotation-and-credential-recovery.md)
-- [ADR-0046: My organizations dialog and organization removal](0046-my-organizations-dialog-and-organization-removal.md)
-- [ADR-0047: Server-side default organization and organization summaries](0047-server-side-default-organization-and-summaries.md)
-- [ADR-0048: Recoverable AGY account verification and abandoned reconnect prompts](0048-recoverable-agy-account-verification.md)
-- [ADR-0049: Browser-local Vosk audio to text](0049-browser-local-vosk-audio-to-text.md)
-- [ADR-0050: Stored credential refresh schedule and transient retries](0050-stored-credential-refresh-schedule-and-transient-retries.md)
-- [ADR-0051: Shared skills as tools and the link script](0051-shared-skills-as-tools.md)
-- [ADR-0052: Deploy each branch to its own Railway environment](0052-deploy-each-branch-to-its-environment.md)
-- [ADR-0053: Memory, a terminal tool for what coding agents remember and are told](0053-memory-terminal-tool.md)
+- [ADR-0001: Provider credentials stay on the server; Hub keys identify users](0001-provider-oauth-and-user-scoped-gateway.md)
+- [ADR-0002: Call Live exists only where a native call transport is verified](0002-playground-native-voice.md)
+- [ADR-0003: A refused generation decides AGY account verification](0003-recoverable-agy-account-verification.md)

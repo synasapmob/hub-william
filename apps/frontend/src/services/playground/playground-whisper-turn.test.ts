@@ -30,10 +30,9 @@ afterEach(() => vi.restoreAllMocks());
 
 describe("Call Whisper text and local speech transport", () => {
   it.each(["chatgpt", "gemini", "claude", "deepseek", "grok", "groq"] as const)(
-    "sends %s chat with the selected account and never calls the Groq speech endpoint",
+    "sends %s chat with the selected account and speaks it locally",
     async (provider) => {
       const input = options(provider);
-      const remoteSpeech = vi.spyOn(playgroundService, "groqTurn");
       const chat = vi
         .spyOn(playgroundService, "chat")
         .mockImplementation(async (request) => {
@@ -51,12 +50,10 @@ describe("Call Whisper text and local speech transport", () => {
         messages: [{ role: "user", content: "Hello" }],
       });
       expect(chat.mock.calls[0][0]).not.toHaveProperty("audio");
-      expect(remoteSpeech).not.toHaveBeenCalled();
       expect(input.speech.synthesize).toHaveBeenCalledTimes(2);
       expect(result).toEqual({
         transcript: "Hello",
         reply: "Hello! How are you?",
-        audio: [],
       });
       expect(input.onEvent).toHaveBeenLastCalledWith({ type: "done" });
     },

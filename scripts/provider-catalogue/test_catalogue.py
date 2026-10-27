@@ -41,12 +41,19 @@ class CatalogueTest(unittest.TestCase):
             generator.validate(self.catalogue)
 
     def test_rejects_wrong_call_capability_and_missing_dependency(self):
-        call = next(c for c in self.catalogue["call_profiles"] if c["provider"] == "groq")
-        call["models"]["tts"] = call["models"]["chat"]
+        call = next(c for c in self.catalogue["call_profiles"] if c["provider"] == "chatgpt")
+        chat_model = next(m["id"] for m in self.catalogue["providers"][0]["models"] if "chat" in m["capabilities"])
+        call["models"]["realtime"] = chat_model
         with self.assertRaisesRegex(ValueError, "wrong capability"):
             generator.validate(self.catalogue)
-        call["models"]["tts"] = "missing-model"
+        call["models"]["realtime"] = "missing-model"
         with self.assertRaisesRegex(ValueError, "unavailable"):
+            generator.validate(self.catalogue)
+
+    def test_rejects_an_unknown_call_kind(self):
+        call = self.catalogue["call_profiles"][0]
+        call["kind"] = "local_stt_llm_tts"
+        with self.assertRaisesRegex(ValueError, "unknown native call adapter"):
             generator.validate(self.catalogue)
 
     def test_audio_only_model_cannot_be_a_coding_default(self):

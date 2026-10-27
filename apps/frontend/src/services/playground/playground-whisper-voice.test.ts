@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlaygroundWhisperTurnResult } from "./playground-whisper-turn";
 import type { PlaygroundVoiceStartOptions } from "./playground-voice";
 import playgroundWhisperVoiceService from "./playground-whisper-voice";
+import playgroundWhisperTurnService from "./playground-whisper-turn";
+import { playgroundService } from "./playground-service";
 import type { PlaygroundLocalVadStartOptions } from "./playground-local-vad";
 
 const local = vi.hoisted(() => ({
@@ -18,9 +20,13 @@ const vad = vi.hoisted(() => ({
 }));
 vi.mock("./playground-local-vad", () => ({ default: { start: vad.start } }));
 
+const tts = vi.hoisted(() => ({ synthesize: vi.fn() }));
 vi.mock("./playground-local-tts", () => ({
   default: {
-    start: vi.fn(async () => ({ synthesize: vi.fn(), dispose: vi.fn() })),
+    start: vi.fn(async () => ({
+      synthesize: tts.synthesize,
+      dispose: vi.fn(),
+    })),
   },
 }));
 
@@ -56,10 +62,11 @@ class TestContext {
   audioWorklet = { addModule: vi.fn().mockResolvedValue(undefined) };
   resume = vi.fn().mockResolvedValue(undefined);
   close = closeContext;
-  decodeAudioData = vi.fn().mockResolvedValue({
-    duration: 2,
-    length: 32000,
-    numberOfChannels: 1,
+  createBuffer = (channels: number, length: number, rate: number) => ({
+    numberOfChannels: channels,
+    length,
+    duration: length / rate,
+    copyToChannel: vi.fn(),
   });
   createMediaStreamSource = () => ({ connect: vi.fn(), disconnect: vi.fn() });
   createBufferSource = () => {
@@ -76,6 +83,9 @@ class TestContext {
     };
     return node;
   };
+}
+function pcm() {
+  return { samples: new Float32Array(32000), sampleRate: 16000 };
 }
 function speak() {
   for (let i = 0; i < 3; i++)
@@ -107,16 +117,23 @@ function options(): PlaygroundVoiceStartOptions {
     onPhase: vi.fn(),
     onInputLevel: vi.fn(),
     onInputActive: vi.fn(),
-    sendTurn: vi.fn().mockResolvedValue({
-      transcript: "Hello",
-      reply: "How are you?",
-      audio: [btoa("wave"), btoa("second")],
-    }),
+    // Behaves like the real turn: events stream while it runs.
+    sendTurn: vi.fn<NonNullable<PlaygroundVoiceStartOptions["sendTurn"]>>(
+      async (turn) => {
+        turn.onEvent?.({ type: "transcript", text: turn.transcript });
+        turn.onEvent?.({ type: "delta", text: "How are you?" });
+        turn.onEvent?.({ type: "audio", audio: pcm() });
+        turn.onEvent?.({ type: "audio", audio: pcm() });
+        turn.onEvent?.({ type: "done" });
+        return { transcript: turn.transcript, reply: "How are you?" };
+      },
+    ),
   };
 }
 beforeEach(() => {
   vi.clearAllMocks();
   local.transcribe.mockReset().mockResolvedValue("Hello");
+  tts.synthesize.mockReset().mockImplementation(async () => pcm());
   local.start.mockReset().mockResolvedValue(local);
   vad.probability = null;
   vad.start
@@ -463,8 +480,8 @@ describe("Local Whisper call lifecycle", () => {
       }),
     ]);
     expect(sourceStart).not.toHaveBeenCalled();
-    first.onEvent?.({ type: "audio", audio: btoa("wave") });
-    first.onEvent?.({ type: "audio", audio: btoa("queued") });
+    first.onEvent?.({ type: "audio", audio: pcm() });
+    first.onEvent?.({ type: "audio", audio: pcm() });
     await vi.waitFor(() => expect(sourceStart).toHaveBeenCalledTimes(2));
     for (let i = 0; i < 2; i++)
       receive?.({
@@ -474,7 +491,7 @@ describe("Local Whisper call lifecycle", () => {
     expect(sourceStop).toHaveBeenCalledTimes(2);
     expect(turns).toHaveLength(1);
     first.onEvent?.({ type: "delta", text: "stale reply" });
-    first.onEvent?.({ type: "audio", audio: btoa("stale") });
+    first.onEvent?.({ type: "audio", audio: pcm() });
     for (let i = 0; i < 19; i++)
       receive?.({ data: new Float32Array(1600) } as MessageEvent<Float32Array>);
     expect(turns).toHaveLength(1);
@@ -491,6 +508,50 @@ describe("Local Whisper call lifecycle", () => {
     expect(
       JSON.stringify(vi.mocked(input.onTranscripts).mock.lastCall),
     ).not.toContain("stale");
+    await call.end();
+  });
+
+  it("runs the real turn end to end: chat text becomes transcripts and local PCM is played", async () => {
+    const input = options();
+    const chat = vi
+      .spyOn(playgroundService, "chat")
+      .mockImplementation(async (request) => {
+        request.onDelta("Hello there. ");
+        request.onDelta("How are you?");
+        return { servedConnectionId: null };
+      });
+    input.sendTurn = playgroundWhisperTurnService.turn;
+    const call = await playgroundWhisperVoiceService.start(input);
+    speak();
+    await vi.waitFor(() => expect(sourceStart).toHaveBeenCalled());
+    await vi.waitFor(() =>
+      expect(input.onTranscripts).toHaveBeenLastCalledWith([
+        expect.objectContaining({
+          role: "user",
+          text: "Hello",
+          complete: true,
+        }),
+        expect.objectContaining({
+          role: "assistant",
+          text: "Hello there. How are you?",
+          complete: true,
+        }),
+      ]),
+    );
+    expect(chat).toHaveBeenCalledOnce();
+    expect(chat.mock.calls[0][0]).toMatchObject({
+      provider: "groq",
+      connectionId: "chosen-account",
+      organizationId: "chosen-org",
+      model: "openai/gpt-oss-20b",
+      messages: [{ role: "user", content: "Hello" }],
+    });
+    expect(tts.synthesize.mock.calls.length).toBeGreaterThan(0);
+    expect(sourceStart).toHaveBeenCalledTimes(tts.synthesize.mock.calls.length);
+    expect(input.onError).not.toHaveBeenCalled();
+    await vi.waitFor(() =>
+      expect(input.onPhase).toHaveBeenLastCalledWith("listening"),
+    );
     await call.end();
   });
 
@@ -542,11 +603,11 @@ describe("Local Whisper call lifecycle", () => {
     expect(vi.mocked(input.sendTurn!).mock.calls[0][0].signal.aborted).toBe(
       true,
     );
-    resolve({
-      transcript: "Late",
-      reply: "Do not play",
-      audio: [btoa("wave")],
-    });
+    const late = vi.mocked(input.sendTurn!).mock.calls[0][0];
+    late.onEvent?.({ type: "delta", text: "Do not play" });
+    late.onEvent?.({ type: "audio", audio: pcm() });
+    late.onEvent?.({ type: "done" });
+    resolve({ transcript: "Late", reply: "Do not play" });
     await Promise.resolve();
     await Promise.resolve();
     expect(input.onTranscripts).toHaveBeenLastCalledWith([

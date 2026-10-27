@@ -3,8 +3,8 @@
 Hub William brings shared agent accounts, coding tools, organizations and a
 browser Playground into one workspace.
 
-[Contributing](.github/CONTRIBUTING.md) · [Security](.github/SECURITY.md) ·
-[MIT License](LICENSE)
+[Architecture](docs/architecture.md) · [Contributing](.github/CONTRIBUTING.md) ·
+[Security](.github/SECURITY.md) · [MIT License](LICENSE)
 
 ## Why Hub William
 
@@ -102,9 +102,11 @@ the Tools page.
 - **Frontend:** React · TypeScript · Vite · React Router · Tailwind CSS ·
   TanStack Query · Vitest
 - **API:** Rust · Axum · SQLx · PostgreSQL · Utoipa/OpenAPI
-- **Telegram adapter:** Rust · Axum · Tokio · Reqwest. It has no database and
-  calls the private API for everything it stores.
-- **Installers:** Python
+- **Telegram adapter:** Rust · Axum · Tokio · Reqwest. It runs the Telegram shop
+  (orders paid through SePay), has no database and calls the private API for
+  everything it stores.
+- **Installers:** Python (`gateway.py`, `opencode.py`, `omp.py`) and Bash
+  (`download-reel.sh`, `link.sh`)
 - **Hosting:** Railway
 
 ## Contributing
@@ -120,9 +122,12 @@ first. Read the [contribution guide](.github/CONTRIBUTING.md) before you start.
 contributors/
 ├── default/                  # system (read-only)
 │   └── tools/
+│       ├── download-reel/
+│       ├── edge-tts/
 │       ├── gateway/
+│       ├── omp/
 │       ├── opencode/
-│       └── omp/
+│       └── vosk/
 └── <your-github-login>/       # your contributions
     └── tools/
         └── <tool-name>/
@@ -130,7 +135,8 @@ contributors/
 ```
 
 - Use your GitHub login in lowercase and a lowercase, hyphenated tool name.
-- The entry document is `README.md` or `<tool-name>.md`.
+- Start with `README.md` or `<tool-name>.md`. The check accepts any Markdown
+  file inside your tool folder.
 - Markdown files only. No symbolic links, executable files or credentials.
 - Never edit `contributors/default/` or another contributor's folder; the pull
   request will fail.
@@ -166,8 +172,9 @@ contributors/
 
 5. **Review.** An automated check verifies the author, target branch, changed
    paths, file types and file modes. A maintainer then reviews the content and
-   links; passing the check is not acceptance. After an accepted change is
-   deployed, your tool appears under your login on the Tools page.
+   links; passing the check is not acceptance. A merged change reaches staging
+   first. Once a maintainer promotes `dev` to production, your tool appears under
+   your login on the Tools page.
 
 ### Run the project locally
 
@@ -181,8 +188,10 @@ pnpm telegram:dev    # Telegram adapter on :8090
 ```
 
 Set `VITE_API_BASE_URL` in `apps/frontend/.env` to `http://localhost:8080` to use
-the local API. Before you open a pull request, run the checks listed in the
-contribution guide, starting with:
+the local API. The API needs PostgreSQL and a few required environment
+variables; [deployment](docs/architecture/deployment.md) lists them. Before you
+open a pull request, run the checks listed in the contribution guide, starting
+with:
 
 ```sh
 pnpm format:check && pnpm lint && pnpm check:tailwind && pnpm typecheck && pnpm test && pnpm build

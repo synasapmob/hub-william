@@ -18,8 +18,8 @@ function streamResponse() {
 describe("session-backed Playground requests", () => {
   it("retains model capabilities and Call metadata from account discovery", async () => {
     const profile = providerCatalogueService.callProfile(
-      "groq",
-      "openai/gpt-oss-20b",
+      "chatgpt",
+      "gpt-live-1-codex",
     )!;
     const call = {
       ...profile,
@@ -27,21 +27,58 @@ describe("session-backed Playground requests", () => {
     };
     const models = [
       {
-        id: "openai/gpt-oss-20b",
-        name: "Groq Chat and Call",
-        modes: ["chat", "voice"],
-        capabilities: ["chat"],
+        id: "gpt-live-1-codex",
+        name: "Codex Voice",
+        modes: ["voice"],
+        capabilities: ["realtime_audio"],
         call,
       },
     ];
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(models)));
     expect(
       await playgroundService.models(
-        "groq",
+        "chatgpt",
         "selected-account",
         new AbortController().signal,
       ),
     ).toEqual(models);
+  });
+
+  it("keeps a model listed when the API sends a call profile this build does not know", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json([
+          {
+            id: "chat-model",
+            name: "Chat model",
+            modes: ["chat", "voice"],
+            capabilities: ["chat"],
+            call: {
+              id: "old",
+              provider: "groq",
+              name: "Old pipeline",
+              kind: "local_stt_llm_tts",
+              transport: "groq_sse",
+              selector_model: "chat-model",
+              availability: "all_dependencies",
+              models: { chat: "chat-model", tts: "speech-model" },
+            },
+          },
+        ]),
+      ),
+    );
+    const models = await playgroundService.models(
+      "groq",
+      "selected-account",
+      new AbortController().signal,
+    );
+    expect(models).toHaveLength(1);
+    expect(models[0]).toMatchObject({
+      id: "chat-model",
+      modes: ["chat", "voice"],
+    });
+    expect(models[0].call).toBeUndefined();
   });
 
   it("keeps the earlier Chat response contract during deployment", async () => {

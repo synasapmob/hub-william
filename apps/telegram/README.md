@@ -1,27 +1,30 @@
 # Telegram adapter
 
-`apps/telegram` is Hub William's public Telegram webhook service. It accepts
-only Telegram's authenticated webhook traffic and calls the private `apps/api`
-service for everything it stores. The catalogue, orders, payments,
-entitlements, and pool membership are all business-API responsibilities; this
-service renders them and nothing more.
+`apps/telegram` is Hub William's public webhook service. Its only public
+routes are Telegram's authenticated webhook (`POST /webhook`), SePay's
+authenticated bank-transaction webhook (`POST /sepay`), the payment QR image
+(`GET /qr.png`) and `GET /health`. It calls the private `apps/api` service for
+everything it stores. The catalogue, stock, orders, payments and contacts are
+all business-API responsibilities; this service renders them and nothing more.
+The full design is in [docs/architecture/telegram.md](../../docs/architecture/telegram.md).
 
 The adapter handles private-chat `/start`, `/menu`, `/catalog`, `/orders`,
-`/lang`, `/help`, and `/status`. `/menu` first asks for English or Tiếng Việt, persists
-that choice through the private API, and then lists providers; tapping one
-opens that provider's packages. `/start` creates or updates a Telegram contact
-record; it does **not** create, link, or authenticate a Hub William browser
-account.
+`/lang`, `/help`, and `/status`. When a contact has no saved language, `/menu`
+first asks for English or Tiếng Việt and persists that choice through the
+private API; it then lists providers, and tapping one opens that provider's
+packages. `/start` creates or updates a Telegram contact record; it does **not**
+create, link, or authenticate a Hub William browser account.
 
 Warranty codes are stable and customer-facing: `WF` is a full warranty, `W7D`
-is seven days, `NW` is none. A package carries exactly one of them — a plan
+is seven days, `NW` is no warranty beyond a one-hour login check. A package carries exactly one of them — a plan
 sold under two warranties is two catalogue entries.
 
 ## Checkout
 
 Tapping a package opens its quantity prompt; a bare number in the same chat
 creates an order through the private API and offers VND or USDT. The adapter
-keeps only the tapped package in memory — the order itself lives in
+keeps only the pending prompt in memory (the tapped package, or an owner's
+expected answer, for 30 minutes) — the order itself lives in
 `telegram_orders`, so a redeploy cannot lose a buyer's checkout and every
 payment button reads its order back by reference.
 
@@ -67,8 +70,8 @@ Adding stock — or creating a product that already has stock — announces it:
 It goes to everyone who has started the bot, and additionally to
 `TELEGRAM_ANNOUNCE_CHAT_ID` when one is configured. The fan-out is detached from
 the owner's own reply and paced at one message per 50ms, under Telegram's bulk
-limit; a chat that answers `403` has blocked the bot and is recorded so the next
-announcement skips it. The button is a `t.me` deep link, so tapping it opens the
+limit. The API can record a blocked chat so that later announcements skip it, but
+the adapter does not call that route today. The button is a `t.me` deep link, so tapping it opens the
 bot on that product's quantity prompt.
 
 ## Stock that is held, not just counted
@@ -122,8 +125,8 @@ pnpm api:dev
 pnpm telegram:dev
 ```
 
-The webhook endpoint is `POST /webhook`; its `/health` endpoint is public only
-for Railway health checks. Telegram validates requests through the
+The webhook endpoint is `POST /webhook`; `GET /health` is unauthenticated and
+returns no data beyond the service name. Telegram validates requests through the
 `X-Telegram-Bot-Api-Secret-Token` header supplied by `setWebhook`.
 
 ## Railway setup
@@ -131,15 +134,16 @@ for Railway health checks. Telegram validates requests through the
 Create a public Railway service named `telegram` from `apps/telegram/Dockerfile`.
 Set these service variables:
 
-- `HUB_API_INTERNAL_URL`: the existing private API host, for example
-  `http://backend.railway.internal:8080` while that Railway private hostname
-  remains assigned.
+- `HUB_API_INTERNAL_URL`: the private API origin, for example
+  `http://backend.railway.internal:8080`.
 - `HUB_API_SERVICE_TOKEN`: a long random secret.
 - `TELEGRAM_WEBHOOK_SECRET`: a different random token of 1–256 letters,
   numbers, `_`, or `-`.
 - `TELEGRAM_BOT_TOKEN`: the BotFather token, sealed in Railway. The adapter
-  uses it only to acknowledge an inline-button callback; the configuration
-  script also uses it to register Telegram's webhook and command menu.
+  uses it for the Bot API calls it makes itself (`answerCallbackQuery`,
+  `deleteMessage`, `sendChatAction`, and `sendMessage` for payment
+  notifications and restock announcements); the configuration script also uses
+  it to register Telegram's webhook and command menu.
 - `TELEGRAM_WEBHOOK_URL`: the public Railway URL, for example
   `https://telegram-production-example.up.railway.app`.
 - `SEPAY_API_KEY`: the key SePay sends on its webhook. Without it `/sepay`
@@ -181,8 +185,9 @@ Run it again after changing the public URL or webhook secret. Use Telegram's
 `getWebhookInfo` Bot API method to inspect delivery errors; do not use
 `getUpdates` while the webhook remains active.
 
-When all five variables are stored on the Railway `telegram` service, the same
-script can run without copying a token into a local shell:
+When `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_URL` and `TELEGRAM_WEBHOOK_SECRET`
+(the three variables the script requires) are stored on the Railway `telegram`
+service, the same script can run without copying a token into a local shell:
 
 ```bash
 railway run --service telegram -- bash apps/telegram/scripts/configure-webhook.sh

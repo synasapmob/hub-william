@@ -1,23 +1,26 @@
 #!/usr/bin/env python3
 # memory: see and manage what your coding agents remember, and the rules and skills you give them
 #
-# A terminal browser for agent memory: the instruction files you write for them (CLAUDE.md,
-# AGENTS.md, GEMINI.md) and the lessons they save about you, for Claude Code, Codex, Grok and agy.
-# It lists each one with its size, how many files it holds and when it last changed, lets you
-# open a folder to look inside and read a file, and moves learned memory to the Trash. Your
-# instruction files are read-only here, and nothing is ever deleted for good. Nothing leaves
-# your computer.
+# A terminal browser with two working tabs (a third, disk, is a placeholder) for Claude Code,
+# Codex, Grok and agy. The memory tab lists the
+# lessons they save about you; the rules tab lists the instruction files you write for them
+# (CLAUDE.md, AGENTS.md, GEMINI.md), their rule folders and their skills. It lists each one with
+# its size, how many files it holds and when it last changed, lets you open a folder to look
+# inside and read a file, and moves what you pick to the Trash: learned memory on the memory tab,
+# rule files, skills and links on the rules tab. It never edits what a file says, nothing is ever
+# deleted for good, and the indexes and databases an agent generates are never changed. Nothing
+# leaves your computer.
 #
-# Run it from Hub William (it reads and writes only under your home folder, and needs a
-# terminal on macOS or Linux with Python 3.9 or newer):
+# Run it from Hub William (it writes only under your home folder, apart from a Linux Trash under
+# $XDG_DATA_HOME, and needs a terminal on macOS or Linux with Python 3.9 or newer):
 #   curl -fsSL https://hub-william.site/catalog/contributors/synasapmob/tools/memory/memory.py | python3
 # Or run a downloaded copy: python3 memory.py
 # Print the table without the interface, changing nothing: python3 memory.py --list
 #
-# Keys: arrows or h j k l move, Right or Enter opens a folder or reads a file, Left goes back,
-# d deletes the learned memory under the cursor after a preview and a y/N question, r scans
-# again, q quits. Each folder remembers where the cursor was while the tool runs; a new run
-# starts from the top.
+# Keys: 2 and 3 (or Tab) switch tabs, arrows or h j k l move, Right or Enter opens a folder or
+# reads a file, Left goes back, d moves what is under the cursor to the Trash after a preview
+# and a y/N question, r scans again, q quits. Each folder remembers where the cursor was while
+# the tool runs; a new run starts from the top.
 
 import argparse
 import errno
@@ -38,9 +41,9 @@ try:
 except ImportError:  # Windows ships no curses
     curses = None
 
-RULES = "rules"  # instruction files that you write: read-only here
+RULES = "rules"  # instruction files that you write: never edited, and only the rules tab may move one to the Trash
 LEARNED = "memory"  # what an agent saved by itself
-SKILLS = "skills"  # skill folders (a folder with a SKILL.md): read-only here
+SKILLS = "skills"  # skill folders (a folder with a SKILL.md): only the rules tab may move one to the Trash
 MIXED = "mixed"
 
 MIN_WIDTH = 64
@@ -1587,7 +1590,8 @@ def attach_terminal():
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="memory",
-        description="See and manage what your coding agents remember, and move learned memory to the Trash.",
+        description="See and manage what your coding agents remember, and the rules and skills you give them. "
+        "Move learned memory, rules and skills to the Trash.",
     )
     parser.add_argument("--list", action="store_true", help="print the table and exit; changes nothing")
     parser.add_argument("--agent", metavar="NAME", help="with --list: show the memory of one agent")

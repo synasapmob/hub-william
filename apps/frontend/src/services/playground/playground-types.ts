@@ -4,8 +4,6 @@ import type {
   ModelCapability,
 } from "@/services/provider-catalogue/provider-catalogue.generated";
 
-import type { PlaygroundGroqEvent } from "./playground-groq-stream";
-
 export type PlaygroundProviderId = components["schemas"]["AgentProvider"];
 
 export interface PlaygroundModel {
@@ -48,25 +46,4 @@ export interface PlaygroundVoiceSessionOptions {
   model: string;
   sdp: string;
   signal: AbortSignal;
-}
-
-export interface PlaygroundGroqTurnMessage {
-  role: "user" | "assistant";
-  content: string;
-}
-
-export interface PlaygroundGroqTurnOptions {
-  onEvent?: (event: PlaygroundGroqEvent) => void;
-  connectionId: string;
-  organizationId?: string;
-  model: string;
-  transcript: string;
-  messages: PlaygroundGroqTurnMessage[];
-  signal: AbortSignal;
-}
-
-export interface PlaygroundGroqTurnResult {
-  transcript: string;
-  reply: string;
-  audio: string[];
 }

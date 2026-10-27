@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import PlaygroundVoicePlayback from "./playground-voice-playback";
 
-const clip = btoa("wav fixture");
-const buffer = { duration: 2, length: 32000, numberOfChannels: 1 };
+// Two seconds of PCM: the timings below are in whole clip lengths.
+const clip = { samples: new Float32Array(32000), sampleRate: 16000 };
 
 function fixture() {
   const nodes: ReturnType<typeof source>[] = [];
@@ -20,7 +20,6 @@ function fixture() {
     currentTime: 10,
     destination: {},
     resume: vi.fn().mockResolvedValue(undefined),
-    decodeAudioData: vi.fn().mockResolvedValue(buffer),
     createBuffer: vi.fn((channels: number, length: number, rate: number) => ({
       numberOfChannels: channels,
       length,
@@ -63,13 +62,12 @@ async function decoded() {
 afterEach(() => vi.useRealTimers());
 
 describe("buffered speech playback", () => {
-  it("plays local PCM directly and routes it to the recording mix without WAV decoding", async () => {
+  it("plays local PCM directly and routes it to the recording mix", async () => {
     const f = fixture();
     const samples = new Float32Array(22050).fill(0.1);
     f.playback.append({ samples, sampleRate: 22050 });
     const drained = f.playback.complete();
     await decoded();
-    expect(f.context.decodeAudioData).not.toHaveBeenCalled();
     expect(f.context.createBuffer).toHaveBeenCalledWith(1, 22050, 22050);
     expect(f.nodes).toHaveLength(1);
     expect(f.nodes[0].connect).toHaveBeenCalledWith(f.context.destination);
@@ -90,7 +88,7 @@ describe("buffered speech playback", () => {
     expect(f.nodes[1].start).toHaveBeenCalledWith(12.02);
     f.playback.append(clip);
     await decoded();
-    expect(f.context.decodeAudioData).toHaveBeenCalledTimes(3);
+    expect(f.context.createBuffer).toHaveBeenCalledTimes(3);
     expect(f.nodes).toHaveLength(2);
     const drained = vi.fn();
     void f.playback.complete().then(drained);
@@ -147,17 +145,17 @@ describe("buffered speech playback", () => {
     f.playback.append(clip);
     f.playback.append(clip);
     await decoded();
-    let finish!: (value: typeof buffer) => void;
-    f.context.decodeAudioData.mockImplementationOnce(
+    let finish!: () => void;
+    f.context.resume.mockImplementationOnce(
       () =>
-        new Promise((resolve) => {
+        new Promise<void>((resolve) => {
           finish = resolve;
         }),
     );
     f.playback.append(clip);
     await decoded();
     f.controller.abort();
-    finish(buffer);
+    finish();
     await decoded();
     await f.playback.complete();
     expect(f.nodes).toHaveLength(2);
@@ -172,14 +170,19 @@ describe("buffered speech playback", () => {
     const f = fixture();
     for (let i = 0; i < 10; i++) f.playback.append(clip);
     await decoded();
-    expect(f.context.decodeAudioData).toHaveBeenCalledTimes(4);
+    expect(f.context.createBuffer).toHaveBeenCalledTimes(4);
     expect(f.nodes).toHaveLength(2);
     f.playback.stop();
   });
 
   it("reports invalid decoded audio and resolves cancellation without late playback", async () => {
     const f = fixture();
-    f.context.decodeAudioData.mockResolvedValueOnce({ ...buffer, duration: 0 });
+    f.context.createBuffer.mockReturnValueOnce({
+      numberOfChannels: 1,
+      length: 1,
+      duration: 0,
+      copyToChannel: vi.fn(),
+    });
     f.playback.append(clip);
     await f.playback.complete();
     expect(f.onError).toHaveBeenCalledOnce();

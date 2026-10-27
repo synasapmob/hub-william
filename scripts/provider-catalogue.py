@@ -14,7 +14,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "apps/api/src/utils/provider_catalogue/catalogue.json"
-CAPABILITIES = {"chat", "image_input", "realtime_audio", "transcription", "speech_output"}
+CAPABILITIES = {"chat", "image_input", "realtime_audio"}
 EFFORTS = {"minimal", "low", "medium", "high", "xhigh", "max", "ultra"}
 
 
@@ -138,14 +138,9 @@ def validate(catalogue):
         identifier(call["id"])
         require(call["provider"] in providers, "unknown call provider")
         definitions = {m["id"]: m for m in providers[call["provider"]]["models"]}
-        if call["kind"] == "native_realtime":
-            require(call["provider"] == "chatgpt" and call["transport"] == "codex_v3_webrtc" and call["availability"] == "chat_catalogue", "unknown native call adapter")
-            roles = {"realtime": "realtime_audio"}
-            selector_role = "realtime"
-        else:
-            require(call["provider"] == "groq" and call["kind"] == "local_stt_llm_tts" and call["transport"] == "groq_sse" and call["availability"] == "all_dependencies", "unknown composed call adapter")
-            roles = {"chat": "chat", "tts": "speech_output"}
-            selector_role = "chat"
+        require(call["kind"] == "native_realtime" and call["provider"] == "chatgpt" and call["transport"] == "codex_v3_webrtc" and call["availability"] == "chat_catalogue", "unknown native call adapter")
+        roles = {"realtime": "realtime_audio"}
+        selector_role = "realtime"
         require(set(call["models"]) == set(roles), "missing call pipeline roles")
         for role, capability in roles.items():
             model = definitions.get(call["models"][role])

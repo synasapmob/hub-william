@@ -1,6 +1,6 @@
 /* global AudioWorkletProcessor, registerProcessor */
 // Batches 100 ms of mono samples; the call service owns voice activity detection.
-class GroqCapture extends AudioWorkletProcessor {
+class CallCapture extends AudioWorkletProcessor {
   constructor() {
     super();
     this.buffer = new Float32Array(1600);
@@ -22,4 +22,4 @@ class GroqCapture extends AudioWorkletProcessor {
   }
 }
 
-registerProcessor("groq-capture", GroqCapture);
+registerProcessor("call-capture", CallCapture);

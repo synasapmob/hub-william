@@ -492,18 +492,6 @@
           "name": "GPT OSS 120B",
           "status": "current",
           "capabilities": ["chat"]
-        },
-        {
-          "id": "whisper-large-v3-turbo",
-          "name": "Whisper Large V3 Turbo",
-          "status": "current",
-          "capabilities": ["transcription"]
-        },
-        {
-          "id": "canopylabs/orpheus-v1-english",
-          "name": "Orpheus V1 English",
-          "status": "preview",
-          "capabilities": ["speech_output"]
         }
       ]
     }
@@ -519,19 +507,6 @@
       "availability": "chat_catalogue",
       "models": {
         "realtime": "gpt-live-1-codex"
-      }
-    },
-    {
-      "id": "groq",
-      "provider": "groq",
-      "name": "openai/gpt-oss-20b",
-      "kind": "local_stt_llm_tts",
-      "transport": "groq_sse",
-      "selector_model": "openai/gpt-oss-20b",
-      "availability": "all_dependencies",
-      "models": {
-        "chat": "openai/gpt-oss-20b",
-        "tts": "canopylabs/orpheus-v1-english"
       }
     }
   ],
