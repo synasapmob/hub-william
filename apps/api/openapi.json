@@ -1626,89 +1626,6 @@
         }
       }
     },
-    "/playground/groq/voice/turn": {
-      "post": {
-        "tags": ["playground"],
-        "operationId": "create_groq_voice_turn",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/GroqVoiceTurnRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "JSON by default; stream=true returns SSE transcript, delta, audio, done or error events. stream_audio=true allows delta and audio to interleave",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GroqVoiceTurnResponse"
-                }
-              },
-              "text/event-stream": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/playground/voice": {
       "post": {
         "tags": ["playground"],
@@ -2457,7 +2374,7 @@
       },
       "CallKind": {
         "type": "string",
-        "enum": ["native_realtime", "local_stt_llm_tts"]
+        "enum": ["native_realtime"]
       },
       "CallProfile": {
         "type": "object",
@@ -2506,7 +2423,7 @@
       },
       "CallTransport": {
         "type": "string",
-        "enum": ["codex_v3_webrtc", "groq_sse"]
+        "enum": ["codex_v3_webrtc"]
       },
       "CompleteAuthorizationRequest": {
         "type": "object",
@@ -2617,74 +2534,6 @@
           }
         }
       },
-      "GroqVoiceMessage": {
-        "type": "object",
-        "required": ["role", "content"],
-        "properties": {
-          "content": {
-            "type": "string"
-          },
-          "role": {
-            "$ref": "#/components/schemas/PlaygroundRole"
-          }
-        },
-        "additionalProperties": false
-      },
-      "GroqVoiceTurnRequest": {
-        "type": "object",
-        "required": ["connection_id", "model", "transcript", "messages"],
-        "properties": {
-          "connection_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "messages": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/GroqVoiceMessage"
-            }
-          },
-          "model": {
-            "type": "string"
-          },
-          "organization_id": {
-            "type": ["string", "null"],
-            "format": "uuid"
-          },
-          "stream": {
-            "type": "boolean",
-            "description": "Stream accepted transcript, reply deltas and audio clips as SSE."
-          },
-          "stream_audio": {
-            "type": "boolean",
-            "description": "With stream=true, allow sentence audio to interleave with reply deltas."
-          },
-          "transcript": {
-            "type": "string",
-            "description": "Final transcript recognized locally in the browser, at most 8000 UTF-8 bytes."
-          }
-        },
-        "additionalProperties": false
-      },
-      "GroqVoiceTurnResponse": {
-        "type": "object",
-        "required": ["transcript", "reply", "audio"],
-        "properties": {
-          "audio": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Ordered base64 WAV clips. Each TTS input is at most 200 characters."
-          },
-          "reply": {
-            "type": "string"
-          },
-          "transcript": {
-            "type": "string"
-          }
-        }
-      },
       "HealthResponse": {
         "type": "object",
         "required": ["status", "service"],
@@ -2729,13 +2578,7 @@
       },
       "ModelCapability": {
         "type": "string",
-        "enum": [
-          "chat",
-          "image_input",
-          "realtime_audio",
-          "transcription",
-          "speech_output"
-        ]
+        "enum": ["chat", "image_input", "realtime_audio"]
       },
       "Organization": {
         "type": "object",

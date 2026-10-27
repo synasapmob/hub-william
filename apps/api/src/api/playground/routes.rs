@@ -11,7 +11,7 @@ use crate::{
     core::AppState,
 };
 
-use super::{authorize_chat, chat, groq_voice, models, voice};
+use super::{authorize_chat, chat, models, voice};
 
 pub(crate) fn routes(state: &AppState) -> Router<AppState> {
     Router::new()
@@ -22,10 +22,6 @@ pub(crate) fn routes(state: &AppState) -> Router<AppState> {
         .merge(
             Router::new()
                 .route("/playground/chat", post(chat))
-                .route(
-                    "/playground/groq/voice/turn",
-                    post(groq_voice::create).layer(DefaultBodyLimit::max(64 * 1024)),
-                )
                 .route(
                     "/playground/voice",
                     post(voice::create).layer(DefaultBodyLimit::max(96 * 1024)),
@@ -42,12 +38,7 @@ pub(crate) fn routes(state: &AppState) -> Router<AppState> {
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(
-        super::models,
-        super::chat,
-        super::voice::create,
-        super::groq_voice::create
-    ),
+    paths(super::models, super::chat, super::voice::create),
     components(schemas(
         super::PlaygroundModel,
         super::PlaygroundMode,
@@ -56,10 +47,7 @@ pub(crate) fn routes(state: &AppState) -> Router<AppState> {
         super::PlaygroundMessage,
         super::PlaygroundChatRequest,
         super::voice::PlaygroundVoiceRequest,
-        super::voice::PlaygroundVoiceSession,
-        super::groq_voice::GroqVoiceTurnRequest,
-        super::groq_voice::GroqVoiceTurnResponse,
-        super::groq_voice::GroqVoiceMessage
+        super::voice::PlaygroundVoiceSession
     ))
 )]
 pub(crate) struct PlaygroundApi;

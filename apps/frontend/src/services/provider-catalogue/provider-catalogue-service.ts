@@ -14,7 +14,6 @@ const callModes: Record<
   Exclude<PlaygroundMode, "chat">
 > = {
   native_realtime: "call-live",
-  local_stt_llm_tts: "call-whisper",
 };
 
 const providers = Object.fromEntries(

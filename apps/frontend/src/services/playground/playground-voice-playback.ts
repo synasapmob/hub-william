@@ -10,7 +10,7 @@ interface PlaygroundVoicePlaybackOptions {
 /** Per-turn predecode and scheduling; text delivery never waits for playback. */
 export default class PlaygroundVoicePlayback {
   private options: PlaygroundVoicePlaybackOptions;
-  private encoded: (string | PlaygroundSpeechAudio)[] = [];
+  private encoded: PlaygroundSpeechAudio[] = [];
   private ready: AudioBuffer[] = [];
   private sources = new Set<AudioBufferSourceNode>();
   private decoding = false;
@@ -32,10 +32,9 @@ export default class PlaygroundVoicePlayback {
     if (options.signal.aborted) this.stop();
   }
 
-  append(audio: string | PlaygroundSpeechAudio) {
+  append(audio: PlaygroundSpeechAudio) {
     if (this.stopped || this.ended) return;
-    this.encodedBytes +=
-      typeof audio === "string" ? audio.length : audio.samples.byteLength;
+    this.encodedBytes += audio.samples.byteLength;
     if (this.encodedBytes > 32 * 1024 * 1024) {
       this.fail(new Error("Speech synthesis returned oversized voice audio."));
       return;
@@ -79,20 +78,12 @@ export default class PlaygroundVoicePlayback {
     try {
       while (!this.stopped && this.encoded.length && this.ready.length < 2) {
         const audio = this.encoded.shift()!;
-        let buffer: AudioBuffer;
-        if (typeof audio === "string") {
-          const bytes = Uint8Array.from(atob(audio), (value) =>
-            value.charCodeAt(0),
-          );
-          buffer = await this.options.context.decodeAudioData(bytes.buffer);
-        } else {
-          buffer = this.options.context.createBuffer(
-            1,
-            audio.samples.length,
-            audio.sampleRate,
-          );
-          buffer.copyToChannel(new Float32Array(audio.samples), 0);
-        }
+        const buffer = this.options.context.createBuffer(
+          1,
+          audio.samples.length,
+          audio.sampleRate,
+        );
+        buffer.copyToChannel(new Float32Array(audio.samples), 0);
         if (this.stopped) return;
         this.decodedBytes += buffer.length * buffer.numberOfChannels * 4;
         if (

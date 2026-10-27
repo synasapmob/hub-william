@@ -17,22 +17,18 @@ pub enum ModelCapability {
     Chat,
     ImageInput,
     RealtimeAudio,
-    Transcription,
-    SpeechOutput,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum CallKind {
     NativeRealtime,
-    LocalSttLlmTts,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum CallTransport {
     CodexV3Webrtc,
-    GroqSse,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
@@ -176,19 +172,9 @@ pub(crate) fn call_profile(
     call_profiles(provider_id).find(|call| call.selector_model == model)
 }
 
-pub(crate) fn call_available(call: &CallProfile, live: &Value, has_chat_models: bool) -> bool {
+pub(crate) fn call_available(call: &CallProfile, has_chat_models: bool) -> bool {
     match call.availability.as_str() {
         "chat_catalogue" => has_chat_models,
-        "all_dependencies" => live
-            .get("data")
-            .and_then(Value::as_array)
-            .is_some_and(|models| {
-                call.models.values().all(|id| {
-                    models
-                        .iter()
-                        .any(|model| model["id"] == *id && model["active"] != false)
-                })
-            }),
         _ => false,
     }
 }
@@ -222,10 +208,6 @@ mod tests {
             }
         }
         assert!(!current_chat_model(
-            AgentProvider::Groq,
-            "whisper-large-v3-turbo"
-        ));
-        assert!(!current_chat_model(
             AgentProvider::Chatgpt,
             "gpt-live-1-codex"
         ));
@@ -233,26 +215,10 @@ mod tests {
     }
 
     #[test]
-    fn composed_call_requires_each_active_component() {
-        let call = call_profiles(AgentProvider::Groq).next().unwrap();
-        let full =
-            json!({"data": call.models.values().map(|id| json!({"id": id})).collect::<Vec<_>>()});
-        assert!(call_available(call, &full, false));
-        for index in 0..call.models.len() {
-            let mut missing = full.clone();
-            missing["data"].as_array_mut().unwrap().remove(index);
-            assert!(!call_available(call, &missing, true));
-            let mut inactive = full.clone();
-            inactive["data"][index]["active"] = json!(false);
-            assert!(!call_available(call, &inactive, true));
-        }
-    }
-
-    #[test]
     fn native_call_preserves_its_separate_account_availability_gate() {
         let call = call_profiles(AgentProvider::Chatgpt).next().unwrap();
         assert_eq!(call.kind, CallKind::NativeRealtime);
-        assert!(!call_available(call, &json!({}), false));
-        assert!(call_available(call, &json!({}), true));
+        assert!(!call_available(call, false));
+        assert!(call_available(call, true));
     }
 }

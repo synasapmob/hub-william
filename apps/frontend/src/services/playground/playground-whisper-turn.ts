@@ -12,7 +12,7 @@ export interface PlaygroundWhisperMessage {
 
 export type PlaygroundWhisperEvent =
   | { type: "transcript" | "delta"; text: string }
-  | { type: "audio"; audio: PlaygroundSpeechAudio | string }
+  | { type: "audio"; audio: PlaygroundSpeechAudio }
   | { type: "done" };
 
 export interface PlaygroundWhisperTurnOptions {
@@ -30,7 +30,6 @@ export interface PlaygroundWhisperTurnOptions {
 export interface PlaygroundWhisperTurnResult {
   transcript: string;
   reply: string;
-  audio: (PlaygroundSpeechAudio | string)[];
 }
 
 /** One text generation; local speech follows complete, bounded text segments. */
@@ -107,7 +106,7 @@ async function turn(
     controller.signal.throwIfAborted();
     emit({ type: "done" });
     // PCM is consumed as it arrives; mutation state must not retain it again.
-    return { transcript: options.transcript, reply, audio: [] };
+    return { transcript: options.transcript, reply };
   } catch (error) {
     const cause = failure ?? error;
     controller.abort();
