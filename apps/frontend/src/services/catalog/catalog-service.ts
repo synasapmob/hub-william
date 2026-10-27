@@ -219,6 +219,16 @@ class CatalogService {
       origin,
     );
   }
+
+  /**
+   * The published script that browses and manages the agents' memory
+   */
+  memoryScriptUrl(origin?: string) {
+    return siteAssetUrl(
+      "catalog/contributors/synasapmob/tools/memory/memory.py",
+      origin,
+    );
+  }
 }
 
 export const catalogService = new CatalogService();

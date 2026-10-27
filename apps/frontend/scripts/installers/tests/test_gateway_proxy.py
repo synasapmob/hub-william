@@ -46,14 +46,14 @@ class GatewayProxyTest(unittest.TestCase):
     def test_catalog_scripts_are_served_as_text_not_a_download(self):
         document = NGINX_CONFIG.read_text(encoding="utf-8")
         catalog = re.search(
-            r"location ~ \^/catalog/\.\+\\\.sh\$ \{(?P<body>.*?)\n    \}",
+            r"location ~ \^/catalog/\.\+\\\.\(sh\|py\)\$ \{(?P<body>.*?)\n    \}",
             document,
             re.DOTALL,
         )
 
         self.assertIsNotNone(catalog)
         body = catalog.group("body")
-        self.assertIn("text/plain sh;", body)
+        self.assertIn("text/plain sh py;", body)
         self.assertIn("charset utf-8;", body)
 
     def test_playground_streaming_upload_limit_is_explicit(self):

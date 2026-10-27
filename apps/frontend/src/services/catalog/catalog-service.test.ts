@@ -118,7 +118,7 @@ describe("contributed skills", () => {
     expect(catalogService.contributors()).toContain("synasapmob");
     expect(
       catalogService.collections("synasapmob").map((tool) => tool.id),
-    ).toEqual(["skills", "link-skills"]);
+    ).toEqual(["skills", "link-skills", "memory"]);
     expect(catalogService.findCollection("skills")).toBeNull();
   });
 

@@ -28,6 +28,7 @@ const INSTALL_USAGE_IDS = [
   "omp",
   "skills",
   "link-skills",
+  "memory",
 ];
 
 interface CollectionSectionProps {
@@ -65,6 +66,7 @@ function usageSectionLabel(collection: CatalogCollection) {
   if (collection.id === "download-reel") return "How to download";
   if (collection.id === "gateway") return "How to install and use";
   if (collection.id === "edge-tts") return "How to use via API";
+  if (collection.id === "memory") return "How to run";
   return "How to install";
 }
 

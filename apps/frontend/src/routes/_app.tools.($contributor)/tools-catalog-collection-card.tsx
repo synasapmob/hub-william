@@ -1,5 +1,6 @@
 import {
   AudioLines,
+  Brain,
   Download,
   Files,
   Network,
@@ -20,6 +21,7 @@ const collectionIcons: Record<string, LucideIcon> = {
   "download-reel": Download,
   "edge-tts": Volume2,
   vosk: AudioLines,
+  memory: Brain,
 };
 
 interface ToolsCatalogCollectionCardProps {
