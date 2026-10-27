@@ -180,8 +180,8 @@ upstream provider credentials remain encrypted on the server. OpenCode and OMP
 discover current models through the gateway.
 
 The `synasapmob` tools also include `memory.py`, a terminal browser of what Claude Code, Codex,
-Grok and agy remember (the lessons they save about the user), with a read-only file viewer and a
-`d` key that moves what the cursor is on to the Trash
+Grok and agy remember (a `memory` tab) and are told (a `rules` tab of instruction files and
+skills), with a file viewer and a `d` key that moves what the cursor is on to the Trash
 ([ADR-0053](../../../docs/decisions/0053-memory-terminal-tool.md)). It is a catalogue file under
 `contributors/synasapmob/tools/memory/`, served from `/catalog/` like `link.sh`, not an installer
 in `public/`. It uses only Python's standard library, runs on the user's computer and makes no

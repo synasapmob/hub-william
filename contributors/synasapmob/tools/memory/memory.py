@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-# memory: see and manage what your coding agents remember
+# memory: see and manage what your coding agents remember, and the rules and skills you give them
 #
-# A terminal browser for agent memory: the lessons Claude Code, Codex, Grok and agy save about
-# you. It lists each one with its size, how many files it holds and when it last changed, lets
-# you open a folder to look inside and read a file, and moves learned memory to the Trash.
-# Nothing is ever deleted for good. Nothing leaves your computer.
+# A terminal browser for agent memory: the instruction files you write for them (CLAUDE.md,
+# AGENTS.md, GEMINI.md) and the lessons they save about you, for Claude Code, Codex, Grok and agy.
+# It lists each one with its size, how many files it holds and when it last changed, lets you
+# open a folder to look inside and read a file, and moves learned memory to the Trash. Your
+# instruction files are read-only here, and nothing is ever deleted for good. Nothing leaves
+# your computer.
 #
 # Run it from Hub William (it reads and writes only under your home folder, and needs a
 # terminal on macOS or Linux with Python 3.9 or newer):
@@ -18,6 +20,7 @@
 # starts from the top.
 
 import argparse
+import errno
 import json
 import locale
 import os
@@ -35,32 +38,58 @@ try:
 except ImportError:  # Windows ships no curses
     curses = None
 
+RULES = "rules"  # instruction files that you write: read-only here
 LEARNED = "memory"  # what an agent saved by itself
+SKILLS = "skills"  # skill folders (a folder with a SKILL.md): read-only here
+MIXED = "mixed"
 
 MIN_WIDTH = 64
 MIN_HEIGHT = 12
 MAX_VIEW = 256 * 1024
 MAX_MEMORIES = 500
 
-# Where each agent keeps its memory, as paths under the home folder. "memory" lists folders of
-# files the agent writes (learned memory, which may be moved to the Trash); "indexes" are files an
-# agent generates from its memory (shown, never changed); "databases" are SQLite files the agent
-# writes (shown, never changed); "projects" names the folder that holds one subfolder per project
-# (or workspace), the names of the memory folders inside each, and how a subfolder's name becomes
-# a label. The paths come from the agents' documentation and from what exists on one machine, so
+# Where each agent keeps things, as paths under the home folder. The memory tab reads "memory"
+# (folders of files the agent writes, which may be moved to the Trash), "indexes" (files an
+# agent generates from its memory: shown, never changed), "databases" (SQLite files the agent
+# writes: shown, never changed) and "projects" (the folder that holds one subfolder per project
+# or workspace, the names of the memory folders inside each, and how a subfolder's name becomes
+# a label). The rules tab reads "instructions" (files you write), "rules_dirs" (folders of such
+# files), "skills" (folders of skills) and the instruction files that may sit in a project
+# itself. The paths come from the agents' documentation and from what exists on one machine, so
 # add to them with care.
-ProjectSpec = namedtuple("ProjectSpec", "folder memory index label", defaults=((), "path"))
-AgentSpec = namedtuple("AgentSpec", "name folder memory databases projects indexes", defaults=((), (), None, ()))
+ProjectSpec = namedtuple("ProjectSpec", "folder memory instructions index label", defaults=((), "path"))
+AgentSpec = namedtuple(
+    "AgentSpec", "name folder instructions memory databases projects rules_dirs indexes skills",
+    defaults=((), (), (), None, (), (), ()),
+)
+SHARED = "~/.agents"  # the folder the agents' rules and skills are linked from
 AGENTS = (
-    AgentSpec("claude", ".claude", projects=ProjectSpec(".claude/projects", ("memory",))),
+    AgentSpec("claude", ".claude", projects=ProjectSpec(".claude/projects", ("memory",), ())),
     AgentSpec("codex", ".codex", memory=(".codex/memories",), databases=(".codex/memories_1.sqlite",)),
     AgentSpec(
         "grok", ".grok",
         memory=(".grok/memory-v2/global/topics", ".grok/memory-v2/global/observations"),
-        projects=ProjectSpec(".grok/memory-v2/workspaces", ("topics", "observations"), ("MEMORY.md",), "hash"),
+        projects=ProjectSpec(".grok/memory-v2/workspaces", ("topics", "observations"), (), ("MEMORY.md",), "hash"),
         indexes=(".grok/memory-v2/global/MEMORY.md",),
     ),
     AgentSpec("agy", ".gemini"),
+)
+RULES_AGENTS = (
+    AgentSpec(
+        "claude", ".claude", instructions=(".claude/CLAUDE.md",),
+        projects=ProjectSpec(
+            ".claude/projects", (),
+            ("CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md", "AGENTS.md", "GEMINI.md"),
+        ),
+        skills=((".claude/skills", "skills"),),
+    ),
+    AgentSpec("codex", ".codex", instructions=(".codex/AGENTS.md",), skills=((".codex/skills/.system", "skills"),)),
+    AgentSpec("grok", ".grok", rules_dirs=(".grok/rules",), skills=((".grok/skills", "skills"),)),
+    AgentSpec(
+        "agy", ".gemini", instructions=(".gemini/AGENTS.md", ".gemini/GEMINI.md"),
+        skills=((".gemini/config/skills", "skills"),),
+    ),
+    AgentSpec(SHARED, ".agents", instructions=(".agents/AGENTS.md",), skills=((".agents/skills", "skills"),)),
 )
 
 UNICODE_CHARS = {
@@ -83,10 +112,10 @@ class Entry(object):
 
     __slots__ = (
         "name", "path", "is_dir", "kind", "agent", "root", "size", "paths", "mtime", "children",
-        "always", "missing", "deletable", "text", "note",
+        "always", "missing", "deletable", "link", "text", "note", "broken", "alerts",
     )
 
-    def __init__(self, name, path=None, is_dir=True, kind=LEARNED, agent=None, root=None):
+    def __init__(self, name, path=None, is_dir=True, kind=RULES, agent=None, root=None):
         self.name = name
         self.path = path
         self.is_dir = is_dir
@@ -99,22 +128,31 @@ class Entry(object):
         self.children = []
         self.always = False  # an agent is listed even when it has no size
         self.missing = False  # the agent's folder does not exist
-        self.deletable = False  # learned memory in a file or folder that may go to the Trash
+        self.deletable = False  # a file, folder or link that may go to the Trash
+        self.link = None  # where a symlink points, for an instruction file that is one
         self.text = None  # the content of an entry that is not a file, such as a database row
         self.note = None  # why a folder cannot be opened
+        self.broken = False  # a symlink whose target is not there: listed in red, never read
+        self.alerts = 0  # how many broken links are in it, itself included
 
     def add(self, child):
         self.children.append(child)
         self.size += child.size
         self.paths += child.paths
+        self.alerts += child.alerts
         self.mtime = max(self.mtime, child.mtime)
 
     def sort(self):
         self.children.sort(key=lambda child: (-child.size, child.name))
 
     def visible(self):
-        """What the screens list: an entry with no size is not shown, except an agent."""
-        return [child for child in self.children if child.size > 0 or child.always]
+        """What the screens list: an entry with no size is not shown, except an agent or a broken link."""
+        return [child for child in self.children if child.size > 0 or child.always or child.alerts]
+
+
+def listed(path):
+    """A path with its folder resolved and its own name kept, so a link stays a link."""
+    return os.path.join(os.path.realpath(os.path.dirname(path)), os.path.basename(path))
 
 
 def tilde(path, home):
@@ -175,17 +213,48 @@ def project_label(folder, home, style="path"):
     return tilde(found, home) if found else folder
 
 
+def broken_entry(path, kind, agent, info):
+    """A symlink to nothing. It is listed so that it does not vanish; the tool only warns about it."""
+    entry = Entry(os.path.basename(path), path, False, kind, agent)
+    entry.broken = True
+    entry.alerts = 1
+    entry.deletable = kind != LEARNED
+    entry.mtime = info.st_mtime
+    try:
+        entry.link = os.path.realpath(path)
+    except (OSError, RuntimeError):
+        entry.link = path
+    return entry
+
+
+def points_nowhere(path):
+    """Whether a symlink's target is missing, or the links go round in a circle."""
+    try:
+        os.stat(path)
+    except OSError as error:
+        return error.errno in (errno.ENOENT, errno.ENOTDIR, errno.ELOOP)
+    return False
+
+
 def file_entry(path, kind, agent):
-    """A file an agent generates from its memory. It is shown, never changed, and a symlink is not followed."""
+    """An instruction file; a symlink to a regular file counts, with its target's size."""
     try:
         info = os.lstat(path)
+        target = None
+        if stat.S_ISLNK(info.st_mode):
+            if kind != LEARNED and points_nowhere(path):
+                return broken_entry(path, kind, agent, info)
+            info = os.stat(path)
+            target = os.path.realpath(path)
     except OSError:
         return None
     if not stat.S_ISREG(info.st_mode):
         return None
     entry = Entry(os.path.basename(path), path, False, kind, agent)
+    entry.deletable = kind != LEARNED  # a generated index is not ours to move
     entry.size = info.st_size
     entry.mtime = info.st_mtime
+    entry.link = target
     entry.paths = 1 if entry.size > 0 else 0
     return entry
 
@@ -289,18 +358,99 @@ def database_entry(path, agent):
     return entry
 
 
+def skill_tree(path, name, agent):
+    """A skill folder with its files, following a link at the top only."""
+    real = os.path.realpath(path)
+    entry = Entry(name, path, True, SKILLS, agent)
+    entry.deletable = True
+    entry.link = real if os.path.islink(path) else None
+    try:
+        entry.mtime = os.stat(real).st_mtime
+        names = sorted(os.listdir(real))
+    except OSError:
+        return entry
+    for child in names:
+        if child.startswith("."):
+            continue
+        full = os.path.join(real, child)
+        if os.path.islink(full) and os.path.isdir(full):
+            continue  # a link to a folder inside a skill could loop
+        if os.path.isdir(full):
+            entry.add(skill_tree(full, child, agent))
+        else:
+            item = file_entry(full, SKILLS, agent)
+            if item is not None:
+                entry.add(item)
+    entry.sort()
+    return entry
+
+
+def skill_entries(path, agent):
+    """The skills under a folder: a skill is a folder holding SKILL.md, and any other folder is a group of them."""
+    found = []
+    try:
+        names = sorted(os.listdir(path))
+    except OSError:
+        return found
+    for name in names:
+        child = os.path.join(path, name)
+        if name.startswith("."):
+            continue
+        if os.path.islink(child) and points_nowhere(child):
+            found.append(broken_entry(child, SKILLS, agent, os.lstat(child)))
+            continue
+        if not os.path.isdir(child):
+            continue
+        if os.path.isfile(os.path.join(child, "SKILL.md")):
+            found.append(skill_tree(child, name, agent))
+            continue
+        inner = skill_entries(child, agent)
+        while len(inner) == 1 and inner[0].path is None:  # a lone wrapper folder adds nothing
+            inner = inner[0].children
+        if inner:
+            group = Entry(name, None, True, SKILLS, agent)
+            for item in inner:
+                group.add(item)
+            group.sort()
+            found.append(group)
+    return found
+
+
 def load_agent(spec, home, places):
     """One agent as a group, listed even when it has no memory.
 
     An agent that has projects shows Global and then each project; any other shows its files
     directly.
     """
-    agent = Entry(spec.name, None, True, LEARNED, spec.name)
+    agent = Entry(spec.name, None, True, RULES, spec.name)
     agent.always = True
     agent.missing = not os.path.isdir(os.path.join(home, spec.folder))
 
     def global_entries():
         saved = []  # the notes the agent wrote, to decide whether its index is worth showing
+        for relative in spec.instructions:
+            entry = file_entry(listed(os.path.join(home, relative)), RULES, spec.name)
+            if entry is not None:
+                yield entry
+        for relative in spec.rules_dirs:
+            folder = os.path.realpath(os.path.join(home, relative))
+            try:
+                names = sorted(os.listdir(folder))
+            except OSError:
+                names = []
+            for name in names:
+                if name.endswith(".md"):
+                    entry = file_entry(os.path.join(folder, name), RULES, spec.name)
+                    if entry is not None:
+                        yield entry
+        for relative, label in spec.skills:
+            skills = skill_entries(os.path.realpath(os.path.join(home, relative)), spec.name)
+            if skills:
+                group = Entry(label, None, True, SKILLS, spec.name)
+                for item in skills:
+                    group.add(item)
+                group.sort()
+                yield group
         for relative in spec.memory:
             parent = os.path.realpath(os.path.dirname(os.path.join(home, relative)))
             name = os.path.basename(relative)
@@ -325,7 +475,7 @@ def load_agent(spec, home, places):
         agent.sort()
         return agent
 
-    shared = Entry("Global", None, True, LEARNED, spec.name)
+    shared = Entry("Global", None, True, RULES, spec.name)
     for entry in global_entries():
         shared.add(entry)
     shared.sort()
@@ -339,7 +489,7 @@ def load_agent(spec, home, places):
         root = os.path.realpath(os.path.join(folder, name))
         if not os.path.isdir(root):
             continue
-        project = Entry(project_label(name, home, spec.projects.label), None, True, LEARNED, spec.name)
+        project = Entry(project_label(name, home, spec.projects.label), None, True, RULES, spec.name)
         for memory_name in spec.projects.memory:
             places.setdefault(root, set()).add(memory_name)
             memory = scan_memory(os.path.join(root, memory_name), spec.name, root)
@@ -350,6 +500,11 @@ def load_agent(spec, home, places):
                 entry = file_entry(os.path.join(root, index_name), LEARNED, spec.name)
                 if entry is not None:
                     project.add(entry)
+        found = find_project(name) if spec.projects.label == "path" else None
+        for relative in spec.projects.instructions if found else ():
+            entry = file_entry(listed(os.path.join(found, relative)), RULES, spec.name)
+            if entry is not None:
+                project.add(entry)
         project.sort()
         projects.append(project)
     agent.add(shared)
@@ -362,22 +517,44 @@ def load_agent(spec, home, places):
 class Library(object):
     """Every agent's memory under one home folder, as scanned at one moment."""
 
-    def __init__(self, home, root, places, scanned_at):
+    def __init__(self, home, root, places, scanned_at, what="memory files", noun="learned memory", kinds=(LEARNED,)):
         self.home = home
         self.root = root
         self.places = places
         self.scanned_at = scanned_at
+        self.what = what  # what an agent with nothing "has no ... yet"
+        self.noun = noun  # what a delete preview is about
+        self.kinds = kinds  # the only kinds of entry that may be moved to the Trash
 
 
-def load(home, now=None, progress=None, specs=AGENTS):
+def load(home, now=None, progress=None, specs=AGENTS, title="memory", what="memory files",
+         noun="learned memory", kinds=(LEARNED,)):
     places = {}
-    root = Entry("memory")
+    root = Entry(title)
     for spec in specs:
         if progress is not None:
             progress(spec.name)
         root.add(load_agent(spec, home, places))
     root.sort()
-    return Library(home, root, places, time.time() if now is None else now)
+    return Library(home, root, places, time.time() if now is None else now, what, noun, kinds)
+
+
+def allow_removal(entry, places):
+    """Record where each rule, skill and link sits, so that the guard can check it again before a move."""
+    if entry.deletable and entry.path is not None:
+        entry.root = os.path.dirname(entry.path)
+        places.setdefault(entry.root, set()).add(os.path.basename(entry.path))
+    for child in entry.children:
+        allow_removal(child, places)
+
+
+def load_rules(home, now=None, progress=None):
+    """The rules tab: instruction files and skills, which may go to the Trash like memory."""
+    library = load(home, now, progress, RULES_AGENTS, "rules", "rules or skills", "rules and skills", (RULES, SKILLS))
+    # ~/.agents is where the other agents' files really live, so it comes first; the rest go by size
+    library.root.children.sort(key=lambda agent: (agent.name != SHARED, -agent.size, agent.name))
+    allow_removal(library.root, library.places)
+    return library
 
 
 # --- Formatting ------------------------------------------------------------------------
@@ -422,41 +599,85 @@ def fit(text, width, chars, tail=False):
 
 
 def prunable(entry):
-    """The parts of an entry that may be deleted: learned memory files, never an index or a database."""
+    """The parts of an entry that may be deleted: memory, rules, skills and links, never an index or a database."""
     if entry.deletable:
         return [entry]
     return [item for child in entry.children for item in prunable(child)]
 
 
+def kinds_of(entry):
+    live = [child for child in entry.children if child.size > 0]
+    if not live:
+        return set([entry.kind])
+    found = set()
+    for child in live:
+        found |= kinds_of(child)
+    return found
+
+
 def entry_status(entry):
+    if entry.broken or (entry.size <= 0 and entry.alerts):
+        return "broken"  # a link to nothing, or only links to nothing are left in it
     if entry.size <= 0 and entry.always:
         return "empty"  # no folder, or nothing in it; the message says which
-    return LEARNED
+    found = kinds_of(entry)
+    return MIXED if len(found) > 1 else next(iter(found))
 
 
 class Plan(object):
-    def __init__(self, title, items, kept):
+    """What a delete will move. A link moves alone: its target stays, and is counted in kept."""
+
+    def __init__(self, title, items, kept, breaks=(), kept_label="kept (read-only)", show_kept=True):
         self.title = title
         self.items = items
         self.kept = kept
-        self.size = sum(item.size for item in items)
-        self.paths = sum(item.paths for item in items)
+        self.breaks = breaks  # the listed links that would point at nothing afterwards
+        self.kept_label = kept_label
+        self.show_kept = show_kept
+        self.size = sum(item.size for item in items if item.link is None)
+        self.paths = sum(item.paths for item in items if item.link is None)
+
+
+def walk(entry):
+    yield entry
+    for child in entry.children:
+        for item in walk(child):
+            yield item
+
+
+def dangling_links(items, library):
+    """The links listed in the library that would point at nothing once the items have moved, as entries."""
+    moving = [item.path for item in items]
+    gone = [item.path for item in items if item.link is None]
+    found = []
+    for node in walk(library.root):
+        if node.link is None or node.path is None or node.size <= 0:
+            continue
+        if any(node.path == path or node.path.startswith(path + os.sep) for path in moving):
+            continue  # it goes too
+        if any(node.link == path or node.link.startswith(path + os.sep) for path in gone):
+            found.append(node)
+    return found
 
 
 def refusal(entry, library):
     """Why an entry must not be deleted, or None. Checked again just before every move."""
     allowed = library.places.get(entry.root)
-    if not entry.deletable or entry.path is None or allowed is None:
-        return "not learned memory"
+    unfit = "not learned memory" if LEARNED in library.kinds else "not a rule or skill"
+    if entry.kind not in library.kinds or not entry.deletable or entry.path is None or allowed is None:
+        return unfit
     root = entry.root
     if not entry.path.startswith(root + os.sep):
         return "outside the agent folder"
     if entry.path[len(root) + 1:].split(os.sep)[0] not in allowed:
-        return "not learned memory"
+        return unfit
     if not os.path.lexists(entry.path):
         return "already gone"
-    if os.path.realpath(entry.path) != entry.path:
-        return "reached through a symlink"
+    if entry.link is None:
+        if os.path.realpath(entry.path) != entry.path:
+            return "reached through a symlink"
+    elif not os.path.islink(entry.path) or os.path.realpath(root) != root:
+        return "reached through a symlink"  # a link moves alone, and only if it is still the link we listed
     return None
 
 
@@ -502,7 +723,8 @@ def move_to_trash(path, home, label, now=None):
 
 def trash_label(entry):
     """A name for the Trash that says which agent and project the memory came from."""
-    return "%s-%s" % (entry.agent, os.path.basename(entry.root).lstrip(".")[-60:])
+    agent = re.sub(r"[^A-Za-z0-9_.-]+", "", entry.agent or "").lstrip(".") or "agent"
+    return "%s-%s" % (agent, os.path.basename(entry.root).lstrip(".")[-60:])
 
 
 def run_plan(plan, library, now=None):
@@ -572,12 +794,13 @@ def clean_line(line):
 
 
 class Viewer(object):
-    """A read-only view of one text file."""
+    """A read-only view of one text file, or of the warning about a broken link."""
 
-    def __init__(self, entry, trail, document):
+    def __init__(self, entry, trail, document, warning=False):
         self.entry = entry
         self.trail = trail
         self.document = document
+        self.warning = warning
         self.top = 0
         self.page = 10
         self.max_top = 1 << 30  # the last position that still fills the view; known after a draw
@@ -642,7 +865,7 @@ class Dialog(object):
 class Browser(object):
     """What is on screen and what each key does, with no curses in it."""
 
-    def __init__(self, library, loader=None, clock=time.time, ascii_only=False):
+    def __init__(self, library, loader=None, clock=time.time, ascii_only=False, rules=None, rules_loader=None):
         self.library = library
         self.loader = loader
         self.clock = clock
@@ -650,7 +873,13 @@ class Browser(object):
         self.stack = [library.root]
         self.memory = {}  # folder names -> the row the cursor was on
         self.scroll = {}  # folder names -> the first row shown
-        self.tab = 1  # 0 disk, 1 memory
+        self.tab = 1  # 0 disk, 1 memory, 2 rules
+        self.has_rules = rules is not None
+        self.saved = {}  # the place of each tab that is not on screen
+        if rules is not None:
+            self.saved[2] = {
+                "library": rules, "loader": rules_loader, "stack": [rules.root], "memory": {}, "scroll": {},
+            }
         self.message = ""
         self.dialog = None
         self.viewer = None
@@ -695,6 +924,23 @@ class Browser(object):
         if count:
             self.select((self.index() + delta) % count)
 
+    def switch(self, new):
+        """Show another tab; each list tab keeps its own folder and cursors."""
+        if new == self.tab:
+            return
+        if new == 2 and not self.has_rules:
+            self.message = "The rules tab is not available."
+            return
+        if self.tab in (1, 2):
+            self.saved[self.tab] = {
+                "library": self.library, "loader": self.loader, "stack": self.stack,
+                "memory": self.memory, "scroll": self.scroll,
+            }
+        self.tab = new
+        if new in self.saved:
+            for name, value in self.saved[new].items():
+                setattr(self, name, value)
+
     def open(self):
         entry = self.current()
         if entry is None:
@@ -702,7 +948,7 @@ class Browser(object):
         if entry.always and not entry.visible():
             self.message = (
                 "%s has no folder here: nothing to open." if entry.missing
-                else "%s has no memory files yet: nothing to open."
+                else "%s has no " + self.library.what + " yet: nothing to open."
             ) % entry.name
         elif not entry.is_dir:
             self.open_file(entry)
@@ -712,10 +958,22 @@ class Browser(object):
             self.message = entry.note or "Nothing to open: every entry in this folder is empty."
 
     def open_file(self, entry):
+        if entry.broken:
+            if points_nowhere(entry.path):  # looked at again now, not as it was at the scan
+                home = self.library.home
+                text = (
+                    "This symlink is broken: the file it points to was not found.\n\n"
+                    "  link    %s\n  target  %s\n\n"
+                    "Nothing was changed. Fix it yourself, or press D on its row to move the link to the Trash."
+                ) % (tilde(entry.path, home), tilde(entry.link, home))
+                trail = [item.name for item in self.stack[1:]] + [entry.name]
+                self.viewer = Viewer(entry, trail, Document(text, 0, False), warning=True)
+                return
+            self.reload()  # it was mended since the scan: read it as any link
         if entry.text is not None:
             document = Document(entry.text, len(entry.text.encode("utf-8")), False)
         else:
-            document = read_document(entry.path)
+            document = read_document(os.path.realpath(entry.path) if entry.link else entry.path)
         if isinstance(document, str):
             self.message = "%s %s." % (entry.name, document)
             return
@@ -749,32 +1007,54 @@ class Browser(object):
     # Deleting
 
     def begin_delete(self):
-        """Preview moving the learned memory under the cursor to the Trash: an agent, a folder or a file."""
+        """Preview moving what the cursor is on to the Trash: an agent, a folder, a file or a link."""
         scope = self.current()
+        library = self.library
         if scope is None:
             self.message = "Nothing is selected."
             return
-        if scope.always and scope.size <= 0:
+        if scope.always and scope.size <= 0 and not scope.alerts:
             self.message = (
                 "%s has no folder here: nothing to delete." if scope.missing
-                else "%s has no memory files yet: nothing to delete."
+                else "%s has no " + library.what + " yet: nothing to delete."
             ) % scope.name
             return
-        items = [item for item in prunable(scope) if item.size > 0]
+        items = []
+        seen = set()
+        for item in prunable(scope):
+            if (item.size > 0 or item.broken) and item.path not in seen:
+                seen.add(item.path)
+                items.append(item)
         if not items:
             self.message = 'Nothing to delete in "%s": generated indexes and databases are read-only.' % scope.name
             return
-        plan = Plan('Delete learned memory of "%s"' % scope.name, items, scope.size - sum(item.size for item in items))
+        links = [item for item in items if item.link is not None]
+        kept = scope.size - sum(item.size for item in items) + sum(item.size for item in links)
+        memory = LEARNED in library.kinds
+        plan = Plan(
+            'Delete %s of "%s"' % (library.noun, scope.name), items, kept, dangling_links(items, library),
+            "kept (read-only)" if memory else "targets that stay", memory or bool(links),
+        )
         self.dialog = Dialog(plan)
 
     def confirm_delete(self):
         plan = self.dialog.plan
         self.dialog = None
         moved, failed = run_plan(plan, self.library, self.clock())
-        size = sum(entry.size for entry in moved)
-        text = "Moved %s to the Trash (%d item%s)." % (
-            format_size(size), len(moved), "" if len(moved) == 1 else "s",
-        )
+        real = [entry for entry in moved if entry.link is None]
+        links = len(moved) - len(real)
+        counts = []
+        if real:
+            counts.append("%d item%s" % (len(real), "" if len(real) == 1 else "s"))
+        if links:
+            counts.append("%d link%s" % (links, "" if links == 1 else "s"))
+        if real:
+            text = "Moved %s to the Trash (%s)." % (format_size(sum(entry.size for entry in real)), ", ".join(counts))
+        else:
+            text = "Moved %s to the Trash." % ", ".join(counts)
+        if plan.breaks and moved:
+            text += " %d link%s now point%s at nothing." % (
+                len(plan.breaks), "" if len(plan.breaks) == 1 else "s", "s" if len(plan.breaks) == 1 else "")
         if failed:
             text += " Could not move %d: %s: %s." % (len(failed), failed[0][0].name, failed[0][1])
         self.reload()
@@ -847,10 +1127,11 @@ class Browser(object):
         self.message = ""
         if key == "q":
             self.running = False
-        elif key in ("1", "2"):
-            self.tab = int(key) - 1
+        elif key in ("1", "2", "3"):
+            self.switch(int(key) - 1)
         elif key == "tab":
-            self.tab = 1 - self.tab
+            order = [0, 1] + ([2] if self.has_rules else [])
+            self.switch(order[(order.index(self.tab) + 1) % len(order)])
         elif self.tab == 0:
             return
         elif key in ("up", "k"):
@@ -904,7 +1185,10 @@ class Browser(object):
 
     def cells(self, entry, name_width):
         now = self.clock()
-        name = fit(entry.name, name_width, self.chars, tail=True)
+        text = entry.name
+        if entry.link:
+            text = "%s %s %s" % (entry.name, self.chars["right"], tilde(entry.link, self.library.home))
+        name = fit(text, name_width, self.chars, tail=not entry.link)
         status = entry_status(entry).ljust(7)
         if entry.size <= 0:
             return name, "-".rjust(9), "-".rjust(9), "-".rjust(4), status
@@ -923,11 +1207,14 @@ class Browser(object):
         line = " " + marker + name + gap + paths + gap + size + gap + age + gap + status + " "
         if selected:
             return [(line, "cursor")]
+        if status.strip() == "broken":
+            return [(line, "danger")]
         if entry.size <= 0:
             return [(line, "dim")]
+        tone = {LEARNED: "ok", SKILLS: "ok", MIXED: "warn", RULES: "dim"}[status.strip()]
         return [
             (" " + marker + name + gap + paths + gap + size + gap + age + gap, "normal"),
-            (status, "ok"),
+            (status, tone),
             (" ", "normal"),
         ]
 
@@ -943,7 +1230,7 @@ class Browser(object):
         """The hints under the list: (left group, right group)."""
         chars = self.chars
         if self.tab == 0:
-            return "[2] memory", "[q] quit"
+            return "[2] memory" + ("  [3] rules" if self.has_rules else ""), "[q] quit"
         entry = self.current()
         reading = "read" if entry is not None and not entry.is_dir else "open"
         move = "[%s] move  [%s] %s" % (chars["updown"], chars["right"], reading)
@@ -962,7 +1249,7 @@ class Browser(object):
         return "scanned just now" if age < 60 else "scanned %s ago" % format_age(age)
 
     def tab_line(self, inner):
-        labels = [(0, "disk"), (1, "memory")]
+        labels = [(0, "disk"), (1, "memory")] + ([(2, "rules")] if self.has_rules else [])
         tabs = [(" ", "normal")]
         for index, label in labels:
             active = index == self.tab
@@ -984,7 +1271,7 @@ class Browser(object):
             return self.render_viewer(width, height)
         inner = width - 2
         chars = self.chars
-        rows = self.rows() if self.tab == 1 else []
+        rows = self.rows() if self.tab in (1, 2) else []
         list_height = height - 10
         self.page = max(1, list_height - 1)
 
@@ -992,10 +1279,10 @@ class Browser(object):
         total_paths = sum(row.paths for row in rows)
         trail = chars["crumb"].join(entry.name for entry in self.stack)
         summary = ""
-        if self.tab == 1 and rows:
+        if self.tab in (1, 2) and rows:
             summary = "total %s%s%s paths " % (format_size(total_size), chars["dot"], format(total_paths, ","))
         crumb_width = max(1, inner - len(summary) - 1)
-        crumb = " " + fit(trail if self.tab == 1 else "disk", crumb_width, chars, tail=True)
+        crumb = " " + fit(trail if self.tab in (1, 2) else "disk", crumb_width, chars, tail=True)
 
         lines = [
             self.rule("tl", "tr", width, "hub-william"),
@@ -1003,7 +1290,7 @@ class Browser(object):
             self.rule("ml", "mr", width),
             self.boxed([(crumb, "bold"), (summary, "normal")], inner),
             self.rule("ml", "mr", width),
-            self.boxed(self.header(inner) if self.tab == 1 else [], inner),
+            self.boxed(self.header(inner) if self.tab in (1, 2) else [], inner),
         ]
 
         if self.tab == 0:
@@ -1039,6 +1326,8 @@ class Browser(object):
         document = viewer.document
         size = format_size(document.size)
         info = ("first %s of %s" % (format_size(MAX_VIEW), size) if document.truncated else size) + " "
+        if viewer.warning:
+            info = "broken link "
         trail = chars["crumb"].join([self.stack[0].name] + viewer.trail)
         crumb = " " + fit(trail, max(1, inner - len(info) - 1), chars, tail=True)
 
@@ -1049,7 +1338,7 @@ class Browser(object):
         body = []
         for number, text in shown:
             gutter = ("%6d " % number) if number is not None else " " * 7
-            body.append([(" " + gutter, "dim"), (text, "normal")])
+            body.append([(" " + gutter, "dim"), (text, "danger" if viewer.warning and number == 1 else "normal")])
         position = " rows %d-%d of %d" % (viewer.top + 1, viewer.top + len(shown), len(rows)) if shown else " empty"
 
         lines = [
@@ -1080,20 +1369,36 @@ class Browser(object):
         def line(text, style="normal"):
             return self.boxed([(" " + fit(text, inner - 2, chars), style)], inner)
 
-        body = []
-        for item in plan.items:
-            label = "%s  %s" % (item.agent, tilde(item.path, home))
-            body.append(("  " + fit(label, inner - 2 - 2 - 10, chars, tail=True) + " " + format_size(item.size).rjust(9), "normal"))
+        def item_line(entry, size):
+            label = "%s  %s" % (entry.agent, tilde(entry.path, home))
+            if entry.link:
+                label += " %s %s" % (chars["right"], tilde(entry.link, home))
+            return ("  " + fit(label, inner - 2 - 2 - 10, chars, tail=True) + " " + size.rjust(9), "normal")
+
+        body = [
+            item_line(item, "broken" if item.broken else "link" if item.link else format_size(item.size))
+            for item in plan.items
+        ]
+        if plan.breaks:
+            body.append(("Would break %d link%s:" % (len(plan.breaks), "" if len(plan.breaks) == 1 else "s"), "warn"))
+            body += [item_line(entry, "") for entry in plan.breaks]
 
         lines = [self.rule("tl", "tr", width, "delete " + chars["dot"].strip() + " preview"),
                  line(plan.title, "bold"), line("")]
-        lines.append(line("  %s  %9s  (%d item%s, %s paths)" % (
-            "will move to the Trash".ljust(22), format_size(plan.size), len(plan.items),
-            "" if len(plan.items) == 1 else "s", format(plan.paths, ","))))
-        lines.append(line("  %s  %9s" % ("kept (read-only)".ljust(22), format_size(plan.kept))))
+        links = sum(1 for item in plan.items if item.link)
+        real = len(plan.items) - links
+        counts = []
+        if real:
+            counts.append("%d item%s, %s paths" % (real, "" if real == 1 else "s", format(plan.paths, ",")))
+        if links:
+            counts.append("%d link%s" % (links, "" if links == 1 else "s"))
+        lines.append(line("  %s  %9s  (%s)" % (
+            "will move to the Trash".ljust(22), format_size(plan.size) if real else "-", ", ".join(counts))))
+        if plan.show_kept:
+            lines.append(line("  %s  %9s" % (plan.kept_label.ljust(22), format_size(plan.kept))))
         lines.append(line(""))
 
-        room = max(1, height - 10)
+        room = max(1, height - (9 + (1 if plan.show_kept else 0)))
         scrolling = len(body) > room
         if scrolling:
             room = max(1, room - 1)  # one line goes to saying which rows are shown
@@ -1129,7 +1434,7 @@ def list_view(library, agent=None):
     now = time.time()
     if not rows:
         return ["Nothing found under %s." % library.home]
-    labels = [row.name for row in rows]
+    labels = [row.name if not row.link else "%s -> %s" % (row.name, tilde(row.link, library.home)) for row in rows]
     name_width = min(max(len(label) for label in labels), 56)
     lines = ["%s   total %s, %s paths" % (
         " > ".join(trail), format_size(sum(r.size for r in rows)),
@@ -1141,7 +1446,7 @@ def list_view(library, agent=None):
         else:
             paths, size, age = format(row.paths, ","), format_size(row.size), format_age(now - row.mtime)
         lines.append("%s  %9s  %9s  %4s  %s" % (
-            fit(label, name_width, ASCII_CHARS, tail=True), paths, size, age, entry_status(row)))
+            fit(label, name_width, ASCII_CHARS, tail=not row.link), paths, size, age, entry_status(row)))
     return lines
 
 
@@ -1252,7 +1557,10 @@ def run_screen(screen, home, ascii_only):
     def announce(name):
         draw(screen, [[("Scanning %s ..." % name, "normal")]], styles)
 
-    browser = Browser(load(home, progress=announce), lambda: load(home), ascii_only=ascii_only)
+    browser = Browser(
+        load(home, progress=announce), lambda: load(home), ascii_only=ascii_only,
+        rules=load_rules(home, progress=announce), rules_loader=lambda: load_rules(home),
+    )
     while browser.running:
         height, width = screen.getmaxyx()
         draw(screen, browser.render(width, height), styles)
@@ -1283,12 +1591,13 @@ def main(argv=None):
     )
     parser.add_argument("--list", action="store_true", help="print the table and exit; changes nothing")
     parser.add_argument("--agent", metavar="NAME", help="with --list: show the memory of one agent")
+    parser.add_argument("--tab", choices=("memory", "rules"), default="memory", help="with --list: which tab to print")
     parser.add_argument("--home", metavar="PATH", help="scan this home folder instead of yours")
     args = parser.parse_args(argv)
     home = os.path.abspath(os.path.expanduser(args.home or "~"))
 
     if args.list or args.agent:
-        lines = list_view(load(home), args.agent)
+        lines = list_view(load_rules(home) if args.tab == "rules" else load(home), args.agent)
         if lines is None:
             print("memory: no agent named %r under %s" % (args.agent, home), file=sys.stderr)
             return 2

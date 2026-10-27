@@ -39,6 +39,7 @@ finally:
 
 RULES_TEXT = "# Shared rules\n\n- Never save memory on your own.\n"
 INDEX_TEXT = "- [Helpers](feedback_helpers.md) - never call useEffect in utils helpers\n"
+SKILL_TEXT = "---\nname: mock-data\ndescription: fake data for screenshots\n---\n\nUse abc text.\n"
 MEMORY_TEXT = (
     "---\nname: feedback-helpers\ndescription: never call useEffect in helpers\n---\n\n"
     "Hooks only work inside components.\n"
@@ -98,7 +99,7 @@ def entry_at(library, *names):
 
 
 class HomeTestCase(unittest.TestCase):
-    """A home folder with what the agents keep: learned memory, a Codex database and, which the tool must leave out, rules."""
+    """A home folder with what the agents keep: rules, skills, learned memory and a Codex database."""
 
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
@@ -127,6 +128,18 @@ class HomeTestCase(unittest.TestCase):
         write(self.home / ".claude" / "projects" / "-gone-project" / "memory" / "note.md", "a lesson\n")
         (self.home / ".claude" / "projects" / "-empty" / "memory").mkdir(parents=True)
 
+        skills = self.home / ".agents" / "skills"
+        write(skills / "mock-data" / "SKILL.md", SKILL_TEXT)
+        write(skills / "scroll-world" / "SKILL.md", "# scroll world\n")
+        write(skills / "scroll-world" / "references" / "notes.md", "abc notes\n")
+        for folder in (self.home / ".claude" / "skills", self.home / ".gemini" / "config" / "skills"):
+            folder.mkdir(parents=True)
+            for name in ("mock-data", "scroll-world"):
+                os.symlink(skills / name, folder / name)
+        write(self.home / ".claude" / "skills" / "synced" / "abc-uuid" / "pptx" / "SKILL.md", "# pptx\n")
+        write(self.home / ".claude" / "skills" / "synced" / "abc-uuid" / "docx" / "SKILL.md", "# docx\n")
+        write(self.home / ".codex" / "skills" / ".system" / "imagegen" / "SKILL.md", "# imagegen\n")
+
         write(self.home / ".codex" / "memories" / "one.md", "codex learned this\n")
         make_database(
             self.home / ".codex" / "memories_1.sqlite",
@@ -139,8 +152,19 @@ class HomeTestCase(unittest.TestCase):
     def library(self):
         return mem.load(str(self.home))
 
+    def rules_library(self):
+        return mem.load_rules(str(self.home))
+
     def browser(self, **options):
+        """The browser as the tool starts it: on the memory tab, with the rules tab ready."""
+        options.setdefault("rules", self.rules_library())
+        options.setdefault("rules_loader", lambda: mem.load_rules(str(self.home)))
         return mem.Browser(self.library(), lambda: mem.load(str(self.home)), **options)
+
+    def rules_browser(self, **options):
+        browser = self.browser(**options)
+        browser.handle_key("3")
+        return browser
 
     def trashed(self):
         files, _ = mem.trash_locations(str(self.home))
@@ -156,7 +180,7 @@ class FindingMemoryTest(HomeTestCase):
         types = dict((agent.name, mem.entry_status(agent)) for agent in agents)
         self.assertEqual(types, {"claude": "memory", "codex": "memory", "agy": "empty", "grok": "empty"})
 
-    def test_the_memory_tab_holds_no_instruction_files(self):
+    def test_the_memory_tab_holds_no_rules_and_no_skills(self):
         library = self.library()
         stack = [library.root]
         kinds = set()
@@ -188,10 +212,10 @@ class FindingMemoryTest(HomeTestCase):
         self.assertEqual(mem.entry_status(project), "memory")
 
     def test_paths_count_files_and_every_screen_adds_up(self):
-        library = self.library()
-        for agent in library.root.visible():
-            self.assertEqual(agent.paths, sum(child.paths for child in agent.visible()), agent.name)
-            self.assertEqual(agent.size, sum(child.size for child in agent.visible()), agent.name)
+        for library in (self.library(), self.rules_library()):
+            for agent in library.root.visible():
+                self.assertEqual(agent.paths, sum(child.paths for child in agent.visible()), agent.name)
+                self.assertEqual(agent.size, sum(child.size for child in agent.visible()), agent.name)
         self.assertEqual(entry_at(self.library(), "claude", "~/code/app", "memory").paths, 2)
 
     def test_no_folder_and_no_files_both_show_empty_but_the_messages_differ(self):
@@ -276,14 +300,16 @@ class FindingMemoryTest(HomeTestCase):
         self.assertIsNone(mem.find_project(encode(self.home / "nowhere" / "app")))
         self.assertIsNone(mem.find_project("no-leading-dash"))
 
-    def test_a_project_in_a_dotted_folder_shows_its_label_and_its_memory(self):
+    def test_a_project_in_a_dotted_folder_shows_its_label_its_memory_and_its_rules(self):
         app = self.home / "work" / "my.app"
+        write(app / "CLAUDE.md", "# my.app\n- use pnpm\n")
         write(self.home / ".claude" / "projects" / encode(app) / "memory" / "note.md", "a lesson\n")
-        app.mkdir(parents=True)
 
         memory = entry_at(self.library(), "claude", "~/work/my.app", "memory")
+        rules = entry_at(self.rules_library(), "claude", "~/work/my.app", "CLAUDE.md")
 
         self.assertEqual([child.name for child in memory.visible()], ["note.md"])
+        self.assertEqual(rules.size, len("# my.app\n- use pnpm\n"))
 
     def test_a_project_is_found_even_when_its_folder_is_a_dot_folder(self):
         (self.home / "code" / ".claude" / "worktrees" / "fix").mkdir(parents=True)
@@ -453,9 +479,13 @@ class GrokTest(HomeTestCase):
         write(workspace / "topics" / "conventions.md", "Use pnpm.\n")
         write(workspace / "index.sqlite", "x" * 100)
         (memory / "workspaces" / "empty-9f8e7d6c" / "topics").mkdir(parents=True)
+        write(self.home / ".grok" / "rules" / "style.md", "# style\n- be brief\n")
 
     def names(self, *path):
         return sorted(child.name for child in entry_at(self.library(), *path).visible())
+
+    def names_in(self, library, *path):
+        return sorted(child.name for child in entry_at(library, *path).visible())
 
     def test_grok_shows_global_and_each_workspace_with_the_hash_removed(self):
         self.assertEqual(self.names("grok"), ["Global", "atlas-web"])
@@ -468,6 +498,12 @@ class GrokTest(HomeTestCase):
         types = dict((c.name, mem.entry_status(c)) for c in entry_at(library, "grok", "Global").visible())
         self.assertEqual(types, {"MEMORY.md": "memory", "observations": "memory", "topics": "memory"})
         self.assertEqual(self.names("grok", "Global", "observations"), ["_inbox"])
+
+    def test_the_rules_tab_shows_the_rules_files_and_none_of_the_memory(self):
+        library = self.rules_library()
+
+        self.assertEqual(self.names_in(library, "grok"), ["style.md"])
+        self.assertEqual(mem.entry_status(entry_at(library, "grok")), "rules")
 
     def test_the_state_files_and_the_archive_are_never_listed(self):
         for path in (("grok", "Global"), ("grok", "atlas-web")):
@@ -509,7 +545,7 @@ class GrokTest(HomeTestCase):
         self.assertFalse((root / "topics").exists())
         self.assertFalse((root / "observations").exists())
         for kept in (root / "MEMORY.md", root / "index.sqlite", root / "memory_state.sqlite",
-                     root / "archive" / "old.md"):
+                     root / "archive" / "old.md", self.home / ".grok" / "rules" / "style.md"):
             self.assertTrue(kept.exists(), kept)
         self.assertEqual(len(self.trashed()), 2)
         self.assertTrue(all(name.startswith("grok-global-") for name in self.trashed()), self.trashed())
@@ -574,65 +610,814 @@ class GrokTest(HomeTestCase):
         self.assertEqual(mem.project_label("abc-1234567", "/h", "hash"), "abc-1234567")
         self.assertEqual(mem.project_label("3899205e", "/h", "hash"), "3899205e")
 
-    def test_grok_without_memory_folders_is_simply_empty(self):
+    def test_grok_without_rules_or_memory_folders_is_simply_empty(self):
         shutil.rmtree(self.home / ".grok" / "memory-v2")
+        shutil.rmtree(self.home / ".grok" / "rules")
 
         self.assertEqual(mem.entry_status(entry_at(self.library(), "grok")), "empty")
+
+
+class RulesTabTest(HomeTestCase):
+    """The third tab: the instruction files and skills you write, read-only."""
+
+    def names(self, *path):
+        return sorted(child.name for child in entry_at(self.rules_library(), *path).visible())
+
+    def test_every_agent_and_the_shared_folder_is_a_row(self):
+        agents = self.rules_library().root.visible()
+
+        self.assertEqual(sorted(agent.name for agent in agents), ["agy", "claude", "codex", "grok", "~/.agents"])
+        self.assertEqual(agents[0].name, "~/.agents")
+        rest = agents[1:]
+        self.assertEqual([agent.size for agent in rest], sorted((a.size for a in rest), reverse=True))
+        types = dict((agent.name, mem.entry_status(agent)) for agent in agents)
+        self.assertEqual(
+            types, {"claude": "mixed", "codex": "mixed", "agy": "mixed", "~/.agents": "mixed", "grok": "empty"}
+        )
+
+    def test_the_shared_folder_is_first_even_when_it_is_the_smallest_or_has_nothing(self):
+        write(self.home / ".claude" / "skills" / "big" / "SKILL.md", "x" * 5000)
+        agents = self.rules_library().root.visible()
+
+        self.assertEqual(agents[0].name, "~/.agents")
+        self.assertEqual(agents[1].name, "claude")  # then the largest
+        self.assertLess(agents[0].size, agents[1].size)
+
+        shutil.rmtree(self.home / ".agents")
+
+        names = [agent.name for agent in self.rules_library().root.visible()]
+        self.assertEqual(names[:2], ["~/.agents", "claude"])
+
+    def test_the_first_screen_puts_the_shared_folder_on_top_with_the_cursor_on_it(self):
+        browser = self.rules_browser()
+
+        rows = [line for line in lines_of(browser) if line.startswith("│ > ") or line.startswith("│   ")]
+        listed = [line[4:].split("  ")[0].strip() for line in rows if "NAME" not in line]
+
+        self.assertEqual(listed[:5], ["~/.agents", "agy", "claude", "codex", "grok"])
+        self.assertEqual(browser.current().name, "~/.agents")
+        self.assertTrue(lines_of(browser)[6].startswith("│ > ~/.agents"))
+
+    def test_the_shared_file_is_a_row_and_shows_through_each_link(self):
+        library = self.rules_library()
+        shared = os.path.realpath(self.home / ".agents" / "AGENTS.md")
+
+        self.assertIsNone(entry_at(library, "~/.agents", "AGENTS.md").link)
+        for names in (("claude", "Global"), ("codex",), ("agy",)):
+            links = [child for child in entry_at(library, *names).visible() if child.link]
+            self.assertEqual([child.link for child in links], [shared], names)
+
+    def test_claude_shows_global_then_the_projects_that_have_instruction_files(self):
+        claude = entry_at(self.rules_library(), "claude")
+
+        names = [child.name for child in claude.visible()]
+
+        self.assertEqual(names[0], "Global")
+        self.assertEqual(sorted(names), ["Global", "~/code/app"])
+
+    def test_a_project_holds_only_its_instruction_files(self):
+        project = entry_at(self.rules_library(), "claude", "~/code/app")
+
+        self.assertEqual([child.name for child in project.visible()], ["CLAUDE.md"])
+        self.assertEqual(mem.entry_status(project), "rules")
+
+    def test_global_holds_the_instruction_file_and_the_skills(self):
+        library = self.rules_library()
+
+        self.assertEqual(self.names("claude", "Global"), ["CLAUDE.md", "skills"])
+        link = entry_at(library, "claude", "Global", "CLAUDE.md")
+        self.assertEqual(link.link, os.path.realpath(self.home / ".agents" / "AGENTS.md"))
+        self.assertEqual(link.size, len(RULES_TEXT))
+        self.assertEqual(mem.entry_status(link), "rules")
+        self.assertEqual(mem.entry_status(entry_at(library, "claude", "Global", "skills")), "skills")
+
+    def test_a_skill_is_a_folder_with_a_skill_file_and_a_linked_one_shows_its_target(self):
+        library = self.rules_library()
+        skill = entry_at(library, "claude", "Global", "skills", "mock-data")
+
+        self.assertEqual(skill.link, os.path.realpath(self.home / ".agents" / "skills" / "mock-data"))
+        self.assertEqual([child.name for child in skill.visible()], ["SKILL.md"])
+        self.assertEqual(entry_at(library, "claude", "Global", "skills", "scroll-world").paths, 2)
+        self.assertEqual(
+            sorted(c.name for c in entry_at(library, "claude", "Global", "skills", "scroll-world").visible()),
+            ["SKILL.md", "references"],
+        )
+
+    def test_synced_skills_sit_in_a_group_without_the_wrapper_folder(self):
+        names = self.names("claude", "Global", "skills")
+
+        self.assertEqual(names, ["mock-data", "scroll-world", "synced"])
+        self.assertEqual(self.names("claude", "Global", "skills", "synced"), ["docx", "pptx"])
+        self.assertNotIn("abc-uuid", names)
+
+    def test_codex_shows_its_own_skills_and_agy_shows_its_links(self):
+        self.assertEqual(self.names("codex"), ["AGENTS.md", "skills"])
+        self.assertEqual(self.names("codex", "skills"), ["imagegen"])
+        self.assertEqual(self.names("agy"), ["AGENTS.md", "GEMINI.md", "skills"])
+        self.assertEqual(self.names("agy", "skills"), ["mock-data", "scroll-world"])
+        self.assertEqual(self.names("~/.agents"), ["AGENTS.md", "skills"])
+        self.assertEqual(self.names("~/.agents", "skills"), ["mock-data", "scroll-world"])
+
+    def test_a_folder_that_is_not_a_skill_and_holds_none_is_not_listed(self):
+        write(self.home / ".agents" / "skills" / "notes" / "readme.md", "not a skill\n")
+        write(self.home / ".agents" / "skills" / ".hidden" / "SKILL.md", "# hidden\n")
+        write(self.home / ".agents" / "skills" / "stray.md", "a file beside the skills\n")
+
+        self.assertEqual(self.names("~/.agents", "skills"), ["mock-data", "scroll-world"])
+
+    def test_dot_files_inside_a_skill_are_not_listed(self):
+        write(self.home / ".agents" / "skills" / "mock-data" / ".DS_Store", "junk\n")
+
+        self.assertEqual(self.names("~/.agents", "skills", "mock-data"), ["SKILL.md"])
+
+    def test_a_link_to_a_folder_inside_a_skill_is_not_followed(self):
+        os.symlink(self.home / ".agents" / "skills", self.home / ".agents" / "skills" / "mock-data" / "loop")
+
+        self.assertEqual(self.names("~/.agents", "skills", "mock-data"), ["SKILL.md"])
+
+    def test_every_file_skill_and_link_in_the_rules_tab_can_be_deleted_but_no_group(self):
+        library = self.rules_library()
+        nodes = list(mem.walk(library.root))
+
+        self.assertTrue(nodes)
+        self.assertEqual([n.name for n in nodes if n.path is None and n.deletable], [])
+        self.assertEqual([n.path for n in nodes if n.path is not None and not n.deletable], [])
+        self.assertTrue(all(n.kind in (mem.RULES, mem.SKILLS) for n in nodes if n.path is not None))
+        names = sorted(item.name for item in mem.prunable(entry_at(library, "~/.agents")))
+        self.assertEqual(names, ["AGENTS.md", "mock-data", "scroll-world"])
+
+    def test_the_rules_are_not_part_of_what_the_memory_tab_deletes(self):
+        library = self.library()
+
+        self.assertEqual(mem.prunable(entry_at(library, "claude", "~/code/app")), [entry_at(library, "claude", "~/code/app", "memory")])
+        self.assertTrue(all(item.kind == mem.LEARNED for item in mem.prunable(library.root)))
+
+    def test_an_agent_with_no_rules_and_no_skills_is_empty_and_cannot_be_opened(self):
+        (self.home / ".grok").mkdir()
+        browser = self.rules_browser()
+        browser.select([row.name for row in browser.rows()].index("grok"))
+
+        self.assertEqual(mem.entry_status(browser.current()), "empty")
+        browser.handle_key("right")
+
+        self.assertEqual(len(browser.stack), 1)
+        self.assertIn("grok has no rules or skills yet: nothing to open.", browser.message)
+
+    def test_a_missing_agent_says_it_has_no_folder_and_an_empty_one_says_it_has_nothing(self):
+        browser = self.rules_browser()
+        browser.select([row.name for row in browser.rows()].index("grok"))
+        browser.handle_key("right")
+        self.assertIn("grok has no folder here", browser.message)
+
+        (self.home / ".grok").mkdir()
+        browser = self.rules_browser()
+        browser.select([row.name for row in browser.rows()].index("grok"))
+        browser.handle_key("right")
+
+        self.assertIn("grok has no rules or skills yet: nothing to open.", browser.message)
+
+    def test_a_skill_with_no_size_is_not_listed(self):
+        write(self.home / ".agents" / "skills" / "blank" / "SKILL.md", "")
+
+        self.assertEqual(self.names("~/.agents", "skills"), ["mock-data", "scroll-world"])
+
+    def test_grok_rules_files_are_listed_directly(self):
+        write(self.home / ".grok" / "rules" / "style.md", "# style\n")
+        write(self.home / ".grok" / "rules" / "notes.txt", "not a rule\n")
+
+        self.assertEqual(self.names("grok"), ["style.md"])
+        self.assertEqual(mem.entry_status(entry_at(self.rules_library(), "grok")), "rules")
+
+    def test_grok_user_skills_are_listed_but_the_ones_it_ships_with_are_not(self):
+        write(self.home / ".grok" / "skills" / "my-skill" / "SKILL.md", "# mine\n")
+        write(self.home / ".grok" / "bundled" / "skills" / "design" / "SKILL.md", "# shipped with Grok\n")
+
+        self.assertEqual(self.names("grok"), ["skills"])
+        self.assertEqual(self.names("grok", "skills"), ["my-skill"])
+        self.assertEqual(mem.entry_status(entry_at(self.rules_library(), "grok")), "skills")
 
 
 class TabsTest(HomeTestCase):
     def test_the_tabs_are_numbered_and_the_active_one_is_marked(self):
         browser = self.browser()
-        self.assertIn("1 disk  [2 memory]", next(text for text in lines_of(browser) if "1 disk" in text))
+        line = next(text for text in lines_of(browser) if "1 disk" in text)
 
-        browser.handle_key("1")
-        self.assertIn("[1 disk]  2 memory", next(text for text in lines_of(browser) if "1 disk" in text))
+        self.assertIn("1 disk  [2 memory]  3 rules", line)
+        browser.handle_key("3")
+        line = next(text for text in lines_of(browser) if "1 disk" in text)
+        self.assertIn("1 disk  2 memory  [3 rules]", line)
 
     def test_the_number_keys_and_tab_switch_tabs(self):
         browser = self.browser()
 
         self.assertEqual(browser.tab, 1)
+        browser.handle_key("3")
+        self.assertEqual((browser.tab, browser.library.root.name), (2, "rules"))
         browser.handle_key("1")
         self.assertEqual(browser.tab, 0)
         browser.handle_key("2")
-        self.assertEqual(browser.tab, 1)
+        self.assertEqual((browser.tab, browser.library.root.name), (1, "memory"))
         order = []
-        for _ in range(3):
+        for _ in range(4):
             browser.handle_key("tab")
             order.append(browser.tab)
-        self.assertEqual(order, [0, 1, 0])
+        self.assertEqual(order, [2, 0, 1, 2])
 
-    def test_a_key_for_a_tab_that_does_not_exist_does_nothing(self):
-        browser = self.browser()
+    def test_without_a_rules_library_there_is_no_third_tab(self):
+        browser = mem.Browser(self.library(), lambda: self.library())
+        screen = "\n".join(lines_of(browser))
 
+        self.assertNotIn("3 rules", screen)
         browser.handle_key("3")
-
         self.assertEqual(browser.tab, 1)
-        self.assertIn("claude", "\n".join(lines_of(browser)))
+        self.assertIn("not available", browser.message)
+        browser.handle_key("tab")
+        browser.handle_key("tab")
+        self.assertEqual(browser.tab, 1)
 
-    def test_the_memory_tab_keeps_its_place_when_you_look_at_the_disk_tab(self):
+    def test_each_tab_keeps_its_own_folder_and_cursor_while_it_runs(self):
         browser = self.browser()
         go(browser, "claude", "~/code/app")
-        browser.handle_key("1")
-        browser.handle_key("2")
+        browser.handle_key("3")
+        go(browser, "claude", "Global", "skills")
+        browser.handle_key("down")
+        rules_row = browser.current().name
 
+        browser.handle_key("2")
         self.assertEqual([entry.name for entry in browser.stack], ["memory", "claude", "~/code/app"])
+        browser.handle_key("1")
+        browser.handle_key("3")
+
+        self.assertEqual([entry.name for entry in browser.stack], ["rules", "claude", "Global", "skills"])
+        self.assertEqual(browser.current().name, rules_row)
 
     def test_a_new_run_starts_on_the_memory_tab_at_the_top(self):
         first = self.browser()
+        first.handle_key("3")
         go(first, "claude")
         second = self.browser()
 
         self.assertEqual((second.tab, len(second.stack), second.index()), (1, 1, 0))
 
-    def test_the_memory_tab_shows_the_delete_hint_and_the_disk_tab_does_not(self):
+    def test_both_list_tabs_show_the_delete_hint_and_the_disk_tab_does_not(self):
         browser = self.browser()
         self.assertIn("[D] delete", "\n".join(lines_of(browser)))
+        browser.handle_key("3")
+        self.assertIn("[D] delete", "\n".join(lines_of(browser)))
+        self.assertIn("[r] rescan  [q] quit", "\n".join(lines_of(browser)))
         browser.handle_key("1")
 
-        text = "\n".join(lines_of(browser))
-        self.assertNotIn("[D] delete", text)
-        self.assertIn("[2] memory", text)
+        self.assertNotIn("[D] delete", "\n".join(lines_of(browser)))
+
+    def test_a_rescan_in_the_rules_tab_reads_the_rules_again(self):
+        browser = self.rules_browser()
+        go(browser, "~/.agents", "skills")
+        write(self.home / ".agents" / "skills" / "fresh" / "SKILL.md", "# fresh\n")
+
+        browser.handle_key("r")
+
+        self.assertEqual(browser.tab, 2)
+        self.assertEqual([entry.name for entry in browser.stack], ["rules", "~/.agents", "skills"])
+        self.assertIn("fresh", [row.name for row in browser.rows()])
+
+    def test_deleting_memory_leaves_the_rules_tab_alone(self):
+        browser = self.browser()
+        go(browser, "claude")
+        browser.select([row.name for row in browser.rows()].index("-gone-project"))
+        browser.handle_key("d")
+        browser.handle_key("y")
+        browser.handle_key("3")
+
+        self.assertEqual(browser.tab, 2)
+        self.assertTrue((self.home / ".agents" / "skills" / "mock-data" / "SKILL.md").exists())
+        self.assertEqual(len(self.trashed()), 1)
+        self.assertIn("claude", [row.name for row in browser.rows()])
+
+    def test_the_hints_on_the_disk_tab_name_both_other_tabs(self):
+        browser = self.browser()
+        browser.handle_key("1")
+
+        self.assertIn("[2] memory  [3] rules", "\n".join(lines_of(browser)))
+
+    def test_every_rules_screen_fits_the_terminal(self):
+        browser = self.rules_browser()
+        for width, height in ((64, 12), (100, 30), (160, 50)):
+            lines = browser.render(width, height)
+            self.assertEqual({sum(len(t) for t, _ in spans) for spans in lines}, {width})
+            self.assertEqual(len(lines), height)
+        go(browser, "claude", "Global", "skills", "mock-data", "SKILL.md")
+        self.assertEqual({sum(len(t) for t, _ in s) for s in browser.render(100, 30)}, {100})
+
+
+class DeletingRulesTest(HomeTestCase):
+    """The rules tab moves what the cursor is on to the Trash: a file, a folder, a link, or a whole group."""
+
+    def go_to(self, *names):
+        browser = self.rules_browser()
+        if len(names) > 1:
+            go(browser, *names[:-1])
+        browser.select([row.name for row in browser.rows()].index(names[-1]))
+        return browser
+
+    def confirm(self, browser):
+        browser.handle_key("d")
+        self.assertIsNotNone(browser.dialog)
+        plan = browser.dialog.plan
+        browser.handle_key("y")
+        return plan
+
+    def test_a_file_moves_alone(self):
+        browser = self.go_to("claude", "~/code/app", "CLAUDE.md")
+
+        plan = self.confirm(browser)
+
+        self.assertEqual(plan.title, 'Delete rules and skills of "CLAUDE.md"')
+        self.assertFalse((self.home / "code" / "app" / "CLAUDE.md").exists())
+        self.assertEqual(len(self.trashed()), 1)
+        self.assertIn("Moved", browser.message)
+        self.assertTrue((self.home / ".agents" / "AGENTS.md").exists())
+
+    def test_a_link_moves_alone_and_its_target_stays(self):
+        browser = self.go_to("claude", "Global", "CLAUDE.md")
+
+        browser.handle_key("d")
+        preview = "\n".join(lines_of(browser, 110, 30))
+        self.assertIn("claude  ~/.claude/CLAUDE.md → ~/.agents/AGENTS.md", preview)
+        self.assertIn("link", preview)
+        self.assertIn("targets that stay", preview)
+        browser.handle_key("y")
+
+        self.assertFalse(os.path.lexists(self.home / ".claude" / "CLAUDE.md"))
+        self.assertEqual((self.home / ".agents" / "AGENTS.md").read_text(), RULES_TEXT)
+        self.assertTrue((self.home / ".codex" / "AGENTS.md").is_symlink())
+        trashed = self.trashed()
+        self.assertEqual(len(trashed), 1)
+        files, _ = mem.trash_locations(str(self.home))
+        self.assertTrue(os.path.islink(os.path.join(files, trashed[0])))
+        self.assertEqual(browser.message, "Moved 1 link to the Trash.")
+
+    def test_the_preview_counts_links_apart_from_real_files(self):
+        browser = self.go_to("claude", "Global", "CLAUDE.md")
+        browser.handle_key("d")
+        self.assertRegex("\n".join(lines_of(browser)), r"will move to the Trash\s+-\s+\(1 link\)")
+        browser.handle_key("n")
+
+        browser = self.go_to("claude")
+        browser.handle_key("d")
+        self.assertRegex("\n".join(lines_of(browser, 100, 40)), r"\(3 items, 3 paths, 3 links\)")
+        browser.handle_key("y")
+        self.assertRegex(browser.message, r"Moved \d+ B to the Trash \(3 items, 3 links\)\.")
+
+    def test_a_linked_skill_moves_only_the_link(self):
+        browser = self.go_to("claude", "Global", "skills", "mock-data")
+
+        self.confirm(browser)
+
+        self.assertFalse(os.path.lexists(self.home / ".claude" / "skills" / "mock-data"))
+        self.assertTrue((self.home / ".agents" / "skills" / "mock-data" / "SKILL.md").exists())
+        self.assertTrue((self.home / ".gemini" / "config" / "skills" / "mock-data").is_symlink())
+        self.assertEqual(browser.stack[-1].name, "skills")
+
+    def test_a_real_skill_moves_as_a_folder(self):
+        browser = self.go_to("claude", "Global", "skills", "synced", "pptx")
+
+        self.confirm(browser)
+
+        self.assertFalse((self.home / ".claude" / "skills" / "synced" / "abc-uuid" / "pptx").exists())
+        self.assertTrue((self.home / ".claude" / "skills" / "synced" / "abc-uuid" / "docx" / "SKILL.md").exists())
+
+    def test_one_file_inside_a_skill_moves_alone(self):
+        browser = self.go_to("~/.agents", "skills", "scroll-world", "references")
+
+        plan = self.confirm(browser)
+
+        self.assertEqual([item.name for item in plan.items], ["references"])
+        self.assertFalse((self.home / ".agents" / "skills" / "scroll-world" / "references").exists())
+        self.assertTrue((self.home / ".agents" / "skills" / "scroll-world" / "SKILL.md").exists())
+
+    def test_a_group_moves_everything_under_it(self):
+        browser = self.go_to("claude", "Global", "skills")
+
+        plan = self.confirm(browser)
+
+        self.assertEqual(sorted(item.name for item in plan.items), ["docx", "mock-data", "pptx", "scroll-world"])
+        self.assertFalse((self.home / ".claude" / "skills").exists() and any((self.home / ".claude" / "skills").rglob("SKILL.md")))
+        self.assertTrue((self.home / ".claude" / "CLAUDE.md").is_symlink())
+        self.assertTrue((self.home / ".agents" / "skills" / "mock-data" / "SKILL.md").exists())
+        self.assertEqual(len(self.trashed()), 4)
+
+    def test_global_moves_its_instruction_file_and_its_skills(self):
+        browser = self.go_to("claude", "Global")
+
+        plan = self.confirm(browser)
+
+        self.assertEqual(
+            sorted(item.name for item in plan.items), ["CLAUDE.md", "docx", "mock-data", "pptx", "scroll-world"]
+        )
+        self.assertFalse(os.path.lexists(self.home / ".claude" / "CLAUDE.md"))
+        self.assertTrue((self.home / "code" / "app" / "CLAUDE.md").exists())
+        self.assertTrue((self.home / ".agents" / "AGENTS.md").exists())
+
+    def test_an_agent_moves_its_global_files_and_its_project_files_and_nothing_of_another_agent(self):
+        browser = self.go_to("claude")
+
+        plan = self.confirm(browser)
+
+        self.assertIn("CLAUDE.md", [item.name for item in plan.items])
+        self.assertFalse((self.home / "code" / "app" / "CLAUDE.md").exists())
+        self.assertFalse(os.path.lexists(self.home / ".claude" / "CLAUDE.md"))
+        self.assertTrue((self.home / ".codex" / "AGENTS.md").is_symlink())
+        self.assertTrue((self.home / ".codex" / "skills" / ".system" / "imagegen" / "SKILL.md").exists())
+        self.assertTrue((self.home / ".claude" / "projects").exists())
+        self.assertTrue(all(name.startswith("claude-") for name in self.trashed()), self.trashed())
+
+    def test_the_shared_folder_moves_the_real_files_and_the_preview_names_the_links_it_breaks(self):
+        browser = self.go_to("~/.agents")
+
+        browser.handle_key("d")
+        plan = browser.dialog.plan
+        preview = "\n".join(lines_of(browser, 140, 30))
+
+        self.assertEqual(sorted(item.name for item in plan.items), ["AGENTS.md", "mock-data", "scroll-world"])
+        self.assertEqual(
+            sorted((entry.agent, entry.name) for entry in plan.breaks),
+            sorted([("claude", "CLAUDE.md"), ("codex", "AGENTS.md"), ("agy", "AGENTS.md"),
+                    ("claude", "mock-data"), ("claude", "scroll-world"),
+                    ("agy", "mock-data"), ("agy", "scroll-world")]),
+        )
+        self.assertIn("Would break 7 links:", preview)
+        self.assertIn("claude  ~/.claude/skills/mock-data → ~/.agents/skills/mock-data", preview)
+        browser.handle_key("y")
+
+        self.assertFalse((self.home / ".agents" / "AGENTS.md").exists())
+        self.assertFalse((self.home / ".agents" / "skills" / "mock-data").exists())
+        self.assertTrue((self.home / ".claude" / "CLAUDE.md").is_symlink())  # left dangling, as warned
+        self.assertEqual(len(self.trashed()), 3)
+        self.assertTrue(all("/" not in name and name.startswith("agents-") for name in self.trashed()), self.trashed())
+
+    def test_moving_a_link_together_with_its_target_does_not_warn_about_it(self):
+        library = self.rules_library()
+        items = mem.prunable(entry_at(library, "~/.agents", "AGENTS.md")) + [entry_at(library, "claude", "Global", "CLAUDE.md")]
+
+        broken = mem.dangling_links(items, library)
+
+        self.assertEqual(sorted((entry.agent, entry.name) for entry in broken), [("agy", "AGENTS.md"), ("codex", "AGENTS.md")])
+
+    def test_a_link_only_move_warns_about_nothing(self):
+        browser = self.go_to("claude", "Global", "CLAUDE.md")
+
+        browser.handle_key("d")
+
+        self.assertEqual(list(browser.dialog.plan.breaks), [])
+        self.assertNotIn("Would break", "\n".join(lines_of(browser)))
+
+    def test_a_cancelled_delete_moves_nothing(self):
+        browser = self.go_to("claude", "~/code/app", "CLAUDE.md")
+
+        browser.handle_key("d")
+        browser.handle_key("n")
+
+        self.assertIsNone(browser.dialog)
+        self.assertIn("Cancelled", browser.message)
+        self.assertTrue((self.home / "code" / "app" / "CLAUDE.md").exists())
+        self.assertEqual(self.trashed(), [])
+
+    def test_an_agent_with_nothing_says_so(self):
+        (self.home / ".grok").mkdir()
+        browser = self.go_to("grok")
+
+        browser.handle_key("d")
+
+        self.assertIsNone(browser.dialog)
+        self.assertIn("grok has no rules or skills yet: nothing to delete.", browser.message)
+
+    def test_the_preview_fits_a_small_terminal(self):
+        browser = self.go_to("claude")
+        browser.handle_key("d")
+
+        for width, height in ((64, 18), (100, 24), (160, 50)):
+            lines = browser.render(width, height)
+            self.assertEqual({sum(len(t) for t, _ in spans) for spans in lines}, {width})
+            self.assertLessEqual(len(lines), height)
+
+    def test_the_linux_trash_keeps_a_record_of_a_moved_link(self):
+        data = self.home / "xdg"
+        with mock.patch.object(mem.sys, "platform", "linux"), mock.patch.dict(os.environ, {"XDG_DATA_HOME": str(data)}):
+            browser = self.go_to("claude", "Global", "CLAUDE.md")
+            self.confirm(browser)
+
+        self.assertTrue(os.path.islink(data / "Trash" / "files" / "claude-claude-CLAUDE.md"))
+        record = (data / "Trash" / "info" / "claude-claude-CLAUDE.md.trashinfo").read_text()
+        self.assertIn("[Trash Info]", record)
+        self.assertIn("CLAUDE.md", record)
+        self.assertTrue((self.home / ".agents" / "AGENTS.md").exists())
+
+    def many(self, count=20):
+        for number in range(count):
+            write(self.home / ".claude" / "skills" / "synced" / "abc-uuid" / ("extra-%02d" % number) / "SKILL.md", "# x\n")
+
+    def shown(self, browser, height):
+        return "\n".join(lines_of(browser, 100, height))
+
+    def test_a_long_preview_scrolls_and_says_which_rows_are_shown(self):
+        self.many()
+        browser = self.go_to("claude")
+        browser.handle_key("d")
+        total = len(browser.dialog.plan.items)
+
+        first = self.shown(browser, 20)
+        browser.handle_key("down")
+        second = self.shown(browser, 20)
+
+        self.assertRegex(first, r"rows 1-\d+ of %d" % total)
+        self.assertIn("[↑↓] move", first)
+        self.assertIn("[Esc] cancel  [q] quit", first)
+        self.assertRegex(second, r"rows 2-\d+ of %d" % total)
+        self.assertNotEqual(first, second)
+        self.assertIsNotNone(browser.dialog)
+
+    def test_every_row_can_be_reached_and_the_ends_wrap(self):
+        self.many()
+        browser = self.go_to("claude")
+        browser.handle_key("d")
+        total = len(browser.dialog.plan.items)
+        seen = set()
+        for _ in range(total + 2):
+            for name in re.findall(r"extra-\d\d|mock-data|CLAUDE\.md|scroll-world", self.shown(browser, 20)):
+                seen.add(name)
+            browser.handle_key("down")
+
+        self.assertEqual(len([name for name in seen if name.startswith("extra-")]), 20)
+        self.assertIn("CLAUDE.md", seen)
+        self.assertEqual(browser.dialog.top, (total + 2) % (browser.dialog.max_top + 1))
+        browser.handle_key("home")
+        self.shown(browser, 20)
+        browser.handle_key("up")
+        self.assertEqual(browser.dialog.top, browser.dialog.max_top)
+        browser.handle_key("down")
+        self.assertEqual(browser.dialog.top, 0)
+
+    def test_pages_home_and_end_move_through_the_preview(self):
+        self.many()
+        browser = self.go_to("claude")
+        browser.handle_key("d")
+        self.shown(browser, 20)
+
+        browser.handle_key("pagedown")
+        self.assertEqual(browser.dialog.top, browser.dialog.page)
+        browser.handle_key("end")
+        self.assertRegex(self.shown(browser, 20), r"rows (\d+)-(\d+) of \2\b")
+        browser.handle_key("pageup")
+        self.assertLess(browser.dialog.top, browser.dialog.max_top)
+        browser.handle_key("g")
+        self.assertEqual(browser.dialog.top, 0)
+        browser.handle_key("G")
+        self.shown(browser, 20)
+        self.assertEqual(browser.dialog.top, browser.dialog.max_top)
+
+    def test_scrolling_never_cancels_and_y_moves_every_item_not_only_the_shown_ones(self):
+        self.many()
+        browser = self.go_to("claude")
+        browser.handle_key("d")
+        total = len(browser.dialog.plan.items)
+        for key in ("down", "down", "pagedown", "end", "up", "j", "k"):
+            browser.handle_key(key)
+            self.shown(browser, 20)
+
+            self.assertIsNotNone(browser.dialog, key)
+        self.assertEqual(self.trashed(), [])
+
+        browser.handle_key("y")
+
+        self.assertIn("Moved", browser.message)
+        self.assertEqual(len(self.trashed()), total)
+        self.assertFalse((self.home / ".claude" / "skills" / "synced" / "abc-uuid" / "extra-19").exists())
+
+    def test_the_scroll_position_stays_valid_when_the_terminal_grows(self):
+        self.many()
+        browser = self.go_to("claude")
+        browser.handle_key("d")
+        self.shown(browser, 16)
+        browser.handle_key("end")
+        self.shown(browser, 16)
+
+        tall = self.shown(browser, 60)
+
+        self.assertNotIn("rows ", tall)  # everything fits now
+        self.assertEqual(browser.dialog.top, 0)
+        self.assertIn("[↑↓] move", tall)  # the hint stays, so the line is never empty
+
+    def test_the_links_that_would_break_are_rows_of_the_preview_too(self):
+        browser = self.go_to("~/.agents")
+        browser.handle_key("d")
+
+        small = self.shown(browser, 16)
+        self.assertIn("rows 1-", small)
+        browser.handle_key("end")
+        last = self.shown(browser, 16)
+
+        self.assertIn("Would break 7 links:", self.shown(browser, 60))
+        self.assertRegex(last, r"agy  ~/\.gemini/config/skills/\S+ → ~/\.agents/skills/\S+")
+
+    def test_the_hints_in_ascii_mode_say_up_down(self):
+        self.many()
+        browser = self.rules_browser(ascii_only=True)
+        browser.select([row.name for row in browser.rows()].index("claude"))
+        browser.handle_key("d")
+
+        self.assertIn("[Up/Down] move", self.shown(browser, 20))
+
+    def test_the_preview_never_gets_taller_than_the_terminal(self):
+        self.many()
+        browser = self.go_to("claude")
+        browser.handle_key("d")
+
+        for width, height in ((64, 12), (64, 14), (100, 20), (160, 50)):
+            lines = browser.render(width, height)
+            self.assertEqual({sum(len(t) for t, _ in spans) for spans in lines}, {width})
+            self.assertLessEqual(len(lines), max(height, 13), (width, height))
+
+    def test_the_memory_tab_still_leaves_rules_and_skills_alone(self):
+        browser = self.browser()
+        go(browser, "claude")
+        browser.handle_key("d")
+        browser.handle_key("y")
+
+        self.assertTrue((self.home / ".claude" / "CLAUDE.md").is_symlink())
+        self.assertTrue((self.home / "code" / "app" / "CLAUDE.md").exists())
+        self.assertTrue((self.home / ".claude" / "skills" / "mock-data").is_symlink())
+
+
+class BrokenLinkTest(HomeTestCase):
+    """A symlink to nothing is listed in red and warned about, never hidden and never mended."""
+
+    def setUp(self):
+        super().setUp()
+        self.app = self.home / "code" / "app"
+        os.symlink("CLAUDE.md", self.app / "AGENTS.md")  # as in a project that keeps one file under two names
+
+    def break_it(self):
+        os.remove(self.app / "CLAUDE.md")
+
+    def screen(self, browser, width=110, height=30):
+        return "\n".join(lines_of(browser, width, height))
+
+    def test_a_link_to_a_file_that_exists_is_an_ordinary_row(self):
+        link = entry_at(self.rules_library(), "claude", "~/code/app", "AGENTS.md")
+
+        self.assertFalse(link.broken)
+        self.assertEqual((link.size, mem.entry_status(link)), (len("# app\n- use pnpm\n"), "rules"))
+
+    def test_a_link_to_nothing_is_listed_as_broken_and_keeps_its_folder_visible(self):
+        self.break_it()
+        library = self.rules_library()
+        claude = entry_at(library, "claude")
+        project = entry_at(library, "claude", "~/code/app")
+        link = entry_at(library, "claude", "~/code/app", "AGENTS.md")
+
+        self.assertIn("~/code/app", [row.name for row in claude.visible()])
+        self.assertEqual([row.name for row in project.visible()], ["AGENTS.md"])
+        self.assertTrue(link.broken)
+        self.assertEqual((link.size, link.paths), (0, 0))
+        self.assertEqual(link.link, str(self.app / "CLAUDE.md"))
+        self.assertEqual((mem.entry_status(link), mem.entry_status(project)), ("broken", "broken"))
+        self.assertEqual(project.alerts, 1)
+
+    def test_deleting_the_real_file_keeps_the_folder_and_shows_the_link_that_is_left(self):
+        browser = self.rules_browser()
+        go(browser, "claude", "~/code/app")
+        browser.select([row.name for row in browser.rows()].index("CLAUDE.md"))
+
+        browser.handle_key("d")
+        self.assertIn("Would break 1 link:", self.screen(browser))
+        browser.handle_key("y")
+
+        self.assertIn("1 link now points at nothing", browser.message)
+        self.assertEqual([entry.name for entry in browser.stack], ["rules", "claude", "~/code/app"])
+        self.assertEqual([row.name for row in browser.rows()], ["AGENTS.md"])
+        self.assertIn("AGENTS.md → ~/code/app/CLAUDE.md", self.screen(browser))
+        self.assertRegex(self.screen(browser), r"AGENTS\.md .*\s-\s+-\s+-\s+broken")
+        self.assertTrue((self.app / "AGENTS.md").is_symlink())
+
+    def test_the_broken_row_is_red_and_the_others_are_not(self):
+        write(self.app / "GEMINI.md", "# gemini\n")
+        write(self.app / "CLAUDE.local.md", "# local\n")
+        self.break_it()
+        browser = self.rules_browser()
+        go(browser, "claude", "~/code/app")
+        browser.select(0)
+
+        def style_of(text):
+            found = [style for spans in browser.render(110, 30) for part, style in spans if text in part]
+            self.assertEqual(len(found), 1, text)
+            return found[0]
+
+        project = entry_at(browser.library, "claude", "~/code/app")
+
+        self.assertEqual(len(browser.rows()), 3)
+        self.assertEqual(style_of("AGENTS.md →"), "danger")
+        self.assertEqual(style_of("CLAUDE.local.md"), "normal")
+        self.assertEqual(style_of("GEMINI.md"), "cursor")  # the row under the cursor keeps its own look
+        self.assertEqual((project.size, project.paths), (len("# gemini\n") + len("# local\n"), 2))  # the link adds nothing
+
+    def test_right_on_a_broken_link_shows_a_warning_and_changes_nothing(self):
+        self.break_it()
+        browser = self.rules_browser()
+        go(browser, "claude", "~/code/app", "AGENTS.md")
+
+        screen = self.screen(browser, 120)
+
+        self.assertIsNotNone(browser.viewer)
+        self.assertTrue(browser.viewer.warning)
+        for text in ("This symlink is broken: the file it points to was not found.",
+                     "link    ~/code/app/AGENTS.md", "target  ~/code/app/CLAUDE.md",
+                     "Nothing was changed.", "broken link", "rules › claude › ~/code/app › AGENTS.md"):
+            self.assertIn(text, screen)
+        browser.handle_key("left")
+        self.assertIsNone(browser.viewer)
+        self.assertTrue((self.app / "AGENTS.md").is_symlink())
+        self.assertFalse((self.app / "CLAUDE.md").exists())
+        self.assertEqual(self.trashed(), [])
+
+    def test_right_looks_again_and_reads_a_link_that_was_mended_since_the_scan(self):
+        self.break_it()
+        browser = self.rules_browser()
+        go(browser, "claude", "~/code/app")
+        browser.select([row.name for row in browser.rows()].index("AGENTS.md"))
+        write(self.app / "CLAUDE.md", "# app\n- use pnpm again\n")
+
+        browser.handle_key("right")
+
+        self.assertIsNotNone(browser.viewer)
+        self.assertFalse(browser.viewer.warning)
+        self.assertIn("use pnpm again", self.screen(browser))
+
+    def test_d_on_a_broken_link_moves_only_the_link(self):
+        self.break_it()
+        browser = self.rules_browser()
+        go(browser, "claude", "~/code/app")
+        browser.handle_key("d")
+
+        preview = self.screen(browser)
+        self.assertIn("broken", preview)
+        self.assertEqual(list(browser.dialog.plan.breaks), [])
+        browser.handle_key("y")
+
+        self.assertFalse(os.path.lexists(self.app / "AGENTS.md"))
+        files, _ = mem.trash_locations(str(self.home))
+        trashed = self.trashed()
+        self.assertEqual(len(trashed), 1)
+        self.assertTrue(os.path.islink(os.path.join(files, trashed[0])))
+        self.assertEqual(browser.message, "Moved 1 link to the Trash.")
+        self.assertEqual([entry.name for entry in browser.stack], ["rules", "claude"])  # nothing is left in the folder
+
+    def test_a_broken_skill_link_is_listed_and_so_is_one_that_broke_when_its_target_went(self):
+        os.symlink("../missing-skill", self.home / ".claude" / "skills" / "ghost")
+        shutil.rmtree(self.home / ".agents" / "skills" / "scroll-world")
+        library = self.rules_library()
+        skills = entry_at(library, "claude", "Global", "skills")
+
+        broken = sorted(child.name for child in skills.visible() if child.broken)
+
+        self.assertEqual(broken, ["ghost", "scroll-world"])
+        self.assertEqual(mem.entry_status(entry_at(library, "claude", "Global", "skills", "ghost")), "broken")
+        self.assertIn("mock-data", [child.name for child in skills.visible()])
+
+    def test_an_agent_with_only_broken_links_is_listed_as_broken_and_opens(self):
+        os.remove(self.home / ".agents" / "AGENTS.md")
+        shutil.rmtree(self.home / ".codex" / "skills")
+        browser = self.rules_browser()
+        browser.select([row.name for row in browser.rows()].index("codex"))
+
+        self.assertEqual(mem.entry_status(browser.current()), "broken")
+        browser.handle_key("right")
+
+        self.assertEqual([entry.name for entry in browser.stack], ["rules", "codex"])
+        self.assertEqual([row.name for row in browser.rows()], ["AGENTS.md"])
+
+    def test_links_that_go_round_in_a_circle_are_broken_not_a_crash(self):
+        os.remove(self.app / "AGENTS.md")
+        os.symlink("GEMINI.md", self.app / "AGENTS.md")
+        os.symlink("AGENTS.md", self.app / "GEMINI.md")
+
+        library = self.rules_library()
+        project = entry_at(library, "claude", "~/code/app")
+
+        self.assertEqual(sorted((c.name, c.broken) for c in project.visible()), [("AGENTS.md", True), ("CLAUDE.md", False), ("GEMINI.md", True)])
+
+    def test_a_broken_index_in_the_memory_tab_is_still_not_listed(self):
+        link = self.home / "MEMORY.md"
+        os.symlink("nowhere", link)
+
+        self.assertIsNone(mem.file_entry(str(link), mem.LEARNED, "grok"))
+        self.assertTrue(mem.file_entry(str(link), mem.RULES, "grok").broken)
+
+    def test_the_table_names_a_broken_link(self):
+        self.break_it()
+
+        lines = mem.list_view(self.rules_library(), "claude")
+
+        self.assertTrue(any(line.startswith("~/code/app") and line.rstrip().endswith("broken") for line in lines), lines)
 
 
 class ScrollingPreviewTest(HomeTestCase):
@@ -894,6 +1679,12 @@ class RenderingTest(HomeTestCase):
         for text in ("NAME", "PATHS", "SIZE", "AGE", "TYPE", "claude", "codex", "[2 memory]", "[D] delete"):
             self.assertIn(text, screen)
 
+    def test_a_symlink_row_shows_its_target(self):
+        browser = self.rules_browser()
+        go(browser, "claude", "Global")
+
+        self.assertIn("CLAUDE.md → ~/.agents/AGENTS.md", "\n".join(lines_of(browser)))
+
     def test_the_hints_are_spread_across_the_line_and_short(self):
         line = next(text for text in lines_of(self.browser(), 100, 30) if "[D] delete" in text)
 
@@ -905,8 +1696,11 @@ class RenderingTest(HomeTestCase):
     def test_the_breadcrumb_names_where_you_are(self):
         browser = self.browser()
         go(browser, "claude", "~/code/app")
-
         self.assertIn("memory › claude › ~/code/app", "\n".join(lines_of(browser)))
+
+        browser = self.rules_browser()
+        go(browser, "claude", "Global")
+        self.assertIn("rules › claude › Global", "\n".join(lines_of(browser)))
 
     def test_a_long_list_scrolls_with_the_cursor(self):
         for number in range(40):
@@ -1007,7 +1801,7 @@ class DeletingTest(HomeTestCase):
         self.assertTrue((self.home / ".codex" / "AGENTS.md").is_symlink())
         self.assertEqual(self.trashed(), ["codex-codex-memories"])
 
-    def test_a_database_cannot_be_deleted(self):
+    def test_instruction_files_and_databases_cannot_be_deleted(self):
         browser = self.go_to("codex", "memories_1.sqlite")
 
         browser.handle_key("d")
@@ -1164,16 +1958,76 @@ class GuardTest(HomeTestCase):
         self.assertTrue((precious / "keep.txt").exists())
         self.assertEqual(self.trashed(), [])
 
+    def test_a_rule_is_refused_by_the_memory_library_and_memory_by_the_rules_library(self):
+        memory, rules = self.library(), self.rules_library()
+        rule = entry_at(rules, "claude", "~/code/app", "CLAUDE.md")
+        note = entry_at(memory, "claude", "~/code/app", "memory", "MEMORY.md")
+
+        self.assertEqual([r for _, r in mem.run_plan(mem.Plan("test", [rule], 0), memory)[1]], ["not learned memory"])
+        self.assertEqual([r for _, r in mem.run_plan(mem.Plan("test", [note], 0), rules)[1]], ["not a rule or skill"])
+        self.assertTrue((self.home / "code" / "app" / "CLAUDE.md").exists())
+        self.assertTrue(note.path and os.path.exists(note.path))
+        self.assertEqual(self.trashed(), [])
+
+    def test_a_rule_that_is_not_in_the_list_of_places_is_refused(self):
+        library = self.rules_library()
+        entry = entry_at(library, "claude", "~/code/app", "CLAUDE.md")
+        entry.path = str(self.home / "code" / "app" / "other.md")
+        write(entry.path, "not a listed rule\n")
+
+        moved, failed = mem.run_plan(mem.Plan("test", [entry], 0), library)
+
+        self.assertEqual(moved, [])
+        self.assertEqual([reason for _, reason in failed], ["not a rule or skill"])
+        self.assertTrue(os.path.exists(entry.path))
+
     def test_an_entry_that_is_not_marked_deletable_is_refused(self):
-        library = self.library()
-        entry = entry_at(library, "claude", "~/code/app", "memory", "MEMORY.md")
+        library = self.rules_library()
+        entry = entry_at(library, "~/.agents", "skills", "mock-data", "SKILL.md")
         entry.deletable = False
 
         moved, failed = mem.run_plan(mem.Plan("test", [entry], 0), library)
 
         self.assertEqual(moved, [])
-        self.assertEqual([reason for _, reason in failed], ["not learned memory"])
-        self.assertTrue(os.path.exists(entry.path))
+        self.assertEqual([reason for _, reason in failed], ["not a rule or skill"])
+        self.assertTrue((self.home / ".agents" / "skills" / "mock-data" / "SKILL.md").exists())
+
+    def test_a_listed_link_that_became_a_real_file_is_refused(self):
+        library = self.rules_library()
+        entry = entry_at(library, "claude", "Global", "CLAUDE.md")
+        os.remove(self.home / ".claude" / "CLAUDE.md")
+        write(self.home / ".claude" / "CLAUDE.md", "now a real file\n")
+
+        moved, failed = mem.run_plan(mem.Plan("test", [entry], 0), library)
+
+        self.assertEqual(moved, [])
+        self.assertEqual([reason for _, reason in failed], ["reached through a symlink"])
+        self.assertEqual((self.home / ".claude" / "CLAUDE.md").read_text(), "now a real file\n")
+
+    def test_a_listed_file_that_became_a_link_is_refused_and_its_target_survives(self):
+        library = self.rules_library()
+        entry = entry_at(library, "claude", "~/code/app", "CLAUDE.md")
+        os.remove(self.home / "code" / "app" / "CLAUDE.md")
+        os.symlink(self.home / ".agents" / "AGENTS.md", self.home / "code" / "app" / "CLAUDE.md")
+
+        moved, failed = mem.run_plan(mem.Plan("test", [entry], 0), library)
+
+        self.assertEqual(moved, [])
+        self.assertEqual([reason for _, reason in failed], ["reached through a symlink"])
+        self.assertTrue((self.home / ".agents" / "AGENTS.md").exists())
+
+    def test_a_link_whose_folder_became_a_link_is_refused(self):
+        library = self.rules_library()
+        entry = entry_at(library, "claude", "Global", "skills", "mock-data")
+        elsewhere = self.home / "elsewhere"
+        shutil.move(str(self.home / ".claude" / "skills"), str(elsewhere))
+        os.symlink(elsewhere, self.home / ".claude" / "skills")
+
+        moved, failed = mem.run_plan(mem.Plan("test", [entry], 0), library)
+
+        self.assertEqual(moved, [])
+        self.assertEqual([reason for _, reason in failed], ["reached through a symlink"])
+        self.assertTrue((elsewhere / "mock-data").is_symlink())
         self.assertEqual(self.trashed(), [])
 
     def test_a_file_that_is_not_in_the_memory_folder_is_refused(self):
@@ -1409,6 +2263,21 @@ class ViewerTest(HomeTestCase):
         self.assertIn("read-only", browser.message)
         self.assertEqual((self.docs / "note.txt").read_bytes(), before)
 
+    def test_a_symlinked_instruction_file_is_read_through_its_link(self):
+        browser = self.rules_browser()
+        go(browser, "claude", "Global", "CLAUDE.md")
+
+        self.assertIsNotNone(browser.viewer)
+        self.assertIn("Never save memory on your own.", self.screen(browser))
+
+    def test_a_skill_is_read_through_its_link(self):
+        browser = self.rules_browser()
+        go(browser, "claude", "Global", "skills", "mock-data", "SKILL.md")
+
+        self.assertIsNotNone(browser.viewer)
+        self.assertIn("Use abc text.", self.screen(browser))
+        self.assertIn("rules › claude › Global › skills › mock-data › SKILL.md", self.screen(browser, 120))
+
     def test_symlinks_and_pipes_are_not_read_directly(self):
         os.symlink(self.docs / "note.txt", self.docs / "link.txt")
 
@@ -1443,8 +2312,18 @@ class CommandLineTest(HomeTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertRegex(result.stdout, r"memory\s+total [\d.]+ (B|KB), \d+ paths")
         self.assertRegex(result.stdout, r"claude\s+\d+\s+[\d.]+ (B|KB)\s+now\s+memory")
-        self.assertNotIn("AGENTS.md", result.stdout)  # instruction files are not memory
+        self.assertNotIn("AGENTS.md", result.stdout)  # instruction files belong to the rules tab
         self.assertEqual(snapshot(), before)
+
+    def test_list_prints_the_rules_tab_with_the_shared_folder_as_a_row(self):
+        result = self.run_script("--list", "--tab=rules", "--home", str(self.home))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertRegex(result.stdout, r"rules\s+total [\d.]+ (B|KB), \d+ paths")
+        self.assertRegex(result.stdout, r"claude\s+\d+\s+[\d.]+ (B|KB)\s+now\s+mixed")
+        self.assertRegex(result.stdout, r"~/\.agents\s+\d+\s+[\d.]+ (B|KB)\s+now\s+mixed")
+        self.assertRegex(result.stdout, r"grok\s+-\s+-\s+-\s+empty")
+        self.assertNotIn("shared", result.stdout)
 
     def test_list_for_one_agent_shows_its_projects(self):
         result = self.run_script("--list", "--agent=claude", "--home", str(self.home))
@@ -1453,6 +2332,20 @@ class CommandLineTest(HomeTestCase):
         self.assertIn("memory > claude", result.stdout)
         self.assertIn("~/code/app", result.stdout)
         self.assertNotIn("Global", result.stdout)
+
+    def test_list_for_one_agent_of_the_rules_tab_shows_global_and_projects(self):
+        result = self.run_script("--list", "--tab=rules", "--agent=claude", "--home", str(self.home))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("rules > claude", result.stdout)
+        self.assertIn("Global", result.stdout)
+        self.assertIn("~/code/app", result.stdout)
+
+    def test_list_shows_where_a_symlink_points(self):
+        result = self.run_script("--list", "--tab=rules", "--agent=codex", "--home", str(self.home))
+
+        self.assertIn("AGENTS.md -> ~/.agents/AGENTS.md", result.stdout)
+        self.assertRegex(result.stdout, r"skills\s+1\s+[\d.]+ (B|KB)\s+\S+\s+skills")
 
     def test_list_shows_the_memory_database(self):
         result = self.run_script("--list", "--agent=codex", "--home", str(self.home))
