@@ -1,5 +1,6 @@
 import {
   AudioLines,
+  Brain,
   Download,
   Files,
   Network,
@@ -20,6 +21,7 @@ const collectionIcons: Record<string, LucideIcon> = {
   "download-reel": Download,
   "edge-tts": Volume2,
   vosk: AudioLines,
+  memory: Brain,
 };
 
 interface ToolsCatalogCollectionCardProps {
@@ -40,7 +42,7 @@ export default function ToolsCatalogCollectionCard({
       <button
         type="button"
         onClick={() => onSelect(collection)}
-        className="group flex w-full flex-col rounded-2xl border border-slate-200/90 bg-card p-4 text-left shadow-xs transition-all hover:border-indigo-300 hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+        className="group flex size-full flex-col rounded-2xl border border-slate-200/90 bg-card p-4 text-left shadow-xs transition-all hover:border-indigo-300 hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
       >
         <Flex className="items-start justify-between">
           <Center className="size-10 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-600 shadow-xs">

@@ -11,13 +11,10 @@ import {
   modelCapabilities,
 } from "@/services/provider-catalogue/provider-catalogue.generated";
 
-import readGroqStream from "./playground-groq-stream";
 import readPlaygroundStream from "./playground-stream";
 import type {
   PlaygroundChatOptions,
   PlaygroundChatResult,
-  PlaygroundGroqTurnOptions,
-  PlaygroundGroqTurnResult,
   PlaygroundModel,
   PlaygroundProviderId,
   PlaygroundVoiceSessionOptions,
@@ -105,7 +102,9 @@ class PlaygroundService {
         result.response.status,
       );
     // A previously deployed API only offered chat and omitted modes. Preserve
-    // that known contract while frontend/backend deployments roll forward.
+    // that known contract while frontend/backend deployments roll forward. A
+    // call profile this build does not know (an older or newer API) is dropped
+    // so the model stays listed for Chat instead of failing the whole list.
     return z
       .array(
         z.object({
@@ -128,7 +127,8 @@ class PlaygroundService {
               availability: z.enum(callAvailabilityRules),
               models: z.record(z.string(), z.string()),
             })
-            .optional(),
+            .optional()
+            .catch(undefined),
         }),
       )
       .parse(result.data);
@@ -188,45 +188,6 @@ class PlaygroundService {
       onDelta,
     });
     return { servedConnectionId };
-  }
-
-  /**
-   * Run one Groq voice turn: transcript in, streamed reply and audio out
-   */
-  async groqTurn({
-    connectionId,
-    organizationId,
-    signal,
-    onEvent,
-    ...input
-  }: PlaygroundGroqTurnOptions): Promise<PlaygroundGroqTurnResult | null> {
-    const options = {
-      signal,
-      parseAs: "stream" as const,
-      body: {
-        ...input,
-        stream: true,
-        stream_audio: true,
-        connection_id: connectionId,
-        organization_id: organizationId,
-      },
-    };
-    let result = await this.client.POST("/playground/groq/voice/turn", options);
-    if (
-      result.response.status === 401 &&
-      result.error?.code === "unauthorized" &&
-      (await this.refreshSession(signal))
-    )
-      result = await this.client.POST("/playground/groq/voice/turn", options);
-    if (!result.data)
-      throw new PlaygroundServiceError(
-        result.response.status === 429
-          ? "Groq's rate limit was reached. Try again after the account cooldown."
-          : (providerErrorMessage(result.error) ??
-              "Groq could not complete this turn. Start a new call to retry."),
-        result.response.status,
-      );
-    return readGroqStream({ stream: result.data, signal, onEvent });
   }
 
   /**

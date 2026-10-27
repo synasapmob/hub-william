@@ -3,12 +3,12 @@ export type ProviderId = __PROVIDER_IDS__;
 export type ProviderLabel = __PROVIDER_LABELS__;
 export type ApiKeyProviderId = __API_KEY_PROVIDERS__;
 export type ApiKeyConnectionPath = __API_KEY_PATHS__;
-export const modelCapabilities = ["chat", "image_input", "realtime_audio", "transcription", "speech_output"] as const;
+export const modelCapabilities = ["chat", "image_input", "realtime_audio"] as const;
 export type ModelCapability = (typeof modelCapabilities)[number];
-export const callTransports = ["codex_v3_webrtc", "groq_sse"] as const;
+export const callTransports = ["codex_v3_webrtc"] as const;
 export type CallTransport = (typeof callTransports)[number];
-export const callKinds = ["native_realtime", "local_stt_llm_tts"] as const;
-export const callAvailabilityRules = ["chat_catalogue", "all_dependencies"] as const;
+export const callKinds = ["native_realtime"] as const;
+export const callAvailabilityRules = ["chat_catalogue"] as const;
 export interface CatalogueModel {
   id: string;
   name: string;

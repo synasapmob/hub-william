@@ -10,17 +10,12 @@ export const modelCapabilities = [
   "chat",
   "image_input",
   "realtime_audio",
-  "transcription",
-  "speech_output",
 ] as const;
 export type ModelCapability = (typeof modelCapabilities)[number];
-export const callTransports = ["codex_v3_webrtc", "groq_sse"] as const;
+export const callTransports = ["codex_v3_webrtc"] as const;
 export type CallTransport = (typeof callTransports)[number];
-export const callKinds = ["native_realtime", "local_stt_llm_tts"] as const;
-export const callAvailabilityRules = [
-  "chat_catalogue",
-  "all_dependencies",
-] as const;
+export const callKinds = ["native_realtime"] as const;
+export const callAvailabilityRules = ["chat_catalogue"] as const;
 export interface CatalogueModel {
   id: string;
   name: string;
@@ -574,18 +569,6 @@ const providerCatalogue: ProviderCatalogue = {
           status: "current",
           capabilities: ["chat"],
         },
-        {
-          id: "whisper-large-v3-turbo",
-          name: "Whisper Large V3 Turbo",
-          status: "current",
-          capabilities: ["transcription"],
-        },
-        {
-          id: "canopylabs/orpheus-v1-english",
-          name: "Orpheus V1 English",
-          status: "preview",
-          capabilities: ["speech_output"],
-        },
       ],
     },
   ],
@@ -600,19 +583,6 @@ const providerCatalogue: ProviderCatalogue = {
       availability: "chat_catalogue",
       models: {
         realtime: "gpt-live-1-codex",
-      },
-    },
-    {
-      id: "groq",
-      provider: "groq",
-      name: "openai/gpt-oss-20b",
-      kind: "local_stt_llm_tts",
-      transport: "groq_sse",
-      selector_model: "openai/gpt-oss-20b",
-      availability: "all_dependencies",
-      models: {
-        chat: "openai/gpt-oss-20b",
-        tts: "canopylabs/orpheus-v1-english",
       },
     },
   ],

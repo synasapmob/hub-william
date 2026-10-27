@@ -605,22 +605,6 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/playground/groq/voice/turn": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations["create_groq_voice_turn"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
   "/playground/voice": {
     parameters: {
       query?: never;
@@ -848,7 +832,7 @@ export interface components {
       username: string;
     };
     /** @enum {string} */
-    CallKind: "native_realtime" | "local_stt_llm_tts";
+    CallKind: "native_realtime";
     CallProfile: {
       availability: string;
       id: string;
@@ -862,7 +846,7 @@ export interface components {
       transport: components["schemas"]["CallTransport"];
     };
     /** @enum {string} */
-    CallTransport: "codex_v3_webrtc" | "groq_sse";
+    CallTransport: "codex_v3_webrtc";
     CompleteAuthorizationRequest: {
       callback_url: string;
     };
@@ -899,30 +883,6 @@ export interface components {
       /** Format: date-time */
       last_used_at?: string | null;
     };
-    GroqVoiceMessage: {
-      content: string;
-      role: components["schemas"]["PlaygroundRole"];
-    };
-    GroqVoiceTurnRequest: {
-      /** Format: uuid */
-      connection_id: string;
-      messages: components["schemas"]["GroqVoiceMessage"][];
-      model: string;
-      /** Format: uuid */
-      organization_id?: string | null;
-      /** @description Stream accepted transcript, reply deltas and audio clips as SSE. */
-      stream?: boolean;
-      /** @description With stream=true, allow sentence audio to interleave with reply deltas. */
-      stream_audio?: boolean;
-      /** @description Final transcript recognized locally in the browser, at most 8000 UTF-8 bytes. */
-      transcript: string;
-    };
-    GroqVoiceTurnResponse: {
-      /** @description Ordered base64 WAV clips. Each TTS input is at most 200 characters. */
-      audio: string[];
-      reply: string;
-      transcript: string;
-    };
     HealthResponse: {
       service: string;
       status: string;
@@ -938,12 +898,7 @@ export interface components {
       username: string;
     };
     /** @enum {string} */
-    ModelCapability:
-      | "chat"
-      | "image_input"
-      | "realtime_audio"
-      | "transcription"
-      | "speech_output";
+    ModelCapability: "chat" | "image_input" | "realtime_audio";
     Organization: {
       /** Format: date-time */
       created_at: string;
@@ -2520,71 +2475,6 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          "text/event-stream": string;
-        };
-      };
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      429: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      502: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-    };
-  };
-  create_groq_voice_turn: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["GroqVoiceTurnRequest"];
-      };
-    };
-    responses: {
-      /** @description JSON by default; stream=true returns SSE transcript, delta, audio, done or error events. stream_audio=true allows delta and audio to interleave */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["GroqVoiceTurnResponse"];
           "text/event-stream": string;
         };
       };

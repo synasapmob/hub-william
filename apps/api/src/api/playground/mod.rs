@@ -19,12 +19,8 @@ use crate::{
     utils::provider_catalogue::AgentProvider,
 };
 
-mod groq_voice;
 mod routes;
 mod voice;
-pub(crate) use groq_voice::{
-    GROQ_CHAT_MODEL, GROQ_TTS_MODEL, GroqVoiceTurnRequest, GroqVoiceTurnResponse,
-};
 pub(crate) use routes::{PlaygroundApi, routes};
 
 #[derive(Serialize, ToSchema)]
@@ -160,7 +156,7 @@ pub async fn models(
     let mut models = normalize_models(provider, &value, current_catalogue.as_ref())?;
     let has_chat_models = !models.is_empty();
     for call in crate::utils::provider_catalogue::call_profiles(provider) {
-        if crate::utils::provider_catalogue::call_available(call, &value, has_chat_models) {
+        if crate::utils::provider_catalogue::call_available(call, has_chat_models) {
             if let Some(model) = models
                 .iter_mut()
                 .find(|model| model.id == call.selector_model)
@@ -513,8 +509,6 @@ mod tests {
             "qwen/qwen3.8-27b ",
             "Qwen/Qwen3.8-27B",
             "qwen/qwen3.6-27b",
-            "whisper-large-v3-turbo",
-            "canopylabs/orpheus-v1-english",
             "https://example.com/model",
         ] {
             input.model = model.into();

@@ -25,7 +25,7 @@ use crate::{
         agent::{
             ANTIGRAVITY_CLIENT_VERSION, CredentialLookup, PROVIDER_LOGIN_REQUIRED_MESSAGE,
             gateway_credential, load_gemini_code_assist, mark_reauthorization_required_if_current,
-            provider_credential, recover_rejected_credential,
+            recover_rejected_credential,
         },
         auth::authenticated_user_id,
     },
@@ -36,9 +36,7 @@ use crate::{
 mod routes;
 pub(crate) use routes::{GatewayApi, routes};
 
-mod groq_voice;
 mod voice;
-pub(crate) use groq_voice::groq_voice_turn_for_user;
 pub(crate) use voice::create_voice_session_for_user;
 
 const OPENAI_RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
@@ -255,11 +253,7 @@ async fn models_for_selection(
                 Bytes::new(),
             )
             .await?;
-            if provider == AgentProvider::Groq {
-                Ok(response)
-            } else {
-                filter_current_live_model_response(response, provider).await
-            }
+            filter_current_live_model_response(response, provider).await
         }
     }
 }
@@ -3335,7 +3329,7 @@ pub(crate) async fn probe_gemini_account_verification(
     println!("gemini verification probe: generation returned HTTP {status}");
     // A counted token proves the credential and project reach Code Assist, so a
     // generation that failed for a model-specific reason does not condemn the
-    // login that ADR-0031 already treats the token count as able to restore.
+    // login: a successful token count is enough to restore it.
     if count_succeeded {
         GeminiVerificationProbe::Verified
     } else {

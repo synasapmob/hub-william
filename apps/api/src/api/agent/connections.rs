@@ -1860,8 +1860,9 @@ pub async fn expire_abandoned_authorizations(state: &AppState) -> Result<u64, sq
     Ok(expired.len() as u64)
 }
 
-/// Every minute: rotate OAuth credentials that have gone their 30-45 minute
-/// interval without a refresh, whether or not anyone is using them, and retry
+/// Every minute: rotate OAuth credentials whose stored `next_refresh_at` has
+/// passed (30 minutes after their previous refresh), whether or not anyone is
+/// using them, and retry
 /// accounts the gateway marked for reconnect so a recovered provider session
 /// returns to service without its owner. Static API keys are validated by the
 /// nightly check instead; they are only retried here after a gateway rejection.

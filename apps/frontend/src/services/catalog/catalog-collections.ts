@@ -7,6 +7,7 @@ export const TOOL_IDS = [
   "vosk",
   "skills",
   "link-skills",
+  "memory",
 ] as const;
 
 interface CatalogCollectionPresentation {
@@ -54,6 +55,11 @@ const COLLECTION_PRESENTATION: Record<string, CatalogCollectionPresentation> = {
     label: "Link skills",
     summary:
       "Install the Skills into ~/.agents with one command, or copy them by hand.",
+  },
+  memory: {
+    label: "Memory",
+    summary:
+      "See what Claude Code, Codex, Grok and agy remember, and the rules and skills you give them. Browse both in a terminal, read any file, and move what you pick to the Trash. Nothing leaves your computer.",
   },
 };
 

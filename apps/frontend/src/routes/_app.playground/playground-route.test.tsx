@@ -774,9 +774,9 @@ describe("Playground conversation flow", () => {
   );
 
   it("separates native and Whisper providers/models and ends the old call when changing call modes", async () => {
-    const groqProfile = providerCatalogueService.callProfile(
-      "groq",
-      "openai/gpt-oss-20b",
+    const codexProfile = providerCatalogueService.callProfile(
+      "chatgpt",
+      "gpt-live-1-codex",
     )!;
     vi.mocked(agentService.listPools).mockResolvedValue([
       { ...account, agent: "ChatGPT" },
@@ -795,22 +795,12 @@ describe("Playground conversation flow", () => {
             { id: "gpt-live-1-codex", name: "Native call", modes: ["voice"] },
             { id: "unknown-call", name: "Unknown call", modes: ["voice"] },
             {
-              id: "wrong-kind",
-              name: "Wrong kind",
-              modes: ["voice"],
-              call: {
-                ...groqProfile,
-                provider: "chatgpt",
-                selector_model: "wrong-kind",
-              },
-            },
-            {
               id: "wrong-provider",
               name: "Wrong provider",
               modes: ["voice"],
               call: {
-                ...groqProfile,
-                kind: "native_realtime",
+                ...codexProfile,
+                provider: "claude",
                 selector_model: "wrong-provider",
               },
             },
@@ -819,8 +809,7 @@ describe("Playground conversation flow", () => {
             {
               id: "openai/gpt-oss-20b",
               name: "GPT OSS 20B",
-              modes: ["chat", "voice"],
-              call: groqProfile,
+              modes: ["chat"],
             },
           ],
     );
@@ -882,9 +871,9 @@ describe("Playground conversation flow", () => {
         provider: "groq",
         model: "openai/gpt-oss-20b",
         connectionId: "groq-account",
-        callProfile: groqProfile,
       }),
     );
+    expect(start.mock.lastCall?.[0].callProfile).toBeUndefined();
     await chooseOption(user, "Mode", "Chat");
     expect(end).toHaveBeenCalledTimes(2);
     expect(screen.getByLabelText("Account")).toHaveTextContent("Groq account");
@@ -990,7 +979,7 @@ describe("Playground conversation flow", () => {
     ["Grok", "grok"],
     ["Groq", "groq"],
   ] as const)(
-    "offers %s chat models in Call Whisper without native voice or Orpheus access",
+    "offers %s chat models in Call Whisper without native voice access",
     async (agent, provider) => {
       vi.mocked(agentService.listPools).mockResolvedValue([
         { ...account, agent },
@@ -1066,7 +1055,7 @@ describe("Playground conversation flow", () => {
   it("keeps the Groq account while switching between chat and the locally transcribed call", async () => {
     const sendTurn = vi
       .spyOn(playgroundWhisperTurnService, "turn")
-      .mockResolvedValue({ transcript: "Hello", reply: "Hi", audio: [] });
+      .mockResolvedValue({ transcript: "Hello", reply: "Hi" });
     vi.mocked(agentService.listPools).mockResolvedValue([
       { ...account, agent: "Groq" },
     ]);

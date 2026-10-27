@@ -285,7 +285,6 @@ async function start(
     activeUserId = userId;
     const current = () =>
       !closed && activeTurn === request && !request.signal.aborted;
-    let sawEvent = false;
     let reply = "";
     const playback = new PlaygroundVoicePlayback({
       context,
@@ -321,7 +320,6 @@ async function start(
       event,
     ) => {
       if (!current()) return;
-      sawEvent = true;
       if (event.type === "transcript") update(userId, "user", event.text, true);
       if (event.type === "delta") {
         reply += event.text;
@@ -363,7 +361,7 @@ async function start(
       const messages = history();
       update(userId, "user", text, true);
       options.onPhase?.("thinking");
-      const result = await sendTurn!({
+      await sendTurn!({
         provider: options.provider,
         speech: speech!,
         connectionId: options.connectionId,
@@ -375,13 +373,6 @@ async function start(
         onEvent,
       });
       if (!current()) return;
-      if (!result) removeDraft(userId);
-      if (result && !sawEvent) {
-        onEvent({ type: "transcript", text: result.transcript });
-        onEvent({ type: "delta", text: result.reply });
-        for (const audio of result.audio) onEvent({ type: "audio", audio });
-        onEvent({ type: "done" });
-      }
       await playback.complete();
       if (current()) {
         activeTurn = null;
@@ -399,7 +390,7 @@ async function start(
   try {
     await context.resume();
     await context.audioWorklet.addModule(
-      `${import.meta.env.BASE_URL}audio/groq-capture.js`,
+      `${import.meta.env.BASE_URL}audio/call-capture.js`,
     );
     controller.signal.throwIfAborted();
     const resources = await playgroundSpeechPreload.take({
@@ -437,7 +428,7 @@ async function start(
         finish("Microphone access ended. Start a new call to reconnect.");
     });
     input = context.createMediaStreamSource(stream);
-    capture = new AudioWorkletNode(context, "groq-capture");
+    capture = new AudioWorkletNode(context, "call-capture");
     capture.port.onmessage = (event: MessageEvent<Float32Array>) => {
       if (closed || muted) return;
       detector?.push(event.data);

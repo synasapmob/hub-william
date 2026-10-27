@@ -1,172 +1,198 @@
 # Hub William
 
 Hub William brings shared agent accounts, coding tools, organizations and a
-browser Playground into one workspace. Local tools use a revocable gateway key;
-Playground uses your signed-in Hub session and an account you own, a pool you
-have joined or an agent shared with your organization.
+browser Playground into one workspace.
 
-**[hub-william.site](https://hub-william.site)**
-
-[Architecture](apps/frontend/docs/architecture.md) ·
-[Frontend conventions](apps/frontend/docs/frontend-conventions.md) ·
-[Provider catalogue](docs/provider-catalogue.md) ·
-[Decisions](docs/decisions/README.md) ·
-[Contributing](.github/CONTRIBUTING.md) ·
+[Architecture](docs/architecture.md) · [Contributing](.github/CONTRIBUTING.md) ·
 [Security](.github/SECURITY.md) · [MIT License](LICENSE)
 
-## App
+## Why Hub William
 
-- **[Home](https://hub-william.site):** white paper about sharing tools and agent
-  pools with teammates, plus the contribution workflow.
-- **[Tools](https://hub-william.site/tools):** Gateway, OpenCode and OMP setup,
-  documentation and standalone installers.
-- **[Agents](https://hub-william.site/agents):** connected provider accounts,
-  usage, pool membership, owner management and gateway keys.
-- **[Playground](https://hub-william.site/playground):** streaming text
-  conversations using your connected accounts and approved pools. You can attach
-  supported images, text files and PDFs as input. Call mode offers native voice
-  with `gpt-live-1-codex`, a local camera preview and transcripts from both
-  speakers. Each mode lists only its supported models. Conversations stay in
-  the open page rather than a saved history; native camera understanding and
-  image generation are not available yet.
-- **Organization** (`/organization`): create or join multiple teams, invite
-  members, share connected agents, and view organization requests and reported
-  token usage in Overview, Agents, Members and Usage. **My organizations** lists
-  your teams with their owner, agents, members, tokens and creation date, sets
-  your default team on your account, handles invitations (a bell beside Log out in the sidebar
-  links to them), and lets an owner delete a team or a member leave it. A
-  shared agent stays linked to its owner's Workspace account: refreshing it on
-  either side updates both, deleting it in Workspace removes it from every
-  organization, and removing it from an organization keeps the Workspace
-  account.
+- **Share an account, not its credentials.** Connect a provider account once.
+  Teammates use it through an account pool or an organization with their own Hub
+  key. Requests go through the gateway, so tools and teammates hold a Hub key,
+  never the provider credential.
+- **One key for your tools.** A revocable, user-scoped gateway key points your
+  local agent CLIs at Hub William.
+- **Keep working when an account fails.** When an account is rate limited, needs
+  reconnecting or refuses a request, the API moves to the next account of the
+  same provider and fails only when none is left.
+- **Try it in the browser.** Playground uses the same accounts and pools, with no
+  local setup.
 
-Libraries, Activities, Documents installation and MCP installation are retired.
-The old machine bootstrap (`install.py` / `install.sh`) is removed.
+## How it works
 
-## Repository layout
+Hub William sits between your agents and the provider accounts behind them. You
+connect an account once, and everyone you share it with reaches it through Hub
+William.
 
 ```text
-apps/api/                              Rust API, OpenAPI and streaming gateway
-apps/frontend/                         React Router frontend
-apps/frontend/public/{gateway,opencode,omp}.py
-                                       standalone tool installers
-apps/frontend/scripts/installers/tests/ installer and gateway proxy tests
-apps/telegram/                         Telegram adapter for the business API
-contributors/*/tools/                  shared and contributor tool documentation
-infra/                                 deployment configuration
+Agent CLIs on your computer ──(Hub key)──────────┐
+                                                 ├─▶ Hub William API ──▶ provider accounts
+Playground in the browser ──(signed-in session)──┘   gateway · pools · organizations
 ```
 
-The Rust API owns authentication, rotating browser sessions, encrypted provider
-connections, account pools, organization membership and shares, and user-scoped
-gateway keys. An accepted pool member can use their own Hub key through a shared
-pool; an accepted organization member can use a shared agent in Playground.
-Neither flow exposes upstream provider credentials. When the chosen account is
-rate limited, needs reconnecting or refuses a request, the API rotates to the
-next account of the same provider in the same scope and fails only once that
-pool is exhausted. Connected OAuth accounts refresh in the background every
-30-45 minutes.
+1. **Connect.** The owner connects a provider account with a provider sign-in or
+   an API key. The API stores the credentials encrypted and refreshes them in the
+   background.
+2. **Share.** The owner shares the account through an account pool or with an
+   organization. A member must be accepted before they can use it.
+3. **Point your tools at it.** A Hub key, which is user-scoped and revocable,
+   goes into your agent's configuration. The installers on the Tools page write
+   it for you.
+4. **Send requests.** Your agent calls the gateway route of a provider
+   (`/gateway/<provider>/…`). The API picks an account you own or were accepted
+   to use, refreshes its credential if it is about to expire, and streams the
+   provider's response back. If that account fails, the API tries the next one
+   of the same provider. Playground does the same with your signed-in session.
 
-## Development
+Provider credentials stay encrypted in the API. Your computer holds a Hub key,
+and each teammate holds their own.
 
-```bash
+### Tools
+
+The **Tools** page is a catalogue of small tools and guides for working with
+your agents. Some come with a one-line command that sets a tool up on your
+computer, so you don't edit each agent's configuration by hand. Anyone can
+contribute a guide (see [Contributing](#contributing)).
+
+Example, using Hub William with OpenCode. Create a Hub key under **Agents**
+first.
+
+1. Run the installer with your key. Replace `YOUR_GATEWAY_KEY`; the key may stay
+   in your shell history.
+
+   ```sh
+   curl -fsSL https://hub-william.site/opencode.py | python3 - \
+     --url=https://hub-william.site/api \
+     --key=YOUR_GATEWAY_KEY
+   ```
+
+   It backs up your OpenCode config once, then writes the models your key can
+   reach to `~/.config/opencode/opencode.json`. A revoked or invalid key stops the
+   installer without changing your config.
+
+2. Start `opencode`. Use `/models` to switch provider or model and `/variants` to
+   switch reasoning effort.
+3. Run the command again whenever you want the model list refreshed.
+
+## Installation
+
+Create a Hub key under **Agents**, then run:
+
+```sh
+# Point Codex, Claude Code, Grok and Antigravity at Hub William.
+# Prompts for your Hub key without echoing it.
+curl -fsSL https://hub-william.site/gateway.py | python3 - \
+  --url=https://hub-william.site/api
+
+# Install the shared skills into ~/.agents.
+# Existing skills are backed up first; unlink.sh undoes it.
+curl -fsSL \
+  https://hub-william.site/catalog/contributors/synasapmob/tools/link-skills/link.sh | bash
+```
+
+`link.sh` runs a script fetched from Hub William. To read it first, download the
+Skills zip from the Tools page and run `link.sh --path=~/Downloads/skills.zip`,
+which fetches nothing. OpenCode, OMP and Memory have their own instructions on
+the Tools page.
+
+## Stack
+
+- **Frontend:** React · TypeScript · Vite · React Router · Tailwind CSS ·
+  TanStack Query · Vitest
+- **API:** Rust · Axum · SQLx · PostgreSQL · Utoipa/OpenAPI
+- **Telegram adapter:** Rust · Axum · Tokio · Reqwest. It runs the Telegram shop
+  (orders paid through SePay), has no database and calls the private API for
+  everything it stores.
+- **Installers:** Python (`gateway.py`, `opencode.py`, `omp.py`) and Bash
+  (`download-reel.sh`, `link.sh`)
+- **Hosting:** Railway
+
+## Contributing
+
+Community pull requests are for Markdown tool documentation in your own
+folder. For anything else (API, frontend, installers, workflows, conventions)
+[open an issue](https://github.com/synasapmob/hub-william/issues/new/choose)
+first. Read the [contribution guide](.github/CONTRIBUTING.md) before you start.
+
+### Folder structure
+
+```text
+contributors/
+├── default/                  # system (read-only)
+│   └── tools/
+│       ├── download-reel/
+│       ├── edge-tts/
+│       ├── gateway/
+│       ├── omp/
+│       ├── opencode/
+│       └── vosk/
+└── <your-github-login>/       # your contributions
+    └── tools/
+        └── <tool-name>/
+            └── README.md
+```
+
+- Use your GitHub login in lowercase and a lowercase, hyphenated tool name.
+- Start with `README.md` or `<tool-name>.md`. The check accepts any Markdown
+  file inside your tool folder.
+- Markdown files only. No symbolic links, executable files or credentials.
+- Never edit `contributors/default/` or another contributor's folder; the pull
+  request will fail.
+
+### Step by step
+
+1. **Fork and clone**, then branch from `dev`:
+
+   ```sh
+   gh repo fork synasapmob/hub-william --clone
+   cd hub-william
+   git switch -c add-<tool-name> origin/dev
+   ```
+
+2. **Add your tool.** Create `contributors/<your-github-login>/tools/<tool-name>/README.md`
+   as in the structure above. Say what the tool does and how to use it, and cite
+   official documentation for claims that can change.
+
+3. **Commit and push:**
+
+   ```sh
+   git add contributors/<your-github-login>/tools/<tool-name>/
+   git commit -m "docs(tools): add <tool-name>"
+   git push -u origin add-<tool-name>
+   ```
+
+4. **Open the pull request into `dev`** (never `main`) and fill in the template:
+   what the tool does, how to use it and how you verified the instructions.
+
+   ```sh
+   gh pr create --base dev
+   ```
+
+5. **Review.** An automated check verifies the author, target branch, changed
+   paths, file types and file modes. A maintainer then reviews the content and
+   links; passing the check is not acceptance. A merged change reaches staging
+   first. Once a maintainer promotes `dev` to production, your tool appears under
+   your login on the Tools page.
+
+### Run the project locally
+
+For repository owners and anyone working on an issue a maintainer accepted:
+
+```sh
 pnpm install
 pnpm dev             # frontend
 pnpm api:dev         # Rust API on :8080
 pnpm telegram:dev    # Telegram adapter on :8090
 ```
 
-The frontend reads `VITE_API_BASE_URL` from `apps/frontend/.env`. Set it to
-`https://hub-william.site/api` for the deployed API or `http://localhost:8080`
-for a local API. Direct browser requests to another origin require that API's
-CORS and session-cookie policy to allow the frontend origin. The Railway
-frontend uses its same-origin `/api` proxy.
-
-```bash
-pnpm format:check
-pnpm lint
-pnpm check:tailwind
-pnpm typecheck
-pnpm test
-pnpm build
-bash apps/frontend/scripts/installers/tests/run.sh
-```
-
-Read the frontend conventions before changing UI. The installer suite uses
-temporary directories and mocked discovery responses to verify configuration
-writes without changing the operator's installed agent settings.
-
-## Deployment
-
-Owner pull requests run full CI; community pull requests run the trusted
-contribution-scope check without executing their changed files. After a verified
-`dev` change is promoted to `main`, the
-Railway workflow deploys the API, Telegram adapter and frontend to the
-`production` environment. A push to `dev` deploys the API and frontend to the
-`staging` environment, which has no Telegram adapter. Each environment has its
-own Railway project token, stored as the Actions secret `RAILWAY_TOKEN` of the
-GitHub environment with the same name; a run fails when it is missing. After
-fixing a secret, rerun the failed run, or run **Deploy to Railway** manually from
-`dev` or `main`. Runtime credentials and database settings stay in Railway
-variables, not GitHub. GitHub Pages and Vercel publishing are retired.
-
-## Tool installation
-
-Open Tools for the current setup instructions, or run one installer. Each one
-prompts for your Hub key without echoing it:
-
-```bash
-curl -fsSL https://hub-william.site/gateway.py | python3 - --url=https://hub-william.site/api
-curl -fsSL https://hub-william.site/opencode.py | python3 - --url=https://hub-william.site/api
-curl -fsSL https://hub-william.site/omp.py | python3 - --url=https://hub-william.site/api
-```
-
-The installers store the Hub key locally; provider OAuth credentials stay on the
-API. OpenCode and OMP discover the models reachable through that key, then write
-it into their provider settings. You can also pass `--key=YOUR_GATEWAY_KEY` after
-`--url` if you prefer to supply a key explicitly. An invalid or revoked key
-stops installation before either config is changed.
-
-Tool documentation is included at build time and remains downloadable as its
-original bytes. `/catalog/index.json` lists tool sources;
-`/catalog/collections/<contributor>/tools/<tool>.zip` contains a tool's documentation.
-
-### Install the shared skills
-
-The **Skills** tool of `@synasapmob` (`contributors/synasapmob/tools/skills/`: five
-skills and the shared rules) is one card and one zip. **Link skills** (`link.sh` and
-`unlink.sh`) installs it into `~/.agents`, in one of two ways:
+Set `VITE_API_BASE_URL` in `apps/frontend/.env` to `http://localhost:8080` to use
+the local API. The API needs PostgreSQL and a few required environment
+variables; [deployment](docs/architecture/deployment.md) lists them. Before you
+open a pull request, run the checks listed in the contribution guide, starting
+with:
 
 ```sh
-# From Hub William, if you trust it: the script fetches the skills itself.
-curl -fsSL https://hub-william.site/catalog/contributors/synasapmob/tools/link-skills/link.sh | bash
-
-# From your own copy: download the Skills zip, then point the script at it.
-# PATH is the zip, or the folder you unzipped it into. Nothing is fetched.
-curl -fsSL https://hub-william.site/catalog/contributors/synasapmob/tools/link-skills/link.sh | bash -s -- --path=~/Downloads/skills.zip
+pnpm format:check && pnpm lint && pnpm check:tailwind && pnpm typecheck && pnpm test && pnpm build
 ```
-
-It never deletes your work: existing skills are backed up, a rules file you edited
-is kept (an unedited one is backed up and updated), and existing agent links are
-left alone. `unlink.sh` undoes it.
-
-## Contributing
-
-Community pull requests are for Markdown tool documentation in the author's own
-`contributors/<github-login>/tools/<tool-name>/` folder and target `dev`.
-The Tools catalogue groups docs by contributor and tool; it has no separate
-category field. For API, frontend, installer, workflow, convention, or other
-repository changes, [open an issue](https://github.com/synasapmob/hub-william/issues/new/choose)
-instead. `contributors/default/` is maintained internally. Read the [contribution guide](.github/CONTRIBUTING.md) before
-opening a pull request.
-
-## Stack
-
-React · TypeScript · Vite · React Router · Tailwind CSS · TanStack Query ·
-Rust · Axum · PostgreSQL · Utoipa/OpenAPI · Vitest · Python
-
-Groq is also available through **Connect Agent → Groq** with your own API key.
-Playground Chat offers current Qwen/GPT-OSS models advertised by that key.
-Call recognizes English speech locally in the browser, then uses Groq for
-GPT-OSS replies and Orpheus speech. The model downloads on first use; microphone
-audio and camera remain local. Only text generation and speech output consume
-Groq quota. See [browser-local STT](docs/decisions/0037-browser-local-speech-recognition.md).

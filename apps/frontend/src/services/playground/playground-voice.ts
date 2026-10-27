@@ -53,7 +53,7 @@ export interface PlaygroundVoiceStartOptions extends Omit<
   onOutputLevel?: (level: number) => void;
   sendTurn?: (
     options: PlaygroundWhisperTurnOptions,
-  ) => Promise<PlaygroundWhisperTurnResult | null>;
+  ) => Promise<PlaygroundWhisperTurnResult>;
 }
 
 function stopStream(stream: MediaStream | null) {

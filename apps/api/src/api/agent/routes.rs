@@ -24,13 +24,18 @@ pub(crate) fn routes(state: &AppState) -> Router<AppState> {
     // Accepting a request and removing a member are both owner moderation.
     let pool_decision = UserLimit::new(state, Limit::PoolDecision);
     let key_connect = UserLimit::new(state, Limit::AgentKeyConnect);
+    // The listing is public and fans out to a live provider usage call per pool.
+    let pools = UserLimit::new(state, Limit::AgentPools);
     // Starting and completing the OAuth flow are one connection attempt.
     let oauth = UserLimit::new(state, Limit::AgentOAuth);
     let refresh = UserLimit::new(state, Limit::AgentRefresh);
     let reset_credits = UserLimit::new(state, Limit::AgentResetCredits);
 
     Router::new()
-        .route("/agent-pools", get(list))
+        .route(
+            "/agent-pools",
+            get(list).layer(from_fn_with_state(pools, limit_by_user)),
+        )
         .route(
             "/agent-pools/{connection_id}/requests",
             post(create_request).layer(from_fn_with_state(pool_request, limit_by_user)),

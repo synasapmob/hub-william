@@ -39,3 +39,21 @@ How to work as a software engineer.
 - Write commit messages, pull request titles and descriptions, and comments on
   pull requests and issues in English only, even when the user writes to you in
   another language.
+
+### Sensitive data
+
+- Keep secrets and personal data on the local machine. Never push, upload, post
+  or paste them, or anything derived from them (screenshots, logs, command
+  output), to an external service, public or private.
+- Secrets and personal data include credentials, tokens, `.env` files, keys,
+  auth files such as `auth.json`, transcripts, history, and real usernames,
+  paths and emails.
+- For evidence such as a screenshot or sample output, run the program against a
+  fixture of made-up data. Never capture real data, and never blur or crop it.
+- If the evidence needs a secret, use an obviously fake value in a fake file,
+  for example `API_KEY=fake-not-a-secret` in `fake-auth.json`. Take the
+  screenshot of that file, never of the real one.
+- Before uploading an image, check it yourself for real paths, names, emails,
+  other windows and tabs. If it comes from a fixture and shows only made-up
+  data, upload it. If it may show any real data, show it to the user and wait
+  for an explicit yes.
