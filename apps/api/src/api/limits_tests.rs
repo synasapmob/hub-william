@@ -7,6 +7,7 @@ use axum::{
 };
 use reqwest::Client;
 use sqlx::postgres::PgPoolOptions;
+use std::time::Duration;
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -204,6 +205,30 @@ async fn organization_writes_are_limited_but_reads_are_not() {
             .iter()
             .all(|status| *status != StatusCode::TOO_MANY_REQUESTS)
     );
+}
+
+#[tokio::test]
+async fn public_pool_listing_is_limited_per_client_without_a_session() {
+    // The handler needs the database; a short acquire timeout keeps each of the
+    // allowed requests quick while the limiter is the thing under test.
+    let router = app(AppState {
+        pool: PgPoolOptions::new()
+            .acquire_timeout(Duration::from_millis(20))
+            .connect_lazy("postgres://localhost/hub_william_test")
+            .expect("test database URL should parse"),
+        ..state()
+    });
+
+    let allowed = statuses(&router, "GET", "/agent-pools", &[], 30).await;
+    let blocked = send(&router, "GET", "/agent-pools", &[]).await;
+
+    assert!(
+        allowed
+            .iter()
+            .all(|status| *status != StatusCode::TOO_MANY_REQUESTS)
+    );
+    assert_eq!(blocked.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert!(blocked.headers().contains_key("retry-after"));
 }
 
 #[tokio::test]

@@ -29,6 +29,7 @@ use super::{auth::optional_authenticated_user_id, gateway::gateway_key_from_head
 pub(crate) enum Limit {
     AgentKeyConnect,
     AgentOAuth,
+    AgentPools,
     AgentRefresh,
     AgentResetCredits,
     AuthLogin,
@@ -61,7 +62,8 @@ impl Limit {
             | Self::OrganizationWrite
             | Self::PoolInvite
             | Self::PoolRequest => 10,
-            Self::GatewayFailedAuth
+            Self::AgentPools
+            | Self::GatewayFailedAuth
             | Self::GatewayKey
             | Self::PlaygroundGenerate
             | Self::PoolDecision
