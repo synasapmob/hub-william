@@ -30,8 +30,10 @@ fail and may be closed. Splitting an out-of-scope code change across tool docs
 does not make it in scope. Maintainers review content and links before merging;
 passing automation is not acceptance.
 
-New tools appear automatically in the Tools contributor selector and at `/tools/<github-login>` after an accepted change is
-deployed. There is no category field to set.
+New tools appear automatically in the Tools contributor selector and at
+`/tools/<github-login>` once an accepted change is deployed. A merge into `dev`
+reaches the staging site; production receives it when the owner promotes `dev`
+into `main`. There is no category field to set.
 
 ## Propose a change outside tool documentation
 
@@ -49,9 +51,8 @@ The owner promotes a verified `dev` into `main`; feature pull requests do not
 target `main`. The `main` branch is the Railway production source and `dev` is
 the Railway staging source. Owner changes
 to the application, installers, tests, or workflow sources follow the
-[architecture](../apps/frontend/docs/architecture.md), accepted
-[decisions](../docs/decisions/README.md), and, for user-visible frontend work,
-[frontend conventions](../apps/frontend/docs/frontend-conventions.md).
+[architecture](../docs/architecture.md) and accepted
+[decisions](../docs/decisions/README.md).
 
 Run the checks relevant to the change before opening a pull request. Full CI
 runs for repository-owner pull requests; community PRs run the trusted scope

@@ -43,7 +43,8 @@ API answers `429` with a `Retry-After` header and
 `{ "code": "rate_limited", "message": ... }`.
 
 - Public routes (`/auth/login`, `/auth/register`, `/reel/*`, `/tts`) are keyed by
-  client IP. IPv6 clients are grouped by `/64`; a request with no usable IP
+  client IP. `GET /agent-pools` is keyed by user when a session is present and by
+  client IP otherwise. IPv6 clients are grouped by `/64`; a request with no usable IP
   shares one bucket.
 - Signed-in routes (agent connections and pools, organization writes,
   `/auth/refresh`, gateway-key management, the playground) are keyed by user.
@@ -78,10 +79,11 @@ src/
   utils/            shared leaf code with no endpoints; depends on core only
     provider_catalogue/   reviewed provider/model metadata (+ catalogue.json)
     tts/                  the Edge TTS engine
+    reel/                 the public-video resolver and relay
     database.rs           database_error(scope, error)
   api/              every feature with endpoints, plus the composition root
     mod.rs  router.rs  openapi.rs     the only files that list features
-    health/  auth/  agent/  gateway/  organizations/  playground/  telegram/  tts/
+    health/  auth/  agent/  gateway/  organizations/  playground/  reel/  telegram/  tts/
 ```
 
 - Dependencies point one way: `api` -> `utils` -> `core`. `core` never imports
@@ -92,8 +94,8 @@ src/
   endpoints and an `...Api` struct for its OpenAPI fragment. Adding a feature is
   a new folder under `api/` plus one line each in `router.rs` and `openapi.rs`.
 - Code with an endpoint lives in `api/`. Reusable logic with none goes in
-  `utils/`; `tts` is split that way: the engine in `utils/tts`, the `POST /tts`
-  handler in `api/tts`.
+  `utils/`; `tts` and `reel` are split that way: the engine in `utils/tts` and
+  `utils/reel`, the handlers in `api/tts` and `api/reel`.
 - `agent/` holds provider connections, account pools and provider usage.
 - Database-backed tests sit beside their code in `database_tests.rs` and run
   with `--features database-tests`.
@@ -133,7 +135,7 @@ src/
   SDP answer without exposing provider credentials. Audio and native transcripts
   flow over browser WebRTC; the camera remains a local preview. No automatic
   session replay. Organization usage counts successful session setups with
-  unknown tokens. See [ADR-0032](../../docs/decisions/0032-playground-native-voice.md).
+  unknown tokens. See [ADR-0002](../../docs/decisions/0002-playground-native-voice.md).
 - `/gateway/openai/v1/responses`: Codex/OpenAI Responses streaming gateway.
 - `/gateway/claude/v1/messages`: Claude Messages streaming gateway.
 - `/gateway/openai/v1/models`, `/gateway/claude/v1/models`: the models the key
@@ -148,9 +150,14 @@ src/
   and authenticated live model catalogue gateway.
 - `/gateway/deepseek/*`: DeepSeek OpenAI-compatible chat, Responses, and live
   model-list gateway.
-- `/internal/telegram/*`: contacts, their language preference, their orders, and
-  SePay bank transactions. Reachable only over Railway private networking and
-  only with `TELEGRAM_SERVICE_TOKEN`; never exposed through the frontend proxy.
+- `/reel/*` and `POST /tts`: public, rate-limited per IP. They back the DOWNLOAD
+  REEL and TEXT TO AUDIO tools; see [tools](../../docs/architecture/tools.md) and
+  [speech](../../docs/architecture/speech.md).
+- `/internal/telegram/*`: contacts and their language preference, orders, SePay
+  bank transactions, the audience list and blocking, and the product catalogue
+  with product creation, adjustment and restocking. Reachable only over Railway
+  private networking and only with `TELEGRAM_SERVICE_TOKEN`; never exposed
+  through the frontend proxy. Not part of the OpenAPI document.
 
 A Telegram order is created with a unique reference and settles when a SePay
 transfer arrives whose note contains that reference and whose amount covers the
@@ -162,9 +169,9 @@ matches nothing is still stored for manual reconciliation.
 Organization Usage records successful generation responses selected through an
 organization. It shows request counts and provider-reported input/output tokens;
 requests without complete token reports remain in the count with unknown tokens.
-Cached input is included in input tokens. Personal requests and earlier traffic
-are not retroactively attributed. Organization gateway-key creation remains a
-separate decision; existing personal keys keep their current access.
+Cached input is included in input tokens. Personal requests are never attributed
+to an organization. Gateway keys are personal: `gateway_keys.organization_id`
+exists and the gateway honours it, but no endpoint sets it.
 
 Gateway keys are shown once and stored only as hashes. A key can route through
 every connected account the user owns and every pool where their join request
@@ -250,7 +257,7 @@ Legacy cached workspace identities are recomputed when matching connections.
 Distinct logins in the same workspace keep separate pools; reconnecting the same
 login refreshes its existing pool and transfers ownership to the connecting user.
 
-### Groq Chat and Call
+### Groq Chat
 
 Connect with `POST /agent-connections/groq` and a user-supplied `api_key`.
 `GROQ_API_URL` defaults to `https://api.groq.com/openai/v1`. Credentials follow
@@ -258,15 +265,6 @@ DeepSeek's encryption, sharing and static-key refresh rules. Groq is separate
 from Grok. Gateway Chat endpoints are `/gateway/groq/v1/models`,
 `/gateway/groq/v1/responses`, and `/gateway/groq/v1/chat/completions`.
 
-`POST /playground/groq/voice/turn` accepts session-authenticated, account-pinned
-`transcript` text plus bounded conversation history. Speech recognition runs in
-the browser; the API composes GPT-OSS 20B and Orpheus English only. Current text
-is limited to 8,000 UTF-8 bytes with at least one letter or number, and the body
-is limited to 64 KiB. Audio input and the former `/voice/transcription` route
-are removed. See [ADR-0037](../../docs/decisions/0037-browser-local-speech-recognition.md).
-
-With `stream: true`, the turn returns SSE `transcript`, `delta`, `audio`, `done`
-or sanitized `error` records. Groq reply deltas arrive before TTS completes;
-disconnect cancels upstream work while retaining bounded account cleanup.
-Omitting `stream` retains the JSON response. See
-[ADR-0034](../../docs/decisions/0034-playground-call-streaming-and-interruption.md).
+Groq is a chat provider in the Playground like the others. Call Whisper sends its
+turns through `POST /playground/chat` and speaks them with browser-local Piper
+(see [Playground](../../docs/architecture/playground.md)).

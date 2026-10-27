@@ -14,9 +14,9 @@ export default defineConfig(({ mode }) => {
   ).DEV_API_PROXY_TARGET;
 
   return {
-    // Set by the Pages workflow to `/hub-william/` or `/hub-william/dev/`; empty
-    // everywhere else. It has to match `basename` in react-router.config.ts, or
-    // the router and the asset URLs disagree about where the site lives.
+    // The path the site is served under; `/` unless a host serves it from a
+    // sub-path. It has to match `basename` in react-router.config.ts, or the
+    // router and the asset URLs disagree about where the site lives.
     base: process.env.VITE_BASE_PATH ?? "/",
     plugins: [tailwindcss(), reactRouter(), catalogEndpoint()],
     server: {
