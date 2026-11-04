@@ -59,7 +59,7 @@ const COLLECTION_PRESENTATION: Record<string, CatalogCollectionPresentation> = {
   memory: {
     label: "Memory",
     summary:
-      "See what Claude Code, Codex, Grok and agy remember, and the rules and skills you give them. Browse both in a terminal, read any file, and move what you pick to the Trash. Nothing leaves your computer.",
+      "See what Claude Code, Codex, Grok and agy remember and the rules and skills you give them, and check Downloads, Documents, Applications and login items for risky files. Browse it in a terminal and move what you pick to the Trash. Nothing leaves your computer unless you allow one optional hash lookup.",
   },
 };
 

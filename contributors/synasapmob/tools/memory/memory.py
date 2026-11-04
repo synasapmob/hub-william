@@ -1,38 +1,54 @@
 #!/usr/bin/env python3
-# memory: see and manage what your coding agents remember, and the rules and skills you give them
+# memory: see what your coding agents remember and are told, and check your disk for risky files
 #
-# A terminal browser with two working tabs (a third, disk, is a placeholder) for Claude Code,
-# Codex, Grok and agy. The memory tab lists the
-# lessons they save about you; the rules tab lists the instruction files you write for them
-# (CLAUDE.md, AGENTS.md, GEMINI.md), their rule folders and their skills. It lists each one with
-# its size, how many files it holds and when it last changed, lets you open a folder to look
-# inside and read a file, and moves what you pick to the Trash: learned memory on the memory tab,
-# rule files, skills and links on the rules tab. It never edits what a file says, nothing is ever
-# deleted for good, and the indexes and databases an agent generates are never changed. Nothing
-# leaves your computer.
+# A terminal browser with three tabs, for Claude Code, Codex, Grok and agy. memory lists the
+# lessons they save about you; rules lists the instruction files you write for them (CLAUDE.md,
+# AGENTS.md, GEMINI.md), their rule folders and their skills; disk is a quick, read-only triage of
+# the places where risky files usually land (Downloads, Documents, Desktop, Applications, the
+# agents' own folders, login items and /tmp). Each place shows its size, how many files it holds
+# and when it last changed, and you can open a folder to look inside and read a file. The disk tab
+# gives each file a kind (ok, unknown, suspicious or maybe malware) and the reasons, never a verdict,
+# and never runs a file. On the other two tabs d moves what you pick to the Trash: learned memory,
+# rule files, skills and links. It never edits what a file says, nothing is ever deleted for good,
+# and the indexes and databases an agent generates are never changed.
+#
+# Nothing leaves your computer, with one optional exception: if VT_API_KEY is set and you answer
+# yes to one question, the SHA-256 hashes of the files it flagged (never the files, never their
+# names) are looked up at VirusTotal. Without a key, or without a yes, nothing is sent.
 #
 # Run it from Hub William (it writes only under your home folder, apart from a Linux Trash under
 # $XDG_DATA_HOME, and needs a terminal on macOS or Linux with Python 3.9 or newer):
 #   curl -fsSL https://hub-william.site/catalog/contributors/synasapmob/tools/memory/memory.py | python3
 # Or run a downloaded copy: python3 memory.py
-# Print the table without the interface, changing nothing: python3 memory.py --list
+# Print a table without the interface, changing nothing: python3 memory.py --list [--tab=disk]
+# Deeper disk checks: --deep (a known-bad hash list from --hashes FILE, YARA with --rules FILE, ClamAV)
+# and --online (the VirusTotal lookup).
 #
-# Keys: 2 and 3 (or Tab) switch tabs, arrows or h j k l move, Right or Enter opens a folder or
-# reads a file, Left goes back, d moves what is under the cursor to the Trash after a preview
-# and a y/N question, r scans again, q quits. Each folder remembers where the cursor was while
-# the tool runs; a new run starts from the top.
+# Keys: 1, 2 and 3 (or Tab) switch tabs, arrows or h j k l move, Right or Enter opens a folder or
+# reads a file, Left goes back, d moves what is under the cursor to the Trash after a preview and
+# a y/N question (not on the disk tab), r scans again (on the disk tab it also runs the slower
+# checks), s sorts the files of a disk place by size, q quits. Each folder remembers where the
+# cursor was while the tool runs; a new run starts from the top.
 
 import argparse
 import errno
+import hashlib
+import heapq
 import json
 import locale
+import math
 import os
+import plistlib
+import pwd
 import re
 import shutil
 import sqlite3
 import stat
+import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from collections import namedtuple
 from urllib.parse import quote
 
@@ -45,6 +61,11 @@ RULES = "rules"  # instruction files that you write: never edited, and only the 
 LEARNED = "memory"  # what an agent saved by itself
 SKILLS = "skills"  # skill folders (a folder with a SKILL.md): only the rules tab may move one to the Trash
 MIXED = "mixed"
+DISK = "disk"  # a file or place seen by the disk check
+
+# What the disk check calls a file, from least to most worrying.
+OK, UNKNOWN, SUSPICIOUS, MALWARE = "ok", "unknown", "suspicious", "maybe malware"
+SEVERITY = {OK: 0, UNKNOWN: 1, SUSPICIOUS: 2, MALWARE: 3}
 
 MIN_WIDTH = 64
 MIN_HEIGHT = 12
@@ -116,6 +137,7 @@ class Entry(object):
     __slots__ = (
         "name", "path", "is_dir", "kind", "agent", "root", "size", "paths", "mtime", "children",
         "always", "missing", "deletable", "link", "text", "note", "broken", "alerts",
+        "verdict", "signals", "flagged", "header", "partial",
     )
 
     def __init__(self, name, path=None, is_dir=True, kind=RULES, agent=None, root=None):
@@ -137,6 +159,11 @@ class Entry(object):
         self.note = None  # why a folder cannot be opened
         self.broken = False  # a symlink whose target is not there: listed in red, never read
         self.alerts = 0  # how many broken links are in it, itself included
+        self.verdict = None  # what the disk check made of a file, or the worst of the files in a place
+        self.signals = None  # (weight, text) for each thing the check found in a file; None: it could not look
+        self.flagged = 0  # in a place: how many of its files have its verdict
+        self.header = None  # "group": a label above some rows, "gap": a blank line; neither can be selected
+        self.partial = False  # the count and the size stopped early: there is more than is shown
 
     def add(self, child):
         self.children.append(child)
@@ -520,7 +547,10 @@ def load_agent(spec, home, places):
 class Library(object):
     """Every agent's memory under one home folder, as scanned at one moment."""
 
-    def __init__(self, home, root, places, scanned_at, what="memory files", noun="learned memory", kinds=(LEARNED,)):
+    def __init__(
+        self, home, root, places, scanned_at, what="memory files", noun="learned memory", kinds=(LEARNED,),
+        disk=False, mock=False,
+    ):
         self.home = home
         self.root = root
         self.places = places
@@ -528,6 +558,9 @@ class Library(object):
         self.what = what  # what an agent with nothing "has no ... yet"
         self.noun = noun  # what a delete preview is about
         self.kinds = kinds  # the only kinds of entry that may be moved to the Trash
+        self.disk = disk  # drawn with FILES and KIND columns, and read-only
+        self.mock = mock  # made-up findings, for tests and demos
+        self.summary = ""  # what the last scan did, for the status line
 
 
 def load(home, now=None, progress=None, specs=AGENTS, title="memory", what="memory files",
@@ -558,6 +591,1012 @@ def load_rules(home, now=None, progress=None):
     library.root.children.sort(key=lambda agent: (agent.name != SHARED, -agent.size, agent.name))
     allow_removal(library.root, library.places)
     return library
+
+
+# --- The disk tab ----------------------------------------------------------------------
+#
+# A quick, read-only triage of the places where risky files usually land. It never runs a file and
+# reads at most the first 64 KB of one. The checks that run on every visit to the tab are the file
+# name, the first bytes, the place, the text of scripts, and (macOS) the code signature. The ones that
+# run when you press r are a known-bad hash list, YARA and ClamAV if they are installed, and, only
+# if you say yes, a lookup of hashes at VirusTotal. A result says what was found, never "this is a
+# virus": a clean result is not proof, and a hit may be a harmless file.
+
+KNOWN = 9  # an antivirus rule or a known-bad hash: a finding, not a hint
+STRONG, MEDIUM, WEAK = 3, 2, 1  # how much a thing the check found counts
+WEIGHT_WORD = {KNOWN: "known", STRONG: "strong", MEDIUM: "medium", WEAK: "weak"}
+
+HEAD = 64 * 1024  # how much of a file is read
+MAX_HASH = 64 * 1024 * 1024  # the biggest file that is hashed
+PLACE_FILES = 3000  # the most files looked at in one place
+PLACE_SECONDS = 8.0  # the longest a place may take
+QUICK_SECONDS = 60.0  # the longest a quick scan may take
+DEEP_SECONDS = 60.0  # the longest the hashing may take
+TOOL_SECONDS = 120  # the longest YARA or ClamAV may take on one place
+ENGINE_SECONDS = 240  # the longest they may take together
+OS_CHECKS = 40  # the most files whose signature is read in one scan
+VT_URL = "https://www.virustotal.com/api/v3"
+
+
+def judge(signals):
+    """What a file is called from what a quick check found in it, as (kind, score).
+
+    A signal is (weight, text). A known-bad finding, or two strong signals together, is "maybe
+    malware"; a score of 3 or more is "suspicious", which one strong signal reaches alone. One weak
+    or medium signal is not enough: this is a triage, and a name or a download flag proves nothing.
+    """
+    strong = sum(1 for weight, _ in signals if weight == STRONG)
+    score = sum(weight for weight, _ in signals)
+    if strong >= 2 or any(weight == KNOWN for weight, _ in signals):
+        return MALWARE, score
+    if score >= 3:
+        return SUSPICIOUS, score
+    return OK, score
+
+
+DOC_EXTS = frozenset(
+    "pdf doc docx xls xlsx ppt pptx rtf jpg jpeg png gif heic webp bmp tif tiff mp3 mp4 mov avi mkv wav m4a "
+    "csv pages numbers key odt ods".split()
+)
+TEXT_EXTS = frozenset("txt md json yaml yml toml xml html css log ini cfg conf plist".split())
+EXEC_EXTS = frozenset("exe scr com bat cmd vbs js jar command sh pkg dmg msi ps1 apk hta lnk scpt app".split())
+RISKY_EXTS = frozenset("command scpt pkg dmg jar exe dll msi bat cmd vbs ps1 apk scr hta app iso".split())
+PROGRAMS = ("macho", "elf", "pe")  # what the first bytes say a program is
+KIND_WORDS = {
+    "macho": "a macOS program", "elf": "a Linux program", "pe": "a Windows program", "script": "a script",
+    "java": "a Java class", "pdf": "a PDF", "image": "an image", "zip": "a zip archive", "gzip": "a gzip archive",
+    "text": "text", "data": "binary data", "app": "an application bundle",
+}
+BAIT = re.compile(r"(?i)(?<![a-z])(?:crack(?:ed)?|keygen|warez|activator|patcher|nulled)(?![a-z])")
+SKIP_FILES = frozenset((".DS_Store", ".localized", "desktop.ini", "Thumbs.db"))
+SKIP_DIRS = frozenset(("node_modules", ".git", "__pycache__", ".venv", ".Trash"))
+STARTUP_FILES = (
+    ".zshrc", ".zprofile", ".zshenv", ".zlogin", ".zlogout", ".bashrc", ".bash_profile", ".bash_login", ".profile",
+    ".config/fish/config.fish",
+)
+WORKSPACE, APPLICATIONS, AGENTS, STARTUP, TEMP = "WORKSPACE", "APPLICATIONS", "AGENTS", "SHELL & STARTUP", "TEMP"
+GROUPS = (WORKSPACE, APPLICATIONS, AGENTS, STARTUP, TEMP)  # the order of the labels on the first screen
+# A place too big to read file by file (Documents) is counted by size and name only, for a while, and shown
+# with the files that are biggest or have an odd name. An application is one entry with its bundle's size.
+INVENTORY_TOP = 40  # how many of the biggest files are kept
+INVENTORY_FLAGS = 100  # how many files with an odd name are kept
+INVENTORY_SECONDS = 5.0  # how long counting may take when you open the tab
+INVENTORY_DEEP_SECONDS = 120.0  # and when you press r
+BUNDLE_FILES = 200000  # the most files counted inside one application
+BUNDLE_SECONDS = 4.0  # the longest sizing one application may take
+APP_CHECKS = 200  # the most applications whose signature is read in one scan
+VERIFY_SECONDS = 60.0  # the longest checking signatures against files may take when you press r
+# What an agent is told or allowed to run: settings, hooks, commands, skills. Never its history.
+AGENT_PLACES = (
+    (".claude", ((".claude/settings.json", 0), (".claude/settings.local.json", 0), (".claude/hooks", 3),
+                 (".claude/commands", 3), (".claude/agents", 3), (".claude/skills", 4))),
+    (".codex", ((".codex/config.toml", 0), (".codex/prompts", 3), (".codex/skills", 4))),
+    (".gemini", ((".gemini/settings.json", 0), (".gemini/extensions", 3))),
+    (".grok", ((".grok/config.toml", 0), (".grok/skills", 4), (".grok/rules", 3))),
+    (".agents", ((".agents/AGENTS.md", 0), (".agents/skills", 4))),
+)
+# The same, inside a project the agents know: only these files, never the rest of the repository.
+PROJECT_ITEMS = (
+    ("CLAUDE.md", 0), ("CLAUDE.local.md", 0), ("AGENTS.md", 0), ("GEMINI.md", 0), (".mcp.json", 0),
+    (".claude/settings.json", 0), (".claude/settings.local.json", 0), (".claude/hooks", 3), (".claude/commands", 3),
+    (".claude/agents", 3), (".claude/skills", 4), (".codex/config.toml", 0), (".gemini/settings.json", 0),
+)
+MAX_PROJECTS = 40
+TEMP_FOLDERS = ("/tmp/", "/private/tmp/", "/var/tmp/", "/private/var/tmp/", "/var/folders/", "/private/var/folders/")
+HIDDEN_OK = frozenset((".local", ".config", ".cargo", ".nvm", ".pyenv", ".rbenv", ".volta", ".bun", ".deno", ".npm"))
+
+# What the text of a script can give away. Each match is reported by its meaning, never by the text
+# that matched: a script may hold a secret.
+GAP = r"[^\n]{0,300}"  # a bounded gap: a long hostile line must not make the matching slow
+SHELL_AFTER_PIPE = r"\|\s*(?:sudo\s+(?:-\S+\s+)*)?(?:ba|z|da|k|c|fi)?sh\b"
+TEXT_PATTERNS = (
+    (STRONG, "downloads and runs code (curl or wget piped into a shell or interpreter)", re.compile(
+        r"\b(?:curl|wget)\b" + GAP + SHELL_AFTER_PIPE
+        + r"|\b(?:ba|z)?sh\s+-c\s+[\"']?\$\(\s*(?:curl|wget)\b"
+        + r"|\b(?:curl|wget)\b" + GAP + r"\|\s*(?:python[\d.]*|perl|ruby|node)\b", re.I)),
+    (STRONG, "decodes hidden data and runs it (base64)", re.compile(
+        r"\bbase64\s+(?:-d|-D|--decode)\b" + GAP + SHELL_AFTER_PIPE
+        + r"|\b(?:eval|exec)\b[^\n]{0,120}(?:base64\s+(?:-d|-D|--decode)|b64decode|atob\()", re.I)),
+    (STRONG, "opens a reverse shell", re.compile(
+        r"/dev/tcp/|\bnc(?:at)?\b" + GAP + r"\s-[ec]\s|\bbash\s+-i\s*>&|\bsocat\b" + GAP + r"\bexec:", re.I)),
+    (STRONG, "mentions a crypto-miner pool", re.compile(
+        r"stratum\+(?:tcp|ssl)://|\bxmrig\b|--donate-level|cryptonight", re.I)),
+)
+SENSITIVE = re.compile(
+    r"(?:~|\$HOME|/Users/[^/\s]+|/home/[^/\s]+)/\.(?:ssh|aws|gnupg)\b|\.config/gcloud|Library/Keychains|id_rsa|id_ed25519"
+    r"|Login Data|logins\.json|\.npmrc|\.netrc", re.I)
+UPLOAD = re.compile(
+    r"\b(?:curl|wget)\b" + GAP + r"(?:\s-d\s|\s--data\S*|\s-F\s|\s--form\b|\s-T\s|\s--upload-file\b|\s--post-\S+)|\bscp\b|\bsftp\b", re.I)
+BLOB = re.compile(r"[A-Za-z0-9+/=]{400,}")
+
+
+def sniff(head):
+    """What the first bytes of a file say it is."""
+    if head[:4] in (b"\xfe\xed\xfa\xce", b"\xfe\xed\xfa\xcf", b"\xce\xfa\xed\xfe", b"\xcf\xfa\xed\xfe"):
+        return "macho"
+    if head[:4] == b"\xca\xfe\xba\xbe":  # a fat Mach-O file and a Java class both start so
+        return "macho" if int.from_bytes(head[4:8], "big") < 32 else "java"
+    if head[:4] == b"\x7fELF":
+        return "elf"
+    if head[:2] == b"MZ":
+        return "pe"
+    if head[:2] == b"#!":
+        return "script"
+    if head[:5] == b"%PDF-":
+        return "pdf"
+    if head[:8] == b"\x89PNG\r\n\x1a\n" or head[:3] == b"\xff\xd8\xff" or head[:6] in (b"GIF87a", b"GIF89a"):
+        return "image"
+    if head[:4] in (b"PK\x03\x04", b"PK\x05\x06"):
+        return "zip"
+    if head[:2] == b"\x1f\x8b":
+        return "gzip"
+    return "text" if looks_text(head) else "data"
+
+
+def looks_text(head):
+    if not head:
+        return True
+    sample = head[:8192]
+    if b"\0" in sample:
+        return False
+    printable = sum(1 for byte in sample if byte in (9, 10, 13) or 32 <= byte < 127 or byte >= 128)
+    return printable / float(len(sample)) > 0.95
+
+
+def entropy(data):
+    """How random the bytes look, from 0 to 8: text is around 4 to 5, packed or encrypted data over 7."""
+    if not data:
+        return 0.0
+    counts = {}
+    for byte in data:
+        counts[byte] = counts.get(byte, 0) + 1
+    size = float(len(data))
+    return -sum(count / size * math.log(count / size, 2) for count in counts.values())
+
+
+def read_head(path, size=HEAD):
+    """The first bytes of a regular file, or None if it cannot be read. A link or a pipe is not opened."""
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            return None
+        return os.read(descriptor, size)
+    except OSError:
+        return None
+    finally:
+        os.close(descriptor)
+
+
+def check_name(name, kind):
+    """Signals in a file's name, and in a name that does not fit the bytes behind it."""
+    parts = name.lower().split(".")
+    ext = parts[-1] if len(parts) > 1 else ""
+    found = []
+    if len(parts) >= 3 and parts[-2] in DOC_EXTS and ext in EXEC_EXTS:
+        found.append((STRONG, "double extension: .%s.%s" % (parts[-2], ext)))
+    if kind in PROGRAMS and (ext in DOC_EXTS or ext in TEXT_EXTS):
+        found.append((STRONG, "%s behind a document name" % KIND_WORDS[kind]))
+    if ext in RISKY_EXTS:
+        found.append((WEAK, "a kind of file that installs or runs code (.%s)" % ext))
+    if BAIT.search(name):
+        found.append((WEAK, "the name says crack or keygen"))
+    return found
+
+
+def odd_name(name):
+    """A name worth a closer look without reading the file: a double extension, or crack and keygen."""
+    lowered = name.lower()
+    parts = lowered.split(".")
+    if len(parts) >= 3 and parts[-2] in DOC_EXTS and parts[-1] in EXEC_EXTS:
+        return True
+    return any(word in lowered for word in ("crack", "keygen", "warez", "activator", "patcher", "nulled")) and bool(
+        BAIT.search(name))
+
+
+def check_text(text):
+    """Signals in the text of a script, a setting or an instruction file."""
+    found = [(weight, why) for weight, why, pattern in TEXT_PATTERNS if pattern.search(text)]
+    lowered = text.lower()
+    if "osascript" in lowered and "hidden answer" in lowered:
+        found.append((STRONG, "asks for your password with a fake dialog (osascript)"))
+    if SENSITIVE.search(text):
+        found.append((STRONG, "reads credential files and uploads data")) if UPLOAD.search(text) else found.append(
+            (WEAK, "mentions credential files"))
+    if BLOB.search(text) and not any("base64" in why for _, why in found):
+        found.append((WEAK, "holds a very long encoded blob"))
+    return found
+
+
+def risky_location(path, home):
+    """Where a program lives that a login item starts, if that place is worrying; else None."""
+    if path.startswith(("/tmp/", "/private/tmp/", "/var/tmp/", "/private/var/tmp/", "/dev/shm/")):
+        return STRONG, "a temp folder"
+    if path.startswith(home.rstrip(os.sep) + "/Downloads/"):
+        return STRONG, "Downloads"
+    if path.startswith(home.rstrip(os.sep) + os.sep):
+        first = path[len(home.rstrip(os.sep)) + 1:].split(os.sep)[0]
+        if first.startswith(".") and first not in HIDDEN_OK:
+            return MEDIUM, "a hidden folder"
+    return None
+
+
+def check_program(program, home):
+    """Signals about the program a login item starts."""
+    place = risky_location(program, home)
+    if place is not None:
+        return [(place[0], "starts a program from %s at login" % place[1])]
+    if program.startswith("/") and not os.path.exists(program):
+        return [(MEDIUM, "starts a program that does not exist")]
+    return []
+
+
+def check_launchd(data, home):
+    """Signals in a LaunchAgent or LaunchDaemon plist (the bytes of the file).
+
+    An XML plist is not parsed as XML, which a hostile file could abuse: its program is picked out
+    with a strict pattern. A binary plist goes to plistlib, which has no entities to expand.
+    """
+    program = None
+    if data.startswith(b"bplist"):
+        try:
+            plist = plistlib.loads(data)
+        except Exception:  # a plist that cannot be read says nothing about the program
+            return [(WEAK, "the plist cannot be read")]
+        if isinstance(plist, dict):
+            arguments = plist.get("ProgramArguments")
+            program = plist.get("Program") or (arguments[0] if isinstance(arguments, list) and arguments else None)
+    elif b"<plist" in data[:4096] or data.lstrip().startswith(b"<?xml"):
+        found = re.search(rb"<key>Program</key>\s*<string>([^<]{1,1024})</string>", data) or re.search(
+            rb"<key>ProgramArguments</key>\s*<array>\s*<string>([^<]{1,1024})</string>", data)
+        if found:
+            program = found.group(1).decode("utf-8", "replace").replace("&amp;", "&")
+    else:
+        return [(WEAK, "the plist cannot be read")]
+    return check_program(program, home) if isinstance(program, str) else []
+
+
+def check_unit(text, home):
+    """Signals in a Linux autostart entry or a systemd user unit."""
+    found = []
+    for match in re.finditer(r"^Exec(?:Start)?=(?:-|@)?(\S+)", text, re.M):
+        found += check_program(match.group(1), home)
+    return found
+
+
+def check_config(text):
+    """Signals in an agent's JSON settings: servers that run an unpinned package or are handed a secret."""
+    try:
+        data = json.loads(text)
+    except (ValueError, RecursionError):
+        return []
+    servers = data.get("mcpServers") if isinstance(data, dict) else None
+    found = []
+    for server in (servers.values() if isinstance(servers, dict) else ()):
+        if not isinstance(server, dict):
+            continue
+        arguments = [str(item) for item in server.get("args") or [] if not str(item).startswith("-")]
+        if server.get("command") in ("npx", "bunx") and arguments and not re.search(r"@[^/@]+$", arguments[0]):
+            found.append((MEDIUM, "an MCP server runs an unpinned package"))
+        environment = server.get("env") if isinstance(server.get("env"), dict) else {}
+        if any(re.search(r"TOKEN|KEY|SECRET|PASSWORD", name, re.I) and value for name, value in environment.items()):
+            found.append((WEAK, "an MCP server is handed a secret"))
+    return found
+
+
+def mac_signature(path, run=subprocess.run, verify=False):
+    """What macOS says of a program's signature: (state, detail); state is signed, adhoc, unsigned, invalid or unknown.
+
+    Reading it is quick. Checking it against the file is not (about 2 s for an application), so that
+    only happens with verify, which the quick scan does not use.
+    """
+    try:
+        shown = run(["/usr/bin/codesign", "-dvv", path], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return "unknown", "codesign did not answer"
+    text = (shown.stderr or "") + (shown.stdout or "")
+    if "not signed at all" in text:
+        return "unsigned", "not signed"
+    if "Signature=adhoc" in text:
+        return "adhoc", "signed ad hoc, by no developer"
+    if "Authority=" in text:
+        who = re.search(r"Authority=([^\n]+)", text)
+        detail = who.group(1) if who else "signed"
+        if verify and mac_verify(path, run) is False:
+            return "invalid", "the signature does not match the file"
+        return "signed", detail
+    return "unknown", "codesign gave no signature"
+
+
+def mac_verify(path, run=subprocess.run):
+    """Whether a signature matches the file: True, False, or None if codesign gave no answer. Slow."""
+    try:
+        checked = run(["/usr/bin/codesign", "--verify", "--strict", path], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return checked.returncode == 0
+
+
+def mac_quarantined(path, run=subprocess.run):
+    """Whether macOS marked a file as downloaded from the internet."""
+    try:
+        return run(["/usr/bin/xattr", "-p", "com.apple.quarantine", path], capture_output=True, timeout=5).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def sha256_of(path):
+    digest = hashlib.sha256()
+    try:
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError:
+        return None
+    return digest.hexdigest()
+
+
+def load_hashes(path):
+    """A list of known-bad SHA-256 hashes, one to a line; a # starts a comment. Raises OSError if unreadable."""
+    found = set()
+    with open(path) as handle:
+        for line in handle:
+            word = line.split("#")[0].strip().lower()
+            if re.fullmatch(r"[0-9a-f]{64}", word):
+                found.add(word)
+    return found
+
+
+# A place: what to call it, what it holds, (path, depth) to look at, its group, and the folder its names are relative to.
+Spec = namedtuple("Spec", "label kind items group root", defaults=(None,))
+
+
+class DiskScanner(object):
+    """Looks at the places in turn. Everything it learns stays in memory."""
+
+    def __init__(
+        self, home, real=True, system_root="/", bad_hashes=None, rules=None, online_key=None, online_url=VT_URL,
+        online_cap=8, run=subprocess.run, urlopen=urllib.request.urlopen, signer=None, quarantine=None,
+        clock=time.time, which=shutil.which, verifier=None,
+    ):
+        self.home = home
+        self.real = real  # only the real home is scanned together with /tmp and the system's login items
+        self.system_root = system_root
+        self.bad_hashes = bad_hashes or set()
+        self.rules = rules
+        self.online_key = online_key
+        self.online_url = online_url
+        self.online_cap = online_cap
+        self.run = run
+        self.urlopen = urlopen
+        self.clock = clock
+        self.which = which
+        darwin = sys.platform == "darwin"
+        self.signer = signer if signer is not None else ((lambda path: mac_signature(path, run)) if darwin else None)
+        self.quarantine = quarantine if quarantine is not None else (
+            (lambda path: mac_quarantined(path, run)) if darwin else None)
+        self.verifier = verifier if verifier is not None else (
+            (lambda path: mac_verify(path, run)) if darwin else None)
+        self.checked = 0  # how many files the system was asked about in this scan
+        self.app_checked = 0  # and how many applications
+        self.long = False  # count for longer: set while you press r
+        self.inventories = {}  # place -> what counting its files found
+        self.bundles = {}  # (path, mtime) -> (files, bytes, partial) of an application
+        self.signed = {}  # application path -> key, for the signatures that r checks against the files
+        self.seen = {}  # (path, size, mtime) -> (kind, signals from the name, the bytes and the text)
+        self.os_seen = {}  # the same key -> (signals, detail) from the signature and the download flag
+        self.hashes = {}  # the same key -> sha256
+        self.deep = {}  # the same key -> signals from the hash list, YARA, ClamAV and the online lookup
+
+    def can_go_online(self):
+        return bool(self.online_key)
+
+    def keep(self, key, signal):
+        """Remember what a deep check found, once: pressing r again must not count it twice."""
+        found = self.deep.setdefault(key, [])
+        if signal not in found:
+            found.append(signal)
+
+    # Where to look
+
+    def places(self):
+        join = lambda *parts: os.path.join(self.home, *parts)
+        system = lambda path: os.path.join(self.system_root, path.lstrip("/"))
+        places = [
+            Spec("~/Documents", "documents", [(join("Documents"), 0)], WORKSPACE),
+            Spec("~/Downloads", "downloads", [(join("Downloads"), 4)], WORKSPACE),
+            Spec("~/Desktop", "files", [(join("Desktop"), 3)], WORKSPACE),
+            Spec("~/Applications", "apps", [(join("Applications"), 1)], APPLICATIONS),
+        ]
+        for folder, items in AGENT_PLACES:
+            places.append(Spec(
+                "~/" + folder, "agent", [(join(*name.split("/")), depth) for name, depth in items], AGENTS, join(folder)))
+        places += self.project_places()
+        places += [
+            Spec("shell startup files", "startup", [(join(name), 0) for name in STARTUP_FILES], STARTUP, self.home),
+            Spec("~/Library/LaunchAgents", "launch", [(join("Library", "LaunchAgents"), 1)], STARTUP),
+            Spec("~/.config/autostart", "launch", [(join(".config", "autostart"), 1)], STARTUP),
+            Spec("~/.config/systemd/user", "launch", [(join(".config", "systemd", "user"), 1)], STARTUP),
+        ]
+        if self.real:
+            places += [
+                Spec("/Applications", "apps", [(system("/Applications"), 1)], APPLICATIONS),
+                Spec("/Library/LaunchAgents", "launch", [(system("/Library/LaunchAgents"), 1)], STARTUP),
+                Spec("/Library/LaunchDaemons", "launch", [(system("/Library/LaunchDaemons"), 1)], STARTUP),
+                Spec("/tmp", "temp", [(os.path.realpath(system("/tmp")), 2)], TEMP),
+                Spec("/var/tmp", "temp", [(os.path.realpath(system("/var/tmp")), 2)], TEMP),
+            ]
+        return places
+
+    def project_places(self):
+        """The projects the agents know, found from Claude's list of them, each with only its agent files."""
+        folder = os.path.join(self.home, ".claude", "projects")
+        try:
+            names = sorted(os.listdir(folder))
+        except OSError:
+            return []
+        found, seen = [], set()
+        for name in names:
+            path = find_project(name)
+            if not path or path in seen or path == self.home or not os.path.isdir(path):
+                continue
+            if path.startswith(TEMP_FOLDERS) and not path.startswith(self.home.rstrip(os.sep) + os.sep):
+                continue  # a scratch folder outside your home is not a project; the TEMP group looks at those
+            seen.add(path)
+            found.append(Spec(
+                tilde(path, self.home), "project", [(os.path.join(path, rel), depth) for rel, depth in PROJECT_ITEMS],
+                AGENTS, path))
+        return found[:MAX_PROJECTS]
+
+    def walk(self, spec, deadline):
+        """The files of a place as (path, name, info, is_app): no link is followed, and the work has limits."""
+        base = spec.root
+        count = [0]
+
+        def visit(path, depth, root):
+            try:
+                with os.scandir(path) as scan:
+                    entries = sorted(scan, key=lambda entry: entry.name)
+            except OSError:
+                return
+            for entry in entries:
+                if count[0] >= PLACE_FILES or self.clock() > deadline:
+                    return
+                if entry.name in SKIP_FILES or entry.is_symlink():
+                    continue
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        if entry.name.endswith(".app"):
+                            count[0] += 1
+                            yield entry.path, os.path.relpath(entry.path, root), entry.stat(follow_symlinks=False), True
+                        elif depth > 0 and entry.name not in SKIP_DIRS:
+                            for found in visit(entry.path, depth - 1, root):
+                                yield found
+                    elif entry.is_file(follow_symlinks=False):
+                        count[0] += 1
+                        yield entry.path, os.path.relpath(entry.path, root), entry.stat(follow_symlinks=False), False
+                except OSError:
+                    continue
+
+        for path, depth in spec.items:
+            root = base or path
+            if os.path.islink(path):
+                continue
+            if os.path.isdir(path):
+                for found in visit(path, depth, root):
+                    yield found
+            elif os.path.isfile(path):
+                if count[0] >= PLACE_FILES or self.clock() > deadline:
+                    return
+                try:
+                    info = os.lstat(path)
+                except OSError:
+                    continue
+                count[0] += 1
+                yield path, os.path.relpath(path, root) if base else os.path.basename(path), info, False
+
+    # What a file looks like
+
+    def examine(self, path, name, spec, info, is_app):
+        """(kind, signals) from the name, the first bytes, the place and the text; None if it cannot be read."""
+        if is_app:
+            return "app", ([] if spec.kind == "apps" else check_name(name, "app"))
+        head = read_head(path)
+        if head is None:
+            return None
+        kind = sniff(head)
+        found = check_name(os.path.basename(name), kind)
+        if spec.kind == "temp" and (kind in PROGRAMS or (kind == "script" and info.st_mode & 0o111)):
+            found.append((MEDIUM, "a program in a temp folder"))
+        if spec.kind == "downloads" and kind in PROGRAMS:
+            found.append((WEAK, "a program in Downloads"))
+        ext = os.path.splitext(name)[1].lower().lstrip(".")
+        if kind in ("text", "script"):
+            text = head.decode("utf-8", "replace")
+            found += check_text(text)
+            if spec.kind == "launch" and ext in ("plist",):
+                found += check_launchd(head if len(head) < HEAD else (read_head(path, 1 << 20) or head), self.home)
+            elif spec.kind == "launch":
+                found += check_unit(text, self.home)
+            if ext in ("json", "") and spec.kind in ("agent", "project"):
+                found += check_config(text)
+        elif kind == "data" and spec.kind == "launch" and ext == "plist":
+            found += check_launchd(read_head(path, 1 << 20) or head, self.home)
+        elif kind == "data" and ext in TEXT_EXTS and len(head) >= 4096 and entropy(head) > 7.2:
+            found.append((MEDIUM, "looks packed or encrypted but is named like a text file"))
+        if spec.kind in ("launch", "startup") and self.clock() - info.st_mtime < 7 * 86400:
+            found.append((WEAK, "changed in the last 7 days"))
+        return kind, found
+
+    def from_the_system(self, path, key, kind, found, name):
+        """Signals from the signature and the download flag, asked of macOS for a file worth the trouble."""
+        if key in self.os_seen:
+            return self.os_seen[key]
+        ext = os.path.splitext(name)[1].lower().lstrip(".")
+        signals, detail = [], ""
+        app = kind == "app"
+        worth = kind in ("macho", "app") or ext in ("pkg", "dmg", "command", "scpt") or bool(found)
+        used, limit = (self.app_checked, APP_CHECKS) if app else (self.checked, OS_CHECKS)
+        if worth and used < limit and (self.signer or self.quarantine):
+            if app:
+                self.app_checked += 1
+            else:
+                self.checked += 1
+            if self.signer and (kind in ("macho", "app") or ext == "pkg"):
+                state, detail = self.signer(path)
+                if state in ("unsigned", "invalid"):
+                    signals.append((MEDIUM, "not signed by a known developer" if state == "unsigned" else
+                                    "its signature does not match the file"))
+                elif state == "adhoc":
+                    signals.append((WEAK, "signed ad hoc, by no developer"))
+                elif state == "signed" and app:
+                    self.signed[path] = key  # r checks it against the files
+                detail = "signature  " + detail
+            if self.quarantine and (not app or signals) and self.quarantine(path):
+                signals.append((WEAK, "downloaded from the internet"))
+        self.os_seen[key] = (signals, detail)
+        return self.os_seen[key]
+
+    def bundle_stats(self, path, info):
+        """How many files an application holds and how many bytes: (files, bytes, partial). Counted once, then kept."""
+        key = (path, info.st_mtime_ns)
+        if key not in self.bundles:
+            started = self.clock()
+            files = size = 0
+            partial = False
+            stack = [path]
+            while stack and not partial:
+                try:
+                    scan = os.scandir(stack.pop())
+                except OSError:
+                    continue
+                with scan:
+                    for entry in scan:
+                        if files >= BUNDLE_FILES or self.clock() - started > BUNDLE_SECONDS:
+                            partial = True
+                            break
+                        try:
+                            if entry.is_symlink():
+                                continue
+                            if entry.is_dir(follow_symlinks=False):
+                                stack.append(entry.path)
+                            elif entry.is_file(follow_symlinks=False):
+                                files += 1
+                                size += entry.stat(follow_symlinks=False).st_size
+                        except OSError:
+                            continue
+            self.bundles[key] = (files, size, partial)
+        return self.bundles[key]
+
+    def count_files(self, root, seconds, progress=None, label=""):
+        """Count the files under a folder by stat alone, for a while: what a place too big to read holds."""
+        started = last = self.clock()
+        files = size = 0
+        top, named = [], []
+        partial = False
+        stack = [root]
+        while stack:
+            now = self.clock()
+            if now - started > seconds:
+                partial = True
+                break
+            if progress is not None and now - last > 0.3:
+                last = now
+                progress("Counting %s ... %s files" % (label, format(files, ",")))
+            try:
+                scan = os.scandir(stack.pop())
+            except OSError:
+                continue
+            with scan:
+                for entry in scan:
+                    try:
+                        if entry.is_symlink():
+                            continue
+                        if entry.is_dir(follow_symlinks=False):
+                            stack.append(entry.path)
+                            continue
+                        if not entry.is_file(follow_symlinks=False):
+                            continue
+                        length = entry.stat(follow_symlinks=False).st_size
+                    except OSError:
+                        continue
+                    files += 1
+                    size += length
+                    if len(top) < INVENTORY_TOP:
+                        heapq.heappush(top, (length, entry.path))
+                    elif length > top[0][0]:
+                        heapq.heapreplace(top, (length, entry.path))
+                    if len(named) < INVENTORY_FLAGS and odd_name(entry.name):
+                        named.append(entry.path)
+        return {"files": files, "size": size, "partial": partial, "seconds": seconds,
+                "top": sorted(top, reverse=True), "named": named}
+
+    def entry_for(self, spec, path, name, info, is_app):
+        key = (path, info.st_size, info.st_mtime_ns)
+        seen = self.seen.get(key)
+        if key not in self.seen:
+            seen = self.seen[key] = self.examine(path, name, spec, info, is_app)
+        entry = Entry(clean_line(name), path, False, DISK, spec.label)
+        entry.size = max(1, info.st_size)
+        entry.paths = 1
+        entry.mtime = info.st_mtime
+        if is_app:  # an application is a folder: its size and its files are what is inside
+            files, size, entry.partial = self.bundle_stats(path, info)
+            entry.paths, entry.size = files, max(1, size)
+        if seen is None:
+            entry.verdict = UNKNOWN
+            entry.note = "type    could not be read"
+            return entry
+        kind, found = seen
+        extra, detail = self.from_the_system(path, key, kind, found, name)
+        entry.signals = found + extra + self.deep.get(key, [])
+        entry.verdict = judge(entry.signals)[0]
+        digest = self.hashes.get(key)
+        entry.note = "\n".join(line for line in (
+            "type    %s" % KIND_WORDS.get(kind, kind),
+            detail,
+            "" if is_app else "sha256  %s" % (digest or "not computed (press r)"),
+        ) if line)
+        return entry
+
+    def inventory_place(self, spec, progress):
+        """A place too big to read: how many files and how big, counted for a while, and its biggest files."""
+        root = spec.items[0][0]
+        if spec.label not in self.inventories:
+            seconds = INVENTORY_DEEP_SECONDS if self.long else INVENTORY_SECONDS
+            self.inventories[spec.label] = self.count_files(root, seconds, progress, spec.label)
+        stats = self.inventories[spec.label]
+        place = Entry(spec.label, None, True, DISK, "disk")
+        for path in dict.fromkeys([path for _, path in stats["top"]] + stats["named"]):
+            try:
+                info = os.lstat(path)
+            except OSError:
+                continue
+            if info.st_size > 0:
+                place.add(self.entry_for(spec, path, os.path.relpath(path, root), info, False))
+        if place.children:
+            settle(place)
+            place.size, place.paths, place.partial = stats["size"], stats["files"], stats["partial"]
+            place.note = "Biggest and odd-named files: %d of %s%s." % (
+                len(place.children), format(stats["files"], ","), "+" if stats["partial"] else "")
+            if stats["partial"]:
+                place.note += " Count stopped after %d s; r counts longer." % stats["seconds"]
+        return place
+
+    # The two kinds of scan
+
+    def quick(self, progress=None):
+        """The checks that cost little: name, first bytes, place, script text and signature."""
+        self.checked = self.app_checked = 0
+        started = self.clock()
+        buckets = dict((group, []) for group in GROUPS)
+        projects = set()
+        for spec in self.places():
+            if progress is not None:
+                progress("Scanning %s ..." % spec.label)
+            if spec.kind == "documents":
+                place = self.inventory_place(spec, progress)
+            else:
+                place = Entry(spec.label, None, True, DISK, "disk")
+                deadline = min(self.clock() + PLACE_SECONDS, started + QUICK_SECONDS)
+                for path, name, info, is_app in self.walk(spec, deadline):
+                    if (info.st_size <= 0 and not is_app) or (spec.kind == "apps" and not is_app):
+                        continue
+                    if spec.kind == "apps" and progress is not None:
+                        progress("Sizing %s ..." % os.path.basename(path))
+                    place.add(self.entry_for(spec, path, name, info, is_app))
+                if spec.kind == "startup":
+                    self.add_crontab(place)
+            if place.children:
+                settle(place)
+                if spec.kind == "project":
+                    projects.add(place.name)
+                buckets[spec.group].append(place)
+        root = Entry("disk")
+        rows = []
+        files = places = 0
+        for group in GROUPS:
+            members = sorted(  # the worst first; in a tie an agent comes before a project
+                buckets[group], key=lambda one: (-SEVERITY[one.verdict], one.name in projects, -one.size, one.name))
+            if not members:
+                continue
+            gap = Entry("gap %d" % len(rows), None, True, DISK, "disk")  # a blank line above every label, the first too
+            gap.header, gap.always = "gap", True
+            rows.append(gap)
+            rows.append(label_for(group, members))
+            for place in members:
+                root.add(place)
+                rows.append(place)
+                files += place.paths
+                places += 1
+        root.children = rows  # the labels carry no totals of their own, so the root counts each place once
+        root.verdict = max((row.verdict for row in rows if not row.header), key=SEVERITY.get, default=OK)
+        root.partial = any(row.partial for row in rows if not row.header)
+        library = Library(self.home, root, {}, self.clock(), "files", "files", (), disk=True)
+        library.summary = "Scanned %s%s file%s in %d place%s" % (
+            format(files, ","), "+" if root.partial else "", "" if files == 1 else "s", places, "" if places == 1 else "s")
+        return library
+
+    def add_crontab(self, place):
+        """Your crontab is a login item too: it is read with crontab -l and shown as one entry."""
+        if not self.which("crontab"):
+            return
+        try:
+            shown = self.run(["crontab", "-l"], capture_output=True, text=True, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            return
+        text = shown.stdout if shown.returncode == 0 else ""
+        if not text.strip():
+            return
+        entry = Entry("crontab (your user)", None, False, DISK, "shell startup files")
+        entry.size = len(text.encode("utf-8"))
+        entry.paths = 1
+        entry.mtime = self.clock()
+        entry.signals = check_text(text)
+        entry.verdict = judge(entry.signals)[0]
+        entry.note = "type    your crontab"
+        place.add(entry)
+
+    def deepen(self, library, online, progress=None):
+        """The checks that cost more: known-bad hashes, YARA, ClamAV and, if allowed, VirusTotal. Returns what was done."""
+        files = [node for node in walk(library.root) if not node.is_dir and node.path]
+        said = []
+        started = self.clock()
+        wanted = lambda node: node.verdict in (SUSPICIOUS, MALWARE)
+        keys = {}
+        for node in files:
+            try:
+                info = os.lstat(node.path)
+            except OSError:
+                continue
+            keys[node.path] = (node.path, info.st_size, info.st_mtime_ns)
+        hashed = 0
+        if self.bad_hashes or online:
+            for number, node in enumerate(files):
+                key = keys.get(node.path)
+                if key is None or key[1] > MAX_HASH or (not self.bad_hashes and not wanted(node)):
+                    continue
+                if self.clock() - started > DEEP_SECONDS:
+                    said.append("hashing stopped after %d s" % DEEP_SECONDS)
+                    break
+                if progress is not None:
+                    progress("Hashing %s (%d of %d) ..." % (node.name, number + 1, len(files)))
+                if key not in self.hashes:
+                    self.hashes[key] = sha256_of(node.path)
+                digest = self.hashes[key]
+                hashed += 1
+                if digest and digest in self.bad_hashes:
+                    self.keep(key, (KNOWN, "its SHA-256 is on your known-bad list"))
+            said.append("hashed %d file%s" % (hashed, "" if hashed == 1 else "s") if self.bad_hashes
+                        else "no hash list (--hashes)")
+        else:
+            said.append("no hash list (--hashes)")
+        said.append(self.verify_apps(progress))
+        said.append(self.run_engines(library, keys, progress))
+        said.append(self.look_up(files, keys, wanted, progress) if online else "online off")
+        return " · ".join(part for part in said if part)
+
+    def verify_apps(self, progress):
+        """Check each signed application's signature against its files, which takes about 2 s for each."""
+        if not self.verifier or not self.signed:
+            return ""
+        started = self.clock()
+        done = bad = 0
+        for number, (path, key) in enumerate(sorted(self.signed.items())):
+            if self.clock() - started > VERIFY_SECONDS:
+                return "verified %d of %d apps" % (done, len(self.signed))
+            if progress is not None:
+                progress("Verifying %s (%d of %d) ..." % (os.path.basename(path), number + 1, len(self.signed)))
+            valid = self.verifier(path)
+            done += 1
+            if valid is False:
+                self.keep(key, (MEDIUM, "its signature does not match the file"))
+                bad += 1
+        return "verified %d app%s%s" % (done, "" if done == 1 else "s", ", %d bad" % bad if bad else "")
+
+    def run_engines(self, library, keys, progress):
+        """YARA and ClamAV over the folders of the scan, when they are installed."""
+        roots = sorted({os.path.dirname(node.path) for node in walk(library.root) if node.path and not node.is_dir})
+        folders = [path for path in {self.top(root) for root in roots} if path]
+        parts = []
+        begun = self.clock()
+        rules = self.rules
+        yara = self.which("yara")
+        if yara and rules:
+            hits = 0
+            for folder in sorted(folders):
+                if self.clock() - begun > ENGINE_SECONDS:
+                    break
+                if progress is not None:
+                    progress("YARA: %s ..." % tilde(folder, self.home))
+                for name, path in self.engine_lines([yara, "-r", "-w", rules, folder], r"^(\S+) (/.+)$"):
+                    key = keys.get(path)
+                    if key:
+                        self.keep(key, (KNOWN, "matches the YARA rule %s" % name))
+                        hits += 1
+            parts.append("YARA: %d hit%s" % (hits, "" if hits == 1 else "s"))
+        else:
+            parts.append("no YARA" if not yara else "YARA needs --rules")
+        clam = self.which("clamscan")
+        if clam:
+            hits = 0
+            for folder in sorted(folders):
+                if self.clock() - begun > ENGINE_SECONDS:
+                    break
+                if progress is not None:
+                    progress("ClamAV: %s ..." % tilde(folder, self.home))
+                for path, name in self.engine_lines([clam, "-r", "-i", "--no-summary", folder], r"^(/.+): (\S+) FOUND$"):
+                    key = keys.get(path)
+                    if key:
+                        self.keep(key, (KNOWN, "ClamAV calls it %s" % name))
+                        hits += 1
+            parts.append("ClamAV: %d hit%s" % (hits, "" if hits == 1 else "s"))
+        else:
+            parts.append("no ClamAV")
+        return " · ".join(parts)
+
+    def top(self, folder):
+        """The folder of a place that the file belongs to, so that an engine is run once per place."""
+        for spec in self.places():
+            for path, _ in spec.items:
+                if spec.kind in ("downloads", "files", "temp", "launch") and (
+                        folder == path or folder.startswith(path.rstrip(os.sep) + os.sep)):
+                    return path
+        return None
+
+    def engine_lines(self, command, pattern):
+        try:
+            shown = self.run(command, capture_output=True, text=True, timeout=TOOL_SECONDS)
+        except (OSError, subprocess.SubprocessError):
+            return
+        for line in (shown.stdout or "").splitlines():
+            match = re.match(pattern, line)
+            if match:
+                yield match.groups()
+
+    def look_up(self, files, keys, wanted, progress):
+        """Ask VirusTotal about the hashes of flagged files, and nothing else. Stops when it is told to wait."""
+        asked = known = 0
+        if not self.online_url.lower().startswith(("https://", "http://127.0.0.1", "http://localhost")):
+            return "online stopped: the address is not https"
+        for node in files:
+            if asked >= self.online_cap:
+                break
+            key = keys.get(node.path)
+            digest = self.hashes.get(key) if key else None
+            if not digest or not wanted(node):
+                continue
+            if progress is not None:
+                progress("VirusTotal: %d of %d ..." % (asked + 1, self.online_cap))
+            request = urllib.request.Request(
+                "%s/files/%s" % (self.online_url.rstrip("/"), digest), headers={"x-apikey": self.online_key})
+            try:
+                with self.urlopen(request, timeout=10) as answer:
+                    data = json.loads(answer.read().decode("utf-8"))
+            except urllib.error.HTTPError as error:
+                if error.code == 404:
+                    asked += 1
+                    continue  # nobody has seen the file: that says nothing
+                return "online stopped: %s" % ("busy" if error.code == 429 else "HTTP %d" % error.code)
+            except (OSError, ValueError):
+                return "online stopped: no answer"
+            asked += 1
+            stats = ((data.get("data") or {}).get("attributes") or {}).get("last_analysis_stats") or {}
+            bad = int(stats.get("malicious", 0))
+            if bad >= 5:
+                self.keep(key, (KNOWN, "%d antivirus engines on VirusTotal call it malicious" % bad))
+                known += 1
+            elif bad >= 1:
+                self.keep(key, (MEDIUM, "%d antivirus engine%s on VirusTotal call it malicious" % (
+                    bad, "" if bad == 1 else "s")))
+        return "VirusTotal: %d asked, %d known bad" % (asked, known)
+
+    def scan(self, deep=False, online=False, progress=None):
+        """The library for the disk tab. With deep, the slower checks run first and their findings are kept."""
+        if deep:  # the inventories are counted again, for longer, and the bundles sized again
+            self.inventories.clear()
+            self.bundles.clear()
+            self.long = True
+        try:
+            library = self.quick(progress)
+        finally:
+            self.long = False
+        if not deep:
+            return library
+        done = self.deepen(library, online and self.can_go_online(), progress)
+        library = self.quick(progress)
+        library.summary = "%s · %s" % (library.summary, done)
+        return library
+
+
+def label_for(group, places):
+    """The label above a group of places: its totals, and the worst kind in it."""
+    label = Entry(group, None, True, DISK, "disk")
+    label.header, label.always = "group", True
+    for place in places:
+        label.size += place.size
+        label.paths += place.paths
+        label.mtime = max(label.mtime, place.mtime)
+    label.partial = any(place.partial for place in places)
+    label.verdict = max((place.verdict for place in places), key=SEVERITY.get)
+    label.flagged = sum(place.flagged for place in places if place.verdict == label.verdict)
+    return label
+
+
+def settle(place):
+    """Put the worst first and say what the place as a whole looks like."""
+    place.children.sort(key=lambda child: (-SEVERITY[child.verdict], -child.size, child.name))
+    worst = max((child.verdict for child in place.children), key=SEVERITY.get, default=OK)
+    place.verdict = worst
+    place.flagged = sum(child.flagged if child.is_dir else 1 for child in place.children if child.verdict == worst)
+
+
+def report_text(entry, home, age):
+    """What the check found in a file, as the text the viewer shows."""
+    if entry.signals is None:
+        head = "%s: the check could not read this file" % entry.verdict
+        found = ["  It may be locked, or you may not have permission to read it."]
+    else:
+        kind, score = judge(entry.signals)
+        head = "%s  (score %d)" % (kind, score)
+        found = ["  %-7s %s" % (WEIGHT_WORD[weight], text) for weight, text in sorted(entry.signals, key=lambda one: -one[0])]
+        found = found or ["  Nothing found."]
+    return "\n".join(
+        [head, ""] + found + [
+            "",
+            "path    %s" % (clean_line(tilde(entry.path, home)) if entry.path else entry.name),
+            "size    %s   changed %s" % (format_size(entry.size), "just now" if age == "now" else age + " ago"),
+        ] + (entry.note.split("\n") if entry.note else []) + [
+            "",
+            "This is a quick check, not a verdict: a clean result is not proof and a hit may be harmless.",
+            "The tool never runs a file, and nothing here leaves your computer.",
+        ]
+    )
+
+
+def count_text(entry, total=None):
+    """A count of files; one that stopped early is shortened and marked: 2.0M+ files."""
+    number = entry.paths if total is None else total
+    if not entry.partial:
+        return format(number, ",")
+    if number >= 1000000:
+        return "%.1fM+" % (number / 1000000.0)
+    return ("%dk+" % (number // 1000)) if number >= 10000 else "%s+" % format(number, ",")
+
+
+def size_text(entry, total=None):
+    return format_size(entry.size if total is None else total) + ("+" if entry.partial else "")
+
+
+def status_text(entry):
+    """The KIND of a row; a place says how many of its files have its kind."""
+    status = entry_status(entry)
+    if entry.is_dir and entry.flagged and entry.verdict in (SUSPICIOUS, MALWARE):
+        return "%s (%d)" % (status, entry.flagged)
+    return status
 
 
 # --- Formatting ------------------------------------------------------------------------
@@ -619,6 +1658,8 @@ def kinds_of(entry):
 
 
 def entry_status(entry):
+    if entry.verdict is not None:
+        return entry.verdict  # what the disk check made of it
     if entry.broken or (entry.size <= 0 and entry.alerts):
         return "broken"  # a link to nothing, or only links to nothing are left in it
     if entry.size <= 0 and entry.always:
@@ -799,11 +1840,13 @@ def clean_line(line):
 class Viewer(object):
     """A read-only view of one text file, or of the warning about a broken link."""
 
-    def __init__(self, entry, trail, document, warning=False):
+    def __init__(self, entry, trail, document, warning=False, info=None, tone="danger"):
         self.entry = entry
         self.trail = trail
         self.document = document
-        self.warning = warning
+        self.warning = warning  # the document is a notice or a report, not the file itself
+        self.info = info  # what the heading says in place of the file's size
+        self.tone = tone  # the colour of its first line
         self.top = 0
         self.page = 10
         self.max_top = 1 << 30  # the last position that still fills the view; known after a draw
@@ -865,10 +1908,21 @@ class Dialog(object):
         self.max_top = 0
 
 
+class Question(object):
+    """Asked once per run, before any hash leaves the computer."""
+
+    def __init__(self, count, cap):
+        self.count = count
+        self.cap = cap
+
+
 class Browser(object):
     """What is on screen and what each key does, with no curses in it."""
 
-    def __init__(self, library, loader=None, clock=time.time, ascii_only=False, rules=None, rules_loader=None):
+    def __init__(
+        self, library, loader=None, clock=time.time, ascii_only=False, rules=None, rules_loader=None,
+        disk=None, disk_loader=None, online_ready=False, online_cap=8,
+    ):
         self.library = library
         self.loader = loader
         self.clock = clock
@@ -878,7 +1932,19 @@ class Browser(object):
         self.scroll = {}  # folder names -> the first row shown
         self.tab = 1  # 0 disk, 1 memory, 2 rules
         self.has_rules = rules is not None
+        self.has_disk = disk is not None or disk_loader is not None  # without it the disk tab is a placeholder
         self.saved = {}  # the place of each tab that is not on screen
+        if self.has_disk:
+            self.saved[0] = {  # the disk tab is scanned when it is first shown, and again on every visit
+                "library": disk, "loader": disk_loader, "stack": [disk.root] if disk else [], "memory": {},
+                "scroll": {},
+            }
+        self.by_size = False  # the disk tab inside a place: biggest first instead of worst first
+        self.online_ready = online_ready  # a VirusTotal key is set
+        self.online_cap = online_cap
+        self.asked = None  # whether hashes may be sent: None until the question is answered
+        self.question = None
+        self.status = None  # a function that shows a line of text while a scan runs
         if rules is not None:
             self.saved[2] = {
                 "library": rules, "loader": rules_loader, "stack": [rules.root], "memory": {}, "scroll": {},
@@ -899,14 +1965,18 @@ class Browser(object):
         return tuple(entry.name for entry in self.stack[1:])
 
     def rows(self):
-        return self.node.visible()
+        rows = self.node.visible()
+        if self.by_size and self.library.disk and len(self.stack) > 1:
+            return sorted(rows, key=lambda row: (-row.size, row.name))
+        return rows
 
     def index(self):
         name = self.memory.get(self.key())
-        for number, row in enumerate(self.rows()):
-            if row.name == name:
+        rows = self.rows()
+        for number, row in enumerate(rows):
+            if row.name == name and not row.header:
                 return number
-        return 0
+        return next((number for number, row in enumerate(rows) if not row.header), 0)
 
     def current(self):
         rows = self.rows()
@@ -916,16 +1986,33 @@ class Browser(object):
         rows = self.rows()
         if not rows:
             return
-        self.memory[self.key()] = rows[max(0, min(len(rows) - 1, number))].name
+        number = max(0, min(len(rows) - 1, number))
+        if rows[number].header:  # a label or a gap: stand on the nearest row below it, or above if there is none
+            below = next((one for one in range(number, len(rows)) if not rows[one].header), None)
+            above = next((one for one in range(number, -1, -1) if not rows[one].header), None)
+            number = below if below is not None else above
+            if number is None:
+                return
+        self.memory[self.key()] = rows[number].name
 
     def move(self, delta):
         self.select(self.index() + delta)
 
     def step(self, delta):
         """One row up or down, going round: below the last row comes the first, and the reverse."""
-        count = len(self.rows())
+        rows = self.rows()
+        count = len(rows)
         if count:
-            self.select((self.index() + delta) % count)
+            number = self.index()
+            for _ in range(count):
+                number = (number + delta) % count
+                if not rows[number].header:
+                    break
+            self.select(number)
+
+    def is_list(self):
+        """Whether the tab on screen is a list of rows, as opposed to the placeholder."""
+        return self.tab != 0 or self.has_disk
 
     def switch(self, new):
         """Show another tab; each list tab keeps its own folder and cursors."""
@@ -934,7 +2021,7 @@ class Browser(object):
         if new == 2 and not self.has_rules:
             self.message = "The rules tab is not available."
             return
-        if self.tab in (1, 2):
+        if self.is_list():
             self.saved[self.tab] = {
                 "library": self.library, "loader": self.loader, "stack": self.stack,
                 "memory": self.memory, "scroll": self.scroll,
@@ -943,6 +2030,8 @@ class Browser(object):
         if new in self.saved:
             for name, value in self.saved[new].items():
                 setattr(self, name, value)
+        if new == 0 and self.has_disk:
+            self.reload()  # the quick checks run each time you come to the disk tab
 
     def open(self):
         entry = self.current()
@@ -957,10 +2046,19 @@ class Browser(object):
             self.open_file(entry)
         elif entry.visible():
             self.stack.append(entry)
+            if self.library.disk and entry.note:
+                self.message = entry.note  # what the place shows, when it shows a part of it
         else:
             self.message = entry.note or "Nothing to open: every entry in this folder is empty."
 
     def open_file(self, entry):
+        if entry.verdict is not None:  # the disk check: a report, not the file
+            age = format_age(self.clock() - entry.mtime)
+            tone = {MALWARE: "danger", SUSPICIOUS: "warn", UNKNOWN: "dim", OK: "ok"}[entry.verdict]
+            trail = [item.name for item in self.stack[1:]] + [entry.name]
+            document = Document(report_text(entry, self.library.home, age), 0, False)
+            self.viewer = Viewer(entry, trail, document, warning=True, info=entry.verdict, tone=tone)
+            return
         if entry.broken:
             if points_nowhere(entry.path):  # looked at again now, not as it was at the scan
                 home = self.library.home
@@ -987,14 +2085,24 @@ class Browser(object):
         if len(self.stack) > 1:
             self.stack.pop()
 
-    def reload(self):
+    def notify(self, text):
+        if self.status is not None:
+            self.status(text)
+
+    def reload(self, **options):
         """Scan again and return to the same place, or the nearest one that still exists."""
         if self.loader is None:
+            return
+        if self.library is None:  # the disk tab, shown for the first time
+            self.library = self.loader(progress=self.notify)
+            self.stack = [self.library.root]
             return
         names = [entry.name for entry in self.stack[1:]]
         before = self.index()
         row = self.memory.get(self.key())
-        self.library = self.loader()
+        if self.library.disk:
+            options["progress"] = self.notify
+        self.library = self.loader(**options)
         stack = [self.library.root]
         for name in names:
             match = next((c for c in stack[-1].visible() if c.name == name), None)
@@ -1007,12 +2115,39 @@ class Browser(object):
         if len(stack) - 1 == len(names) and row not in [r.name for r in self.rows()]:
             self.select(before)  # the row is gone: stay near where it was
 
+    def rescan(self):
+        """r: scan again. On the disk tab that also runs the slower checks, and asks first about the online one."""
+        if self.loader is None or not self.library.disk:
+            self.reload()
+            self.message = "Scanned again."
+            return
+        flagged = sum(1 for node in walk(self.library.root) if not node.is_dir and node.verdict in (SUSPICIOUS, MALWARE))
+        if self.online_ready and self.asked is None and flagged:
+            self.question = Question(flagged, self.online_cap)
+            return
+        self.reload(deep=True, online=bool(self.asked))
+        self.message = self.library.summary or "Scanned again."
+
+    def question_key(self, key):
+        if key == "resize":
+            return
+        if key == "q":
+            self.question = None
+            self.running = False  # nothing was sent
+        elif key in ("y", "Y", "esc", "n", "N", "enter"):
+            self.asked = key in ("y", "Y")
+            self.question = None
+            self.rescan()
+
     # Deleting
 
     def begin_delete(self):
         """Preview moving what the cursor is on to the Trash: an agent, a folder, a file or a link."""
         scope = self.current()
         library = self.library
+        if library.disk:
+            self.message = "The disk tab only looks: it does not move or delete anything."
+            return
         if scope is None:
             self.message = "Nothing is selected."
             return
@@ -1121,6 +2256,9 @@ class Browser(object):
             self.message = "The viewer is read-only. Press Left to go back."
 
     def handle_key(self, key):
+        if self.question is not None:
+            self.question_key(key)
+            return
         if self.dialog is not None:
             self.dialog_key(key)
             return
@@ -1135,7 +2273,7 @@ class Browser(object):
         elif key == "tab":
             order = [0, 1] + ([2] if self.has_rules else [])
             self.switch(order[(order.index(self.tab) + 1) % len(order)])
-        elif self.tab == 0:
+        elif not self.is_list():
             return
         elif key in ("up", "k"):
             self.step(-1)
@@ -1153,9 +2291,11 @@ class Browser(object):
             self.open()
         elif key in ("left", "backspace", "h"):
             self.back()
-        elif key == "r":
-            self.reload()
-            self.message = "Scanned again."
+        elif key in ("r", "R"):
+            self.rescan()
+        elif key in ("s", "S") and self.library.disk and len(self.stack) > 1:
+            self.by_size = not self.by_size
+            self.message = "Biggest first." if self.by_size else "Worst first."
         elif key in ("d", "D"):
             self.begin_delete()
 
@@ -1183,8 +2323,11 @@ class Browser(object):
         text = chars[left] + head + chars["h"] * (width - 2 - len(head)) + chars[right]
         return [(text, "dim")]
 
+    def kind_width(self):
+        return 18 if self.library.disk else 7  # "maybe malware (12)"
+
     def columns(self, inner):
-        return inner - 41
+        return inner - 34 - self.kind_width()
 
     def cells(self, entry, name_width):
         now = self.clock()
@@ -1192,19 +2335,23 @@ class Browser(object):
         if entry.link:
             text = "%s %s %s" % (entry.name, self.chars["right"], tilde(entry.link, self.library.home))
         name = fit(text, name_width, self.chars, tail=not entry.link)
-        status = entry_status(entry).ljust(7)
+        status = status_text(entry).ljust(self.kind_width())
         if entry.size <= 0:
             return name, "-".rjust(9), "-".rjust(9), "-".rjust(4), status
         return (
             name,
-            format(entry.paths, ",").rjust(9),
-            format_size(entry.size).rjust(9),
+            count_text(entry).rjust(9),
+            size_text(entry).rjust(9),
             format_age(now - entry.mtime).rjust(4),
             status,
         )
 
-    def row(self, entry, selected, inner):
-        name, paths, size, age, status = self.cells(entry, self.columns(inner))
+    def row(self, entry, selected, inner, indent=False):
+        if entry.header == "gap":
+            return []
+        name, paths, size, age, status = self.cells(entry, self.columns(inner) - (2 if indent else 0))
+        if indent:
+            name = "  " + name
         marker = "> " if selected else "  "
         gap = "  "
         line = " " + marker + name + gap + paths + gap + size + gap + age + gap + status + " "
@@ -1214,9 +2361,13 @@ class Browser(object):
             return [(line, "danger")]
         if entry.size <= 0:
             return [(line, "dim")]
-        tone = {LEARNED: "ok", SKILLS: "ok", MIXED: "warn", RULES: "dim"}[status.strip()]
+        label = entry.header == "group"
+        tone = {
+            LEARNED: "ok", SKILLS: "ok", MIXED: "warn", RULES: "dim",
+            OK: "ok", UNKNOWN: "dim", SUSPICIOUS: "warn", MALWARE: "danger",
+        }[status.strip().split(" (")[0]]
         return [
-            (" " + marker + name + gap + paths + gap + size + gap + age + gap, "normal"),
+            (" " + marker + name + gap + paths + gap + size + gap + age + gap, "head" if label else "normal"),
             (status, tone),
             (" ", "normal"),
         ]
@@ -1224,21 +2375,23 @@ class Browser(object):
     def header(self, inner):
         gap = "  "
         text = (
-            "   " + "NAME".ljust(self.columns(inner)) + gap + "PATHS".rjust(9) + gap
-            + "SIZE".rjust(9) + gap + "AGE".rjust(4) + gap + "TYPE".ljust(7) + " "
+            "   " + "NAME".ljust(self.columns(inner)) + gap + ("FILES" if self.library.disk else "PATHS").rjust(9)
+            + gap + "SIZE".rjust(9) + gap + "AGE".rjust(4) + gap
+            + ("KIND" if self.library.disk else "TYPE").ljust(self.kind_width()) + " "
         )
         return [(text, "head")]
 
     def keys(self):
         """The hints under the list: (left group, right group)."""
         chars = self.chars
-        if self.tab == 0:
+        if not self.is_list():
             return "[2] memory" + ("  [3] rules" if self.has_rules else ""), "[q] quit"
         entry = self.current()
         reading = "read" if entry is not None and not entry.is_dir else "open"
         move = "[%s] move  [%s] %s" % (chars["updown"], chars["right"], reading)
         back = "  [%s] back" % chars["left"] if len(self.stack) > 1 else ""
-        return "%s%s  [D] delete" % (move, back), "[r] rescan  [q] quit"
+        sort = "  [S] sort" if self.library.disk and len(self.stack) > 1 else ""
+        return "%s%s%s%s" % (move, back, sort, "  [D] delete" if self.library.kinds else ""), "[r] rescan  [q] quit"
 
     def key_line(self, left, right, inner):
         """One line of hints with the left group at the left edge and the right at the right."""
@@ -1259,33 +2412,41 @@ class Browser(object):
             tabs.append((("[%d %s]" if active else "%d %s") % (index + 1, label), "tab" if active else "dim"))
             tabs.append(("  ", "normal"))
         used = sum(len(text) for text, _ in tabs)
-        right = self.scanned_text() + " "
+        mock = self.is_list() and self.library.mock
+        right = ("mock data%snot your files" % self.chars["dot"] if mock else self.scanned_text()) + " "
         tabs.append((" " * max(1, inner - used - len(right)), "normal"))
-        tabs.append((right, "dim"))
+        tabs.append((right, "warn" if mock else "dim"))
         return self.boxed(tabs, inner)
 
     def render(self, width, height):
         if width < MIN_WIDTH or height < MIN_HEIGHT:
             return [[("Terminal too small: need %dx%d, have %dx%d." % (
                 MIN_WIDTH, MIN_HEIGHT, width, height), "danger")]]
+        if self.question is not None:
+            return self.render_question(width, height)
         if self.dialog is not None:
             return self.render_dialog(width, height)
         if self.viewer is not None:
             return self.render_viewer(width, height)
         inner = width - 2
         chars = self.chars
-        rows = self.rows() if self.tab in (1, 2) else []
+        rows = self.rows() if self.is_list() else []
         list_height = height - 10
         self.page = max(1, list_height - 1)
 
-        total_size = sum(row.size for row in rows)
-        total_paths = sum(row.paths for row in rows)
+        total_size = sum(row.size for row in rows if not row.header)  # a label repeats what is under it
+        total_paths = sum(row.paths for row in rows if not row.header)
+        more = "+" if any(row.partial for row in rows) else ""  # some count stopped early: these are least numbers
+        if self.library.disk and len(self.stack) > 1:  # inside a place the total is the place's, not only the rows shown
+            total_size, total_paths, more = self.node.size, self.node.paths, "+" if self.node.partial else ""
         trail = chars["crumb"].join(entry.name for entry in self.stack)
         summary = ""
-        if self.tab in (1, 2) and rows:
-            summary = "total %s%s%s paths " % (format_size(total_size), chars["dot"], format(total_paths, ","))
+        if self.is_list() and rows:
+            summary = "total %s%s%s%s%s %s " % (
+                format_size(total_size), more, chars["dot"], format(total_paths, ","), more,
+                "files" if self.library.disk else "paths")
         crumb_width = max(1, inner - len(summary) - 1)
-        crumb = " " + fit(trail if self.tab in (1, 2) else "disk", crumb_width, chars, tail=True)
+        crumb = " " + fit(trail if self.is_list() else "disk", crumb_width, chars, tail=True)
 
         lines = [
             self.rule("tl", "tr", width, "hub-william"),
@@ -1293,10 +2454,10 @@ class Browser(object):
             self.rule("ml", "mr", width),
             self.boxed([(crumb, "bold"), (summary, "normal")], inner),
             self.rule("ml", "mr", width),
-            self.boxed(self.header(inner) if self.tab in (1, 2) else [], inner),
+            self.boxed(self.header(inner) if self.is_list() else [], inner),
         ]
 
-        if self.tab == 0:
+        if not self.is_list():
             body = [[(" The disk tab is not available yet. Press 2 to go back.", "dim")]]
         elif not rows:
             body = [[(" Nothing to show here: every entry is empty.", "dim")]]
@@ -1306,7 +2467,8 @@ class Browser(object):
             offset = min(self.scroll.get(key, 0), cursor)
             offset = max(offset, cursor - list_height + 1)
             self.scroll[key] = offset
-            body = [self.row(row, number == cursor, inner)
+            grouped = any(row.header for row in rows)
+            body = [self.row(row, number == cursor, inner, grouped and not row.header)
                     for number, row in enumerate(rows) if offset <= number < offset + list_height]
         for number in range(list_height):
             lines.append(self.boxed(body[number] if number < len(body) else [], inner))
@@ -1330,7 +2492,7 @@ class Browser(object):
         size = format_size(document.size)
         info = ("first %s of %s" % (format_size(MAX_VIEW), size) if document.truncated else size) + " "
         if viewer.warning:
-            info = "broken link "
+            info = (viewer.info or "broken link") + " "
         trail = chars["crumb"].join([self.stack[0].name] + viewer.trail)
         crumb = " " + fit(trail, max(1, inner - len(info) - 1), chars, tail=True)
 
@@ -1341,7 +2503,7 @@ class Browser(object):
         body = []
         for number, text in shown:
             gutter = ("%6d " % number) if number is not None else " " * 7
-            body.append([(" " + gutter, "dim"), (text, "danger" if viewer.warning and number == 1 else "normal")])
+            body.append([(" " + gutter, "dim"), (text, viewer.tone if viewer.warning and number == 1 else "normal")])
         position = " rows %d-%d of %d" % (viewer.top + 1, viewer.top + len(shown), len(rows)) if shown else " empty"
 
         lines = [
@@ -1358,6 +2520,29 @@ class Browser(object):
             self.rule("ml", "mr", width),
             self.boxed([(" " + (self.message or position.strip()), "normal")], inner),
             self.key_line(left, "[q] quit", inner),
+            self.rule("bl", "br", width),
+        ]
+        return lines
+
+    def render_question(self, width, height):
+        inner = width - 2
+        question = self.question
+
+        def line(text, style="normal"):
+            return self.boxed([(" " + fit(text, inner - 2, self.chars), style)], inner)
+
+        lines = [
+            self.rule("tl", "tr", width, "online lookup"),
+            line("Send the SHA-256 of %d flagged file%s to VirusTotal?" % (
+                question.count, "" if question.count == 1 else "s"), "bold"),
+            line(""),
+            line("  Only the 64-character hashes are sent: not the files, and not their names."),
+            line("  Your VT_API_KEY is read from the environment and is never stored."),
+            line("  At most %d hashes are looked up, and it stops if the service says it is busy." % question.cap),
+            line("  Say no and the other checks still run."),
+            line(""),
+            self.boxed([(" Send the hashes?  [y/N]", "danger")], inner),
+            self.key_line("", "[Esc] skip online  [q] quit", inner),
             self.rule("bl", "br", width),
         ]
         return lines
@@ -1428,28 +2613,38 @@ def list_view(library, agent=None):
     node = library.root
     trail = [node.name]
     if agent is not None:
-        match = next((child for child in node.visible() if child.name == agent), None)
+        match = next((child for child in node.visible() if child.name == agent and not child.header), None)
         if match is None:
             return None
         node = match
         trail.append(node.name)
-    rows = node.visible()
+    rows = [row for row in node.visible() if row.header != "gap"]
     now = time.time()
     if not rows:
         return ["Nothing found under %s." % library.home]
-    labels = [row.name if not row.link else "%s -> %s" % (row.name, tilde(row.link, library.home)) for row in rows]
+    grouped = any(row.header for row in rows)
+    labels = [
+        ("  " if grouped and not row.header else "") + (
+            row.name if not row.link else "%s -> %s" % (row.name, tilde(row.link, library.home)))
+        for row in rows
+    ]
     name_width = min(max(len(label) for label in labels), 56)
-    lines = ["%s   total %s, %s paths" % (
-        " > ".join(trail), format_size(sum(r.size for r in rows)),
-        format(sum(r.paths for r in rows), ","))]
-    lines.append("%s  %9s  %9s  %4s  %s" % ("NAME".ljust(name_width), "PATHS", "SIZE", "AGE", "TYPE"))
+    counted = [row for row in rows if not row.header]
+    more = "+" if any(row.partial for row in counted) else ""
+    lines = ["%s   total %s%s, %s%s %s%s" % (
+        " > ".join(trail), format_size(sum(r.size for r in counted)), more,
+        format(sum(r.paths for r in counted), ","), more, "files" if library.disk else "paths",
+        " (mock data, not your files)" if library.mock else "")]
+    lines.append("%s  %9s  %9s  %4s  %s" % (
+        "NAME".ljust(name_width), "FILES" if library.disk else "PATHS", "SIZE", "AGE",
+        "KIND" if library.disk else "TYPE"))
     for row, label in zip(rows, labels):
         if row.size <= 0:
             paths = size = age = "-"
         else:
-            paths, size, age = format(row.paths, ","), format_size(row.size), format_age(now - row.mtime)
+            paths, size, age = count_text(row), size_text(row), format_age(now - row.mtime)
         lines.append("%s  %9s  %9s  %4s  %s" % (
-            fit(label, name_width, ASCII_CHARS, tail=not row.link), paths, size, age, entry_status(row)))
+            fit(label, name_width, ASCII_CHARS, tail=not row.link), paths, size, age, status_text(row)))
     return lines
 
 
@@ -1550,26 +2745,54 @@ def draw(screen, lines, styles):
     screen.refresh()
 
 
-def run_screen(screen, home, ascii_only):
+def run_screen(screen, home, ascii_only, scanner):
     try:
         curses.curs_set(0)
     except curses.error:
         pass
     styles = make_styles()
 
+    def say(text):
+        draw(screen, [[(text, "normal")]], styles)
+
     def announce(name):
-        draw(screen, [[("Scanning %s ..." % name, "normal")]], styles)
+        say("Scanning %s ..." % name)
 
     browser = Browser(
         load(home, progress=announce), lambda: load(home), ascii_only=ascii_only,
         rules=load_rules(home, progress=announce), rules_loader=lambda: load_rules(home),
+        disk_loader=scanner.scan, online_ready=scanner.can_go_online(), online_cap=scanner.online_cap,
     )
+    browser.status = say
     while browser.running:
         height, width = screen.getmaxyx()
         draw(screen, browser.render(width, height), styles)
         key = read_key(screen)
         if key:
             browser.handle_key(key)
+
+
+XPROTECT = "/Library/Apple/System/Library/CoreServices/XProtect.bundle/Contents/Resources/XProtect.yara"
+
+
+def account_home():
+    """The home folder of the account that runs the tool, from the user database and not from $HOME."""
+    try:
+        return pwd.getpwuid(os.getuid()).pw_dir
+    except (KeyError, OSError):
+        return os.path.expanduser("~")
+
+
+def make_scanner(home, args):
+    """The disk scanner for this run. Only your real home is scanned together with /tmp and the system's login items."""
+    real = os.path.realpath(home) == os.path.realpath(account_home())
+    listed = args.hashes or os.environ.get("MEMORY_BAD_HASHES")
+    rules = args.rules or os.environ.get("MEMORY_YARA_RULES") or (XPROTECT if os.path.isfile(XPROTECT) else None)
+    return DiskScanner(
+        home, real=real, bad_hashes=load_hashes(listed) if listed else set(), rules=rules,
+        online_key=os.environ.get("VT_API_KEY") or os.environ.get("VIRUSTOTAL_API_KEY"),
+        online_url=os.environ.get("MEMORY_VT_URL") or VT_URL,
+    )
 
 
 def attach_terminal():
@@ -1595,13 +2818,28 @@ def main(argv=None):
     )
     parser.add_argument("--list", action="store_true", help="print the table and exit; changes nothing")
     parser.add_argument("--agent", metavar="NAME", help="with --list: show the memory of one agent")
-    parser.add_argument("--tab", choices=("memory", "rules"), default="memory", help="with --list: which tab to print")
+    parser.add_argument("--tab", choices=("memory", "rules", "disk"), default="memory", help="with --list: which tab to print")
     parser.add_argument("--home", metavar="PATH", help="scan this home folder instead of yours")
+    parser.add_argument("--deep", action="store_true", help="disk tab: also run the hash list, YARA and ClamAV")
+    parser.add_argument("--online", action="store_true", help="disk tab: also look flagged hashes up at VirusTotal")
+    parser.add_argument("--hashes", metavar="FILE", help="a list of known-bad SHA-256 hashes, one to a line")
+    parser.add_argument("--rules", metavar="FILE", help="YARA rules for the disk tab (needs the yara program)")
     args = parser.parse_args(argv)
     home = os.path.abspath(os.path.expanduser(args.home or "~"))
 
+    try:
+        scanner = make_scanner(home, args)
+    except OSError as error:
+        print("memory: cannot read the hash list: %s" % error, file=sys.stderr)
+        return 2
+    if args.online and not scanner.can_go_online():
+        print("memory: --online needs VT_API_KEY in the environment; the online lookup is skipped.", file=sys.stderr)
     if args.list or args.agent:
-        lines = list_view(load_rules(home) if args.tab == "rules" else load(home), args.agent)
+        loaders = {
+            "memory": load, "rules": load_rules,
+            "disk": lambda path: scanner.scan(deep=args.deep or args.online, online=args.online),
+        }
+        lines = list_view(loaders[args.tab](home), args.agent)
         if lines is None:
             print("memory: no agent named %r under %s" % (args.agent, home), file=sys.stderr)
             return 2
@@ -1617,7 +2855,7 @@ def main(argv=None):
         pass
     ascii_only = "utf" not in (locale.getpreferredencoding(False) or "").lower()
     os.environ.setdefault("ESCDELAY", "25")
-    curses.wrapper(run_screen, home, ascii_only)
+    curses.wrapper(run_screen, home, ascii_only, scanner)
     return 0
 
 
