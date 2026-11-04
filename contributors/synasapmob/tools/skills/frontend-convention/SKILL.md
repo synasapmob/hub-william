@@ -397,6 +397,17 @@ For static, single-use classes, write the literal inline:
 <div className="space-y-2.5 p-2.5">{children}</div>
 ```
 
+When two or more elements share the same static classes, define them once at
+module scope as a base-only contract and call it. Do not keep them in a plain
+string constant read straight into `className`.
+
+```tsx
+/* A line of a card is as tall as its text, which is taller than a bar. */
+const line = tv({ base: "flex h-6 items-center" });
+
+<div className={line()}>{children}</div>;
+```
+
 Define needed contracts once at module scope:
 
 ```tsx
@@ -433,6 +444,7 @@ types.
 | Switch a state | `panel({ focused })` |
 | Compose a variable class | `dot({ className: category.fill })` |
 | Combine static classes | One inline literal |
+| Share static classes across elements | `line()` from `tv({ base })` |
 
 Do not concatenate a `tv()` result with a template literal or manually compose
 conditional class strings. Doing so bypasses the merge over the complete class
