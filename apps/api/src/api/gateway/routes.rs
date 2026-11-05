@@ -12,10 +12,15 @@ use crate::{
 };
 
 use super::{
-    claude_count_tokens, claude_messages, claude_models, create_key, deepseek_chat,
-    deepseek_models, deepseek_responses, gemini_models, gemini_request, grok_chat, grok_models,
-    grok_responses, groq_chat, groq_models, groq_responses, list_keys, openai_models,
-    openai_responses, revoke_key,
+    keys::{create_key, list_keys, revoke_key},
+    providers::{
+        claude::{claude_count_tokens, claude_messages, claude_models},
+        deepseek::{deepseek_chat, deepseek_models, deepseek_responses},
+        gemini::{gemini_models, gemini_request},
+        grok::{grok_chat, grok_models, grok_responses},
+        groq::{groq_chat, groq_models, groq_responses},
+        openai::{openai_models, openai_responses},
+    },
 };
 
 pub(crate) fn routes(state: &AppState) -> Router<AppState> {
@@ -66,8 +71,8 @@ fn provider_routes(state: &AppState) -> Router<AppState> {
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(super::create_key, super::list_keys, super::revoke_key),
-    components(schemas(super::CreatedGatewayKey, super::GatewayKey)),
+    paths(super::keys::create_key, super::keys::list_keys, super::keys::revoke_key),
+    components(schemas(super::keys::CreatedGatewayKey, super::keys::GatewayKey)),
     tags((name = "gateway keys", description = "Revocable keys for provider-specific gateway access"))
 )]
 pub(crate) struct GatewayApi;

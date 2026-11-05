@@ -5,10 +5,10 @@ use axum::{
     response::Response,
 };
 
-use crate::{
-    core::ApiError,
-    utils::tts::{TtsRequest, synthesize_speech},
-};
+use crate::core::ApiError;
+
+mod engine;
+use engine::{TtsRequest, synthesize_speech};
 
 mod routes;
 pub(crate) use routes::{TtsApi, routes};

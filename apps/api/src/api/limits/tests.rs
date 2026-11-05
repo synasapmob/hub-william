@@ -11,11 +11,11 @@ use std::time::Duration;
 use tower::ServiceExt;
 use uuid::Uuid;
 
-use super::{
-    app,
-    limits::{Limit, SessionUserId, UserLimit, limit_by_user},
+use super::{Limit, SessionUserId, UserLimit, limit_by_user};
+use crate::{
+    api::app,
+    core::{AppConfig, AppState},
 };
-use crate::core::{AppConfig, AppState};
 
 fn state_with(config: AppConfig) -> AppState {
     AppState {
