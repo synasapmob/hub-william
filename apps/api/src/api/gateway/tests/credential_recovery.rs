@@ -390,6 +390,7 @@ fn active() -> (String, Option<String>) {
 
 fn browser(user_id: Uuid, connection_id: Uuid) -> GatewaySelection {
     GatewaySelection {
+        key_id: None,
         user_id,
         connection_id: Some(connection_id),
         organization_id: None,
@@ -829,11 +830,13 @@ async fn organization_selection_fails_over_only_to_that_organizations_shares(poo
     let (shared_a, shared_b) = (shares[0], shares[1]);
     let personal = gemini_account(state, member, "member-personal", 30).await;
     let preferred = GatewaySelection {
+        key_id: None,
         user_id: member,
         connection_id: Some(shared_a),
         organization_id: Some(org_id),
     };
     let key_client = GatewaySelection {
+        key_id: None,
         user_id: member,
         connection_id: None,
         organization_id: Some(org_id),
@@ -866,6 +869,7 @@ async fn organization_selection_fails_over_only_to_that_organizations_shares(poo
     let result = generation(
         state,
         GatewaySelection {
+            key_id: None,
             user_id: member,
             connection_id: Some(personal),
             organization_id: Some(org_id),

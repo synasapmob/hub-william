@@ -8,7 +8,7 @@ use super::{
         GatewaySelection, claim_candidate, mark_active, mark_rate_limited, release_probe,
         selected_provider_candidates,
     },
-    usage::{organization_usage_event, record_organization_usage},
+    usage::{UsageOutcome, usage_event},
 };
 use crate::{
     api::agent::{CredentialLookup, gateway_credential},
@@ -29,6 +29,7 @@ pub(crate) async fn create_voice_session_for_user(
     create_session(
         state,
         GatewaySelection {
+            key_id: None,
             user_id,
             connection_id: Some(connection_id),
             organization_id,
@@ -195,17 +196,16 @@ async fn start_session(
         mark_active(state, connection_id).await?;
         // Media and provider usage events go directly to the browser over
         // WebRTC. Count a successful session setup; token counts remain unknown.
-        if let Some(event) = organization_usage_event(
+        usage_event(
             state,
             selection,
             connection_id,
             AgentProvider::Chatgpt,
             body["session"]["model"].as_str(),
-        ) {
-            record_organization_usage(&event, None)
-                .await
-                .map_err(|_| ApiError::Internal)?;
-        }
+        )
+        .record(UsageOutcome::Completed, None, None, true)
+        .await
+        .map_err(|_| ApiError::Internal)?;
         return Ok(VoiceAttempt::Started(sdp));
     }
 }
@@ -302,6 +302,7 @@ mod tests {
             axum::serve(listener, server).await.unwrap();
         });
         let selection = GatewaySelection {
+            key_id: None,
             user_id: owner,
             connection_id: Some(selected),
             organization_id: None,
@@ -320,6 +321,7 @@ mod tests {
             create_session(
                 &state,
                 GatewaySelection {
+                    key_id: None,
                     user_id: outsider,
                     ..selection
                 },
@@ -478,6 +480,7 @@ mod credential_failover_tests {
                 .bind(id).bind(ciphertext).bind(nonce.to_vec()).execute(&state.pool).await.unwrap();
         }
         let selection = GatewaySelection {
+            key_id: None,
             user_id: owner,
             connection_id: Some(expiring),
             organization_id: None,

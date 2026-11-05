@@ -317,14 +317,48 @@ owned_by: "google", name}]}`) rather than Google's native shape.
   the reviewed chat models. `apps/api/src/api/playground/mod.rs` adds the call
   entry for providers with a call profile (`provider_catalogue::call_available`).
 
+## Usage recording
+
+Every generation request that reaches a provider writes one row in
+`gateway_usage_events`, whoever sent it: a Hub key, or the Playground with a
+browser session. A request qualifies when it is a `POST`, the upstream answered
+`2xx`, and it is not `count_tokens` or `countTokens`. Model discovery is never
+recorded.
+
+| Column                                           | Meaning                                                                                        |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `user_id`                                        | The owner of the key, or the signed-in user. Several keys of one user all count for that user. |
+| `gateway_key_id`                                 | The Hub key that sent the request; `NULL` for a browser session or after the key is deleted.   |
+| `org_id`, `connection_id`                        | The organization scope and the account that answered; `NULL` when absent or deleted.           |
+| `provider`, `model`                              | The provider and the model named in the request body.                                          |
+| `input_tokens`, `output_tokens`, `cached_tokens` | From the provider's usage object; `NULL` when missing, which is distinct from zero.            |
+| `outcome`                                        | `completed` or `incomplete` (below).                                                           |
+| `quota`                                          | The provider's own rate-limit signals for this response, exactly as received (below).          |
+
+`outcome` is `completed` when the provider finished the response, using the
+markers in the table further down. It is `incomplete` when the client left, the
+stream failed, or no marker arrived. An incomplete request keeps whatever usage
+was seen before it stopped, which may be nothing: a Responses stream reports its
+usage only in its last event. Recording runs from the body's `Drop`, so a request
+the client abandons is still counted. A failed insert is logged and never fails
+the response.
+
+`quota` is a JSON object with up to two keys. `headers` holds every response
+header whose name starts with `x-codex-`, `anthropic-ratelimit-`, `x-ratelimit-`
+or `ratelimit-`. `event` holds the last stream event whose `type` mentions a rate
+limit, if it is under 8 KiB. Nothing is interpreted yet: the column exists so the
+real quota windows can be read from production traffic before any limit is built
+on them.
+
 ## Organization usage recording
 
-`organization_usage_events` rows are written only for organization-scoped requests,
-which come from the Playground in organization mode (keys are personal and record
-nothing). A row is written when all hold:
+`organization_usage_events` rows are written in addition, and only for
+organization-scoped requests, which come from the Playground in organization mode
+(Hub keys are personal and carry no organization today). Unlike
+`gateway_usage_events`, which also keeps incomplete requests, a row lands here
+only when all hold:
 
-- the request is a `POST`, the upstream answered `2xx`, and it is not `count_tokens`
-  or `countTokens`;
+- the request qualifies as above;
 - the stream is read to its end without error and carries the provider's
   terminal marker (`UsageObserver`).
 

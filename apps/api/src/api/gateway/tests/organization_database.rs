@@ -8,7 +8,7 @@ use crate::{
     api::gateway::{
         proxy::upstream_response_with_usage,
         selection::{GatewaySelection, connected_provider_candidates},
-        usage::{OrganizationUsageEvent, record_organization_usage},
+        usage::{UsageEvent, UsageOutcome},
     },
     core::{ApiError, AppConfig, AppState},
     utils::provider_catalogue::AgentProvider,
@@ -75,6 +75,7 @@ async fn organization_candidate_scope_does_not_grant_personal_pool_access(pool: 
 
     let personal = GatewaySelection::from(member);
     let scoped = GatewaySelection {
+        key_id: None,
         user_id: member,
         connection_id: Some(connection_id),
         organization_id: Some(org_id),
@@ -210,10 +211,11 @@ async fn organization_usage_records_only_completed_generation_streams(pool: PgPo
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     let client = reqwest::Client::new();
-    let event = OrganizationUsageEvent {
+    let event = UsageEvent {
         pool: pool.clone(),
-        organization_id: org_id,
         user_id,
+        key_id: None,
+        organization_id: Some(org_id),
         connection_id,
         provider: AgentProvider::Deepseek,
         model: Some("deepseek-chat".to_owned()),
@@ -308,15 +310,20 @@ async fn organization_usage_survives_concurrent_connection_delete(pool: PgPool) 
         .execute(&mut *deleting)
         .await
         .unwrap();
-    let event = OrganizationUsageEvent {
+    let event = UsageEvent {
         pool: pool.clone(),
-        organization_id: org_id,
         user_id,
+        key_id: None,
+        organization_id: Some(org_id),
         connection_id,
         provider: AgentProvider::Deepseek,
         model: Some("deepseek-chat".to_owned()),
     };
-    let insert = tokio::spawn(async move { record_organization_usage(&event, None).await });
+    let insert = tokio::spawn(async move {
+        event
+            .record(UsageOutcome::Completed, None, None, true)
+            .await
+    });
 
     tokio::time::timeout(Duration::from_secs(3), async {
         loop {
@@ -325,7 +332,7 @@ async fn organization_usage_survives_concurrent_connection_delete(pool: PgPool) 
                        SELECT 1 FROM pg_stat_activity
                        WHERE datname = current_database()
                          AND pid <> pg_backend_pid()
-                         AND query LIKE 'INSERT INTO organization_usage_events%'
+                         AND query LIKE 'INSERT INTO %usage_events%'
                          AND wait_event_type = 'Lock'
                      )",
             )
@@ -350,4 +357,11 @@ async fn organization_usage_survives_concurrent_connection_delete(pool: PgPool) 
             .await
             .unwrap();
     assert_eq!(connection, None);
+    let gateway_connection: Option<Uuid> =
+        sqlx::query_scalar("SELECT connection_id FROM gateway_usage_events WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(gateway_connection, None);
 }
