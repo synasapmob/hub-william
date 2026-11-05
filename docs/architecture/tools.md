@@ -123,7 +123,7 @@ OMP specifics: providers are rendered between the lines `  # hub-william: provid
 - yt-dlp is used when it is on `PATH` or importable, with `--ignore-config --no-playlist --no-overwrites --restrict-filenames` and a combined video-and-audio format (MP4 preferred), so ffmpeg is not required. TikTok requires yt-dlp. Facebook and X fall back to public extractors (Facebook's embed page, `api.fxtwitter.com` for X) when yt-dlp is missing or fails.
 - A fallback download goes to a `.part` file, must start with an MP4 `ftyp` marker and match `Content-Length`, and is published with `os.link`, so it never replaces another file. Browser cookies are never read.
 
-**API relay** (`apps/api/src/api/reel/`, logic in `apps/api/src/utils/reel/mod.rs`; public, rate limited per IP):
+**API relay** (`apps/api/src/api/reel/`, logic in `apps/api/src/api/reel/resolver.rs`; public, rate limited per IP):
 
 | Endpoint                            | Limit                               | Purpose                                                                            |
 | ----------------------------------- | ----------------------------------- | ---------------------------------------------------------------------------------- |

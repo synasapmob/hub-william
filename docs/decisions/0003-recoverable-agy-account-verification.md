@@ -59,7 +59,7 @@ valid for another hour.
   while the account is marked.
 - **The Antigravity client version tracks the release.** Google gates Code
   Assist behaviour by client version. `ANTIGRAVITY_CLIENT_VERSION` in
-  `apps/api/src/api/agent/connections.rs` carries the version of a public client
+  `apps/api/src/api/agent/connections/mod.rs` carries the version of a public client
   that talks to the same API, and it has to be kept current.
 
 ## Rejected alternative: trust an active tier

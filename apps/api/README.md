@@ -37,7 +37,7 @@ populated values in the runtime secret store.
 
 Requests are limited in memory, per process, with one token bucket per route
 group: `30/min` lets 30 requests arrive at once and then refills one every two
-seconds. Every number lives in `Limit::per_minute` in `src/api/limits.rs`, and
+seconds. Every number lives in `Limit::per_minute` in `src/api/limits/mod.rs`, and
 each feature attaches its limiter in its own `routes.rs`. Over the limit the
 API answers `429` with a `Retry-After` header and
 `{ "code": "rate_limited", "message": ... }`.
@@ -76,29 +76,39 @@ src/
   lib.rs            crate root: the public surface main.rs and the examples use
   main.rs           the server binary
   core/             config, ApiError, AppState, CORS; imports nothing else
-  utils/            shared leaf code with no endpoints; depends on core only
+  utils/            code two or more features share; depends on core only
     provider_catalogue/   reviewed provider/model metadata (+ catalogue.json)
-    tts/                  the Edge TTS engine
-    reel/                 the public-video resolver and relay
     database.rs           database_error(scope, error)
   api/              every feature with endpoints, plus the composition root
     mod.rs  router.rs  openapi.rs     the only files that list features
+    limits/         the rate-limit policy every feature attaches in its routes.rs
     health/  auth/  agent/  gateway/  organizations/  playground/  reel/  telegram/  tts/
 ```
 
 - Dependencies point one way: `api` -> `utils` -> `core`. `core` never imports
   `utils` or `api`, and `utils` never imports `api`.
 - A feature's `mod.rs` is its public face; its submodules stay private and other
-  features import only what `mod.rs` re-exports.
+  features import only what `mod.rs` re-exports. A small feature keeps its code
+  in `mod.rs`; a large one splits it into named files and `mod.rs` only lists
+  them and re-exports what other features use.
 - A feature wires itself in from its own `routes.rs`: `routes()` for its
   endpoints and an `...Api` struct for its OpenAPI fragment. Adding a feature is
   a new folder under `api/` plus one line each in `router.rs` and `openapi.rs`.
-- Code with an endpoint lives in `api/`. Reusable logic with none goes in
-  `utils/`; `tts` and `reel` are split that way: the engine in `utils/tts` and
-  `utils/reel`, the handlers in `api/tts` and `api/reel`.
-- `agent/` holds provider connections, account pools and provider usage.
-- Database-backed tests sit beside their code in `database_tests.rs` and run
-  with `--features database-tests`.
+- Everything a feature needs lives in its folder, its engine included: the Edge
+  TTS engine is `api/tts/engine.rs` and the public-video resolver and relay is
+  `api/reel/resolver.rs`. Code goes to `utils/` only once a second feature needs
+  it.
+- `agent/` holds provider connections (`connections/`), account pools (`pools/`)
+  and provider usage (`usage.rs`). `connections/` is split by job: `authorize`
+  (connect an account), `manage` (list, refresh, disconnect), `refresh` and
+  `sweeps` (one credential, and the background schedule), `credentials` (what
+  the gateway and Playground read), `metadata` and `token`.
+- `gateway/` is split the same way: `keys`, `selection` (which account serves a
+  request), `proxy` (failover and retries), `usage`, `models` and `catalogue`,
+  with one file per provider under `providers/`.
+- Tests sit beside their code: `tests.rs` for unit tests and
+  `database_tests.rs` for database-backed ones, which run with
+  `--features database-tests`. `gateway/tests/` holds several of each kind.
 
 ## Live routes
 

@@ -19,6 +19,6 @@ pub(crate) fn routes(state: &AppState) -> Router<AppState> {
 #[derive(OpenApi)]
 #[openapi(
     paths(super::synthesize),
-    components(schemas(crate::utils::tts::TtsRequest))
+    components(schemas(super::engine::TtsRequest))
 )]
 pub(crate) struct TtsApi;

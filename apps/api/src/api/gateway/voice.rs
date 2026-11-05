@@ -3,9 +3,12 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::{
-    GatewaySelection, RejectedCredential, chatgpt_account_id, claim_candidate,
-    handle_rejected_credential, mark_active, mark_rate_limited, organization_usage_event,
-    record_organization_usage, release_probe, selected_provider_candidates,
+    proxy::{RejectedCredential, chatgpt_account_id, handle_rejected_credential},
+    selection::{
+        GatewaySelection, claim_candidate, mark_active, mark_rate_limited, release_probe,
+        selected_provider_candidates,
+    },
+    usage::{organization_usage_event, record_organization_usage},
 };
 use crate::{
     api::agent::{CredentialLookup, gateway_credential},

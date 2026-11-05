@@ -35,10 +35,10 @@ pub(crate) fn routes(state: &AppState) -> Router<AppState> {
 #[openapi(
     paths(super::resolve, super::stream, super::download),
     components(schemas(
-        crate::utils::reel::ResolveRequest,
-        crate::utils::reel::ResolvedVideo,
-        crate::utils::reel::VideoVariant,
-        crate::utils::reel::Platform
+        super::resolver::ResolveRequest,
+        super::resolver::ResolvedVideo,
+        super::resolver::VideoVariant,
+        super::resolver::Platform
     ))
 )]
 pub(crate) struct ReelApi;

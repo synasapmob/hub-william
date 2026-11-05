@@ -176,7 +176,7 @@ The AUDIO TO TEXT tool (`services/vosk/` and the Vosk page under `routes/_app.to
 The TEXT TO AUDIO tool is the only server-side speech endpoint. It is public, limited to 30 requests per minute per IP, and returns `audio/mpeg` with `Cache-Control: no-cache`.
 
 - Body: `text` (required, non-empty), `voice` (default `en-US-AriaNeural`), `rate` (default `0%`) and `pitch` (default `0Hz`).
-- `apps/api/src/utils/tts/mod.rs` opens a WebSocket to the Microsoft Edge speech service, requests `audio-24khz-48kbitrate-mono-mp3` and collects the audio. A provider error is retried after 500 ms, 1.5 s and 3 s before the request fails.
+- `apps/api/src/api/tts/engine.rs` opens a WebSocket to the Microsoft Edge speech service, requests `audio-24khz-48kbitrate-mono-mp3` and collects the audio. A provider error is retried after 500 ms, 1.5 s and 3 s before the request fails.
 - The frontend caller is `tools-catalog-edge-tts.tsx`; the Playground does not use this endpoint.
 
 ## Network dependencies
