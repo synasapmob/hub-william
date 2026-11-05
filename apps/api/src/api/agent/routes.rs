@@ -12,8 +12,11 @@ use crate::{
 
 use super::{
     connections::{
-        complete_authorization, connect_deepseek, connect_groq, disconnect, get_connection,
-        list_connections, refresh_connection, reset_connection_credits, start,
+        authorize::{complete_authorization, connect_deepseek, connect_groq, start},
+        manage::{
+            disconnect, get_connection, list_connections, refresh_connection,
+            reset_connection_credits,
+        },
     },
     pools::{create_request, decide_request, invite_member, list, remove_member},
 };
@@ -91,15 +94,15 @@ pub(crate) fn routes(state: &AppState) -> Router<AppState> {
         super::pools::decide_request,
         super::pools::invite_member,
         super::pools::remove_member,
-        super::connections::list_connections,
-        super::connections::start,
-        super::connections::connect_deepseek,
-        super::connections::connect_groq,
-        super::connections::get_connection,
-        super::connections::refresh_connection,
-        super::connections::reset_connection_credits,
-        super::connections::complete_authorization,
-        super::connections::disconnect
+        super::connections::manage::list_connections,
+        super::connections::authorize::start,
+        super::connections::authorize::connect_deepseek,
+        super::connections::authorize::connect_groq,
+        super::connections::manage::get_connection,
+        super::connections::manage::refresh_connection,
+        super::connections::manage::reset_connection_credits,
+        super::connections::authorize::complete_authorization,
+        super::connections::manage::disconnect
     ),
     components(schemas(
         crate::utils::provider_catalogue::AgentProvider,

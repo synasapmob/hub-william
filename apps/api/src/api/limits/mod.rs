@@ -25,6 +25,9 @@ use crate::core::{
 
 use super::{auth::optional_authenticated_user_id, gateway::gateway_key_from_headers};
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone, Copy)]
 pub(crate) enum Limit {
     AgentKeyConnect,

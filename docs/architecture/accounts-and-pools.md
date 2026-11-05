@@ -6,17 +6,17 @@ Terms: a **connection** is one connected provider account (a row in `agent_conne
 
 ## Code map
 
-| Area                             | Location                                                                                          |
-| -------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Sessions, register, login        | `apps/api/src/api/auth/mod.rs`                                                                    |
-| Connect flows, refresh, marks    | `apps/api/src/api/agent/connections.rs`                                                           |
-| Pools, join requests, membership | `apps/api/src/api/agent/pools.rs`                                                                 |
-| Provider usage and reset credits | `apps/api/src/api/agent/usage.rs`                                                                 |
-| Hub keys (`create_key`)          | `apps/api/src/api/gateway/mod.rs`                                                                 |
-| Rate-limit policy                | `apps/api/src/api/limits.rs`, `apps/api/src/core/rate_limit.rs`, `apps/api/src/core/client_ip.rs` |
-| Background sweeps, startup       | `apps/api/src/main.rs`                                                                            |
-| Operator refresh tool            | `apps/api/examples/refresh_provider_credentials.rs`                                               |
-| Schema                           | `apps/api/migrations/`                                                                            |
+| Area                             | Location                                                                                              |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Sessions, register, login        | `apps/api/src/api/auth/mod.rs`                                                                        |
+| Connect flows, refresh, marks    | `apps/api/src/api/agent/connections/`                                                                 |
+| Pools, join requests, membership | `apps/api/src/api/agent/pools/mod.rs`                                                                 |
+| Provider usage and reset credits | `apps/api/src/api/agent/usage.rs`                                                                     |
+| Hub keys (`create_key`)          | `apps/api/src/api/gateway/keys.rs`                                                                    |
+| Rate-limit policy                | `apps/api/src/api/limits/mod.rs`, `apps/api/src/core/rate_limit.rs`, `apps/api/src/core/client_ip.rs` |
+| Background sweeps, startup       | `apps/api/src/main.rs`                                                                                |
+| Operator refresh tool            | `apps/api/examples/refresh_provider_credentials.rs`                                                   |
+| Schema                           | `apps/api/migrations/`                                                                                |
 
 At startup the API connects to Postgres with at most 10 connections, runs the migrations, then recomputes `account_label` and `plan` of every connected row from its stored credential (`refresh_stored_connection_metadata`).
 

@@ -9,8 +9,9 @@ availability state machine are in [accounts-and-pools.md](./accounts-and-pools.m
 
 ## Where it runs
 
-- Code: `apps/api/src/api/gateway/` (`mod.rs`, `routes.rs`, `voice.rs`,
-  `groq_voice.rs`, `groq_voice_stream.rs`). `apps/api/src/api/router.rs` merges
+- Code: `apps/api/src/api/gateway/` (`keys.rs`, `selection.rs`, `proxy.rs`,
+  `usage.rs`, `models.rs`, `catalogue.rs`, `routes.rs`, `voice.rs`, and one file per
+  provider under `providers/`). `apps/api/src/api/router.rs` merges
   `gateway::routes` into the same Axum router as every other API route, and the
   nginx edge proxies `/api/gateway/*` to it ([deployment.md](./deployment.md)).
 - The Playground calls the gateway as Rust functions inside the API process
@@ -72,7 +73,7 @@ Hub key management uses the session cookie and is the only gateway surface in
   honors it by switching candidates to the organization's shares, but no endpoint
   sets it.
 - Limits are in-memory token buckets per API process
-  (`apps/api/src/api/limits.rs`): 30 requests per minute per key, and 30 failed
+  (`apps/api/src/api/limits/mod.rs`): 30 requests per minute per key, and 30 failed
   authentications per minute per client address. An address with an exhausted
   failure budget is refused before any key lookup.
 

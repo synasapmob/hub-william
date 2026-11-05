@@ -27,6 +27,7 @@ pub use connections::{
 // The organization database tests drive these handlers directly.
 #[cfg(all(test, feature = "database-tests"))]
 pub(crate) use connections::{
-    AgentConnection, AgentConnectionStatus, ConnectDeepseekRequest, connect_deepseek, disconnect,
-    list_connections,
+    AgentConnection, AgentConnectionStatus, ConnectDeepseekRequest,
+    authorize::connect_deepseek,
+    manage::{disconnect, list_connections},
 };

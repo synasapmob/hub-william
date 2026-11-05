@@ -8,10 +8,10 @@ use axum::{
 use serde::Deserialize;
 use utoipa::IntoParams;
 
-use crate::{
-    core::ApiError,
-    utils::reel::{ResolveRequest, ResolvedVideo, open_media, resolve_video, safe_filename},
-};
+use crate::core::ApiError;
+
+mod resolver;
+use resolver::{ResolveRequest, ResolvedVideo, open_media, resolve_video, safe_filename};
 
 mod routes;
 pub(crate) use routes::{ReelApi, routes};

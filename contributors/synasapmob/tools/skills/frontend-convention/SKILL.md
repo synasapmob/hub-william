@@ -1,6 +1,6 @@
 ---
 name: frontend-convention
-description: "Frontend conventions for React, TypeScript and Tailwind — blank-line blocking in TS and JSX, merging adjacent conditionals on the same value, inlining values and handlers that are used once, carrying list indexes instead of searching for them, passing cohesive state objects instead of flat prop lists, typing children with PropsWithChildren, adding DOM attributes and ARIA only when a consumer uses them, composing classes with tailwind-variants, and choosing between space-y, Flex and Center layout primitives."
+description: "Frontend conventions for React, TypeScript and Tailwind — blank-line blocking in TS and JSX, merging adjacent conditionals on the same value, returning early for each render state with all logic above the first guard, inlining values and handlers that are used once, carrying list indexes instead of searching for them, passing cohesive state objects instead of flat prop lists, typing children with PropsWithChildren, adding DOM attributes and ARIA only when a consumer uses them, composing classes with tailwind-variants, and choosing between space-y, Flex and Center layout primitives."
 ---
 
 # Frontend conventions
@@ -91,6 +91,89 @@ Write a numeric check as a boolean (`items.length > 0`) or a ternary. In
 Native when it lands outside a text component.
 
 Keep the blank line between siblings inside a merged block.
+
+
+### Return early for each render state
+
+Resolve each state of a component with its own guard clause and leave the
+default render as the last `return`. Everything that computes something goes
+above the first guard.
+
+- Write one `if (...) return <JSX>` per state, such as loading, error, empty or
+  signed in. Do not fold different states into a ternary in the final `return`.
+- Test the value that narrows the type: `if (account)` instead of
+  `account ? <Profile /> : <Menu />`. TypeScript then narrows `account` inside
+  the guard.
+- Order the guards by what each one needs. Check `status === "loading"` first,
+  because `account` is not known until the load finishes.
+- Keep a ternary for a small difference inside one element, such as a label or a
+  class. Use a guard once the branches render different trees.
+
+```tsx
+const { status, account } = useAuthStore();
+const club = useOwnClub();
+
+if (status === "loading") {
+  return (
+    <div role="status">
+      <span className="sr-only">Checking your session…</span>
+
+      <Skeleton className="h-9 w-36 rounded-control" />
+    </div>
+  );
+}
+
+if (account) {
+  return <HeaderProfile address={account.address} club={club} tone={tone} />;
+}
+
+return (
+  <Flex className="items-center gap-2">
+    <HeaderMenu tone={tone} />
+
+    <ConnectButton />
+  </Flex>
+);
+```
+
+Keep all logic above the first guard. Below it write only guards, each an
+`if (...)` that returns JSX, and the final `return`. Declare no `const`, `let` or
+function there.
+
+- Put hooks first (`useState`, `useEffect`, `useMemo`, `useCallback`, `use` and
+  custom hooks), then derived values, conditions and handlers.
+- A value that exists only inside a guard is read in the JSX that guard returns,
+  like `account.address` above. If a hook needs it, derive it above with
+  optional chaining (`account?.address`). Do not add a `const` below the guard to
+  hold it.
+- An effect that belongs to one state stays above the guards and tests the
+  condition inside.
+
+```tsx
+useEffect(() => {
+  if (!account) return;
+
+  track(account.address);
+}, [account]);
+
+if (status === "loading") {
+  return <Skeleton />;
+}
+```
+
+Check these cases in review:
+
+- A hook below a guard works while the guard never changes and fails when it
+  does. React throws "Rendered fewer hooks than expected" when the component
+  starts returning early and "Rendered more hooks than during the previous
+  render" when it stops. A test that never changes the state cannot catch it.
+- `react-hooks/rules-of-hooks` reports a hook below a guard and a hook in a
+  condition such as `account && useMemo(...)`. It does not report a `const` or a
+  handler below a guard, and it allows `use(...)` after a return, so look for
+  those yourself.
+- A custom hook call below a guard is a hook. A derived value or a handler below
+  a guard is not, but it splits the component's logic in two places and is where
+  the next hook gets added by mistake. Move it above.
 
 
 ### Inline single-use values and handlers
@@ -314,6 +397,18 @@ For static, single-use classes, write the literal inline:
 <div className="space-y-2.5 p-2.5">{children}</div>
 ```
 
+Never declare a class set as a plain string constant, such as
+`const line = "flex h-6 items-center"`. One element writes the literal inline,
+as above. When two or more elements share the same static classes, define them
+once at module scope as a base-only contract and call it:
+
+```tsx
+/* A line of a card is as tall as its text, which is taller than a bar. */
+const line = tv({ base: "flex h-6 items-center" });
+
+<div className={line()}>{children}</div>;
+```
+
 Define needed contracts once at module scope:
 
 ```tsx
@@ -350,11 +445,11 @@ types.
 | Switch a state | `panel({ focused })` |
 | Compose a variable class | `dot({ className: category.fill })` |
 | Combine static classes | One inline literal |
+| Share static classes across elements | `line()` from `tv({ base })` |
 
 Do not concatenate a `tv()` result with a template literal or manually compose
 conditional class strings. Doing so bypasses the merge over the complete class
-set. Shared class tokens may remain plain strings when passed into `base` or
-through `className` for merging.
+set.
 
 **Use slots for parts that share state.** When one value drives several
 elements, keep their styles in one contract:

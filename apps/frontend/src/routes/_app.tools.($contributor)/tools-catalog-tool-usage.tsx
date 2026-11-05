@@ -159,11 +159,15 @@ export default function ToolsCatalogToolUsage({
 
           <p className={description()}>
             Opens a terminal browser with a memory tab (what your agents save
-            themselves) and a rules tab (the instruction files and skills you
-            write, such as CLAUDE.md, AGENTS.md and SKILL.md). Press 2 or 3 to
-            switch tabs, Right to open a folder or read a file, and D to move
-            what the cursor is on to the Trash after a preview. Nothing is
-            deleted for good. Needs Python 3.9 or newer on macOS or Linux.
+            themselves), a rules tab (the instruction files and skills you
+            write, such as CLAUDE.md, AGENTS.md and SKILL.md) and a disk tab (a
+            read-only check of Downloads, Documents, Applications, agent folders
+            and login items for risky files). Press 1, 2 or 3 to switch tabs,
+            Right to open a folder or read a file, and D on the memory and rules
+            tabs to move what the cursor is on to the Trash after a preview.
+            Nothing is deleted for good. The disk tab gives reasons, never a
+            verdict, and runs no file. Needs Python 3.9 or newer on macOS or
+            Linux.
           </p>
 
           <CopyCommand command={runCommand} />
@@ -174,7 +178,7 @@ export default function ToolsCatalogToolUsage({
 
           <p className={description()}>
             For scripts, or when there is no terminal. Nothing is changed. Add
-            --tab=rules to print the rules tab.
+            --tab=rules or --tab=disk to print another tab.
           </p>
 
           <CopyCommand command={`${runCommand} - --list`} />

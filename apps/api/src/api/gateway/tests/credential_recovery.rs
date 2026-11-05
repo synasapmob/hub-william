@@ -38,12 +38,12 @@ use sqlx::PgPool;
 use tokio::{net::TcpListener, task::JoinHandle};
 use uuid::Uuid;
 
-use super::{
-    GatewaySelection, GeminiOperation, RejectedCredential, SERVED_CONNECTION_HEADER,
-    gemini_proxy_request_for_user, handle_rejected_credential, mark_reauth_required,
-    response_for_selection,
-};
 use crate::{
+    api::gateway::{
+        providers::gemini::{GeminiOperation, gemini_proxy_request_for_user},
+        proxy::{RejectedCredential, handle_rejected_credential, response_for_selection},
+        selection::{GatewaySelection, SERVED_CONNECTION_HEADER, mark_reauth_required},
+    },
     core::{ApiError, AppConfig, AppState},
     utils::provider_catalogue::AgentProvider,
 };

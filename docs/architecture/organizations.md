@@ -81,7 +81,7 @@ An organization agent is `organization_agents (org_id, connection_id, owner_user
 
 ## Usage
 
-Usage events are written by the gateway (`record_organization_usage` in `apps/api/src/api/gateway/mod.rs`) for requests whose selection carries an organization, which today means Playground requests made in organization mode.
+Usage events are written by the gateway (`record_organization_usage` in `apps/api/src/api/gateway/usage.rs`) for requests whose selection carries an organization, which today means Playground requests made in organization mode.
 
 - **When an event is written.** After a 2xx upstream response whose stream is read to its end and carries the provider's completion marker (for Claude only `end_turn`, `stop_sequence` and `refusal` count). Claude and Gemini count-tokens calls and model discovery are never recorded. A Call Live session (`/playground/voice`) records one event when the session is set up, with unknown tokens. Hub keys are personal today, so in practice events come from Playground requests made in organization mode.
 - **Unknown versus zero.** Token columns are nullable. A provider that does not report a count stores NULL. Sums skip NULL (`known_input_tokens`, `known_output_tokens`, `known_cached_tokens`). `token_known_requests` counts events that reported both input and output tokens. The UI shows "—" when it is 0. The Overview prints "Reported by N of M requests" next to token totals, and the Usage page prints "Token counts were reported for N of M requests. Requests without provider usage remain in the request count."

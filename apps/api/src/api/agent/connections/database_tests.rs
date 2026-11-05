@@ -21,17 +21,26 @@ use sqlx::PgPool;
 use tokio::{net::TcpListener, sync::Notify, task::JoinHandle};
 use uuid::Uuid;
 
-use super::{
-    ACCOUNT_VERIFICATION_REQUIRED_MESSAGE, AgentConnectionStatus, AgentProvider,
-    AuthorizationSecret, ConnectionRow, CredentialLookup, CredentialRefreshMode,
-    EXPIRED_AUTHORIZATION_PROMPT_MESSAGE, EXPIRED_PROVIDER_AUTHORIZATION_MESSAGE,
-    PROVIDER_LOGIN_REQUIRED_MESSAGE, ProviderCredentialRefreshStatus,
-    ProviderCredentialRefreshSummary, RefreshConnectionOutcome, decrypt_json, encrypt_json,
-    expire_abandoned_authorizations, finish_connection, gateway_credential, get_connection,
-    refresh_all_provider_credentials, refresh_connected_connection, refresh_connection,
-    refresh_due_provider_credentials, refresh_nightly_provider_credentials,
+use crate::{
+    api::agent::connections::{
+        ACCOUNT_VERIFICATION_REQUIRED_MESSAGE, AgentConnectionStatus, AgentProvider, ConnectionRow,
+        EXPIRED_AUTHORIZATION_PROMPT_MESSAGE, PROVIDER_LOGIN_REQUIRED_MESSAGE,
+        authorize::{AuthorizationSecret, finish_connection},
+        credentials::{CredentialLookup, gateway_credential},
+        manage::{get_connection, refresh_connection},
+        refresh::{
+            CredentialRefreshMode, EXPIRED_PROVIDER_AUTHORIZATION_MESSAGE,
+            RefreshConnectionOutcome, refresh_connected_connection,
+        },
+        sweeps::{
+            ProviderCredentialRefreshStatus, ProviderCredentialRefreshSummary,
+            expire_abandoned_authorizations, refresh_all_provider_credentials,
+            refresh_due_provider_credentials, refresh_nightly_provider_credentials,
+        },
+        token::{decrypt_json, encrypt_json},
+    },
+    core::{AppConfig, AppState},
 };
-use crate::core::{AppConfig, AppState};
 
 fn state(pool: PgPool) -> AppState {
     AppState {
@@ -205,7 +214,7 @@ async fn chatgpt_logins_sharing_a_workspace_remain_separate_and_reauthorize_inde
     assert!(pools.contains(&(second_id, second_owner)));
 
     // A legacy cached workspace ID must not reject the same user's reconnect.
-    let first = super::owned_connection_by_id(&state, first_id)
+    let first = crate::api::agent::connections::manage::owned_connection_by_id(&state, first_id)
         .await
         .unwrap();
     let reauthorized = finish_connection(
@@ -216,7 +225,7 @@ async fn chatgpt_logins_sharing_a_workspace_remain_separate_and_reauthorize_inde
     .await
     .unwrap();
     assert_eq!(reauthorized.id, first_id);
-    let first = super::owned_connection_by_id(&state, first_id)
+    let first = crate::api::agent::connections::manage::owned_connection_by_id(&state, first_id)
         .await
         .unwrap();
     assert!(

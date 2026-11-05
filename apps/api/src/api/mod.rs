@@ -8,8 +8,6 @@ mod auth;
 mod gateway;
 mod health;
 mod limits;
-#[cfg(test)]
-mod limits_tests;
 mod openapi;
 mod organizations;
 mod playground;
