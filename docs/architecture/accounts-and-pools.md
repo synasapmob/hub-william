@@ -253,14 +253,15 @@ Window values read "N% remaining" with N rounded to an integer, so under 0.5% re
 
 ## Tables
 
-| Table                             | Holds                                                                                                                                           |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `users`                           | Username (unique, lowercase), Argon2 hash, optional recovery email                                                                              |
-| `sessions`                        | Per login: access and refresh token hashes and expiries                                                                                         |
-| `agent_connections`               | One row per provider account: provider, status, masked label, plan, availability fields, `failure_message`, `validation_url`, `capacity`, owner |
-| `agent_connection_credentials`    | Ciphertext and nonce, token expiries, `refresh_attempted_at`, `next_refresh_at`                                                                 |
-| `agent_connection_authorizations` | One pending prompt per connection: flow, encrypted secret, `expires_at`                                                                         |
-| `agent_pool_join_requests`        | Requests and memberships, unique per (connection, user), status `pending`/`accepted`/`rejected`                                                 |
-| `gateway_keys`                    | Hub key digests, `last_four`, `last_used_at`, `revoked_at`, optional `organization_id`                                                          |
+| Table                             | Holds                                                                                                                                                                  |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `users`                           | Username (unique, lowercase), Argon2 hash, optional recovery email                                                                                                     |
+| `sessions`                        | Per login: access and refresh token hashes and expiries                                                                                                                |
+| `agent_connections`               | One row per provider account: provider, status, masked label, plan, availability fields, `failure_message`, `validation_url`, `capacity`, owner                        |
+| `agent_connection_credentials`    | Ciphertext and nonce, token expiries, `refresh_attempted_at`, `next_refresh_at`                                                                                        |
+| `agent_connection_authorizations` | One pending prompt per connection: flow, encrypted secret, `expires_at`                                                                                                |
+| `agent_pool_join_requests`        | Requests and memberships, unique per (connection, user), status `pending`/`accepted`/`rejected`                                                                        |
+| `gateway_keys`                    | Hub key digests, `last_four`, `last_used_at`, `revoked_at`, optional `organization_id`                                                                                 |
+| `gateway_usage_events`            | One row per generation request through the gateway, by `user_id` and key: tokens, `outcome` and the provider's quota signals ([gateway](./gateway.md#usage-recording)) |
 
 Organization tables are in [organizations](./organizations.md) and `telegram_*` tables in [telegram](./telegram.md).

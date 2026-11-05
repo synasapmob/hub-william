@@ -46,7 +46,7 @@ struct GatewayKeyRow {
 
 #[derive(Debug, FromRow)]
 pub(super) struct AuthorizedGatewayKey {
-    id: Uuid,
+    pub(super) id: Uuid,
     pub(super) user_id: Uuid,
     pub(super) organization_id: Option<Uuid>,
 }

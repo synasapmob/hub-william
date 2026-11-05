@@ -23,6 +23,8 @@ use crate::{
 #[derive(Clone, Copy)]
 pub(super) struct GatewaySelection {
     pub(super) user_id: Uuid,
+    /// The Hub key that sent the request; none for a browser session.
+    pub(super) key_id: Option<Uuid>,
     pub(super) connection_id: Option<Uuid>,
     pub(super) organization_id: Option<Uuid>,
 }
@@ -64,6 +66,7 @@ impl From<Uuid> for GatewaySelection {
     fn from(user_id: Uuid) -> Self {
         Self {
             user_id,
+            key_id: None,
             connection_id: None,
             organization_id: None,
         }
@@ -74,6 +77,7 @@ impl From<AuthorizedGatewayKey> for GatewaySelection {
     fn from(key: AuthorizedGatewayKey) -> Self {
         Self {
             user_id: key.user_id,
+            key_id: Some(key.id),
             connection_id: None,
             organization_id: key.organization_id,
         }

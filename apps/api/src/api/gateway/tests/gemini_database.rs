@@ -212,6 +212,7 @@ async fn blocked_gemini_accounts_fail_over_within_scope_but_invalid_requests_do_
     // A browser request tries its chosen account first, then fails over to
     // the rest of its scope and names the account that answered.
     let preferred = GatewaySelection {
+        key_id: None,
         user_id,
         connection_id: Some(blocked_id),
         organization_id: None,
@@ -329,6 +330,7 @@ async fn blocked_gemini_accounts_fail_over_within_scope_but_invalid_requests_do_
     .unwrap();
     for organization_id in [None, Some(org_id)] {
         let preferred = GatewaySelection {
+            key_id: None,
             user_id,
             connection_id: Some(blocked_id),
             organization_id,
@@ -375,6 +377,7 @@ async fn blocked_gemini_accounts_fail_over_within_scope_but_invalid_requests_do_
         (Some(org_id), "in this organization"),
     ] {
         let preferred = GatewaySelection {
+            key_id: None,
             user_id,
             connection_id: Some(blocked_id),
             organization_id,

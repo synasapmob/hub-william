@@ -116,7 +116,9 @@ use crate::api::gateway::proxy::{
     strip_unsupported_codex_fields, upstream_disposition,
 };
 use crate::api::gateway::selection::rate_limit_cooldown;
-use crate::api::gateway::usage::{MAX_USAGE_PAYLOAD_BYTES, TokenUsage, UsageObserver};
+use crate::api::gateway::usage::{
+    MAX_USAGE_PAYLOAD_BYTES, TokenUsage, UsageObserver, quota_snapshot,
+};
 
 #[test]
 fn usage_observer_reads_split_responses_event_without_counting_partial_streams() {
@@ -709,4 +711,75 @@ async fn filtered_live_catalogue_keeps_upstream_status_and_non_body_headers() {
     let payload: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(payload["data"].as_array().unwrap().len(), 1);
     assert_eq!(payload["data"][0]["id"], "grok-4.7");
+}
+
+#[test]
+fn quota_snapshot_keeps_only_the_providers_quota_signals() {
+    use axum::http::{HeaderMap, HeaderValue};
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "content-type",
+        HeaderValue::from_static("text/event-stream"),
+    );
+    headers.insert("x-request-id", HeaderValue::from_static("abc"));
+    headers.insert(
+        "x-codex-primary-used-percent",
+        HeaderValue::from_static("12"),
+    );
+    headers.insert(
+        "x-codex-secondary-reset-at",
+        HeaderValue::from_static("1767225600"),
+    );
+    headers.insert(
+        "anthropic-ratelimit-requests-remaining",
+        HeaderValue::from_static("49"),
+    );
+
+    assert_eq!(
+        quota_snapshot(&headers, None),
+        Some(json!({
+            "headers": {
+                "x-codex-primary-used-percent": "12",
+                "x-codex-secondary-reset-at": "1767225600",
+                "anthropic-ratelimit-requests-remaining": "49",
+            }
+        }))
+    );
+    assert_eq!(
+        quota_snapshot(
+            &HeaderMap::new(),
+            Some(json!({"type": "codex.rate_limits"}))
+        ),
+        Some(json!({"event": {"type": "codex.rate_limits"}}))
+    );
+    assert_eq!(quota_snapshot(&headers_without_quota(), None), None);
+}
+
+fn headers_without_quota() -> axum::http::HeaderMap {
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(
+        "content-type",
+        axum::http::HeaderValue::from_static("application/json"),
+    );
+    headers
+}
+
+#[test]
+fn usage_observer_remembers_the_rate_limit_event_and_ignores_oversized_ones() {
+    let mut observer = UsageObserver::new(AgentProvider::Chatgpt, true);
+    observer.push(
+        b"data: {\"type\":\"codex.rate_limits\",\"rate_limits\":{\"primary\":{\"used_percent\":12.5}}}\n\n",
+    );
+    observer.push(b"data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1}}}\n\n");
+    assert_eq!(
+        observer.quota_event,
+        Some(
+            json!({"type": "codex.rate_limits", "rate_limits": {"primary": {"used_percent": 12.5}}})
+        )
+    );
+
+    let mut oversized = UsageObserver::new(AgentProvider::Chatgpt, false);
+    oversized.read_value(&json!({"type": "rate_limits", "blob": "x".repeat(16 * 1024)}));
+    assert_eq!(oversized.quota_event, None);
 }

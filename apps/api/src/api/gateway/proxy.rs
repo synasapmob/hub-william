@@ -20,9 +20,7 @@ use super::{
         reauthorization_error, release_probe, selected_provider_candidates, served_by,
     },
     upstream_network_error,
-    usage::{
-        OrganizationUsageEvent, UsageObserver, organization_usage_event, record_organization_usage,
-    },
+    usage::{UsageEvent, UsageGuard, UsageObserver, usage_event},
 };
 use crate::{
     api::{
@@ -42,6 +40,7 @@ pub(crate) async fn response_for_user(
     body: Bytes,
 ) -> Result<Response, ApiError> {
     let selection = GatewaySelection {
+        key_id: None,
         user_id,
         connection_id: Some(connection_id),
         organization_id: None,
@@ -61,6 +60,7 @@ pub(crate) async fn response_for_organization_user(
     response_for_selection(
         state,
         GatewaySelection {
+            key_id: None,
             user_id,
             connection_id: Some(connection_id),
             organization_id: Some(organization_id),
@@ -469,13 +469,13 @@ pub(super) async fn proxy_request_for_user(
                 && upstream.status().is_success()
             {
                 let requested_model = request_model(&body);
-                organization_usage_event(
+                Some(usage_event(
                     state,
                     selection,
                     candidate.id,
                     expected_provider,
                     requested_model.as_deref(),
-                )
+                ))
             } else {
                 None
             };
@@ -524,7 +524,7 @@ fn request_model(body: &Bytes) -> Option<String> {
 
 pub(super) async fn upstream_response_with_usage(
     upstream: reqwest::Response,
-    usage_event: Option<OrganizationUsageEvent>,
+    usage_event: Option<UsageEvent>,
 ) -> Result<Response, ApiError> {
     let Some(event) = usage_event else {
         return upstream_response(upstream).await;
@@ -542,32 +542,26 @@ pub(super) async fn upstream_response_with_usage(
         }
     }
 
-    let provider = event.provider;
+    let guard = UsageGuard::new(
+        event.clone(),
+        UsageObserver::new(event.provider, sse),
+        &headers,
+    );
     let observed_stream = stream::unfold(
-        (
-            upstream.bytes_stream(),
-            UsageObserver::new(provider, sse),
-            false,
-        ),
-        move |(mut bytes_stream, mut observer, failed)| {
-            let event = event.clone();
-            async move {
-                match bytes_stream.next().await {
-                    Some(Ok(bytes)) => {
-                        observer.push(&bytes);
-                        Some((Ok(bytes), (bytes_stream, observer, failed)))
-                    }
-                    Some(Err(error)) => Some((Err(error), (bytes_stream, observer, true))),
-                    None => {
-                        let (provider_complete, usage) = observer.finish_with_completion();
-                        if !failed
-                            && provider_complete
-                            && let Err(error) = record_organization_usage(&event, usage).await
-                        {
-                            eprintln!("organization usage insert failed: {error}");
-                        }
-                        None
-                    }
+        (upstream.bytes_stream(), guard),
+        |(mut bytes_stream, mut guard)| async move {
+            match bytes_stream.next().await {
+                Some(Ok(bytes)) => {
+                    guard.push(&bytes);
+                    Some((Ok(bytes), (bytes_stream, guard)))
+                }
+                Some(Err(error)) => {
+                    guard.fail();
+                    Some((Err(error), (bytes_stream, guard)))
+                }
+                None => {
+                    guard.finish().await;
+                    None
                 }
             }
         },
