@@ -1,23 +1,25 @@
 # Deployment and operations
 
-Hub William runs on Railway as three application services (frontend, API, Telegram adapter) and one Postgres database. Branches map to Railway environments through one workflow, pull requests are checked by two GitHub workflows, and the public edge is an nginx image that serves the frontend build and proxies `/api`. This document covers the topology, the pipelines, the edge rules, the API runtime configuration and local development.
+Hub William runs on Railway as four application services (frontend, dashboard, API, Telegram adapter) and one Postgres database. Branches map to Railway environments through one workflow, pull requests are checked by two GitHub workflows, and the public edge is an nginx image per web app that serves its build and proxies `/api`. This document covers the topology, the pipelines, the edge rules, the API runtime configuration and local development.
 
 ## Deployables
 
-| Service    | Source           | Image                                             | Listens                      | Role                                                                    |
-| ---------- | ---------------- | ------------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------- |
-| `frontend` | `apps/frontend`  | `node` builder, then `nginx:1.29-alpine`          | `:80` (IPv4 and IPv6)        | Serves the prerendered SPA and `/catalog/`, proxies `/api/*` to the API |
-| `api`      | `apps/api`       | `rust:1.98-bookworm`, then `debian:bookworm-slim` | `[::]:$PORT`, default `8080` | Business API, in-process agent gateway, background credential sweeps    |
-| `telegram` | `apps/telegram`  | `rust:1.98-bookworm`, then `debian:bookworm-slim` | `[::]:$PORT`, default `8090` | Telegram and SePay webhooks ([telegram](./telegram.md))                 |
-| Postgres   | Railway database | n/a                                               | n/a                          | All persistent state; the API runs its migrations at startup            |
+| Service     | Source           | Image                                             | Listens                      | Role                                                                                  |
+| ----------- | ---------------- | ------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------- |
+| `frontend`  | `apps/frontend`  | `node` builder, then `nginx:1.29-alpine`          | `:80` (IPv4 and IPv6)        | Serves the prerendered SPA and `/catalog/`, proxies `/api/*` to the API               |
+| `dashboard` | `apps/dashboard` | `node` builder, then `nginx:1.29-alpine`          | `:80` (IPv4 and IPv6)        | Serves the back-office SPA, proxies `/api/*` to the API ([dashboard](./dashboard.md)) |
+| `api`       | `apps/api`       | `rust:1.98-bookworm`, then `debian:bookworm-slim` | `[::]:$PORT`, default `8080` | Business API, in-process agent gateway, background credential sweeps                  |
+| `telegram`  | `apps/telegram`  | `rust:1.98-bookworm`, then `debian:bookworm-slim` | `[::]:$PORT`, default `8090` | Telegram and SePay webhooks ([telegram](./telegram.md))                               |
+| Postgres    | Railway database | n/a                                               | n/a                          | All persistent state; the API runs its migrations at startup                          |
 
 Facts about public domains, private hostnames and Railway variables are service settings in Railway, not repository files. As documented in `infra/README.md`:
 
 - `frontend` is the public entry point, and reaches `api` over Railway private networking through `API_INTERNAL_URL`.
+- `dashboard` has a public domain of its own and reaches `api` the same way, through its own `API_INTERNAL_URL`. It is a separate site, so its session cookie is its own: signing in on one does not sign in on the other.
 - `api` has no public domain.
 - `telegram` has its own public HTTPS domain, used for the Telegram and SePay webhooks and for the payment QR image that Telegram fetches (`GET /qr.png`). It calls `api` over the private network with a separate service token.
 
-The repository root is the Docker build context for all three images (the `Dockerfile`s copy `apps/…`, `contributors/` and `infra/` paths from it). Cargo has no workspace: `apps/api` and `apps/telegram` are separate crates with their own `Cargo.lock`, and the root scripts address them with `--manifest-path`. `pnpm-workspace.yaml` contains only `apps/frontend`.
+The repository root is the Docker build context for all four images (the `Dockerfile`s copy `apps/…`, `contributors/` and `infra/` paths from it). Cargo has no workspace: `apps/api` and `apps/telegram` are separate crates with their own `Cargo.lock`, and the root scripts address them with `--manifest-path`. `pnpm-workspace.yaml` lists `apps/frontend` and `apps/dashboard`.
 
 ```text
 browser ──HTTPS──► frontend (nginx)
@@ -25,6 +27,9 @@ browser ──HTTPS──► frontend (nginx)
                      ├─ /catalog/    published tool sources and ZIPs
                      └─ /api/*  ──private──► api ──► Postgres
                                               └────► provider APIs (gateway)
+staff   ──HTTPS──► dashboard (nginx)
+                     ├─ /            static build, SPA fallback
+                     └─ /api/*  ──private──► api
 Telegram / SePay ─HTTPS─► telegram ──private──► api (/internal/telegram/*)
 ```
 
@@ -32,10 +37,10 @@ Telegram / SePay ─HTTPS─► telegram ──private──► api (/internal/t
 
 `.github/workflows/railway-deploy.yml` runs on every push to `main` or `dev` and on `workflow_dispatch`.
 
-| Branch | Railway and GitHub environment | Services deployed, in order   |
-| ------ | ------------------------------ | ----------------------------- |
-| `main` | `production`                   | `api`, `telegram`, `frontend` |
-| `dev`  | `staging`                      | `api`, `frontend`             |
+| Branch | Railway and GitHub environment | Services deployed, in order                |
+| ------ | ------------------------------ | ------------------------------------------ |
+| `main` | `production`                   | `api`, `telegram`, `frontend`, `dashboard` |
+| `dev`  | `staging`                      | `api`, `frontend`, `dashboard`             |
 
 - The branch selects the Railway environment, the GitHub environment and therefore the `RAILWAY_TOKEN` secret the job reads. A missing token fails the run and names the environment that was not deployed.
 - The job runs only in `synasapmob/hub-william`. A manual run from any branch other than `main` or `dev` is skipped.
@@ -97,6 +102,21 @@ The API applies its own per-route limits behind the edge: `/playground/chat` 32 
 
 Which routes are prerendered, and what the SPA shell serves, is described in [frontend](./frontend.md).
 
+### Dashboard edge
+
+`infra/nginx/dashboard.conf.template` is the dashboard image's template, filled in the same way. It is shorter because the dashboard has no catalogue, no gateway and no streamed upload.
+
+| Location                               | Rule                                                                                                                               |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `= /healthz`                           | `200 ok`, no access log                                                                                                            |
+| `= /api/internal`, `^~ /api/internal/` | `404`, as on the storefront                                                                                                        |
+| `/api/`                                | Proxied to the API with the same headers and timeouts as the storefront, so the session cookie belongs to the dashboard's own site |
+| `^~ /assets/`                          | The file or `404`: a tab opened before a deploy that asks for an old hashed file gets a 404, not the shell dressed up as a script  |
+| `= /index.html`                        | `Cache-Control: no-cache`, since the shell is the one file that changes between deploys                                            |
+| `/`                                    | `try_files $uri /index.html`: the build is a single-page app with no prerendered routes                                            |
+
+Every response carries `X-Robots-Tag: noindex, nofollow`. `test_gateway_proxy.py` pins the internal-route block, the proxy and the asset rule.
+
 ## API runtime
 
 `apps/api/src/main.rs` starts in this order: read `DATABASE_URL` (required), open a Postgres pool of at most 10 connections, run the SQL migrations in `apps/api/migrations` (`sqlx::migrate!`), bind `[::]:$PORT`, build `AppConfig` from the environment (`AppConfig::from_env`, which fails startup on a missing required value), refresh stored connection metadata, then serve. Outbound HTTP uses a 10 second connect timeout and a 30 second total timeout; the gateway uses a separate client (above).
@@ -128,10 +148,11 @@ The API publishes an OpenAPI document generated from its handlers (`utoipa`). `/
 
 ## Build
 
+- **Dashboard image.** The same builder, copying only `apps/dashboard`, built with `VITE_API_BASE_URL=/api`; the runtime stage is `nginx:1.29-alpine` with `infra/nginx/dashboard.conf.template` and `build/client` as the web root.
 - **Frontend image.** Builder `node:26-bookworm-slim` with pnpm `11.10.0`. It installs from the lockfile, copies `contributors/` (the Tools catalogue sources are read at build time) and `apps/frontend`, and builds with `VITE_API_BASE_URL=/api` and `VITE_BASE_PATH=/`. The runtime stage is `nginx:1.29-alpine` with the template above and `build/client` as the web root.
 - **API and Telegram images.** Builder `rust:1.98-bookworm` runs `cargo build --locked --release` for `hub-william-backend` or `hub-william-telegram`. The runtime stage is `debian:bookworm-slim` with `ca-certificates` and the one binary. The adapter build also copies `apps/telegram/assets`, because the payment QR is compiled into the binary.
 - **CI toolchains differ from the images:** CI uses pnpm 10 and Node 24; the frontend image uses pnpm 11.10.0 and Node 26. Both build from the same lockfile.
-- **Production secrets** stay in Railway variables: the API gets `DATABASE_URL` from the Postgres reference variable and a sealed `PROVIDER_CREDENTIAL_ENCRYPTION_KEY`; the frontend gets only `API_INTERNAL_URL`.
+- **Production secrets** stay in Railway variables: the API gets `DATABASE_URL` from the Postgres reference variable and a sealed `PROVIDER_CREDENTIAL_ENCRYPTION_KEY`; the frontend and the dashboard get only `API_INTERNAL_URL`.
 
 ## Local development
 

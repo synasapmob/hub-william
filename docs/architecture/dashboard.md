@@ -164,6 +164,12 @@ To have the bot send messages and tell buyers their order is paid, run `apps/tel
 
 Create the account first: Register on the dashboard's sign-in screen, on the storefront, or with `POST /auth/register`. They are all the same account. Open `http://localhost:5174`, not `127.0.0.1:5174`: the session cookie is `SameSite=Lax`, which only sends it to the API when both are on the same site. Both local origins are already in the API's CORS list while `COOKIE_SECURE` is off.
 
+## Deployed
+
+On Railway the dashboard is the `dashboard` service, built from `apps/dashboard/Dockerfile` (the Docker build context is the repository root) and served by nginx, with its own public domain. It calls the API as `/api`, which nginx proxies to the API's private address (`API_INTERNAL_URL`, the only variable it needs), so the session cookie belongs to the dashboard's own site and no CORS rule is involved. The same workflow that deploys the storefront deploys it, to staging from `dev` and to production from `main` ([deployment](./deployment.md#dashboard-edge)).
+
+A dashboard on a new database has no owner: make one with the SQL under "The API" before the first sign-in. The bot's messages need `TELEGRAM_ADAPTER_URL` on the API; without it they answer `501`.
+
 ## What is not there yet
 
 - What customers pay in: top-ups by card are in `service_top_ups` and `service_ledger` and are not on any dashboard page, and Revenue shows the Telegram shop only. Nor can a wallet be looked at or credited by hand.
