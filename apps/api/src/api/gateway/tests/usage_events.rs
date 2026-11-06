@@ -90,6 +90,7 @@ fn event(pool: &PgPool, fixture: &Fixture, organization: bool) -> UsageEvent {
         connection_id: fixture.connection_id,
         provider: AgentProvider::Chatgpt,
         model: Some("gpt-test".to_owned()),
+        service: false,
     }
 }
 

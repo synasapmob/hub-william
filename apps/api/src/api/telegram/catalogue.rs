@@ -12,8 +12,8 @@ use crate::{
 };
 
 const MAXIMUM_PRICE_VND: i64 = 1_000_000_000;
-const MAXIMUM_RESTOCK: i32 = 100_000;
-const MAXIMUM_STOCK: i32 = 1_000_000;
+pub(crate) const MAXIMUM_RESTOCK: i32 = 100_000;
+pub(crate) const MAXIMUM_STOCK: i32 = 1_000_000;
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct TelegramProduct {
@@ -103,10 +103,10 @@ pub struct TelegramRestock {
     pub product: TelegramProduct,
 }
 
-const PRODUCT_COLUMNS: &str = "GREATEST(product.available - reserved.quantity, 0)::INT AS available, product.category, product.detail, product.hot, product.listed, product.available AS on_hand, product.plan, product.price_vnd, provider.name AS provider_name, provider.slug AS provider_slug, reserved.quantity::INT AS reserved, product.slug, product.variant, product.warranty, product.warranty_note_en, product.warranty_note_vi";
+pub(crate) const PRODUCT_COLUMNS: &str = "GREATEST(product.available - reserved.quantity, 0)::INT AS available, product.category, product.detail, product.hot, product.listed, product.available AS on_hand, product.plan, product.price_vnd, provider.name AS provider_name, provider.slug AS provider_slug, reserved.quantity::INT AS reserved, product.slug, product.variant, product.warranty, product.warranty_note_en, product.warranty_note_vi";
 
 /// Joined into every product read so `available` always means "sellable".
-const RESERVED_JOIN: &str =
+pub(crate) const RESERVED_JOIN: &str =
     "JOIN telegram_providers AS provider ON provider.id = product.provider_id
          LEFT JOIN LATERAL (
              SELECT COALESCE(SUM(quantity), 0) AS quantity
@@ -156,19 +156,61 @@ pub async fn create_product(
 ) -> Result<Json<TelegramProduct>, ApiError> {
     authorize_telegram_service(&state, &headers)?;
 
-    let provider_name = normalize_text(payload.provider, 64)
+    Ok(Json(
+        insert_product(
+            &state,
+            NewProduct {
+                available: payload.available,
+                category: payload.category,
+                detail: payload.detail,
+                hot: false,
+                image_id: None,
+                listed: true,
+                plan: payload.plan,
+                price_vnd: payload.price_vnd,
+                provider: payload.provider,
+                variant: payload.variant,
+                warranty: payload.warranty,
+            },
+        )
+        .await?,
+    ))
+}
+
+/// What a new product is made of. The internal endpoint and the dashboard both
+/// build one, so a product is normalised and stored the same way from either.
+pub(crate) struct NewProduct {
+    pub available: i32,
+    pub category: Option<String>,
+    pub detail: Option<String>,
+    pub hot: bool,
+    pub image_id: Option<Uuid>,
+    pub listed: bool,
+    pub plan: String,
+    pub price_vnd: i64,
+    pub provider: String,
+    pub variant: Option<String>,
+    pub warranty: String,
+}
+
+/// A slug that is already taken answers `Conflict`.
+pub(crate) async fn insert_product(
+    state: &AppState,
+    product: NewProduct,
+) -> Result<TelegramProduct, ApiError> {
+    let provider_name = normalize_text(product.provider, 64)
         .ok_or(ApiError::Validation("A product needs a provider."))?;
     let provider_slug = slugify(&provider_name).ok_or(ApiError::Validation(
         "That provider name has no letters or digits.",
     ))?;
     let plan =
-        normalize_text(payload.plan, 64).ok_or(ApiError::Validation("A product needs a plan."))?;
-    let variant = payload.variant.and_then(|value| normalize_text(value, 32));
-    let detail = payload.detail.and_then(|value| normalize_text(value, 32));
-    let category = payload.category.and_then(|value| normalize_text(value, 64));
-    let warranty = normalize_warranty(&payload.warranty)?;
-    let price_vnd = normalize_price(payload.price_vnd)?;
-    let available = normalize_stock(payload.available)?;
+        normalize_text(product.plan, 64).ok_or(ApiError::Validation("A product needs a plan."))?;
+    let variant = product.variant.and_then(|value| normalize_text(value, 32));
+    let detail = product.detail.and_then(|value| normalize_text(value, 32));
+    let category = product.category.and_then(|value| normalize_text(value, 64));
+    let warranty = normalize_warranty(&product.warranty)?;
+    let price_vnd = normalize_price(product.price_vnd)?;
+    let available = normalize_stock(product.available)?;
 
     let slug = slugify(&format!(
         "{provider_slug} {plan} {}",
@@ -182,31 +224,16 @@ pub async fn create_product(
 
     // An unknown provider is created rather than refused, so a brand new line
     // of products needs one command instead of two.
-    let provider_id: Uuid = sqlx::query_scalar(
-        "WITH created AS (
-             INSERT INTO telegram_providers (id, slug, name, position)
-             VALUES ($1, $2, $3, (SELECT COALESCE(MAX(position), 0) + 1 FROM telegram_providers))
-             ON CONFLICT (slug) DO NOTHING
-             RETURNING id
-         )
-         SELECT id FROM created
-         UNION ALL
-         SELECT id FROM telegram_providers WHERE slug = $2
-         LIMIT 1",
-    )
-    .bind(Uuid::new_v4())
-    .bind(&provider_slug)
-    .bind(&provider_name)
-    .fetch_one(&mut *database)
-    .await
-    .map_err(database_error)?;
+    let provider_id = ensure_provider(&mut database, &provider_name, &provider_slug).await?;
 
     let created = sqlx::query_scalar::<_, Uuid>(
         "INSERT INTO telegram_products
             (id, provider_id, slug, plan, variant, detail, warranty,
-             warranty_note_en, warranty_note_vi, price_vnd, available, category, position)
+             warranty_note_en, warranty_note_vi, price_vnd, available, category, position,
+             hot, listed, image_id)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                 (SELECT COALESCE(MAX(position), 0) + 1 FROM telegram_products WHERE provider_id = $2))
+                 (SELECT COALESCE(MAX(position), 0) + 1 FROM telegram_products WHERE provider_id = $2),
+                 $13, $14, $15)
          ON CONFLICT (slug) DO NOTHING
          RETURNING id",
     )
@@ -222,6 +249,9 @@ pub async fn create_product(
     .bind(price_vnd)
     .bind(available)
     .bind(&category)
+    .bind(product.hot)
+    .bind(product.listed)
+    .bind(product.image_id)
     .fetch_optional(&mut *database)
     .await
     .map_err(database_error)?;
@@ -231,7 +261,33 @@ pub async fn create_product(
     }
 
     database.commit().await.map_err(database_error)?;
-    Ok(Json(load_product(&state, &slug).await?))
+    load_product(state, &slug).await
+}
+
+/// The id of the provider with this slug, made first when there is none.
+pub(crate) async fn ensure_provider(
+    database: &mut sqlx::PgConnection,
+    name: &str,
+    slug: &str,
+) -> Result<Uuid, ApiError> {
+    sqlx::query_scalar(
+        "WITH created AS (
+             INSERT INTO telegram_providers (id, slug, name, position)
+             VALUES ($1, $2, $3, (SELECT COALESCE(MAX(position), 0) + 1 FROM telegram_providers))
+             ON CONFLICT (slug) DO NOTHING
+             RETURNING id
+         )
+         SELECT id FROM created
+         UNION ALL
+         SELECT id FROM telegram_providers WHERE slug = $2
+         LIMIT 1",
+    )
+    .bind(Uuid::new_v4())
+    .bind(slug)
+    .bind(name)
+    .fetch_one(&mut *database)
+    .await
+    .map_err(database_error)
 }
 
 /// Adding stock is recorded as its own row, so the announcement can quote both
@@ -388,7 +444,7 @@ pub fn normalize_slug(value: &str) -> Result<String, ApiError> {
 
 /// Turns a human name into a slug, dropping accents so "Capcut Pro 30D" and
 /// "CapCut  Pro 30d" reach the same identifier.
-fn slugify(value: &str) -> Option<String> {
+pub(crate) fn slugify(value: &str) -> Option<String> {
     let mut slug = String::new();
     for character in value.to_lowercase().chars() {
         if character.is_ascii_lowercase() || character.is_ascii_digit() {
@@ -426,7 +482,7 @@ fn fold_vietnamese(character: char) -> Option<char> {
         .map(|(_, folded)| folded)
 }
 
-fn normalize_warranty(value: &str) -> Result<&'static str, ApiError> {
+pub(crate) fn normalize_warranty(value: &str) -> Result<&'static str, ApiError> {
     match value.trim().to_uppercase().as_str() {
         "WF" => Ok("WF"),
         "NW" => Ok("NW"),
@@ -437,7 +493,7 @@ fn normalize_warranty(value: &str) -> Result<&'static str, ApiError> {
     }
 }
 
-fn normalize_price(price_vnd: i64) -> Result<i64, ApiError> {
+pub(crate) fn normalize_price(price_vnd: i64) -> Result<i64, ApiError> {
     (0..=MAXIMUM_PRICE_VND)
         .contains(&price_vnd)
         .then_some(price_vnd)
@@ -455,12 +511,12 @@ fn normalize_stock(available: i32) -> Result<i32, ApiError> {
         ))
 }
 
-fn normalize_text(value: String, maximum_characters: usize) -> Option<String> {
+pub(crate) fn normalize_text(value: String, maximum_characters: usize) -> Option<String> {
     let value = value.split_whitespace().collect::<Vec<_>>().join(" ");
     (!value.is_empty()).then(|| value.chars().take(maximum_characters).collect())
 }
 
-fn default_warranty_note_en(warranty: &str) -> &'static str {
+pub(crate) fn default_warranty_note_en(warranty: &str) -> &'static str {
     match warranty {
         "WF" => "Activated straight on your own account, with a full warranty for the whole term.",
         "W7D" => "Warranty covers the first 7 days after purchase.",
@@ -470,7 +526,7 @@ fn default_warranty_note_en(warranty: &str) -> &'static str {
     }
 }
 
-fn default_warranty_note_vi(warranty: &str) -> &'static str {
+pub(crate) fn default_warranty_note_vi(warranty: &str) -> &'static str {
     match warranty {
         "WF" => "Active trực tiếp trên tài khoản chính chủ của bạn, bảo hành đầy đủ trọn thời hạn.",
         "W7D" => "Bảo hành trong 7 ngày kể từ khi mua.",

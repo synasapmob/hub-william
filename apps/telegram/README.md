@@ -3,7 +3,10 @@
 `apps/telegram` is Hub William's public webhook service. Its only public
 routes are Telegram's authenticated webhook (`POST /webhook`), SePay's
 authenticated bank-transaction webhook (`POST /sepay`), the payment QR image
-(`GET /qr.png`) and `GET /health`. It calls the private `apps/api` service for
+(`GET /qr.png`) and `GET /health`. Two more routes, `POST /internal/announce` and
+`POST /internal/payment-notice`, are for `apps/api` alone and need its shared secret
+(`x-hub-william-telegram-token`): the dashboard uses them to have the bot send a
+message and to tell a buyer their order is paid. It calls the private `apps/api` service for
 everything it stores. The catalogue, stock, orders, payments and contacts are
 all business-API responsibilities; this service renders them and nothing more.
 The full design is in [docs/architecture/telegram.md](../../docs/architecture/telegram.md).
@@ -136,7 +139,8 @@ Set these service variables:
 
 - `HUB_API_INTERNAL_URL`: the private API origin, for example
   `http://backend.railway.internal:8080`.
-- `HUB_API_SERVICE_TOKEN`: a long random secret.
+- `TELEGRAM_SERVICE_TOKEN`: a long random secret, the same value as
+  `TELEGRAM_SERVICE_TOKEN` on `apps/api`.
 - `TELEGRAM_WEBHOOK_SECRET`: a different random token of 1–256 letters,
   numbers, `_`, or `-`.
 - `TELEGRAM_BOT_TOKEN`: the BotFather token, sealed in Railway. The adapter
@@ -165,8 +169,8 @@ To change the payment QR, replace `assets/qr-bank.png` and update the three
 account variables to match. The image is compiled into the binary, so the
 service has to be rebuilt.
 
-Set `TELEGRAM_SERVICE_TOKEN` on `apps/api` to the **same** value as
-`HUB_API_SERVICE_TOKEN`. The API remains private; this second secret ensures
+`apps/api` takes the variable of the same name: set `TELEGRAM_SERVICE_TOKEN` there
+to the **same** value. The API remains private; this second secret ensures
 that another service on the private network cannot write Telegram contacts.
 
 After Railway gives `telegram` a public HTTPS URL, configure Telegram from a

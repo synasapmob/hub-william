@@ -18,8 +18,9 @@ use crate::{
 
 /// A browser request names the account to try first; key clients do not. Both
 /// fail over across the same provider's accounts in their scope (personal
-/// accounts and joined pools, or one organization's shared agents) and only
-/// fail once every account there is unavailable.
+/// accounts and joined pools, or one organization's shared agents, or for a
+/// service key the platform's stock) and only fail once every account there is
+/// unavailable.
 #[derive(Clone, Copy)]
 pub(super) struct GatewaySelection {
     pub(super) user_id: Uuid,
@@ -27,6 +28,9 @@ pub(super) struct GatewaySelection {
     pub(super) key_id: Option<Uuid>,
     pub(super) connection_id: Option<Uuid>,
     pub(super) organization_id: Option<Uuid>,
+    /// The request is a service key's: served only by the platform's stock of
+    /// accounts, and charged to the key owner's service wallet.
+    pub(super) service: bool,
 }
 
 /// Names the account that served a browser request after automatic failover.
@@ -69,6 +73,7 @@ impl From<Uuid> for GatewaySelection {
             key_id: None,
             connection_id: None,
             organization_id: None,
+            service: false,
         }
     }
 }
@@ -80,6 +85,7 @@ impl From<AuthorizedGatewayKey> for GatewaySelection {
             key_id: Some(key.id),
             connection_id: None,
             organization_id: key.organization_id,
+            service: key.is_service(),
         }
     }
 }
@@ -118,6 +124,73 @@ pub(super) async fn connected_provider_candidates(
     selection: GatewaySelection,
     provider: AgentProvider,
 ) -> Result<Vec<ProviderCandidate>, ApiError> {
+    // A ticket key is served by the one account its listing sold, and by no other:
+    // not the buyer's own accounts, not a pool, not the platform's stock.
+    if let Some(key_id) = selection.key_id
+        && !selection.service
+    {
+        let ticket =
+            sqlx::query_as::<_, (bool, Option<Uuid>, Option<String>, Option<DateTime<Utc>>)>(
+                "SELECT keys.kind = 'ticket', connections.id, connections.availability_status,
+                    connections.rate_limited_until
+             FROM gateway_keys AS keys
+             LEFT JOIN service_listings AS listings ON listings.id = keys.listing_id
+             LEFT JOIN agent_connections AS connections
+               ON connections.id = listings.connection_id
+              AND connections.provider = $2
+              AND connections.status = 'connected'
+             WHERE keys.id = $1",
+            )
+            .bind(key_id)
+            .bind(provider.to_string())
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(database_error)?;
+        if let Some((true, connection, availability_status, rate_limited_until)) = ticket {
+            return match (connection, availability_status) {
+                (Some(id), Some(availability_status)) => Ok(vec![ProviderCandidate {
+                    availability_status,
+                    id,
+                    rate_limited_until,
+                }]),
+                _ => Err(ApiError::Provider(
+                    "The account behind this key is not available right now.".to_owned(),
+                )),
+            };
+        }
+    }
+    if selection.service {
+        // The platform's stock, and nothing else: not the owner's own accounts,
+        // not a pool, not an organization.
+        let candidates = sqlx::query_as::<_, ProviderCandidate>(
+            "SELECT connections.id, connections.availability_status,
+                    connections.rate_limited_until
+             FROM agent_connections AS connections
+             WHERE connections.provider = $1
+               AND connections.status = 'connected'
+               AND connections.service_stock
+             ORDER BY CASE
+                        WHEN connections.availability_status = 'half_open'
+                             AND connections.retry_claimed_at IS NULL THEN 0
+                        WHEN connections.availability_status = 'rate_limited'
+                             AND connections.rate_limited_until <= NOW() THEN 1
+                        WHEN connections.availability_status = 'active' THEN 2
+                        ELSE 3
+                      END,
+                      connections.updated_at DESC,
+                      connections.id",
+        )
+        .bind(provider.to_string())
+        .fetch_all(&state.pool)
+        .await
+        .map_err(database_error)?;
+        if candidates.is_empty() {
+            return Err(ApiError::Provider(
+                "The service has no capacity for this provider right now.".to_owned(),
+            ));
+        }
+        return Ok(candidates);
+    }
     if let Some(organization_id) = selection.organization_id {
         let candidates = sqlx::query_as::<_, ProviderCandidate>(
             "SELECT connections.id, connections.availability_status,

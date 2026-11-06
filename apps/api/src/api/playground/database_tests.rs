@@ -956,3 +956,100 @@ async fn preferred_account_outside_callers_scope_is_forbidden_before_any_upstrea
     );
     server.abort();
 }
+
+fn service_chat_request(cookie: &str, body: Value) -> Request<Body> {
+    Request::builder()
+        .method("POST")
+        .uri("/playground/chat")
+        .header("cookie", cookie)
+        .header("origin", BROWSER_ORIGIN)
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap()
+}
+
+#[sqlx::test]
+async fn a_service_chat_is_served_by_the_stock_and_held_to_the_price_list_and_wallet(pool: PgPool) {
+    let (state, _upstream) = fixture(pool).await;
+    let (customer, cookie) = user(&state.pool).await;
+    let (platform, _) = user(&state.pool).await;
+    // The customer's own account holds a key the fake provider would refuse: a
+    // Service chat must never use it.
+    let own = keyed_connection(&state, customer, "the-customers-own-key").await;
+    let router = app(state.clone());
+    let chat = |body: Value| {
+        let router = router.clone();
+        let cookie = cookie.clone();
+        async move {
+            router
+                .oneshot(service_chat_request(&cookie, body))
+                .await
+                .unwrap()
+        }
+    };
+    // The fake provider expects this conversation.
+    let message = json!([
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": "Hi"},
+        {"role": "user", "content": "Continue"}
+    ]);
+    let service = |model: &str| json!({"service": true, "provider": "deepseek", "model": model, "messages": message});
+
+    // No money: refused before anything is sent.
+    assert_eq!(
+        chat(service("deepseek-flash")).await.status(),
+        StatusCode::PAYMENT_REQUIRED
+    );
+    sqlx::query("INSERT INTO service_wallets (user_id, wallet_micro) VALUES ($1, 1000000)")
+        .bind(customer)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    // A model that is not on the price list.
+    assert_eq!(
+        chat(service("not-a-model")).await.status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    // Money and a listed model, but the stock has no account: no capacity, even
+    // though the customer has one of their own.
+    assert_eq!(
+        chat(service("deepseek-flash")).await.status(),
+        StatusCode::BAD_GATEWAY
+    );
+    // A Service chat names no account and no organization of its own.
+    let mut with_account = service("deepseek-flash");
+    with_account["connection_id"] = json!(own);
+    assert_eq!(
+        chat(with_account).await.status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+
+    // The platform's account goes into the stock; now the chat is served by it.
+    let stock = connection(&state, platform).await;
+    sqlx::query("UPDATE agent_connections SET service_stock = TRUE WHERE id = $1")
+        .bind(stock)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    let served = chat(service("deepseek-flash")).await;
+    assert_eq!(served.status(), StatusCode::OK);
+    assert!(body_text(served).await.contains("Hello from upstream"));
+}
+
+#[sqlx::test]
+async fn a_chat_that_is_not_a_service_chat_still_needs_an_account(pool: PgPool) {
+    let (state, _upstream) = fixture(pool).await;
+    let (_, cookie) = user(&state.pool).await;
+    let router = app(state);
+
+    let response = router
+        .oneshot(service_chat_request(
+            &cookie,
+            json!({"provider": "deepseek", "model": "deepseek-flash",
+                   "messages": [{"role": "user", "content": "Hello"}]}),
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}

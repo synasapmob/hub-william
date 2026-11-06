@@ -16,16 +16,20 @@ The adapter has no database. It calls `apps/api` for everything it stores, so a 
 
 ## Adapter routes
 
-`apps/telegram/src/app.rs` serves four routes on `[::]:$PORT` (default `8090`).
+`apps/telegram/src/app.rs` serves six routes on `[::]:$PORT` (default `8090`). The last two are for `apps/api` alone.
 
-| Route           | Purpose                                                                                                                                                               |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /health`   | Returns `{"status":"ok","service":"hub-william-telegram"}`. Unauthenticated; used for platform health checks.                                                         |
-| `GET /qr.png`   | The shop's fixed VietQR image, compiled into the binary from `apps/telegram/assets/qr-bank.png`. Public because Telegram fetches a photo by URL. Cached for one hour. |
-| `POST /webhook` | Telegram updates (`message` and `callback_query`).                                                                                                                    |
-| `POST /sepay`   | SePay bank-transaction webhook.                                                                                                                                       |
+| Route                           | Purpose                                                                                                                                                                                                                                                                                      |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /health`                   | Returns `{"status":"ok","service":"hub-william-telegram"}`. Unauthenticated; used for platform health checks.                                                                                                                                                                                |
+| `GET /qr.png`                   | The shop's fixed VietQR image, compiled into the binary from `apps/telegram/assets/qr-bank.png`. Public because Telegram fetches a photo by URL. Cached for one hour.                                                                                                                        |
+| `POST /webhook`                 | Telegram updates (`message` and `callback_query`).                                                                                                                                                                                                                                           |
+| `POST /sepay`                   | SePay bank-transaction webhook.                                                                                                                                                                                                                                                              |
+| `POST /internal/announce`       | The dashboard's message: posts `{"text"}` to `TELEGRAM_ANNOUNCE_CHAT_ID` when set and starts sending it to every non-blocked contact, paced like a restock. Answers `{"channel", "audience"}`; `422` for an empty text or one over 4,096 characters, `503` when the audience cannot be read. |
+| `POST /internal/payment-notice` | Tells one buyer their order is paid (`{"reference"}`), after the dashboard marked it paid by hand. Reads the order from the API and refuses (`422`) one that is not paid.                                                                                                                    |
 
 ### Webhook authentication
+
+- `POST /internal/*` compares the `x-hub-william-telegram-token` header with `TELEGRAM_SERVICE_TOKEN`, the secret the adapter already uses to call the API, in constant time. A wrong or missing header returns `403`. `apps/api` reaches the adapter at `TELEGRAM_ADAPTER_URL`; without it the dashboard reports that it is not connected to the bot.
 
 - `POST /webhook` compares the `X-Telegram-Bot-Api-Secret-Token` header with `TELEGRAM_WEBHOOK_SECRET` in constant time (`secrets_match`). A wrong or missing header returns `403`. The `Json<Update>` extractor parses the body before the handler compares the secret, so a malformed body is rejected by the extractor first.
 - `POST /sepay` reads `Authorization: Apikey <key>` and compares it with `SEPAY_API_KEY` in constant time. When `SEPAY_API_KEY` is unset the route returns `403` for every call; a wrong key returns `401`.
@@ -119,7 +123,7 @@ Adding stock, or creating a product that already has stock, announces it:
 
 All routes live in `apps/api/src/api/telegram/routes.rs`, are not in the published OpenAPI document, and are blocked at the public edge (`/api/internal` and `/api/internal/*` return `404`, see [deployment](./deployment.md#edge-nginx)).
 
-Each handler calls `authorize_telegram_service`: the `x-hub-william-telegram-token` request header must equal `TELEGRAM_SERVICE_TOKEN` (constant-time comparison). When `TELEGRAM_SERVICE_TOKEN` is unset or blank every route returns `403`, so the API fails closed. The adapter sends the same value from `HUB_API_SERVICE_TOKEN`.
+Each handler calls `authorize_telegram_service`: the `x-hub-william-telegram-token` request header must equal `TELEGRAM_SERVICE_TOKEN` (constant-time comparison). When `TELEGRAM_SERVICE_TOKEN` is unset or blank every route returns `403`, so the API fails closed. The adapter has the same variable and sends its value.
 
 | Method and path                                                   | Purpose                                       |
 | ----------------------------------------------------------------- | --------------------------------------------- |
@@ -141,22 +145,22 @@ Each handler calls `authorize_telegram_service`: the `x-hub-william-telegram-tok
 
 Adapter variables (`apps/telegram/src/config.rs`, `apps/telegram/.env.example`). `AppConfig::from_env` fails startup on the first violation.
 
-| Variable                                                                 | Rule                                                                                                                                                         |
-| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `HUB_API_SERVICE_TOKEN`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` | Required. The webhook secret is 1–256 characters of letters, digits, `_` or `-`.                                                                             |
-| `HUB_API_INTERNAL_URL`                                                   | Private API origin; defaults to `http://localhost:8080`.                                                                                                     |
-| `TELEGRAM_WEBHOOK_URL`, `TELEGRAM_PUBLIC_URL`                            | Public origin for `/qr.png`; `TELEGRAM_PUBLIC_URL` defaults to `TELEGRAM_WEBHOOK_URL`. Without either the VND panel falls back to text-only account details. |
-| `TELEGRAM_PAYMENT_BANK_NAME`, `…_ACCOUNT_HOLDER`, `…_ACCOUNT_NUMBER`     | All three or none (a partial set fails startup). The number is digits only. Displayed upper-case and never used to compute anything.                         |
-| `TELEGRAM_PAYMENT_USDT_ADDRESS`, `…_USDT_VND_RATE`, `…_USDT_NETWORK`     | Address and rate all-or-nothing, rate a positive integer; network defaults to `TRC20`.                                                                       |
-| `SEPAY_API_KEY`                                                          | Optional at boot; without it `/sepay` refuses every call.                                                                                                    |
-| `TELEGRAM_OWNER_USERNAMES`, `TELEGRAM_OWNER_IDS`                         | Comma-separated owner lists.                                                                                                                                 |
-| `TELEGRAM_ANNOUNCE_CHAT_ID`, `TELEGRAM_BOT_USERNAME`                     | Optional announcement target and deep-link bot name.                                                                                                         |
-| `TELEGRAM_API_BASE_URL`                                                  | Test override; defaults to `https://api.telegram.org/`.                                                                                                      |
-| `PORT`                                                                   | Defaults to `8090`.                                                                                                                                          |
+| Variable                                                                  | Rule                                                                                                                                                         |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `TELEGRAM_SERVICE_TOKEN`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` | Required. The webhook secret is 1–256 characters of letters, digits, `_` or `-`.                                                                             |
+| `HUB_API_INTERNAL_URL`                                                    | Private API origin; defaults to `http://localhost:8080`.                                                                                                     |
+| `TELEGRAM_WEBHOOK_URL`, `TELEGRAM_PUBLIC_URL`                             | Public origin for `/qr.png`; `TELEGRAM_PUBLIC_URL` defaults to `TELEGRAM_WEBHOOK_URL`. Without either the VND panel falls back to text-only account details. |
+| `TELEGRAM_PAYMENT_BANK_NAME`, `…_ACCOUNT_HOLDER`, `…_ACCOUNT_NUMBER`      | All three or none (a partial set fails startup). The number is digits only. Displayed upper-case and never used to compute anything.                         |
+| `TELEGRAM_PAYMENT_USDT_ADDRESS`, `…_USDT_VND_RATE`, `…_USDT_NETWORK`      | Address and rate all-or-nothing, rate a positive integer; network defaults to `TRC20`.                                                                       |
+| `SEPAY_API_KEY`                                                           | Optional at boot; without it `/sepay` refuses every call.                                                                                                    |
+| `TELEGRAM_OWNER_USERNAMES`, `TELEGRAM_OWNER_IDS`                          | Comma-separated owner lists.                                                                                                                                 |
+| `TELEGRAM_ANNOUNCE_CHAT_ID`, `TELEGRAM_BOT_USERNAME`                      | Optional announcement target and deep-link bot name.                                                                                                         |
+| `TELEGRAM_API_BASE_URL`                                                   | Test override; defaults to `https://api.telegram.org/`.                                                                                                      |
+| `PORT`                                                                    | Defaults to `8090`.                                                                                                                                          |
 
 With a method unconfigured, its button tells the buyer the method is not configured instead of showing invented details. The adapter's outbound HTTP client has a 5 s connect timeout, a 10 s total timeout, ignores proxy variables and binds an IPv4 local address.
 
-`apps/api` needs `TELEGRAM_SERVICE_TOKEN` set to the same value as `HUB_API_SERVICE_TOKEN`; see [deployment](./deployment.md#api-runtime). Operational setup (Railway variables, registering the webhook) is in `apps/telegram/README.md`.
+`apps/api` and `apps/telegram` both take `TELEGRAM_SERVICE_TOKEN`, and it must be the same value on both; see [deployment](./deployment.md#api-runtime). Operational setup (Railway variables, registering the webhook) is in `apps/telegram/README.md`.
 
 ## Not implemented
 

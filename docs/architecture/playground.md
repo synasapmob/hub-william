@@ -1,6 +1,6 @@
 # Playground
 
-The Playground (`/playground`) is a session-backed page for talking to a connected provider account in one of three modes: Chat, Call Live and Call Whisper. The browser never receives provider credentials and never creates a gateway key; every request goes through the Hub API with the session cookie. The browser-local audio chain used by Call Whisper is described in [speech.md](./speech.md).
+The Playground (`/playground`) is a session-backed page for talking to a connected provider account in one of three modes: Chat, Call Live and Call Whisper. The browser never receives provider credentials and never creates a gateway key; every request goes through the Hub API with the session cookie. Its **Kind** select says whose agents answer: the user's own (Workspace), an organization's, or the platform's, paid from the Service wallet. The browser-local audio chain used by Call Whisper is described in [speech.md](./speech.md).
 
 ## Where the code lives
 
@@ -22,19 +22,22 @@ The Playground (`/playground`) is a session-backed page for talking to a connect
 
 ### Order and scope
 
-Setup lists Organization, Mode, Provider, Account and Model, in that order. Each control depends on the ones above it.
+Setup lists Kind, then Organization (only for the Organization kind), Mode, Provider, Account (not for the Service kind) and Model, in that order. Each control depends on the ones above it. Kind always renders with its three options (Workspace, Organization, Service), for a guest too; what a kind has no one to offer is shown, not hidden.
 
-- **Personal scope** (no organization selected): the accounts of the signed-in user's own pools plus pools they have joined. The frontend takes them from `GET /agent-pools` and keeps those whose access is `owner` or `joined`. The API resolves the same set when it selects candidates.
-- **Organization scope** (an organization selected): agents shared with that organization. The frontend loads them with the organizations service; the API requires both the caller and the account's sharer to be accepted members. Personal pools never mix into an organization request, and organization agents never mix into a personal one.
-- **Guests** see no accounts. Provider shows "No providers available", and Account and Model show "Sign in to continue".
+- **Workspace kind:** the accounts of the signed-in user's own pools plus pools they have joined. The frontend takes them from `GET /agent-pools` and keeps those whose access is `owner` or `joined`. The API resolves the same set when it selects candidates.
+- **Organization kind:** the Organization select appears and lists the user's organizations (the first is chosen for them). It reads "No organizations" with the note "You are not in an organization yet." when there is none, and "Sign in to continue" for a guest. The accounts are the agents shared with the chosen organization. The frontend loads them with the organizations service; the API requires both the caller and the account's sharer to be accepted members. Personal pools never mix into an organization request, and organization agents never mix into a personal one.
+- **Service kind:** no account to choose. The agents are the platform's stock, taken from `GET /service/pricing` (`available` per provider) and the models are that provider's price list. Chat only: Call Live and Call Whisper are disabled. A message is charged to the user's wallet and counted in the Service usage, and the wallet in the header refreshes after each turn; see [Service](./service.md#usage).
+- **Guests** see no accounts. Provider lists its agents as unavailable, and Account and Model show "Sign in to continue".
 
-The route seeds the form from the URL: `?organization=`, `?connection=` and `?provider=` (default `chatgpt`). The saved mode is read from `localStorage` on mount.
+Changing the Kind clears the Organization, the account, the model and the conversation.
 
-The workspace is keyed by `userId:organizationId`. Changing the signed-in user or the organization remounts it, which clears the conversation, ends any call and resets Zoom.
+The route seeds the form from the URL: `?kind=` (`service`), `?organization=` (which implies the Organization kind), `?connection=` and `?provider=` (default `chatgpt`). The saved mode is read from `localStorage` on mount.
+
+The workspace is keyed by `userId:kind:organizationId`. Changing the signed-in user, the kind or the organization remounts it, which clears the conversation, ends any call and resets Zoom.
 
 ### Provider, account and model selection
 
-- **Provider list:** a provider appears only if it supports the selected mode (`providerCatalogueService.supportsMode`) and the scope holds at least one accessible account of it. A provider with zero accounts is never listed. Changing the mode keeps the provider when it still qualifies, otherwise it switches to the first provider that does. It always clears the model; the account is cleared only when the provider changes.
+- **Provider list:** every provider that supports the selected mode (`providerCatalogueService.supportsMode`) is listed. One the kind holds no account of is listed as "<name> · unavailable" and cannot be chosen; the others show their account count, e.g. "ChatGPT (2)". When none can be chosen the select still opens and reads "No providers available". Changing the mode keeps the provider when it still qualifies, otherwise it switches to the first available provider that does. It always clears the model; the account is cleared only when the provider changes.
 - **Account:** the form's `connectionId` if it is still in the list, otherwise the first account that does not need reauthorization, otherwise the first account. Changing the provider clears the account and the model.
 - **Reconnect states:** an account with availability `reauth_required` needs its owner to reconnect it. If another account of that provider in the scope is usable, Setup shows a note that messages use another account and everything stays enabled. Only when every account of that provider in the scope needs reconnect does the model query turn off, the Model list empty and Send and Start stay blocked. For personal pools, a Google verification link (`validationUrl`) is offered when the API reports one.
 - **Model query:** `GET /playground/{provider}/accounts/{connection_id}/models`, with `?organization_id=` for an organization. It needs the session cookie only. The query runs when there is a user, an account, no blocking reconnect state and, for an organization, a loaded organization.
@@ -69,7 +72,7 @@ Eligibility lives in `supportsMode`: Chat and Call Whisper need the provider's `
 
 ### No fallback between modes
 
-A mode never falls back to another mode. If the selected provider has no model for the selected call mode, the Model select lists nothing ("No call models available"), Start stays disabled and nothing switches the user to a different mode. In Call Live the Provider select lists only providers with a `native_realtime` profile and an accessible account; with none it reads "No providers available" and is disabled.
+A mode never falls back to another mode. If the selected provider has no model for the selected call mode, the Model select lists nothing ("No call models available"), Start stays disabled and nothing switches the user to a different mode. In Call Live the Provider select lists only providers with a `native_realtime` profile, those without an accessible account as unavailable; with none usable it reads "No providers available".
 
 The only automatic change of mode is a `localStorage` migration. A saved `hub.playground.mode` of `voice` is read as a request for a call mode. After accounts finish loading, the workspace resolves it to `call-live` when the chosen provider has a `native_realtime` profile and to `call-whisper` otherwise, writes the resolved mode back and from then on behaves as that mode. The provider used for the decision is the requested one if it has an accessible account, else the first accessible provider. With no accessible provider (a guest, or no accounts) the page shows Call Live and leaves the saved `voice` value in `localStorage` until a provider exists.
 

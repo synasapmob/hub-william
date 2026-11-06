@@ -5,6 +5,7 @@
 
 mod agent;
 mod auth;
+mod dashboard;
 mod gateway;
 mod health;
 mod limits;
@@ -13,6 +14,7 @@ mod organizations;
 mod playground;
 mod reel;
 mod router;
+mod service;
 mod telegram;
 #[cfg(test)]
 mod tests;
