@@ -140,7 +140,9 @@ Set these service variables:
 - `HUB_API_INTERNAL_URL`: the private API origin, for example
   `http://backend.railway.internal:8080`.
 - `TELEGRAM_SERVICE_TOKEN`: a long random secret, the same value as
-  `TELEGRAM_SERVICE_TOKEN` on `apps/api`.
+  `TELEGRAM_SERVICE_TOKEN` on `apps/api`. The adapter's former name for it,
+  `HUB_API_SERVICE_TOKEN`, is still read while this one is not set, so an existing
+  deployment keeps working; rename the variable when convenient.
 - `TELEGRAM_WEBHOOK_SECRET`: a different random token of 1–256 letters,
   numbers, `_`, or `-`.
 - `TELEGRAM_BOT_TOKEN`: the BotFather token, sealed in Railway. The adapter
