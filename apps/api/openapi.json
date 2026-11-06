@@ -867,6 +867,1661 @@
         }
       }
     },
+    "/dashboard/images": {
+      "post": {
+        "tags": ["dashboard"],
+        "operationId": "upload_image",
+        "requestBody": {
+          "description": "A PNG, JPEG, GIF or WebP picture of at most 5 MiB",
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The picture was stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadedImage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not manage stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The picture is over 5 MiB"
+          },
+          "422": {
+            "description": "The body is not a PNG, JPEG, GIF or WebP picture",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/images/{id}": {
+      "get": {
+        "tags": ["dashboard"],
+        "operationId": "get_image",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The picture",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The picture",
+            "content": {
+              "image/*": {}
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a member of staff",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such picture",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/service/listings": {
+      "get": {
+        "tags": ["dashboard"],
+        "operationId": "list_service_listings",
+        "responses": {
+          "200": {
+            "description": "The tickets that are not sold yet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardListings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not manage stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["dashboard"],
+        "operationId": "create_service_listing",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateListing"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The ticket is on sale",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardListing"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not manage stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The account is on sale already, or sold to a customer whose ticket has not ended",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The terms are not valid, or the account is not one the member connected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The provider did not answer a test request through the account",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/service/listings/{id}": {
+      "put": {
+        "tags": ["dashboard"],
+        "operationId": "update_service_listing",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The ticket",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateListing"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The ticket as it is now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardListing"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not manage stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such ticket, or it is sold",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The terms are not valid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": ["dashboard"],
+        "operationId": "delete_service_listing",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The ticket",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Taken off sale; the account itself is untouched"
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not manage stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such ticket, or it is sold",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/service/models": {
+      "get": {
+        "tags": ["dashboard"],
+        "operationId": "list_service_models",
+        "responses": {
+          "200": {
+            "description": "Every model with a price, listed or not",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardServiceModels"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not manage stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": ["dashboard"],
+        "operationId": "save_service_model",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveServiceModel"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The model as it is now priced",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardServiceModel"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not manage stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The agent, the id, the name or a price is not valid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/service/sales": {
+      "get": {
+        "tags": ["dashboard"],
+        "operationId": "list_service_sales",
+        "responses": {
+          "200": {
+            "description": "The tickets that were sold, newest first, the last 500",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardTicketSales"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not see the history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/service/verify": {
+      "post": {
+        "tags": ["dashboard"],
+        "operationId": "verify_service_account",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyAccount"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The account answered a test request; what it has left, when the provider says",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerifiedAccount"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not manage stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Not an account the member connected, or not connected yet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The provider did not answer a test request through the account",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/session": {
+      "get": {
+        "tags": ["dashboard"],
+        "operationId": "dashboard_session",
+        "responses": {
+          "200": {
+            "description": "The signed-in member of staff and what the role may do",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardSession"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The account is not a member of staff, or its access is switched off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/staff": {
+      "get": {
+        "tags": ["dashboard"],
+        "operationId": "list_staff",
+        "responses": {
+          "200": {
+            "description": "Everyone who may use the dashboard, with what they did today",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not manage staff",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["dashboard"],
+        "operationId": "add_staff",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddStaff"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The account is now staff",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffMember"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not manage staff",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The account is already staff",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "No account has that username",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/staff/{user_id}": {
+      "put": {
+        "tags": ["dashboard"],
+        "operationId": "change_role",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "The member of staff",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeRole"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The member with the new role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffMember"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not manage staff",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not a member of staff",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The last owner cannot be given another role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": ["dashboard"],
+        "operationId": "remove_staff",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "The member of staff",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The account is no longer staff"
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not manage staff",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not a member of staff",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Oneself, or the last owner, cannot be removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/telegram/announcements": {
+      "post": {
+        "tags": ["dashboard"],
+        "operationId": "announce",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Announcement"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The bot posted it to the channel and started sending it to everyone who can be reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Announced"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not manage stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The message is empty or longer than 4096 characters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "The dashboard is not connected to the bot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The bot did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/telegram/orders": {
+      "get": {
+        "tags": ["dashboard"],
+        "operationId": "list_orders",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Only orders in this status: `awaiting_payment`, `paid` or `cancelled`.",
+            "required": false,
+            "schema": {
+              "type": ["string", "null"]
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Matches the reference, the buyer's name and username, and the item.",
+            "required": false,
+            "schema": {
+              "type": ["string", "null"]
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Counted from 1.",
+            "required": false,
+            "schema": {
+              "type": ["integer", "null"],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "description": "1 to 100; 20 when left out.",
+            "required": false,
+            "schema": {
+              "type": ["integer", "null"],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of orders, and how many each status has",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardOrders"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not work with orders",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The status or the page is not valid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/telegram/orders/{reference}/cancel": {
+      "post": {
+        "tags": ["dashboard"],
+        "operationId": "cancel_order",
+        "parameters": [
+          {
+            "name": "reference",
+            "in": "path",
+            "description": "The order",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The order is cancelled and stops holding stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardOrder"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not work with orders",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The order is not waiting for payment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/telegram/orders/{reference}/pay": {
+      "post": {
+        "tags": ["dashboard"],
+        "operationId": "pay_order",
+        "parameters": [
+          {
+            "name": "reference",
+            "in": "path",
+            "description": "The order",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PayOrder"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The order is paid, its stock is taken, and the buyer is told when the bot can",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettledOrder"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not work with orders",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The order is not waiting for payment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/telegram/products": {
+      "get": {
+        "tags": ["dashboard"],
+        "operationId": "list_products",
+        "responses": {
+          "200": {
+            "description": "Every product, hidden ones included",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardProducts"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not manage stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["dashboard"],
+        "operationId": "create_product",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProduct"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The product that was made",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardProduct"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not manage stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A product with that provider, plan and variant exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A field is out of range",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/telegram/products/{slug}": {
+      "put": {
+        "tags": ["dashboard"],
+        "operationId": "update_product",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "The product",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProduct"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The product as it is now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardProduct"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not manage stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such product",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A field is out of range",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": ["dashboard"],
+        "operationId": "delete_product",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "The product",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The product is gone; orders already made keep their title and price"
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not manage stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such product",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Buyers have orders open for it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/telegram/products/{slug}/stock": {
+      "post": {
+        "tags": ["dashboard"],
+        "operationId": "change_stock",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "The product",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StockChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The product with its new count",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardProduct"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not manage stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such product",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The change is 0, too large, or takes more than is there",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/telegram/revenue": {
+      "get": {
+        "tags": ["dashboard"],
+        "operationId": "revenue",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "description": "The length of the period shown: 7, 14 or 30 days (7 when left out).",
+            "required": false,
+            "schema": {
+              "type": ["integer", "null"],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Takings by day, best sellers and sellers, in đồng",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardRevenue"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not see the revenue",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The period is not 7, 14 or 30 days",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/telegram/sales": {
+      "get": {
+        "tags": ["dashboard"],
+        "operationId": "list_sales",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "description": "The first day to include, in shop time (`YYYY-MM-DD`).",
+            "required": false,
+            "schema": {
+              "type": ["string", "null"],
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "The last day to include, in shop time.",
+            "required": false,
+            "schema": {
+              "type": ["string", "null"],
+              "format": "date"
+            }
+          },
+          {
+            "name": "handled_by",
+            "in": "query",
+            "description": "A staff member's username, or `bot` for what SePay settled by itself.",
+            "required": false,
+            "schema": {
+              "type": ["string", "null"]
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Matches the reference, the buyer's name and username, and the item.",
+            "required": false,
+            "schema": {
+              "type": ["string", "null"]
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Counted from 1.",
+            "required": false,
+            "schema": {
+              "type": ["integer", "null"],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "description": "1 to 100; 20 when left out.",
+            "required": false,
+            "schema": {
+              "type": ["integer", "null"],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paid orders in a range of days, newest first, and what they come to",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardSales"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not see the history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The range or the page is not valid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/gateway-keys": {
       "get": {
         "tags": ["gateway keys"],
@@ -956,6 +2611,56 @@
           },
           "404": {
             "description": "Gateway key not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/gateway-usage": {
+      "get": {
+        "tags": ["gateway keys"],
+        "operationId": "gateway_usage",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "description": "UTC calendar days, 1 through 365; defaults to 30.",
+            "required": false,
+            "schema": {
+              "type": ["integer", "null"],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Requests the signed-in user sent through the gateway with Hub keys and in the Playground; service keys are not counted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayUsage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "days is out of range",
             "content": {
               "application/json": {
                 "schema": {
@@ -1308,6 +3013,170 @@
         "responses": {
           "204": {
             "description": "The organization is now the viewer's default"
+          }
+        }
+      }
+    },
+    "/organizations/{id}/gateway-keys": {
+      "get": {
+        "tags": ["organizations"],
+        "operationId": "list_organization_keys",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The signed-in member's active keys of this organization, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GatewayKey"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The user is not a member of the organization",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["organizations"],
+        "operationId": "create_organization_key",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Organization key created and returned once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedGatewayKey"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The user is not a member of the organization",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The member already holds the most keys allowed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{id}/gateway-keys/{key_id}": {
+      "delete": {
+        "tags": ["organizations"],
+        "operationId": "revoke_organization_key",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Organization ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "key_id",
+            "in": "path",
+            "description": "Key ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Organization key revoked"
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Key not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -1972,6 +3841,456 @@
         }
       }
     },
+    "/service/keys": {
+      "get": {
+        "tags": ["service"],
+        "operationId": "list_service_keys",
+        "responses": {
+          "200": {
+            "description": "The signed-in user's active service keys, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GatewayKey"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["service"],
+        "operationId": "create_service_key",
+        "responses": {
+          "201": {
+            "description": "Service key created and returned once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedGatewayKey"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The user already holds the most keys allowed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/service/keys/{key_id}": {
+      "delete": {
+        "tags": ["service"],
+        "operationId": "revoke_service_key",
+        "parameters": [
+          {
+            "name": "key_id",
+            "in": "path",
+            "description": "Service key ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Service key revoked"
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Service key not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/service/listings": {
+      "get": {
+        "tags": ["service"],
+        "operationId": "list_ticket_listings",
+        "responses": {
+          "200": {
+            "description": "The tickets for sale, by agent; an agent with none is left out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketListings"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/service/listings/{id}/purchase": {
+      "post": {
+        "tags": ["service"],
+        "operationId": "purchase_ticket",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The ticket",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Bought: the key, shown once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchasedTicket"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "The wallet cannot cover the price",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not for sale, or sold just now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The ticket is the buyer's own",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The account did not answer a test request, and nothing was charged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/service/pricing": {
+      "get": {
+        "tags": ["service"],
+        "operationId": "pricing",
+        "responses": {
+          "200": {
+            "description": "The agents the service offers, their models and what a million tokens of each cost",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServicePricing"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/service/tickets": {
+      "get": {
+        "tags": ["service"],
+        "operationId": "list_owned_tickets",
+        "responses": {
+          "200": {
+            "description": "The tickets the signed-in user bought, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnedTickets"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/service/tickets/{key_id}/reissue": {
+      "post": {
+        "tags": ["service"],
+        "operationId": "reissue_ticket_key",
+        "parameters": [
+          {
+            "name": "key_id",
+            "in": "path",
+            "description": "The key of the ticket",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A new key for the same ticket, shown once; the old one stops working",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchasedTicket"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not the user's ticket, or it has expired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/service/top-up": {
+      "post": {
+        "tags": ["service"],
+        "operationId": "top_up",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServiceAmount"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Where to pay by card, or the wallet after a test top-up",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceTopUp"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The amount is out of range, or not whole cents",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Topping up is not available",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The payment service could not open a checkout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/service/usage": {
+      "get": {
+        "tags": ["service"],
+        "operationId": "service_usage",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "description": "UTC calendar days, 1 through 365; defaults to 30.",
+            "required": false,
+            "schema": {
+              "type": ["integer", "null"],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Requests the signed-in user sent with service keys, and what they were charged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayUsage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "days is out of range",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/service/wallet": {
+      "get": {
+        "tags": ["service"],
+        "operationId": "wallet",
+        "responses": {
+          "200": {
+            "description": "The signed-in user's wallet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceWallet"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/tts": {
       "post": {
         "tags": ["tools"],
@@ -2019,6 +4338,20 @@
   },
   "components": {
     "schemas": {
+      "AddStaff": {
+        "type": "object",
+        "required": ["username", "role"],
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/Role",
+            "description": "`owner`, `manager`, `cashier` or `stock-keeper`."
+          },
+          "username": {
+            "type": "string",
+            "description": "The username of an account that already exists."
+          }
+        }
+      },
       "AgentAuthorizationPrompt": {
         "type": "object",
         "required": [
@@ -2356,6 +4689,31 @@
         "type": "string",
         "enum": ["chatgpt", "claude", "gemini", "grok", "deepseek", "groq"]
       },
+      "Announced": {
+        "type": "object",
+        "required": ["channel", "audience"],
+        "properties": {
+          "audience": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How many chats the bot is sending it to. They are sent one by one, at a\npace Telegram allows, so this is how many it has started on."
+          },
+          "channel": {
+            "type": "boolean",
+            "description": "Whether the channel got it. False when no channel is set, or it refused."
+          }
+        }
+      },
+      "Announcement": {
+        "type": "object",
+        "required": ["text"],
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Plain text, up to 4,096 characters. The bot sends it as it is."
+          }
+        }
+      },
       "AuthenticatedUser": {
         "type": "object",
         "required": ["id", "username"],
@@ -2425,6 +4783,15 @@
         "type": "string",
         "enum": ["codex_v3_webrtc"]
       },
+      "ChangeRole": {
+        "type": "object",
+        "required": ["role"],
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          }
+        }
+      },
       "CompleteAuthorizationRequest": {
         "type": "object",
         "required": ["callback_url"],
@@ -2464,6 +4831,30 @@
           }
         }
       },
+      "CreateListing": {
+        "type": "object",
+        "required": ["connection_id", "name", "days", "price_micro"],
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The account that is sold, verified again as the ticket is made."
+          },
+          "days": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How long the key lasts once it is bought, 1 to 365."
+          },
+          "name": {
+            "type": "string"
+          },
+          "price_micro": {
+            "type": "integer",
+            "format": "int64",
+            "description": "In micro-dollars, whole cents, $0.01 to $10,000."
+          }
+        }
+      },
       "CreateOrganization": {
         "type": "object",
         "required": ["name"],
@@ -2473,6 +4864,53 @@
           },
           "name": {
             "type": "string"
+          }
+        }
+      },
+      "CreateProduct": {
+        "type": "object",
+        "description": "What a person types into the form; the slug is made from it, once.",
+        "required": [
+          "available",
+          "hot",
+          "listed",
+          "plan",
+          "price_vnd",
+          "provider",
+          "warranty"
+        ],
+        "properties": {
+          "available": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The count to start from, 0 to 1,000,000."
+          },
+          "hot": {
+            "type": "boolean"
+          },
+          "image_id": {
+            "type": ["string", "null"],
+            "format": "uuid"
+          },
+          "listed": {
+            "type": "boolean"
+          },
+          "plan": {
+            "type": "string"
+          },
+          "price_vnd": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "variant": {
+            "type": ["string", "null"]
+          },
+          "warranty": {
+            "type": "string",
+            "description": "`WF`, `W7D` or `NW`."
           }
         }
       },
@@ -2491,6 +4929,470 @@
             }
           }
         ]
+      },
+      "DashboardAccount": {
+        "type": "object",
+        "required": ["id", "username"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "DashboardListing": {
+        "type": "object",
+        "description": "A ticket that has not been sold: for sale, or kept off sale until its owner fixes it.",
+        "required": [
+          "id",
+          "provider",
+          "name",
+          "days",
+          "price_micro",
+          "listed",
+          "status",
+          "quota",
+          "created_at"
+        ],
+        "properties": {
+          "account_label": {
+            "type": ["string", "null"]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "days": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How long the key lasts once it is bought."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "listed": {
+            "type": "boolean",
+            "description": "Whether it is switched on for sale."
+          },
+          "name": {
+            "type": "string"
+          },
+          "plan": {
+            "type": ["string", "null"]
+          },
+          "price_micro": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "quota": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuotaMetric"
+            },
+            "description": "What the account had left when it was verified; empty when the provider does\nnot say."
+          },
+          "quota_captured_at": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          },
+          "seller": {
+            "type": ["string", "null"],
+            "description": "The username of the member of staff who put it on sale."
+          },
+          "status": {
+            "type": "string",
+            "description": "`for_sale`, `hidden` (switched off), `needs_reconnect` (its owner has to\nconnect the account again) or `disconnected` (the account is gone)."
+          }
+        }
+      },
+      "DashboardListings": {
+        "type": "object",
+        "required": ["listings"],
+        "properties": {
+          "listings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DashboardListing"
+            }
+          }
+        }
+      },
+      "DashboardOrder": {
+        "type": "object",
+        "required": [
+          "created_at",
+          "customer_first_name",
+          "expires_at",
+          "item_title",
+          "quantity",
+          "reference",
+          "status",
+          "total_vnd",
+          "unit_price_vnd"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "customer_first_name": {
+            "type": "string"
+          },
+          "customer_username": {
+            "type": ["string", "null"],
+            "description": "The buyer's Telegram name, when they have one."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Past this the order no longer holds stock, but it can still be paid."
+          },
+          "handled_by": {
+            "type": ["string", "null"],
+            "description": "The username of the member of staff who marked it paid or cancelled it.\nEmpty for an order SePay settled, and one the buyer cancelled."
+          },
+          "item_title": {
+            "type": "string"
+          },
+          "paid_at": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          },
+          "payment_method": {
+            "type": ["string", "null"],
+            "description": "`bank_transfer`, `usdt` or `cash`; set once the order is paid."
+          },
+          "quantity": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "`awaiting_payment`, `paid` or `cancelled`."
+          },
+          "total_vnd": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "unit_price_vnd": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "DashboardOrders": {
+        "type": "object",
+        "required": ["counts", "orders", "total"],
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/OrderCounts",
+            "description": "How many orders each status has under the search, whatever status is shown."
+          },
+          "orders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DashboardOrder"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How many orders the status and the search match, across every page."
+          }
+        }
+      },
+      "DashboardProduct": {
+        "type": "object",
+        "description": "A product as the dashboard shows it: the catalogue's fields that a page uses,\nwith the count split three ways.",
+        "required": [
+          "available",
+          "hot",
+          "listed",
+          "on_hand",
+          "plan",
+          "price_vnd",
+          "provider",
+          "reserved",
+          "slug",
+          "warranty"
+        ],
+        "properties": {
+          "available": {
+            "type": "integer",
+            "format": "int32",
+            "description": "What a buyer may still order: `on_hand` less `reserved`."
+          },
+          "hot": {
+            "type": "boolean"
+          },
+          "image_id": {
+            "type": ["string", "null"],
+            "format": "uuid",
+            "description": "The picture, served by `GET /dashboard/images/{id}`."
+          },
+          "listed": {
+            "type": "boolean"
+          },
+          "on_hand": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The count the shop set, before reservations."
+          },
+          "plan": {
+            "type": "string"
+          },
+          "price_vnd": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "reserved": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Held by orders that await payment and have not expired."
+          },
+          "slug": {
+            "type": "string",
+            "description": "The identity of the product; it never changes, whatever the name does."
+          },
+          "variant": {
+            "type": ["string", "null"]
+          },
+          "warranty": {
+            "type": "string",
+            "description": "`WF` full, `W7D` seven days, `NW` none beyond a one-hour login check."
+          }
+        }
+      },
+      "DashboardProducts": {
+        "type": "object",
+        "required": ["products"],
+        "properties": {
+          "products": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DashboardProduct"
+            }
+          }
+        }
+      },
+      "DashboardRevenue": {
+        "type": "object",
+        "required": ["daily", "days", "top_items", "by_seller"],
+        "properties": {
+          "by_seller": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RevenueSeller"
+            },
+            "description": "By what they came to, over the period shown."
+          },
+          "daily": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RevenueDay"
+            },
+            "description": "Every day of the period and of the one before it, oldest first, with the\ndays that took nothing present as zero. That is `2 * days` entries, so the\npage can set a period against the one before."
+          },
+          "days": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "top_items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RevenueItem"
+            },
+            "description": "By how many orders, over the period shown."
+          }
+        }
+      },
+      "DashboardSales": {
+        "type": "object",
+        "required": ["orders", "sellers", "total", "total_vnd"],
+        "properties": {
+          "orders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DashboardOrder"
+            },
+            "description": "The newest first."
+          },
+          "sellers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Every member of staff who has marked an order paid, by username, so the\nhistory can be narrowed to one of them. It does not depend on the filters."
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How many paid orders match, across every page."
+          },
+          "total_vnd": {
+            "type": "integer",
+            "format": "int64",
+            "description": "What they come to, in đồng, across every page."
+          }
+        }
+      },
+      "DashboardServiceModel": {
+        "type": "object",
+        "required": [
+          "cached_micro_per_million",
+          "input_micro_per_million",
+          "listed",
+          "model",
+          "name",
+          "output_micro_per_million",
+          "position",
+          "provider"
+        ],
+        "properties": {
+          "cached_micro_per_million": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Micro-dollars for a million cached input tokens."
+          },
+          "input_micro_per_million": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Micro-dollars for a million new input tokens."
+          },
+          "listed": {
+            "type": "boolean",
+            "description": "Whether customers can use it; an unlisted model is refused."
+          },
+          "model": {
+            "type": "string",
+            "description": "The id the agent's API uses."
+          },
+          "name": {
+            "type": "string",
+            "description": "What the Pricing page calls it."
+          },
+          "output_micro_per_million": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Micro-dollars for a million output tokens."
+          },
+          "position": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Among its agent's models, smallest first."
+          },
+          "provider": {
+            "type": "string"
+          }
+        }
+      },
+      "DashboardServiceModels": {
+        "type": "object",
+        "required": ["models"],
+        "properties": {
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DashboardServiceModel"
+            }
+          }
+        }
+      },
+      "DashboardSession": {
+        "type": "object",
+        "required": ["permissions", "role", "user"],
+        "properties": {
+          "permissions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Permission"
+            },
+            "description": "What the role may open, so the page can hide a link the API would refuse."
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          },
+          "user": {
+            "$ref": "#/components/schemas/DashboardAccount"
+          }
+        }
+      },
+      "DashboardTicketSale": {
+        "type": "object",
+        "description": "A ticket that was sold.",
+        "required": [
+          "id",
+          "sold_at",
+          "provider",
+          "name",
+          "days",
+          "price_micro"
+        ],
+        "properties": {
+          "buyer": {
+            "type": ["string", "null"]
+          },
+          "days": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "expires_at": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "When that key stops working."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "key_last_four": {
+            "type": ["string", "null"],
+            "description": "The last four characters of the key the customer got."
+          },
+          "name": {
+            "type": "string"
+          },
+          "price_micro": {
+            "type": "integer",
+            "format": "int64",
+            "description": "What the customer paid, in micro-dollars."
+          },
+          "provider": {
+            "type": "string"
+          },
+          "seller": {
+            "type": ["string", "null"]
+          },
+          "sold_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DashboardTicketSales": {
+        "type": "object",
+        "required": ["sales"],
+        "properties": {
+          "sales": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DashboardTicketSale"
+            }
+          }
+        }
       },
       "DecideAgentPoolJoinRequest": {
         "type": "object",
@@ -2531,6 +5433,153 @@
           "last_used_at": {
             "type": ["string", "null"],
             "format": "date-time"
+          }
+        }
+      },
+      "GatewayUsage": {
+        "type": "object",
+        "required": [
+          "period_days",
+          "requests",
+          "spent_micro",
+          "completed_requests",
+          "token_known_requests",
+          "known_input_tokens",
+          "known_output_tokens",
+          "known_cached_tokens",
+          "daily_usage",
+          "breakdown"
+        ],
+        "properties": {
+          "breakdown": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GatewayUsageBreakdown"
+            }
+          },
+          "completed_requests": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Requests the provider finished; the rest were abandoned or failed."
+          },
+          "daily_usage": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GatewayUsageDay"
+            }
+          },
+          "known_cached_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "known_input_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "known_output_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "period_days": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "requests": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "spent_micro": {
+            "type": "integer",
+            "format": "int64",
+            "description": "What the requests were charged to the service wallet, in micro-dollars;\nzero for the Workspace, whose requests are free."
+          },
+          "token_known_requests": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "GatewayUsageBreakdown": {
+        "type": "object",
+        "required": [
+          "provider",
+          "requests",
+          "completed_requests",
+          "token_known_requests",
+          "known_input_tokens",
+          "known_output_tokens",
+          "known_cached_tokens",
+          "spent_micro"
+        ],
+        "properties": {
+          "completed_requests": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "gateway_key_id": {
+            "type": ["string", "null"],
+            "format": "uuid",
+            "description": "The Hub key that sent the requests; none for the Playground, or for a\nkey that has since been deleted."
+          },
+          "key_last_four": {
+            "type": ["string", "null"]
+          },
+          "known_cached_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "known_input_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "known_output_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "model": {
+            "type": ["string", "null"]
+          },
+          "provider": {
+            "type": "string"
+          },
+          "requests": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "spent_micro": {
+            "type": "integer",
+            "format": "int64",
+            "description": "What these requests were charged to the service wallet, in micro-dollars;\nzero for the Workspace, whose requests are free."
+          },
+          "token_known_requests": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "GatewayUsageDay": {
+        "type": "object",
+        "required": [
+          "date",
+          "requests",
+          "known_total_tokens",
+          "token_known_requests"
+        ],
+        "properties": {
+          "date": {
+            "type": "string"
+          },
+          "known_total_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "requests": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "token_known_requests": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -2579,6 +5628,28 @@
       "ModelCapability": {
         "type": "string",
         "enum": ["chat", "image_input", "realtime_audio"]
+      },
+      "OrderCounts": {
+        "type": "object",
+        "required": ["all", "awaiting_payment", "cancelled", "paid"],
+        "properties": {
+          "all": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "awaiting_payment": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "cancelled": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "paid": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
       },
       "Organization": {
         "type": "object",
@@ -3066,6 +6137,89 @@
           }
         }
       },
+      "OwnedTicket": {
+        "type": "object",
+        "description": "A ticket the signed-in user bought, without its key.",
+        "required": [
+          "key_id",
+          "name",
+          "provider",
+          "days",
+          "price_micro",
+          "last_four",
+          "purchased_at",
+          "expires_at",
+          "status"
+        ],
+        "properties": {
+          "days": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "key_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The key's id, for replacing it."
+          },
+          "last_four": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "price_micro": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "purchased_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string",
+            "description": "`active` or `expired`."
+          }
+        }
+      },
+      "OwnedTickets": {
+        "type": "object",
+        "required": ["tickets"],
+        "properties": {
+          "tickets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OwnedTicket"
+            }
+          }
+        }
+      },
+      "PayOrder": {
+        "type": "object",
+        "required": ["payment_method"],
+        "properties": {
+          "payment_method": {
+            "$ref": "#/components/schemas/PaymentMethod",
+            "description": "How the money reached the shop."
+          }
+        }
+      },
+      "PaymentMethod": {
+        "type": "string",
+        "description": "How an order was paid. SePay settles a bank transfer by itself; the rest is\nsomething a member of staff saw and recorded.",
+        "enum": ["bank_transfer", "usdt", "cash"]
+      },
+      "Permission": {
+        "type": "string",
+        "description": "What a page or an endpoint asks of a role.",
+        "enum": ["orders", "history", "stock", "revenue", "staff"]
+      },
       "Platform": {
         "type": "string",
         "enum": ["x", "tiktok", "facebook"]
@@ -3111,11 +6265,12 @@
       },
       "PlaygroundChatRequest": {
         "type": "object",
-        "required": ["connection_id", "provider", "model", "messages"],
+        "required": ["provider", "model", "messages"],
         "properties": {
           "connection_id": {
-            "type": "string",
-            "format": "uuid"
+            "type": ["string", "null"],
+            "format": "uuid",
+            "description": "The account to try first. A Service chat has none: the platform's stock\nserves it."
           },
           "messages": {
             "type": "array",
@@ -3132,6 +6287,10 @@
           },
           "provider": {
             "$ref": "#/components/schemas/AgentProvider"
+          },
+          "service": {
+            "type": "boolean",
+            "description": "Chat in the Service's scope: charged to the wallet, served by the stock."
           }
         },
         "additionalProperties": false
@@ -3230,6 +6389,67 @@
           }
         }
       },
+      "PurchasedTicket": {
+        "type": "object",
+        "description": "A ticket's key, shown once, with what it is for.",
+        "required": [
+          "key",
+          "key_id",
+          "last_four",
+          "expires_at",
+          "name",
+          "provider",
+          "days",
+          "price_micro"
+        ],
+        "properties": {
+          "days": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "key": {
+            "type": "string",
+            "description": "The key, which is never shown again."
+          },
+          "key_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "last_four": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "price_micro": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "provider": {
+            "type": "string"
+          }
+        }
+      },
+      "QuotaMetric": {
+        "type": "object",
+        "description": "One line of what an account has left, as the provider reports it.",
+        "required": ["label", "value"],
+        "properties": {
+          "detail": {
+            "type": ["string", "null"]
+          },
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
       "RegisterRequest": {
         "type": "object",
         "required": ["username", "password"],
@@ -3302,12 +6522,254 @@
           }
         }
       },
+      "RevenueDay": {
+        "type": "object",
+        "required": ["date", "orders", "total_vnd"],
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "orders": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_vnd": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "RevenueItem": {
+        "type": "object",
+        "required": ["orders", "title", "total_vnd"],
+        "properties": {
+          "orders": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "title": {
+            "type": "string"
+          },
+          "total_vnd": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "RevenueSeller": {
+        "type": "object",
+        "required": ["orders", "total_vnd"],
+        "properties": {
+          "orders": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "seller": {
+            "type": ["string", "null"],
+            "description": "The username of the member of staff, or empty for what SePay settled."
+          },
+          "total_vnd": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "Role": {
+        "type": "string",
+        "description": "What a member of staff is, in the dashboard.",
+        "enum": ["owner", "manager", "cashier", "stock-keeper"]
+      },
+      "SaveServiceModel": {
+        "type": "object",
+        "required": [
+          "cached_micro_per_million",
+          "input_micro_per_million",
+          "listed",
+          "model",
+          "name",
+          "output_micro_per_million",
+          "provider"
+        ],
+        "properties": {
+          "cached_micro_per_million": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "input_micro_per_million": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "listed": {
+            "type": "boolean"
+          },
+          "model": {
+            "type": "string",
+            "description": "The id the agent's API uses. A model that has a row is changed, any other\nis added."
+          },
+          "name": {
+            "type": "string"
+          },
+          "output_micro_per_million": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "provider": {
+            "type": "string",
+            "description": "`chatgpt`, `gemini`, `claude`, `deepseek`, `grok` or `groq`."
+          }
+        }
+      },
+      "ServiceAmount": {
+        "type": "object",
+        "required": ["amount_micro"],
+        "properties": {
+          "amount_micro": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Micro-dollars."
+          }
+        }
+      },
+      "ServiceModel": {
+        "type": "object",
+        "required": ["id", "name", "price"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "price": {
+            "$ref": "#/components/schemas/ServicePrice"
+          }
+        }
+      },
+      "ServicePrice": {
+        "type": "object",
+        "required": [
+          "input_micro_per_million",
+          "cached_micro_per_million",
+          "output_micro_per_million"
+        ],
+        "properties": {
+          "cached_micro_per_million": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "input_micro_per_million": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Micro-dollars (1 USD = 1,000,000) per one million tokens."
+          },
+          "output_micro_per_million": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ServicePricing": {
+        "type": "object",
+        "required": [
+          "currency",
+          "providers",
+          "min_balance_micro",
+          "test_top_up",
+          "card_top_up"
+        ],
+        "properties": {
+          "card_top_up": {
+            "type": "boolean",
+            "description": "Whether a top-up is paid by card, through Stripe Checkout."
+          },
+          "currency": {
+            "type": "string"
+          },
+          "min_balance_micro": {
+            "type": "integer",
+            "format": "int64",
+            "description": "A request starts only when the wallet holds at least this much, since what\nit costs is known only when it ends. Micro-dollars."
+          },
+          "providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServiceProvider"
+            }
+          },
+          "test_top_up": {
+            "type": "boolean",
+            "description": "Whether topping up works without a payment. True on staging only."
+          }
+        }
+      },
+      "ServiceProvider": {
+        "type": "object",
+        "required": ["provider", "label", "available", "models"],
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "description": "Whether the platform's stock has an account that can serve this agent now.\nWhen it has none, a request for it answers 502."
+          },
+          "label": {
+            "type": "string"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServiceModel"
+            }
+          },
+          "provider": {
+            "$ref": "#/components/schemas/AgentProvider"
+          }
+        }
+      },
+      "ServiceTopUp": {
+        "type": "object",
+        "required": ["wallet_micro"],
+        "properties": {
+          "checkout_url": {
+            "type": ["string", "null"],
+            "description": "Where to send the customer to pay by card. None when the wallet was\ncredited at once, which only happens where test top-ups are on."
+          },
+          "wallet_micro": {
+            "type": "integer",
+            "format": "int64",
+            "description": "What the customer holds, in micro-dollars. A payment by card is not in it\nuntil Stripe reports it."
+          }
+        }
+      },
+      "ServiceWallet": {
+        "type": "object",
+        "required": ["wallet_micro"],
+        "properties": {
+          "wallet_micro": {
+            "type": "integer",
+            "format": "int64",
+            "description": "What the customer holds, in micro-dollars."
+          }
+        }
+      },
       "SessionResponse": {
         "type": "object",
         "required": ["user"],
         "properties": {
           "user": {
             "$ref": "#/components/schemas/AuthenticatedUser"
+          }
+        }
+      },
+      "SettledOrder": {
+        "type": "object",
+        "required": ["notified", "order"],
+        "properties": {
+          "notified": {
+            "type": "boolean",
+            "description": "Whether the bot told the buyer. The order is paid either way."
+          },
+          "order": {
+            "$ref": "#/components/schemas/DashboardOrder"
           }
         }
       },
@@ -3321,12 +6783,142 @@
           }
         }
       },
+      "StaffList": {
+        "type": "object",
+        "required": ["members"],
+        "properties": {
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StaffMember"
+            }
+          }
+        }
+      },
+      "StaffMember": {
+        "type": "object",
+        "required": [
+          "id",
+          "locked",
+          "orders_today",
+          "revenue_today_vnd",
+          "role",
+          "username"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "last_active_at": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "When they last signed in, or last had their session refreshed."
+          },
+          "locked": {
+            "type": "boolean",
+            "description": "The last active owner, whose role cannot change and who cannot be removed,\nso the shop is never left without one."
+          },
+          "orders_today": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Orders they marked paid today, in shop time."
+          },
+          "revenue_today_vnd": {
+            "type": "integer",
+            "format": "int64",
+            "description": "What those orders come to, in đồng."
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
       "StartAgentConnectionRequest": {
         "type": "object",
         "required": ["provider"],
         "properties": {
           "provider": {
             "$ref": "#/components/schemas/AgentProvider"
+          }
+        }
+      },
+      "StockChange": {
+        "type": "object",
+        "required": ["delta"],
+        "properties": {
+          "delta": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Units to put in (up to 100,000) or take out (up to 1,000,000), never 0."
+          }
+        }
+      },
+      "TicketListing": {
+        "type": "object",
+        "required": ["id", "name", "days", "price_micro", "quota"],
+        "properties": {
+          "days": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How long the key lasts once it is bought."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "price_micro": {
+            "type": "integer",
+            "format": "int64",
+            "description": "In micro-dollars."
+          },
+          "quota": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuotaMetric"
+            },
+            "description": "What the account had left when it was put on sale; empty when the provider\ndoes not say."
+          },
+          "quota_captured_at": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          }
+        }
+      },
+      "TicketListings": {
+        "type": "object",
+        "required": ["providers"],
+        "properties": {
+          "providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TicketProvider"
+            },
+            "description": "Only the agents that have a ticket for sale, in the order of the Pricing page."
+          }
+        }
+      },
+      "TicketProvider": {
+        "type": "object",
+        "required": ["provider", "label", "listings"],
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "listings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TicketListing"
+            }
+          },
+          "provider": {
+            "type": "string"
           }
         }
       },
@@ -3345,6 +6937,115 @@
           },
           "voice": {
             "type": "string"
+          }
+        }
+      },
+      "UpdateListing": {
+        "type": "object",
+        "required": ["name", "days", "price_micro", "listed"],
+        "properties": {
+          "days": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "listed": {
+            "type": "boolean",
+            "description": "Whether it is switched on for sale."
+          },
+          "name": {
+            "type": "string"
+          },
+          "price_micro": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "UpdateProduct": {
+        "type": "object",
+        "description": "Everything about a product that can be edited. The slug and the count are not\nin it: the slug is the product's identity, and the count has its own change.",
+        "required": [
+          "hot",
+          "listed",
+          "plan",
+          "price_vnd",
+          "provider",
+          "warranty"
+        ],
+        "properties": {
+          "hot": {
+            "type": "boolean"
+          },
+          "image_id": {
+            "type": ["string", "null"],
+            "format": "uuid"
+          },
+          "listed": {
+            "type": "boolean"
+          },
+          "plan": {
+            "type": "string"
+          },
+          "price_vnd": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "variant": {
+            "type": ["string", "null"]
+          },
+          "warranty": {
+            "type": "string",
+            "description": "`WF`, `W7D` or `NW`."
+          }
+        }
+      },
+      "UploadedImage": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "VerifiedAccount": {
+        "type": "object",
+        "required": ["provider", "quota", "captured_at"],
+        "properties": {
+          "account_label": {
+            "type": ["string", "null"]
+          },
+          "captured_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "plan": {
+            "type": ["string", "null"]
+          },
+          "provider": {
+            "type": "string"
+          },
+          "quota": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuotaMetric"
+            },
+            "description": "What the account has left, as the provider says; empty when it does not."
+          }
+        }
+      },
+      "VerifyAccount": {
+        "type": "object",
+        "required": ["connection_id"],
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "An account the signed-in member connected, on the Agents page or from here."
           }
         }
       },
@@ -3387,6 +7088,14 @@
     {
       "name": "gateway keys",
       "description": "Revocable keys for provider-specific gateway access"
+    },
+    {
+      "name": "service",
+      "description": "Agents the platform rents, paid for as they are used: pricing, wallet, top-up, keys and usage"
+    },
+    {
+      "name": "dashboard",
+      "description": "The shop's back office: who may use it, and its Telegram stock"
     },
     {
       "name": "system",

@@ -68,7 +68,11 @@ fn passwords_are_hashed_and_verified() {
 
 #[test]
 fn browser_sessions_use_five_hour_access_and_seven_day_refresh_windows() {
-    let cookies = session_cookies("access".to_owned(), "refresh".to_owned(), false);
+    let cookies = session_cookies(
+        "access".to_owned(),
+        "refresh".to_owned(),
+        &AppConfig::default(),
+    );
 
     assert_eq!(cookies.access.max_age().unwrap().whole_hours(), 5);
     assert_eq!(cookies.refresh.max_age().unwrap().whole_days(), 7);

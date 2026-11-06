@@ -26,6 +26,8 @@ const BUSY_NOTICE: &str = "⚠️ Thử lại giúp mình nhé / Please try agai
 const AUDIENCE_PATH: &str = "/internal/telegram/audience";
 /// Telegram caps bulk sending near 30 messages a second; this stays under it.
 const BROADCAST_INTERVAL: std::time::Duration = std::time::Duration::from_millis(50);
+/// Telegram refuses a message longer than this.
+const MAXIMUM_ANNOUNCEMENT_CHARACTERS: usize = 4096;
 const QR_IMAGE: &[u8] = include_bytes!("../assets/qr-bank.png");
 
 #[derive(Clone)]
@@ -41,6 +43,10 @@ pub fn router(state: AppState) -> Router {
         .route("/qr.png", get(qr_image))
         .route("/sepay", post(sepay_webhook))
         .route("/webhook", post(webhook))
+        // The API asks the adapter to send, because the bot's token is here and
+        // not there. Both routes answer only to the secret the two share.
+        .route("/internal/announce", post(announce))
+        .route("/internal/payment-notice", post(payment_notice))
         .with_state(state)
 }
 
@@ -175,6 +181,97 @@ async fn notify_paid(state: &AppState, order: &Order) -> Result<(), StatusCode> 
         .is_success()
         .then_some(())
         .ok_or(StatusCode::SERVICE_UNAVAILABLE)
+}
+
+/// Whether the caller holds the secret the API and the adapter share.
+fn api_token_matches(state: &AppState, headers: &HeaderMap) -> bool {
+    let received = headers
+        .get(API_SERVICE_TOKEN_HEADER)
+        .map(HeaderValue::as_bytes)
+        .unwrap_or_default();
+
+    secrets_match(state.config.api_service_token.as_bytes(), received)
+}
+
+/// Tells a buyer their order is paid, when a member of staff marked it so by
+/// hand. SePay settles an order through the adapter and the adapter tells the
+/// buyer itself; this is the same message for the payment the dashboard recorded.
+async fn payment_notice(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(order): Json<Order>,
+) -> StatusCode {
+    if !api_token_matches(&state, &headers) {
+        return StatusCode::FORBIDDEN;
+    }
+    // A notice for an order that is not paid would tell a buyer something false.
+    if order.status() != OrderStatus::Paid {
+        return StatusCode::UNPROCESSABLE_ENTITY;
+    }
+
+    match notify_paid(&state, &order).await {
+        Ok(()) => StatusCode::NO_CONTENT,
+        Err(status) => status,
+    }
+}
+
+#[derive(Deserialize)]
+struct AnnounceRequest {
+    text: String,
+}
+
+#[derive(Serialize)]
+struct AnnounceResult {
+    /// Whether the channel got it; false when none is set or Telegram refused.
+    channel: bool,
+    /// How many chats it is being sent to, one at a time.
+    audience: i64,
+}
+
+/// Posts a message of the shop's own to the channel and to everyone who has
+/// started the bot. The people are sent to one by one in the background, at a
+/// pace Telegram allows, so the answer says how many there are, not how many
+/// have been reached.
+async fn announce(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<AnnounceRequest>,
+) -> Result<Json<AnnounceResult>, StatusCode> {
+    if !api_token_matches(&state, &headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let text = request.text.trim().to_owned();
+    if text.is_empty() || text.chars().count() > MAXIMUM_ANNOUNCEMENT_CHARACTERS {
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    // Who to send to is read first, so a failure here sends nothing at all.
+    let audience = fetch_audience(&state).await?;
+    let count = i64::try_from(audience.len()).unwrap_or(i64::MAX);
+
+    let channel = match state.config.announce_chat_id.clone() {
+        Some(chat_id) => {
+            let post = telegram::SendMessage::to_chat(chat_id, text.clone());
+
+            match serde_json::to_value(&post) {
+                Ok(body) => call_telegram(&state, "sendMessage", body).await.is_ok(),
+                Err(_) => false,
+            }
+        }
+        None => false,
+    };
+
+    tokio::spawn(async move {
+        broadcast(&state, audience, |chat_id| {
+            telegram::SendMessage::new(chat_id, text.clone())
+        })
+        .await;
+    });
+
+    Ok(Json(AnnounceResult {
+        channel,
+        audience: count,
+    }))
 }
 
 fn sepay_key_matches(expected: &str, headers: &HeaderMap) -> bool {
@@ -497,23 +594,40 @@ async fn announce_restock(state: &AppState, added: i64, product: &Product) {
 }
 
 async fn broadcast_restock(state: &AppState, added: i64, product: &Product) {
-    let audience: Vec<Audience> = match call_api(state, Method::GET, AUDIENCE_PATH, None).await {
-        Ok(Some(audience)) => audience,
-        Ok(None) => Vec::new(),
+    let audience = match fetch_audience(state).await {
+        Ok(audience) => audience,
         Err(status) => {
             eprintln!("Telegram audience lookup failed with status {status}");
             return;
         }
     };
 
-    for contact in audience {
-        let message = view::restock_announcement(
-            contact.chat_id,
+    broadcast(state, audience, |chat_id| {
+        view::restock_announcement(
+            chat_id,
             added,
             product,
             state.config.bot_username.as_deref(),
-        );
-        let Ok(body) = serde_json::to_value(&message) else {
+        )
+    })
+    .await;
+}
+
+/// Everyone who has started the bot and has not blocked it.
+async fn fetch_audience(state: &AppState) -> Result<Vec<Audience>, StatusCode> {
+    Ok(call_api(state, Method::GET, AUDIENCE_PATH, None)
+        .await?
+        .unwrap_or_default())
+}
+
+/// Sends one message to each chat, one at a time, under Telegram's bulk limit.
+async fn broadcast(
+    state: &AppState,
+    audience: Vec<Audience>,
+    message: impl Fn(i64) -> telegram::SendMessage,
+) {
+    for contact in audience {
+        let Ok(body) = serde_json::to_value(message(contact.chat_id)) else {
             continue;
         };
 
@@ -1673,6 +1787,223 @@ mod tests {
             buyer["reply_markup"]["inline_keyboard"][0][0]["url"],
             "https://t.me/hub_william_bot?start=claude-max-x20"
         );
+    }
+
+    /// What the API sends the adapter: the same secret it calls the API with.
+    const API_TOKEN: &str = "api-service-secret";
+
+    async fn call_internal(
+        shop: &Shop,
+        path: &str,
+        token: Option<&str>,
+        body: Value,
+    ) -> (StatusCode, Value) {
+        let mut request = Request::builder()
+            .method("POST")
+            .uri(path)
+            .header("content-type", "application/json");
+        if let Some(token) = token {
+            request = request.header("x-hub-william-telegram-token", token);
+        }
+        let response = router(shop.state.clone())
+            .oneshot(
+                request
+                    .body(Body::from(body.to_string()))
+                    .expect("valid request"),
+            )
+            .await
+            .expect("the route should respond");
+        let status = response.status();
+        let bytes = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("response body should be readable");
+
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+        )
+    }
+
+    #[tokio::test]
+    async fn an_announcement_is_refused_without_the_shared_secret() {
+        let shop = Shop::open().await;
+
+        for token in [None, Some("not-the-secret"), Some("")] {
+            let (status, _) =
+                call_internal(&shop, "/internal/announce", token, json!({"text": "Hello"})).await;
+
+            assert_eq!(status, StatusCode::FORBIDDEN, "{token:?}");
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert!(shop.api.notified.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_announcement_reaches_the_channel_and_every_chat_as_written() {
+        let shop = Shop::open().await;
+        let (status, answer) = call_internal(
+            &shop,
+            "/internal/announce",
+            Some(API_TOKEN),
+            json!({"text": "  Hàng mới về!\nCòn 5 suất.  "}),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(answer, json!({"channel": true, "audience": 1}));
+
+        // The people are sent to in the background, so give it a moment.
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        let posted = shop.api.notified.lock().unwrap().clone();
+        let channel = posted
+            .iter()
+            .find(|message| message["chat_id"] == "@hubwilliam")
+            .expect("a channel post");
+        let buyer = posted
+            .iter()
+            .find(|message| message["chat_id"] == 555)
+            .expect("a message to the contact");
+
+        // Trimmed, nothing added, and no button: it is the shop's own words.
+        assert_eq!(channel["text"], "Hàng mới về!\nCòn 5 suất.");
+        assert_eq!(buyer["text"], channel["text"]);
+        assert!(channel.get("reply_markup").is_none());
+        assert!(buyer.get("reply_markup").is_none());
+    }
+
+    #[tokio::test]
+    async fn an_announcement_says_so_when_there_is_no_channel() {
+        let mut shop = Shop::open().await;
+        shop.state.config.announce_chat_id = None;
+
+        let (status, answer) = call_internal(
+            &shop,
+            "/internal/announce",
+            Some(API_TOKEN),
+            json!({"text": "Hello"}),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(answer["channel"], false);
+        assert_eq!(answer["audience"], 1);
+    }
+
+    #[tokio::test]
+    async fn an_announcement_must_have_words_and_fit_in_a_message() {
+        let shop = Shop::open().await;
+
+        for text in ["", "   \n ", &"a".repeat(4097)] {
+            let (status, _) = call_internal(
+                &shop,
+                "/internal/announce",
+                Some(API_TOKEN),
+                json!({ "text": text }),
+            )
+            .await;
+
+            assert_eq!(
+                status,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "{} chars",
+                text.len()
+            );
+        }
+
+        // The limit itself is allowed.
+        let (status, _) = call_internal(
+            &shop,
+            "/internal/announce",
+            Some(API_TOKEN),
+            json!({ "text": "a".repeat(4096) }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn an_announcement_sends_nothing_when_the_audience_cannot_be_read() {
+        // Nothing listens here, so the list of chats cannot be fetched.
+        let (api, _, task) = fake_api().await;
+        let shop = Shop {
+            api,
+            state: test_state("http://127.0.0.1:1"),
+            task,
+        };
+
+        let (status, _) = call_internal(
+            &shop,
+            "/internal/announce",
+            Some(API_TOKEN),
+            json!({"text": "Hello"}),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    fn paid_order(status: &str) -> Value {
+        json!({
+            "chat_id": 777,
+            "expires_at": (Utc::now() + TimeDelta::minutes(15)).to_rfc3339(),
+            "item_title": "Claude MAX X20",
+            "quantity": 1,
+            "reference": REFERENCE,
+            "status": status,
+            "telegram_user_id": 777,
+            "total_vnd": 135_000,
+            "unit_price_vnd": 135_000
+        })
+    }
+
+    #[tokio::test]
+    async fn a_payment_notice_is_refused_without_the_shared_secret() {
+        let shop = Shop::open().await;
+        let (status, _) =
+            call_internal(&shop, "/internal/payment-notice", None, paid_order("paid")).await;
+
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(shop.api.notified.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_payment_notice_tells_the_buyer_their_order_is_paid() {
+        let shop = Shop::open().await;
+        let (status, _) = call_internal(
+            &shop,
+            "/internal/payment-notice",
+            Some(API_TOKEN),
+            paid_order("paid"),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let posted = shop.api.notified.lock().unwrap().clone();
+        let notice = posted.last().expect("a message to the buyer");
+
+        assert_eq!(notice["chat_id"], 777);
+        assert!(
+            notice["text"].as_str().expect("text").contains(REFERENCE),
+            "{notice}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_payment_notice_for_an_order_that_is_not_paid_tells_nobody() {
+        let shop = Shop::open().await;
+
+        for status in ["awaiting_payment", "cancelled", "something-else"] {
+            let (answer, _) = call_internal(
+                &shop,
+                "/internal/payment-notice",
+                Some(API_TOKEN),
+                paid_order(status),
+            )
+            .await;
+
+            assert_eq!(answer, StatusCode::UNPROCESSABLE_ENTITY, "{status}");
+        }
+        assert!(shop.api.notified.lock().unwrap().is_empty());
     }
 
     /// Stock held by an open order is not sellable, which is what stops two

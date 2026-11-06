@@ -1,11 +1,17 @@
-//! Token usage read from upstream responses, and the organization usage events
-//! recorded from it.
+//! Token usage read from upstream responses, and the usage events recorded from
+//! it: one row per generation request in `gateway_usage_events`, plus the
+//! organization view of the requests that finished in `organization_usage_events`.
 
-use serde_json::Value;
+use axum::http::HeaderMap;
+use serde_json::{Map, Value};
 use uuid::Uuid;
 
 use super::selection::GatewaySelection;
-use crate::{core::AppState, utils::provider_catalogue::AgentProvider};
+use crate::{
+    api::service::{self, ChargedRequest, Tokens},
+    core::AppState,
+    utils::provider_catalogue::AgentProvider,
+};
 
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
 pub(super) struct TokenUsage {
@@ -21,6 +27,14 @@ impl TokenUsage {
 }
 
 pub(super) const MAX_USAGE_PAYLOAD_BYTES: usize = 1024 * 1024;
+const MAX_QUOTA_EVENT_BYTES: usize = 8 * 1024;
+/// Response headers that carry a provider's own quota or rate-limit state.
+const QUOTA_HEADER_PREFIXES: [&str; 4] = [
+    "x-codex-",
+    "anthropic-ratelimit-",
+    "x-ratelimit-",
+    "ratelimit-",
+];
 
 pub(super) struct UsageObserver {
     provider: AgentProvider,
@@ -37,6 +51,8 @@ pub(super) struct UsageObserver {
     claude_input_tokens: Option<i64>,
     claude_cache_read_tokens: Option<i64>,
     claude_cache_creation_tokens: Option<i64>,
+    /// The last stream event whose type mentions a rate limit, as received.
+    pub(super) quota_event: Option<Value>,
 }
 
 impl UsageObserver {
@@ -56,6 +72,7 @@ impl UsageObserver {
             claude_input_tokens: None,
             claude_cache_read_tokens: None,
             claude_cache_creation_tokens: None,
+            quota_event: None,
         }
     }
 
@@ -142,6 +159,14 @@ impl UsageObserver {
     }
 
     pub(super) fn read_value(&mut self, value: &Value) {
+        if value
+            .get("type")
+            .and_then(Value::as_str)
+            .is_some_and(|kind| kind.contains("rate_limit"))
+            && value.to_string().len() <= MAX_QUOTA_EVENT_BYTES
+        {
+            self.quota_event = Some(value.clone());
+        }
         match self.provider {
             AgentProvider::Claude => match value.get("type").and_then(Value::as_str) {
                 Some("message_start") => self.read_claude_usage(value.pointer("/message/usage")),
@@ -332,55 +357,310 @@ fn nonnegative_i64(value: Option<&Value>) -> Option<i64> {
     value.and_then(Value::as_i64).filter(|value| *value >= 0)
 }
 
+/// What the provider reported about its own quota for one response: the
+/// quota-related headers and the rate-limit stream event, exactly as received.
+pub(super) fn quota_snapshot(headers: &HeaderMap, event: Option<Value>) -> Option<Value> {
+    let headers: Map<String, Value> = headers
+        .iter()
+        .filter(|(name, _)| {
+            QUOTA_HEADER_PREFIXES
+                .iter()
+                .any(|prefix| name.as_str().starts_with(prefix))
+        })
+        .filter_map(|(name, value)| {
+            Some((
+                name.as_str().to_owned(),
+                Value::String(value.to_str().ok()?.to_owned()),
+            ))
+        })
+        .collect();
+    let mut snapshot = Map::new();
+    if !headers.is_empty() {
+        snapshot.insert("headers".to_owned(), Value::Object(headers));
+    }
+    if let Some(event) = event {
+        snapshot.insert("event".to_owned(), event);
+    }
+    (!snapshot.is_empty()).then_some(Value::Object(snapshot))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum UsageOutcome {
+    /// The provider finished the response.
+    Completed,
+    /// The client left, the stream failed, or no completion marker arrived.
+    Incomplete,
+}
+
+impl UsageOutcome {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Completed => "completed",
+            Self::Incomplete => "incomplete",
+        }
+    }
+}
+
 #[derive(Clone)]
-pub(super) struct OrganizationUsageEvent {
+pub(super) struct UsageEvent {
     pub(super) pool: sqlx::PgPool,
-    pub(super) organization_id: Uuid,
     pub(super) user_id: Uuid,
+    pub(super) key_id: Option<Uuid>,
+    pub(super) organization_id: Option<Uuid>,
     pub(super) connection_id: Uuid,
     pub(super) provider: AgentProvider,
     pub(super) model: Option<String>,
+    /// The request is a service key's, so it is charged when it ends.
+    pub(super) service: bool,
 }
 
-pub(super) fn organization_usage_event(
+pub(super) fn usage_event(
     state: &AppState,
     selection: GatewaySelection,
     connection_id: Uuid,
     provider: AgentProvider,
     model: Option<&str>,
-) -> Option<OrganizationUsageEvent> {
-    Some(OrganizationUsageEvent {
+) -> UsageEvent {
+    UsageEvent {
         pool: state.pool.clone(),
-        organization_id: selection.organization_id?,
         user_id: selection.user_id,
+        key_id: selection.key_id,
+        organization_id: selection.organization_id,
         connection_id,
         provider,
         model: model.map(str::to_owned),
-    })
+        service: selection.service,
+    }
 }
 
-pub(super) async fn record_organization_usage(
-    event: &OrganizationUsageEvent,
-    usage: Option<TokenUsage>,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "INSERT INTO organization_usage_events
-         (id, org_id, user_id, connection_id, provider, model,
-          input_tokens, output_tokens, cached_tokens)
-         VALUES ($1, $2, $3,
-                 (SELECT id FROM agent_connections WHERE id = $4 FOR KEY SHARE),
-                 $5, $6, $7, $8, $9)",
-    )
-    .bind(Uuid::new_v4())
-    .bind(event.organization_id)
-    .bind(event.user_id)
-    .bind(event.connection_id)
-    .bind(event.provider.to_string())
-    .bind(&event.model)
-    .bind(usage.and_then(|value| value.input_tokens))
-    .bind(usage.and_then(|value| value.output_tokens))
-    .bind(usage.and_then(|value| value.cached_tokens))
-    .execute(&event.pool)
-    .await?;
-    Ok(())
+impl UsageEvent {
+    /// Records one request in `gateway_usage_events`. When `count_for_organization`
+    /// is set and the request belongs to an organization, it also lands in
+    /// `organization_usage_events`, which only holds finished requests.
+    ///
+    /// A request of a service key is charged right after its event is recorded,
+    /// once, for that event.
+    ///
+    /// A failure of the first insert, or of the charge, is logged and never
+    /// reaches the caller, so that metering cannot break a response; the
+    /// organization insert reports its error as it always did.
+    pub(super) async fn record(
+        &self,
+        outcome: UsageOutcome,
+        usage: Option<TokenUsage>,
+        quota: Option<Value>,
+        count_for_organization: bool,
+    ) -> Result<(), sqlx::Error> {
+        let event_id = Uuid::new_v4();
+        match self
+            .insert_gateway_event(event_id, outcome, usage, quota)
+            .await
+        {
+            Ok(()) => self.charge(event_id, usage).await,
+            Err(error) => eprintln!("gateway usage insert failed: {error}"),
+        }
+        if count_for_organization && let Some(organization_id) = self.organization_id {
+            self.insert_organization_event(organization_id, usage)
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// Which product the request belongs to, whatever sent it.
+    fn scope(&self) -> &'static str {
+        if self.service {
+            "service"
+        } else if self.organization_id.is_some() {
+            "organization"
+        } else {
+            "workspace"
+        }
+    }
+
+    async fn charge(&self, event_id: Uuid, usage: Option<TokenUsage>) {
+        if !self.service {
+            return;
+        }
+        let usage = usage.unwrap_or_default();
+        let request = ChargedRequest {
+            usage_event_id: event_id,
+            user_id: self.user_id,
+            provider: self.provider,
+            model: self.model.as_deref(),
+            tokens: Tokens {
+                input: usage.input_tokens,
+                output: usage.output_tokens,
+                cached: usage.cached_tokens,
+            },
+        };
+        if let Err(error) = service::charge_request(&self.pool, request).await {
+            eprintln!("service charge failed: {error:?}");
+        }
+    }
+
+    async fn insert_gateway_event(
+        &self,
+        event_id: Uuid,
+        outcome: UsageOutcome,
+        usage: Option<TokenUsage>,
+        quota: Option<Value>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "INSERT INTO gateway_usage_events
+             (id, user_id, gateway_key_id, org_id, connection_id, provider, model,
+              input_tokens, output_tokens, cached_tokens, outcome, quota, scope)
+             VALUES ($1, $2,
+                     (SELECT id FROM gateway_keys WHERE id = $3 FOR KEY SHARE),
+                     (SELECT id FROM organizations WHERE id = $4 FOR KEY SHARE),
+                     (SELECT id FROM agent_connections WHERE id = $5 FOR KEY SHARE),
+                     $6, $7, $8, $9, $10, $11, $12, $13)",
+        )
+        .bind(event_id)
+        .bind(self.user_id)
+        .bind(self.key_id)
+        .bind(self.organization_id)
+        .bind(self.connection_id)
+        .bind(self.provider.to_string())
+        .bind(&self.model)
+        .bind(usage.and_then(|value| value.input_tokens))
+        .bind(usage.and_then(|value| value.output_tokens))
+        .bind(usage.and_then(|value| value.cached_tokens))
+        .bind(outcome.as_str())
+        .bind(quota)
+        .bind(self.scope())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn insert_organization_event(
+        &self,
+        organization_id: Uuid,
+        usage: Option<TokenUsage>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "INSERT INTO organization_usage_events
+             (id, org_id, user_id, connection_id, provider, model,
+              input_tokens, output_tokens, cached_tokens)
+             VALUES ($1, $2, $3,
+                     (SELECT id FROM agent_connections WHERE id = $4 FOR KEY SHARE),
+                     $5, $6, $7, $8, $9)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(organization_id)
+        .bind(self.user_id)
+        .bind(self.connection_id)
+        .bind(self.provider.to_string())
+        .bind(&self.model)
+        .bind(usage.and_then(|value| value.input_tokens))
+        .bind(usage.and_then(|value| value.output_tokens))
+        .bind(usage.and_then(|value| value.cached_tokens))
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+}
+
+/// Watches one response body and records the request when the body ends.
+///
+/// Records a finished body from [`UsageGuard::finish`]. If the guard is dropped
+/// first, because the client closed the connection or the response failed, it
+/// records the request as incomplete with whatever usage was seen so far.
+pub(super) struct UsageGuard {
+    pending: Option<PendingUsage>,
+}
+
+struct PendingUsage {
+    event: UsageEvent,
+    observer: UsageObserver,
+    headers: HeaderMap,
+    failed: bool,
+}
+
+impl UsageGuard {
+    pub(super) fn new(event: UsageEvent, observer: UsageObserver, headers: &HeaderMap) -> Self {
+        Self {
+            pending: Some(PendingUsage {
+                event,
+                observer,
+                headers: headers.clone(),
+                failed: false,
+            }),
+        }
+    }
+
+    pub(super) fn push(&mut self, bytes: &[u8]) {
+        if let Some(pending) = self.pending.as_mut() {
+            pending.observer.push(bytes);
+        }
+    }
+
+    /// The upstream stream failed; the request can no longer count as complete.
+    pub(super) fn fail(&mut self) {
+        if let Some(pending) = self.pending.as_mut() {
+            pending.failed = true;
+        }
+    }
+
+    /// Records the finished request. It runs as a task of its own: a client that
+    /// closes the connection the moment it has seen the last chunk drops the
+    /// stream, and with it this future, and a request that was served must still
+    /// be recorded and, for a service key, charged.
+    pub(super) async fn finish(mut self) {
+        let Some(pending) = self.pending.take() else {
+            return;
+        };
+        if let Err(error) = tokio::spawn(pending.record_finished()).await {
+            eprintln!("gateway usage task failed: {error}");
+        }
+    }
+}
+
+impl PendingUsage {
+    async fn record_finished(self) {
+        let Self {
+            event,
+            observer,
+            headers,
+            failed,
+        } = self;
+        let quota = quota_snapshot(&headers, observer.quota_event.clone());
+        let partial = observer.usage.has_tokens().then_some(observer.usage);
+        let (provider_complete, usage) = observer.finish_with_completion();
+        let completed = provider_complete && !failed;
+        let (outcome, usage) = if completed {
+            (UsageOutcome::Completed, usage)
+        } else {
+            (UsageOutcome::Incomplete, partial)
+        };
+        if let Err(error) = event.record(outcome, usage, quota, completed).await {
+            eprintln!("organization usage insert failed: {error}");
+        }
+    }
+}
+
+impl Drop for UsageGuard {
+    fn drop(&mut self) {
+        let Some(pending) = self.pending.take() else {
+            return;
+        };
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        runtime.spawn(async move {
+            let quota = quota_snapshot(&pending.headers, pending.observer.quota_event.clone());
+            let usage = pending
+                .observer
+                .usage
+                .has_tokens()
+                .then_some(pending.observer.usage);
+            if let Err(error) = pending
+                .event
+                .record(UsageOutcome::Incomplete, usage, quota, false)
+                .await
+            {
+                eprintln!("gateway usage insert failed: {error}");
+            }
+        });
+    }
 }

@@ -28,9 +28,11 @@ use super::{
     CreateOrganization, InviteOrganizationMember, OrganizationAgentDetails,
     OrganizationAgentListQuery, OrganizationPeriodQuery, OrganizationUsageQuery,
     ShareOrganizationAgent, accept_invitation, create_organization, delete_organization,
-    invite_member, leave_organization, list_agents, list_invitations, list_members,
-    list_organization_summaries, list_organizations, overview, remove_member,
-    set_default_organization, share_agent, unshare_agent, usage,
+    invite_member,
+    keys::{create_organization_key, list_organization_keys, revoke_organization_key},
+    leave_organization, list_agents, list_invitations, list_members, list_organization_summaries,
+    list_organizations, overview, remove_member, set_default_organization, share_agent,
+    unshare_agent, usage,
 };
 use crate::{
     api::{
@@ -2189,4 +2191,73 @@ async fn deleting_a_workspace_connection_waits_for_a_refresh_that_holds_its_cred
             .is_none()
     );
     assert!(stored_credentials(&state.pool, root_id).await.is_empty());
+}
+
+#[sqlx::test]
+async fn a_member_makes_and_sees_only_their_own_organization_keys(pool: PgPool) {
+    let state = state(pool.clone());
+    let owner = test_user(&pool).await;
+    let member = test_user(&pool).await;
+    let outsider = test_user(&pool).await;
+    let org = organization_with_members(&state, &owner, "Keys", &[&member]).await;
+    let other = organization_with_members(&state, &owner, "Other", &[&member]).await;
+
+    let (status, Json(created)) =
+        create_organization_key(State(state.clone()), member.jar.clone(), Path(org))
+            .await
+            .unwrap();
+
+    assert_eq!(status, StatusCode::CREATED);
+    assert!(created.key.starts_with("hw_org_"));
+    let Json(mine) = list_organization_keys(State(state.clone()), member.jar.clone(), Path(org))
+        .await
+        .unwrap();
+    assert_eq!(mine.len(), 1);
+    // The owner of the organization sees none of the member's keys, nor does the
+    // same member in another organization.
+    for (jar, id) in [(owner.jar.clone(), org), (member.jar.clone(), other)] {
+        let Json(listed) = list_organization_keys(State(state.clone()), jar, Path(id))
+            .await
+            .unwrap();
+        assert!(listed.is_empty());
+    }
+    // An outsider can neither make nor list them.
+    assert!(matches!(
+        create_organization_key(State(state.clone()), outsider.jar.clone(), Path(org)).await,
+        Err(ApiError::Forbidden)
+    ));
+    assert!(matches!(
+        list_organization_keys(State(state.clone()), outsider.jar.clone(), Path(org)).await,
+        Err(ApiError::Forbidden)
+    ));
+    // Nobody else revokes it, and it is not a workspace key.
+    assert!(matches!(
+        revoke_organization_key(
+            State(state.clone()),
+            owner.jar.clone(),
+            Path((org, created.metadata.id))
+        )
+        .await,
+        Err(ApiError::NotFound)
+    ));
+    assert!(matches!(
+        revoke_organization_key(
+            State(state.clone()),
+            member.jar.clone(),
+            Path((other, created.metadata.id))
+        )
+        .await,
+        Err(ApiError::NotFound)
+    ));
+    revoke_organization_key(
+        State(state.clone()),
+        member.jar.clone(),
+        Path((org, created.metadata.id)),
+    )
+    .await
+    .unwrap();
+    let Json(after) = list_organization_keys(State(state), member.jar.clone(), Path(org))
+        .await
+        .unwrap();
+    assert!(after.is_empty());
 }

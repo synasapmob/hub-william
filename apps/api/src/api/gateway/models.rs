@@ -33,9 +33,11 @@ pub(crate) async fn models_for_user(
     provider: AgentProvider,
 ) -> Result<Response, ApiError> {
     let selection = GatewaySelection {
+        key_id: None,
         user_id,
         connection_id: Some(connection_id),
         organization_id: None,
+        service: false,
     };
     models_for_selection(state, selection, provider).await
 }
@@ -50,9 +52,11 @@ pub(crate) async fn models_for_organization_user(
     models_for_selection(
         state,
         GatewaySelection {
+            key_id: None,
             user_id,
             connection_id: Some(connection_id),
             organization_id: Some(organization_id),
+            service: false,
         },
         provider,
     )

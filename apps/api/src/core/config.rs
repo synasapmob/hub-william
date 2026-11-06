@@ -7,9 +7,30 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 pub struct AppConfig {
     pub client_ip_header: HeaderName,
     pub cookie_secure: bool,
+    /// Added to the names of the session cookies. A browser keeps cookies per host
+    /// and not per port, so two APIs on `localhost` (plain HTTP, local development)
+    /// would share one session cookie and sign each other out; each puts its port in
+    /// the names instead. Empty behind HTTPS, where there is one API.
+    pub cookie_name_suffix: String,
     pub credential_encryption_key: [u8; 32],
     pub frontend_origin: HeaderValue,
     pub telegram_service_token: Option<Vec<u8>>,
+    /// Where `apps/telegram` listens, so the dashboard can have the bot send a
+    /// message. Unset, the dashboard can read and change the shop but not announce.
+    pub telegram_adapter_url: Option<reqwest::Url>,
+    /// Usernames that are always owners of the dashboard, so the first owner
+    /// needs no row in `dashboard_staff`.
+    /// Lets the service wallet be topped up without a payment. For staging only:
+    /// production leaves it off until payments exist.
+    pub service_test_top_up: bool,
+    /// The Stripe secret key (`sk_test_…` in test mode) the service wallet is paid
+    /// in with. Unset, a wallet cannot be paid in by card.
+    pub stripe_secret_key: Option<String>,
+    /// The signing secret (`whsec_…`) of the webhook endpoint Stripe reports a
+    /// payment to. Set together with the secret key.
+    pub stripe_webhook_secret: Option<String>,
+    /// Where Stripe's API is. Only tests change it.
+    pub stripe_api_url: String,
     /// Read the client IP from `client_ip_header` instead of the socket peer.
     /// Only safe behind a proxy that overwrites that header.
     pub trust_proxy_headers: bool,
@@ -47,6 +68,14 @@ impl fmt::Display for ConfigError {
 
 impl std::error::Error for ConfigError {}
 
+/// An environment variable that is set to something other than blanks.
+fn non_empty_env(name: &str) -> Option<String> {
+    env::var(name)
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+}
+
 impl AppConfig {
     pub fn from_env() -> Result<Self, ConfigError> {
         let frontend_origin =
@@ -56,6 +85,17 @@ impl AppConfig {
         let cookie_secure = env::var("COOKIE_SECURE")
             .map(|value| value.eq_ignore_ascii_case("true") || value == "1")
             .unwrap_or(false);
+        let cookie_name_suffix = if cookie_secure {
+            String::new()
+        } else {
+            // The port `main` listens on, which defaults to 8080.
+            let port = env::var("PORT")
+                .ok()
+                .and_then(|port| port.trim().parse::<u16>().ok())
+                .unwrap_or(8080);
+
+            format!("_{port}")
+        };
         let trust_proxy_headers = env::var("TRUST_PROXY_HEADERS")
             .map(|value| value.eq_ignore_ascii_case("true") || value == "1")
             .unwrap_or(false);
@@ -85,16 +125,41 @@ impl AppConfig {
                 )
             })?;
 
+        let stripe_secret_key = non_empty_env("STRIPE_SECRET_KEY");
+        let stripe_webhook_secret = non_empty_env("STRIPE_WEBHOOK_SECRET");
+        if stripe_secret_key.is_some() != stripe_webhook_secret.is_some() {
+            return Err(ConfigError(
+                "STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET must be set together".to_owned(),
+            ));
+        }
+
         Ok(Self {
             client_ip_header,
             cookie_secure,
+            cookie_name_suffix,
             credential_encryption_key,
             frontend_origin,
             telegram_service_token: env::var("TELEGRAM_SERVICE_TOKEN")
                 .ok()
                 .filter(|token| !token.trim().is_empty())
                 .map(String::into_bytes),
+            telegram_adapter_url: env::var("TELEGRAM_ADAPTER_URL")
+                .ok()
+                .filter(|url| !url.trim().is_empty())
+                .map(|url| {
+                    reqwest::Url::parse(url.trim()).map_err(|_| {
+                        ConfigError("TELEGRAM_ADAPTER_URL must be a valid URL".to_owned())
+                    })
+                })
+                .transpose()?,
             trust_proxy_headers,
+            service_test_top_up: env::var("SERVICE_TEST_TOP_UP")
+                .map(|value| value.eq_ignore_ascii_case("true") || value == "1")
+                .unwrap_or(false),
+            stripe_secret_key,
+            stripe_webhook_secret,
+            stripe_api_url: env::var("STRIPE_API_URL")
+                .unwrap_or_else(|_| "https://api.stripe.com".to_owned()),
             codex_client_version: env::var("CODEX_CLIENT_VERSION")
                 .unwrap_or_else(|_| "0.156.0".to_owned()),
             codex_issuer: env::var("CODEX_AUTH_ISSUER")
@@ -157,10 +222,16 @@ impl Default for AppConfig {
         Self {
             client_ip_header: HeaderName::from_static("x-real-ip"),
             cookie_secure: false,
+            cookie_name_suffix: String::new(),
             credential_encryption_key: [7; 32],
             frontend_origin: HeaderValue::from_static("http://localhost:5173"),
             telegram_service_token: None,
+            telegram_adapter_url: None,
             trust_proxy_headers: false,
+            service_test_top_up: false,
+            stripe_secret_key: None,
+            stripe_webhook_secret: None,
+            stripe_api_url: "https://api.stripe.com".to_owned(),
             codex_client_version: "0.156.0".to_owned(),
             codex_issuer: "https://auth.openai.com".to_owned(),
             claude_authorize_url: "https://claude.com/cai/oauth/authorize".to_owned(),

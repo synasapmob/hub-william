@@ -22,7 +22,7 @@ use time::Duration;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::core::{ApiError, AppState};
+use crate::core::{ApiError, AppConfig, AppState};
 
 mod routes;
 pub(crate) use routes::{AuthApi, routes};
@@ -31,6 +31,22 @@ const SESSION_COOKIE: &str = "hub_session";
 const REFRESH_COOKIE: &str = "hub_refresh";
 const ACCESS_HOURS: i64 = 5;
 const REFRESH_DAYS: i64 = 7;
+/// How long the refresh token a refresh has just replaced is still known. Two
+/// requests that refresh together both carry the old one; the second must not be
+/// told the session is over.
+const REFRESH_GRACE_SECONDS: i64 = 60;
+
+/// The name of the access cookie of this API. A browser keeps cookies per host, not
+/// per port, so two APIs on `localhost` would share one cookie and sign each other
+/// out; where that can happen each API puts its port in the names (see
+/// `AppConfig::cookie_name_suffix`).
+fn session_cookie_name(config: &AppConfig) -> String {
+    format!("{SESSION_COOKIE}{}", config.cookie_name_suffix)
+}
+
+fn refresh_cookie_name(config: &AppConfig) -> String {
+    format!("{REFRESH_COOKIE}{}", config.cookie_name_suffix)
+}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct LoginRequest {
@@ -78,6 +94,9 @@ struct RefreshSessionUser {
     id: Uuid,
     username: String,
     recovery_email: Option<String>,
+    /// Whether the refresh token that was sent is the session's own, and not the one
+    /// it replaced a moment ago.
+    presented_is_current: bool,
 }
 
 struct SessionCookies {
@@ -131,8 +150,7 @@ pub async fn register(
         return Err(internal_error(error));
     }
 
-    let session_cookies =
-        create_session(&mut transaction, user_id, state.config.cookie_secure).await?;
+    let session_cookies = create_session(&mut transaction, user_id, &state.config).await?;
     transaction.commit().await.map_err(internal_error)?;
 
     let response = SessionResponse {
@@ -179,8 +197,7 @@ pub async fn login(
     verify_password(&payload.password, &user.password_hash)?;
 
     let mut transaction = state.pool.begin().await.map_err(internal_error)?;
-    let session_cookies =
-        create_session(&mut transaction, user.id, state.config.cookie_secure).await?;
+    let session_cookies = create_session(&mut transaction, user.id, &state.config).await?;
     transaction.commit().await.map_err(internal_error)?;
 
     Ok((
@@ -206,12 +223,12 @@ pub async fn login(
     tag = "auth"
 )]
 pub async fn session(State(state): State<AppState>, jar: CookieJar) -> Result<Response, ApiError> {
-    if jar.get(SESSION_COOKIE).is_none() {
+    if jar.get(&session_cookie_name(&state.config)).is_none() {
         // Both cookies are HttpOnly, so only the server can tell a visitor who never
         // signed in from one whose access cookie has expired. The refresh cookie
         // outlives the access cookie, so 401 tells the client a refresh can succeed
         // and 204 tells it not to try.
-        return if jar.get(REFRESH_COOKIE).is_some() {
+        return if jar.get(&refresh_cookie_name(&state.config)).is_some() {
             Err(ApiError::Unauthorized)
         } else {
             Ok(StatusCode::NO_CONTENT.into_response())
@@ -240,7 +257,8 @@ pub(crate) async fn optional_authenticated_user_id(
     state: &AppState,
     jar: &CookieJar,
 ) -> Result<Option<Uuid>, ApiError> {
-    let Some(token) = jar.get(SESSION_COOKIE).map(|cookie| cookie.value()) else {
+    let session_name = session_cookie_name(&state.config);
+    let Some(token) = jar.get(&session_name).map(|cookie| cookie.value()) else {
         return Ok(None);
     };
     let token_hash = hash_token(token);
@@ -255,8 +273,9 @@ pub(crate) async fn optional_authenticated_user_id(
 }
 
 async fn authenticated_user(state: &AppState, jar: &CookieJar) -> Result<SessionUser, ApiError> {
+    let session_name = session_cookie_name(&state.config);
     let token = jar
-        .get(SESSION_COOKIE)
+        .get(&session_name)
         .map(|cookie| cookie.value())
         .ok_or(ApiError::Unauthorized)?;
     let token_hash = hash_token(token);
@@ -281,7 +300,7 @@ async fn authenticated_user(state: &AppState, jar: &CookieJar) -> Result<Session
     tag = "auth"
 )]
 pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> (CookieJar, StatusCode) {
-    if let Some(cookie) = jar.get(SESSION_COOKIE) {
+    if let Some(cookie) = jar.get(&session_cookie_name(&state.config)) {
         let token_hash = hash_token(cookie.value());
         let _ = sqlx::query("DELETE FROM sessions WHERE token_hash = $1")
             .bind(token_hash)
@@ -289,16 +308,19 @@ pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> (CookieJar
             .await;
     }
 
-    if let Some(cookie) = jar.get(REFRESH_COOKIE) {
+    if let Some(cookie) = jar.get(&refresh_cookie_name(&state.config)) {
         let token_hash = hash_token(cookie.value());
-        let _ = sqlx::query("DELETE FROM sessions WHERE refresh_token_hash = $1")
-            .bind(token_hash)
-            .execute(&state.pool)
-            .await;
+        let _ = sqlx::query(
+            "DELETE FROM sessions
+             WHERE refresh_token_hash = $1 OR previous_refresh_token_hash = $1",
+        )
+        .bind(token_hash)
+        .execute(&state.pool)
+        .await;
     }
 
-    let access_removal = removal_cookie(SESSION_COOKIE, state.config.cookie_secure);
-    let refresh_removal = removal_cookie(REFRESH_COOKIE, state.config.cookie_secure);
+    let access_removal = removal_cookie(session_cookie_name(&state.config), &state.config);
+    let refresh_removal = removal_cookie(refresh_cookie_name(&state.config), &state.config);
 
     (
         jar.remove(access_removal).remove(refresh_removal),
@@ -319,18 +341,25 @@ pub async fn refresh(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> Result<(CookieJar, Json<SessionResponse>), ApiError> {
+    let refresh_name = refresh_cookie_name(&state.config);
     let refresh_token = jar
-        .get(REFRESH_COOKIE)
+        .get(&refresh_name)
         .map(|cookie| cookie.value())
         .ok_or(ApiError::Unauthorized)?;
     let refresh_token_hash = hash_token(refresh_token);
     let mut transaction = state.pool.begin().await.map_err(internal_error)?;
+    // The token of the session, or the one it replaced a moment ago. A request that
+    // waits for the row lock looks again once the other has committed, and finds
+    // its token in the second place.
     let user = sqlx::query_as::<_, RefreshSessionUser>(
-        "SELECT sessions.id AS session_id, users.id, users.username, users.recovery_email
+        "SELECT sessions.id AS session_id, users.id, users.username, users.recovery_email,
+                sessions.refresh_token_hash = $1 AS presented_is_current
          FROM sessions
          JOIN users ON users.id = sessions.user_id
-         WHERE sessions.refresh_token_hash = $1
-           AND sessions.refresh_expires_at > NOW()
+         WHERE sessions.refresh_expires_at > NOW()
+           AND (sessions.refresh_token_hash = $1
+                OR (sessions.previous_refresh_token_hash = $1
+                    AND sessions.previous_refresh_valid_until > NOW()))
          FOR UPDATE OF sessions",
     )
     .bind(refresh_token_hash)
@@ -338,16 +367,22 @@ pub async fn refresh(
     .await
     .map_err(internal_error)?
     .ok_or(ApiError::Unauthorized)?;
-    let cookies = rotate_session(
-        &mut transaction,
-        user.session_id,
-        state.config.cookie_secure,
-    )
-    .await?;
+    let jar = if user.presented_is_current {
+        let cookies = rotate_session(&mut transaction, user.session_id, &state.config).await?;
+
+        jar.add(cookies.access).add(cookies.refresh)
+    } else {
+        // The refresh token was replaced a moment ago and the new one is on its way
+        // to the browser in the answer of the request that replaced it. This request
+        // gets a new access session and leaves the refresh token alone.
+        let access = renew_access(&mut transaction, user.session_id, &state.config).await?;
+
+        jar.add(access)
+    };
     transaction.commit().await.map_err(internal_error)?;
 
     Ok((
-        jar.add(cookies.access).add(cookies.refresh),
+        jar,
         Json(SessionResponse {
             user: AuthenticatedUser {
                 id: user.id,
@@ -361,7 +396,7 @@ pub async fn refresh(
 async fn create_session(
     transaction: &mut Transaction<'_, Postgres>,
     user_id: Uuid,
-    cookie_secure: bool,
+    config: &AppConfig,
 ) -> Result<SessionCookies, ApiError> {
     let (access_token, access_token_hash) = new_token();
     let (refresh_token, refresh_token_hash) = new_token();
@@ -383,21 +418,24 @@ async fn create_session(
     .await
     .map_err(internal_error)?;
 
-    Ok(session_cookies(access_token, refresh_token, cookie_secure))
+    Ok(session_cookies(access_token, refresh_token, config))
 }
 
 async fn rotate_session(
     transaction: &mut Transaction<'_, Postgres>,
     session_id: Uuid,
-    cookie_secure: bool,
+    config: &AppConfig,
 ) -> Result<SessionCookies, ApiError> {
     let (access_token, access_token_hash) = new_token();
     let (refresh_token, refresh_token_hash) = new_token();
     let access_expires_at = Utc::now() + chrono::Duration::hours(ACCESS_HOURS);
     let refresh_expires_at = Utc::now() + chrono::Duration::days(REFRESH_DAYS);
+    let previous_valid_until = Utc::now() + chrono::Duration::seconds(REFRESH_GRACE_SECONDS);
 
     sqlx::query(
         "UPDATE sessions SET token_hash = $2, expires_at = $3,
+         previous_refresh_token_hash = refresh_token_hash,
+         previous_refresh_valid_until = $6,
          refresh_token_hash = $4, refresh_expires_at = $5 WHERE id = $1",
     )
     .bind(session_id)
@@ -405,51 +443,78 @@ async fn rotate_session(
     .bind(access_expires_at)
     .bind(refresh_token_hash)
     .bind(refresh_expires_at)
+    .bind(previous_valid_until)
     .execute(&mut **transaction)
     .await
     .map_err(internal_error)?;
 
-    Ok(session_cookies(access_token, refresh_token, cookie_secure))
+    Ok(session_cookies(access_token, refresh_token, config))
+}
+
+/// A new access session for a request that came with the refresh token the last
+/// refresh replaced; the refresh token itself is not touched.
+async fn renew_access(
+    transaction: &mut Transaction<'_, Postgres>,
+    session_id: Uuid,
+    config: &AppConfig,
+) -> Result<Cookie<'static>, ApiError> {
+    let (access_token, access_token_hash) = new_token();
+    let access_expires_at = Utc::now() + chrono::Duration::hours(ACCESS_HOURS);
+
+    sqlx::query("UPDATE sessions SET token_hash = $2, expires_at = $3 WHERE id = $1")
+        .bind(session_id)
+        .bind(access_token_hash)
+        .bind(access_expires_at)
+        .execute(&mut **transaction)
+        .await
+        .map_err(internal_error)?;
+
+    Ok(session_cookie(
+        session_cookie_name(config),
+        access_token,
+        Duration::hours(ACCESS_HOURS),
+        config,
+    ))
 }
 
 fn session_cookies(
     access_token: String,
     refresh_token: String,
-    cookie_secure: bool,
+    config: &AppConfig,
 ) -> SessionCookies {
     SessionCookies {
         access: session_cookie(
-            SESSION_COOKIE,
+            session_cookie_name(config),
             access_token,
             Duration::hours(ACCESS_HOURS),
-            cookie_secure,
+            config,
         ),
         refresh: session_cookie(
-            REFRESH_COOKIE,
+            refresh_cookie_name(config),
             refresh_token,
             Duration::days(REFRESH_DAYS),
-            cookie_secure,
+            config,
         ),
     }
 }
 
 fn session_cookie(
-    name: &'static str,
+    name: String,
     value: String,
     max_age: Duration,
-    cookie_secure: bool,
+    config: &AppConfig,
 ) -> Cookie<'static> {
     Cookie::build((name, value))
         .path("/")
         .http_only(true)
         .same_site(SameSite::Lax)
-        .secure(cookie_secure)
+        .secure(config.cookie_secure)
         .max_age(max_age)
         .build()
 }
 
-fn removal_cookie(name: &'static str, cookie_secure: bool) -> Cookie<'static> {
-    session_cookie(name, String::new(), Duration::seconds(0), cookie_secure)
+fn removal_cookie(name: String, config: &AppConfig) -> Cookie<'static> {
+    session_cookie(name, String::new(), Duration::seconds(0), config)
 }
 
 fn new_token() -> (String, String) {
@@ -521,3 +586,6 @@ fn internal_error(error: sqlx::Error) -> ApiError {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(test, feature = "database-tests"))]
+mod database_tests;

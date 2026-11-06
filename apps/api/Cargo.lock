@@ -874,6 +874,7 @@ dependencies = [
  "chrono",
  "email_address",
  "futures-util",
+ "hmac",
  "rand 0.8.8",
  "reqwest",
  "serde",

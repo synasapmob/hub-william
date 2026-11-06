@@ -7,13 +7,15 @@ import assetPath from "@/utils/utils.asset-path";
 
 interface AgentsProviderIconProps {
   provider: AgentProvider | ProviderId;
+  size?: "default" | "sm" | "lg";
 }
 
 export default function AgentsProviderIcon({
   provider,
+  size = "sm",
 }: AgentsProviderIconProps) {
   return (
-    <Avatar size="sm" className="rounded-md after:rounded-md after:border-0">
+    <Avatar size={size} className="rounded-md after:rounded-md after:border-0">
       <AvatarImage
         src={assetPath(providerCatalogueService.byIdOrLabel(provider).icon)}
         alt=""

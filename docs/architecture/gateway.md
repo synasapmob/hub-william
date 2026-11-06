@@ -20,12 +20,17 @@ availability state machine are in [accounts-and-pools.md](./accounts-and-pools.m
 - Why: a prompt must not pay an extra network hop. Extracting the gateway into
   its own service needs an explicit internal contract that keeps this property.
 - Every request carries a `GatewaySelection`: the user, an optional preferred
-  `connection_id` and an optional `organization_id`.
+  `connection_id`, an optional `organization_id` and a `service` flag. One
+  function, `connected_provider_candidates`, turns it into the accounts to try:
+  the platform's stock when `service`, the organization's shared agents when
+  `organization_id` is set, the user's own accounts and joined pools otherwise.
 
-| Caller        | Authentication | Preferred account               | Scope                                 |
-| ------------- | -------------- | ------------------------------- | ------------------------------------- |
-| Coding client | Hub key        | none                            | personal                              |
-| Playground    | session cookie | the chosen account, tried first | personal, or one organization's pools |
+| Caller        | Authentication   | Preferred account               | Scope                                                           |
+| ------------- | ---------------- | ------------------------------- | --------------------------------------------------------------- |
+| Coding client | Workspace key    | none                            | personal                                                        |
+| Coding client | Organization key | none                            | one organization's shared agents                                |
+| Coding client | Service key      | none                            | the platform's stock, charged                                   |
+| Playground    | session cookie   | the chosen account, tried first | personal, one organization's pools, or (Kind Service) the stock |
 
 ## Routes
 
@@ -53,25 +58,36 @@ behind the Hub-key limiter, with the request-body limit disabled.
 | Groq     | POST   | `/gateway/groq/v1/responses`                                  |
 | Groq     | GET    | `/gateway/groq/v1/models`                                     |
 
-Hub key management uses the session cookie and is the only gateway surface in
-`apps/api/openapi.json`: `GET /gateway-keys`, `POST /gateway-keys`,
-`DELETE /gateway-keys/{key_id}`.
+Key management and the usage read-back use the session cookie and are the
+gateway surface in `apps/api/openapi.json`: `GET`/`POST /gateway-keys` and
+`DELETE /gateway-keys/{key_id}` for Workspace keys, the same three under
+`/organizations/{id}/gateway-keys` for organization keys, `/service/keys` for
+service keys, and `GET /gateway-usage`. A key is a Workspace key (`hw_live_…`),
+an organization key (`hw_org_…`) or a service key (`hw_svc_…`). The same provider
+routes serve all three and the key decides: a Workspace key is served by its
+owner's own accounts and costs nothing, an organization key only by the agents
+shared with its organization (and stops working when its owner leaves it), a
+service key only by the platform's stock, held to the price list before a request
+goes out and charged when it ends, see [Service](./service.md#service-keys). Each
+list shows only its own kind.
 
-## Hub keys and limits
+## Keys and limits
 
-- A key is `hw_live_` plus 32 random bytes in base64url. The database stores its
+- A key is its prefix (`hw_live_`, `hw_org_` or `hw_svc_`) plus 32 random bytes in
+  base64url. The database stores its
   SHA-256 hash, `last_four`, `created_at`, `last_used_at` (touched on every
   successful authorization) and a soft `revoked_at`. A key has no expiry and is
   shown once, at creation.
 - A key is read from `Authorization: Bearer <key>` or `x-goog-api-key: <key>` on
-  every provider route. A value that does not start with `hw_live_` or is not
-  longer than 24 characters is rejected before any lookup.
-- Creating a key needs at least one connected account the user owns or an
-  accepted pool membership; otherwise `404`. Creating and revoking share a limit
-  of 10 per minute per user.
-- Every key is personal. `gateway_keys.organization_id` exists and authorization
-  honors it by switching candidates to the organization's shares, but no endpoint
-  sets it.
+  every provider route. A value that starts with none of the three prefixes or is
+  not longer than 24 characters is rejected before any lookup.
+- Creating a Workspace key needs at least one connected account the user owns or
+  an accepted pool membership; otherwise `404`. Creating and revoking share a
+  limit of 10 per minute per user.
+- An organization key is made by any accepted member of the organization (403
+  otherwise) and only that member sees and revokes it; up to 20 per member per
+  organization. It has no account requirement: it uses what the organization
+  shares.
 - Limits are in-memory token buckets per API process
   (`apps/api/src/api/limits/mod.rs`): 30 requests per minute per key, and 30 failed
   authentications per minute per client address. An address with an exhausted
@@ -317,14 +333,58 @@ owned_by: "google", name}]}`) rather than Google's native shape.
   the reviewed chat models. `apps/api/src/api/playground/mod.rs` adds the call
   entry for providers with a call profile (`provider_catalogue::call_available`).
 
+## Usage recording
+
+Every generation request that reaches a provider writes one row in
+`gateway_usage_events`, whoever sent it: a key of any kind, or the Playground with a
+browser session. A request qualifies when it is a `POST`, the upstream answered
+`2xx`, and it is not `count_tokens` or `countTokens`. Model discovery is never
+recorded.
+
+| Column                                           | Meaning                                                                                        |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `user_id`                                        | The owner of the key, or the signed-in user. Several keys of one user all count for that user. |
+| `gateway_key_id`                                 | The key that sent the request; `NULL` for a browser session or after the key is deleted.       |
+| `scope`                                          | `workspace`, `organization` or `service`: which product the request belonged to.               |
+| `org_id`, `connection_id`                        | The organization scope and the account that answered; `NULL` when absent or deleted.           |
+| `provider`, `model`                              | The provider and the model named in the request body.                                          |
+| `input_tokens`, `output_tokens`, `cached_tokens` | From the provider's usage object; `NULL` when missing, which is distinct from zero.            |
+| `outcome`                                        | `completed` or `incomplete` (below).                                                           |
+| `quota`                                          | The provider's own rate-limit signals for this response, exactly as received (below).          |
+
+`outcome` is `completed` when the provider finished the response, using the
+markers in the table further down. It is `incomplete` when the client left, the
+stream failed, or no marker arrived. An incomplete request keeps whatever usage
+was seen before it stopped, which may be nothing: a Responses stream reports its
+usage only in its last event. Recording runs from the body's `Drop`, so a request
+the client abandons is still counted. A failed insert is logged and never fails
+the response.
+
+`quota` is a JSON object with up to two keys. `headers` holds every response
+header whose name starts with `x-codex-`, `anthropic-ratelimit-`, `x-ratelimit-`
+or `ratelimit-`. `event` holds the last stream event whose `type` mentions a rate
+limit, if it is under 8 KiB. Nothing is interpreted yet: the column exists so the
+real quota windows can be read from production traffic before any limit is built
+on them.
+
+`GET /gateway-usage?days=` returns the signed-in user's own rows of
+`gateway_usage_events` for the last `days` UTC days (1 to 365, default 30): totals,
+one entry per day with empty days present, and a breakdown by key, provider and
+model. Workspace keys and the Playground are counted together, so a user's several
+keys add up to one user; only the `workspace` scope is counted. The
+`organization` scope is shown by the organization's usage and the `service` scope
+by `GET /service/usage`. Rows of other users are never read. The route is not rate limited, like the other session
+`GET` routes.
+
 ## Organization usage recording
 
-`organization_usage_events` rows are written only for organization-scoped requests,
-which come from the Playground in organization mode (keys are personal and record
-nothing). A row is written when all hold:
+`organization_usage_events` rows are written in addition, and only for
+organization-scoped requests: the Playground in organization mode and
+organization keys. Unlike
+`gateway_usage_events`, which also keeps incomplete requests, a row lands here
+only when all hold:
 
-- the request is a `POST`, the upstream answered `2xx`, and it is not `count_tokens`
-  or `countTokens`;
+- the request qualifies as above;
 - the stream is read to its end without error and carries the provider's
   terminal marker (`UsageObserver`).
 
@@ -378,7 +438,7 @@ organization_id?, provider, model, messages}` with alternating user and assistan
 ## Clients
 
 The tools in [tools.md](./tools.md) configure local coding agents against these
-routes with a Hub key. `gateway.py` writes the native CLI configuration for Codex,
+routes with a Workspace key. `gateway.py` writes the native CLI configuration for Codex,
 Claude Code, AGY and Grok; DeepSeek and Groq have no native CLI entry, so they are
 reached through OpenCode and OMP. The OpenCode and OMP installers read each
 provider's `models_path` from the catalogue, install only the models the Hub

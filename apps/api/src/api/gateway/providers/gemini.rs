@@ -32,11 +32,9 @@ use crate::{
                 reauthorization_error, release_probe, selected_provider_candidates, served_by,
             },
             upstream_network_error,
-            usage::{
-                OrganizationUsageEvent, UsageObserver, organization_usage_event,
-                record_organization_usage,
-            },
+            usage::{UsageEvent, UsageObserver, UsageOutcome, quota_snapshot, usage_event},
         },
+        service,
     },
     core::{ApiError, AppState},
     utils::provider_catalogue::AgentProvider,
@@ -342,6 +340,15 @@ pub(crate) async fn gemini_proxy_request_for_user(
     operation: GeminiOperation,
     body: Bytes,
 ) -> Result<Response, ApiError> {
+    if !matches!(operation, GeminiOperation::CountTokens) {
+        service::authorize_request(
+            &state.pool,
+            selection.service.then_some(selection.user_id),
+            AgentProvider::Gemini,
+            Some(model),
+        )
+        .await?;
+    }
     let candidates = selected_provider_candidates(state, selection, AgentProvider::Gemini).await?;
     let request_body: Value = serde_json::from_slice(&body)
         .map_err(|_| ApiError::Validation("The Gemini request body must be valid JSON."))?;
@@ -572,13 +579,13 @@ pub(crate) async fn gemini_proxy_request_for_user(
             let usage_event = if upstream.status().is_success()
                 && !matches!(operation, GeminiOperation::CountTokens)
             {
-                organization_usage_event(
+                Some(usage_event(
                     state,
                     selection,
                     candidate.id,
                     AgentProvider::Gemini,
                     Some(model.trim_start_matches("models/")),
-                )
+                ))
             } else {
                 None
             };
@@ -717,7 +724,7 @@ async fn gemini_upstream_response_with_usage(
     upstream: reqwest::Response,
     operation: GeminiOperation,
     cancel_on_disconnect: bool,
-    usage_event: Option<OrganizationUsageEvent>,
+    usage_event: Option<UsageEvent>,
 ) -> Result<Response, ApiError> {
     let status = upstream.status();
     let headers = upstream.headers().clone();
@@ -740,12 +747,18 @@ async fn gemini_upstream_response_with_usage(
         if let Some(event) = usage_event {
             let mut observer = UsageObserver::new(AgentProvider::Gemini, false);
             observer.read_value(&payload);
-            if observer.completed {
-                let usage = observer.usage.has_tokens().then_some(observer.usage);
-                record_organization_usage(&event, usage)
-                    .await
-                    .map_err(database_error)?;
-            }
+            let completed = observer.completed;
+            let outcome = if completed {
+                UsageOutcome::Completed
+            } else {
+                UsageOutcome::Incomplete
+            };
+            let usage = observer.usage.has_tokens().then_some(observer.usage);
+            let quota = quota_snapshot(&headers, observer.quota_event);
+            event
+                .record(outcome, usage, quota, completed)
+                .await
+                .map_err(database_error)?;
         }
         return response
             .header(header::CONTENT_TYPE, "application/json")
@@ -801,12 +814,24 @@ async fn gemini_upstream_response_with_usage(
         if !tail.is_empty() && !client_gone && tx.send(Ok(tail)).await.is_err() {
             client_gone = true;
         }
-        if complete
-            && !client_gone
-            && let (Some(event), Some(observer)) = (usage_event, usage_observer)
-        {
-            let (provider_complete, usage) = observer.finish_with_completion();
-            if provider_complete && let Err(error) = record_organization_usage(&event, usage).await
+        if let (Some(event), Some(observer)) = (usage_event, usage_observer) {
+            let quota = quota_snapshot(&headers, observer.quota_event.clone());
+            let partial = observer.usage.has_tokens().then_some(observer.usage);
+            let (provider_complete, usage) = if complete {
+                observer.finish_with_completion()
+            } else {
+                (false, None)
+            };
+            let (outcome, usage) = if provider_complete {
+                (UsageOutcome::Completed, usage)
+            } else {
+                (UsageOutcome::Incomplete, partial)
+            };
+            // Organizations only count a response the client received in full.
+            let finished_for_client = provider_complete && !client_gone;
+            if let Err(error) = event
+                .record(outcome, usage, quota, finished_for_client)
+                .await
             {
                 eprintln!("organization usage insert failed: {error}");
             }
