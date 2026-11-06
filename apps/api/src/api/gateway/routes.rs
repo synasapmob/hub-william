@@ -21,6 +21,7 @@ use super::{
         groq::{groq_chat, groq_models, groq_responses},
         openai::{openai_models, openai_responses},
     },
+    usage_report::gateway_usage,
 };
 
 pub(crate) fn routes(state: &AppState) -> Router<AppState> {
@@ -36,6 +37,7 @@ pub(crate) fn routes(state: &AppState) -> Router<AppState> {
             "/gateway-keys/{key_id}",
             delete(revoke_key).layer(from_fn_with_state(manage, limit_by_user)),
         )
+        .route("/gateway-usage", get(gateway_usage))
         .merge(provider_routes(state))
 }
 
@@ -71,8 +73,19 @@ fn provider_routes(state: &AppState) -> Router<AppState> {
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(super::keys::create_key, super::keys::list_keys, super::keys::revoke_key),
-    components(schemas(super::keys::CreatedGatewayKey, super::keys::GatewayKey)),
+    paths(
+        super::keys::create_key,
+        super::keys::list_keys,
+        super::keys::revoke_key,
+        super::usage_report::gateway_usage
+    ),
+    components(schemas(
+        super::keys::CreatedGatewayKey,
+        super::keys::GatewayKey,
+        super::usage_report::GatewayUsage,
+        super::usage_report::GatewayUsageBreakdown,
+        super::usage_report::GatewayUsageDay
+    )),
     tags((name = "gateway keys", description = "Revocable keys for provider-specific gateway access"))
 )]
 pub(crate) struct GatewayApi;

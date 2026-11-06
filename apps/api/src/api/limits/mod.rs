@@ -48,6 +48,7 @@ pub(crate) enum Limit {
     PoolRequest,
     ReelMedia,
     ReelResolve,
+    ServiceWallet,
     Tts,
 }
 
@@ -64,7 +65,8 @@ impl Limit {
             | Self::GatewayKeyManagement
             | Self::OrganizationWrite
             | Self::PoolInvite
-            | Self::PoolRequest => 10,
+            | Self::PoolRequest
+            | Self::ServiceWallet => 10,
             Self::AgentPools
             | Self::GatewayFailedAuth
             | Self::GatewayKey

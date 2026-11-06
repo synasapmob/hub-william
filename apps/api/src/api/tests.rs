@@ -307,3 +307,34 @@ fn openapi_documents_the_reel_endpoints() {
         assert!(document.paths.paths.contains_key(path), "{path}");
     }
 }
+
+#[test]
+fn no_two_operations_in_the_document_share_an_id() {
+    // A generated client names each operation by its id, so a repeat breaks it.
+    let document = ApiDoc::openapi();
+    let mut seen = std::collections::HashMap::new();
+
+    for (path, item) in &document.paths.paths {
+        let operations = [
+            &item.get,
+            &item.put,
+            &item.post,
+            &item.delete,
+            &item.patch,
+            &item.head,
+            &item.options,
+            &item.trace,
+        ];
+
+        for operation in operations.into_iter().flatten() {
+            let id = operation
+                .operation_id
+                .clone()
+                .expect("every operation has an id");
+
+            if let Some(other) = seen.insert(id.clone(), path.clone()) {
+                panic!("operation id {id} is used by {other} and by {path}");
+            }
+        }
+    }
+}
