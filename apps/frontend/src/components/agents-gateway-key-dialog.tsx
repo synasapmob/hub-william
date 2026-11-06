@@ -28,22 +28,37 @@ import type {
 } from "@/services/gateway-keys/gateway-keys-types";
 import { copyText } from "@/utils/utils.clipboard";
 
-export default function AgentsGatewayKeyDialog() {
+interface AgentsGatewayKeyDialogProps {
+  // Set on an organization's page: the key then works only with the agents
+  // shared with that organization. Without it the key is the Workspace's own.
+  organization?: { id: string; name: string };
+}
+
+export default function AgentsGatewayKeyDialog({
+  organization,
+}: AgentsGatewayKeyDialogProps) {
   const session = useWorkspaceSession();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [createdKey, setCreatedKey] = useState<CreatedGatewayKey | null>(null);
   const gatewayKeyQueryKey = [
     ...gatewayKeysService.queryKey,
+    organization?.id ?? "workspace",
     session.user?.id ?? "guest",
   ] as const;
   const keysQuery = useQuery({
     enabled: open && Boolean(session.user),
-    queryFn: () => gatewayKeysService.list(),
+    queryFn: () =>
+      organization
+        ? gatewayKeysService.listForOrganization(organization.id)
+        : gatewayKeysService.list(),
     queryKey: gatewayKeyQueryKey,
   });
   const createMutation = useMutation({
-    mutationFn: () => gatewayKeysService.create(),
+    mutationFn: () =>
+      organization
+        ? gatewayKeysService.createForOrganization(organization.id)
+        : gatewayKeysService.create(),
     onSuccess: (key) => {
       setCreatedKey(key);
       queryClient.setQueryData<GatewayKey[]>(gatewayKeyQueryKey, (items) => [
@@ -53,7 +68,10 @@ export default function AgentsGatewayKeyDialog() {
     },
   });
   const revokeMutation = useMutation({
-    mutationFn: (keyId: string) => gatewayKeysService.revoke(keyId),
+    mutationFn: (keyId: string) =>
+      organization
+        ? gatewayKeysService.revokeForOrganization(organization.id, keyId)
+        : gatewayKeysService.revoke(keyId),
     onSuccess: (_, keyId) => {
       queryClient.setQueryData<GatewayKey[]>(gatewayKeyQueryKey, (items) =>
         (items ?? []).filter((key) => key.id !== keyId),
@@ -95,12 +113,16 @@ export default function AgentsGatewayKeyDialog() {
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <Flex className="items-center justify-between gap-3 pr-8">
-            <DialogTitle>Gateway API key</DialogTitle>
+            <DialogTitle>
+              {organization ? "Organization API key" : "Gateway API key"}
+            </DialogTitle>
             <Badge variant="outline">{keys.length} active</Badge>
           </Flex>
           <DialogDescription>
-            One key configures every selected agent or OpenCode provider. Use
-            the installers for Codex, Claude Code, Antigravity, Grok, and
+            {organization
+              ? `This key works only with the agents shared with ${organization.name}, and its requests count in the organization's usage. It is yours: members see only their own keys. `
+              : "One key configures every selected agent or OpenCode provider. "}
+            Use the installers for Codex, Claude Code, Antigravity, Grok, and
             DeepSeek from{" "}
             <Link
               className="font-medium text-indigo-600 hover:underline"
@@ -162,7 +184,8 @@ export default function AgentsGatewayKeyDialog() {
               <li key={key.id} className="p-3">
                 <Flex className="justify-between gap-3">
                   <p className="min-w-0 truncate font-mono text-xs font-semibold">
-                    hw_live_********{key.lastFour}
+                    {organization ? "hw_org_" : "hw_live_"}********
+                    {key.lastFour}
                   </p>
                   <Button
                     disabled={

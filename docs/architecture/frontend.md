@@ -6,15 +6,17 @@ The frontend is a React Router SPA in `apps/frontend`. It renders the Hub Willia
 
 Routes are file-based (`flatRoutes()` in `src/routes.ts`). Every page renders inside the `_app` layout.
 
-| Path                                                     | Route module                | Purpose                                                             |
-| -------------------------------------------------------- | --------------------------- | ------------------------------------------------------------------- |
-| `/`                                                      | `_app._index`               | Home, a static white paper about sharing tools and agents           |
-| `/tools`, `/tools/:contributor`                          | `_app.tools.($contributor)` | Tool catalogue, see [Tools](./tools.md)                             |
-| `/agents`                                                | `_app.agents`               | Provider and account explorer, join requests, Hub key dialog        |
-| `/playground`                                            | `_app.playground`           | Chat and calls, see [Playground](./playground.md)                   |
-| `/organization`                                          | `_app.organization` layout  | Wraps the four pages below, see [Organizations](./organizations.md) |
-| `/organization` (index), `/agents`, `/members`, `/usage` | `_app.organization.*`       | Overview, shared agents, members, usage                             |
-| any other URL                                            | `$.tsx`                     | `<Navigate replace to="/" />`                                       |
+| Path                                                     | Route module                | Purpose                                                                                                     |
+| -------------------------------------------------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `/`                                                      | `_app._index`               | Home, a static white paper about sharing tools and agents                                                   |
+| `/tools`, `/tools/:contributor`                          | `_app.tools.($contributor)` | Tool catalogue, see [Tools](./tools.md)                                                                     |
+| `/agents`                                                | `_app.agents`               | Provider and account explorer, join requests, Workspace key dialog                                          |
+| `/playground`                                            | `_app.playground`           | Chat and calls, see [Playground](./playground.md)                                                           |
+| `/organization`                                          | `_app.organization` layout  | Wraps the four pages below, see [Organizations](./organizations.md)                                         |
+| `/organization` (index), `/agents`, `/members`, `/usage` | `_app.organization.*`       | Overview, shared agents, members, usage                                                                     |
+| `/service`                                               | `_app.service` layout       | Keeps the balance and the Top up button on top of the two pages below                                       |
+| `/service/pricing`, `/service/usage`, `/service/keys`    | `_app.service.*`            | Tickets for sale and the ones bought, usage and what it cost, and service keys, see [Service](./service.md) |
+| any other URL                                            | `$.tsx`                     | `<Navigate replace to="/" />`                                                                               |
 
 For an unknown URL nginx serves `/__spa-fallback.html`, and the `$.tsx` splat route redirects the client to `/`.
 
@@ -24,7 +26,7 @@ For an unknown URL nginx serves `/__spa-fallback.html`, and the `$.tsx` splat ro
 
 - **Layout.** From the `md` breakpoint up, `WorkspaceShellDesktop` pins a 256px sidebar. Below `md`, `WorkspaceShellMobile` shows a sticky header with a menu button that opens the same sidebar in a `Sheet` drawer. Both consume `workspace-shell-navigation-items.ts`, so every page is reachable on either layout.
 - **Contained pages.** `useMatch("/agents")` switches the shell to `h-svh overflow-hidden`. The Agents explorer owns its scroll container, so the page header and mobile header stay visible. Every other page scrolls inside `main`.
-- **Navigation groups.** Workspace lists Home, Tools, Agents and Playground. Organization lists Overview, Agents, Members and Usage. Only Overview is a link until the organizations query returns at least one organization; the other three render as disabled buttons.
+- **Navigation groups.** Workspace lists Home, Tools, Agents and Playground. Service, the third group below Organization, lists Pricing, Usage and Keys. A guest can open Pricing; Usage and Keys, which a navigation item marks with `requiresSession`, are disabled buttons for a guest, and their URLs send a guest to Pricing. Organization lists Overview, Agents, Members and Usage. Only Overview is a link until the organizations query returns at least one organization; the other three render as disabled buttons.
 - **Notifications.** For a signed-in user a bell sits beside Log out in the sidebar and lists pending organization invitations. Each entry links to `/organization?tab=my-organization`, where the user accepts or declines it. Invitations are the only notification type.
 - **Account area.** A guest sees a Login button (disabled while the session check runs). A signed-in user sees an avatar, the username, the notification bell and Log out. The avatar is `https://github.com/<username>.png` when the username is a valid GitHub login (`authService.githubAvatarUrl`), otherwise the first three letters of the username. It is display-only and proves nothing about identity.
 
@@ -37,13 +39,13 @@ For an unknown URL nginx serves `/__spa-fallback.html`, and the `$.tsx` splat ro
 - **Retry once.** The agent, gateway-keys, organizations and Playground services run a call, and when it answers 401 they call `POST /auth/refresh` and repeat the call once. `agentService.listPools` is public and does not retry.
 - **Cookies.** The browser only carries them. Their lifetime, rotation and storage are described in [Accounts and pools](./accounts-and-pools.md).
 
-| State                          | Guest                                                         | Signed in                               |
-| ------------------------------ | ------------------------------------------------------------- | --------------------------------------- |
-| Home, Tools, Agents (browse)   | Yes                                                           | Yes                                     |
-| Agents: Request Join           | Opens the auth dialog                                         | Opens the request form                  |
-| Agents: Connect Agent, Hub key | Needs sign in                                                 | Yes                                     |
-| Organization pages             | Sign-in call to action; sub-pages redirect to `/organization` | Overview for the default organization   |
-| Playground                     | Setup shows "No providers available"; Send opens auth         | Full, see [Playground](./playground.md) |
+| State                        | Guest                                                         | Signed in                               |
+| ---------------------------- | ------------------------------------------------------------- | --------------------------------------- |
+| Home, Tools, Agents (browse) | Yes                                                           | Yes                                     |
+| Agents: Request Join         | Opens the auth dialog                                         | Opens the request form                  |
+| Agents: Connect Agent, key   | Needs sign in                                                 | Yes                                     |
+| Organization pages           | Sign-in call to action; sub-pages redirect to `/organization` | Overview for the default organization   |
+| Playground                   | Setup shows "No providers available"; Send opens auth         | Full, see [Playground](./playground.md) |
 
 ## Data fetching
 
@@ -68,14 +70,14 @@ Every page renders its final layout from the first paint and fills in data as it
 - Static text is real text. Values, lists and charts are `Skeleton` blocks or `animate-pulse` placeholders sized like the content that replaces them. No empty-state message appears for data that is still in flight.
 - A loading region carries `role="status"` and an `sr-only` message (for example "Loading connected accounts", "Loading members", "Loading overview") and `aria-busy` where the region is a container.
 - Organization pages receive `organization = null` from the layout until the session check and the organization list resolve, and render their skeletons meanwhile.
-- Visible loading text is the exception. The Login button reads "Checking session…" while the session status is `loading`; the Hub key dialog shows a spinner and "Loading gateway keys…"; the Usage member filter shows "Loading member…" while `?member=` names a member the list has not returned yet. The Playground selects ("Loading providers…", "Loading accounts…", "Loading models…"), the recordings dialog and the Vosk tool's model loader also print loading text.
+- Visible loading text is the exception. The Login button reads "Checking session…" while the session status is `loading`; the gateway key dialog shows a spinner and "Loading gateway keys…"; the Usage member filter shows "Loading member…" while `?member=` names a member the list has not returned yet. The Playground selects ("Loading providers…", "Loading accounts…", "Loading models…"), the recordings dialog and the Vosk tool's model loader also print loading text.
 
 ## Agents page
 
 `/agents` lists every connected account as a provider-first explorer. Browsing is public.
 
 - **Data.** `GET /agent-pools` (`agentService.listPools`) returns each connected account with its owner, members, requests, availability and usage. The server side is described in [Accounts and pools](./accounts-and-pools.md).
-- **Header actions.** Install links to `/tools?node=gateway`. `AgentsGatewayKeyDialog` creates, lists and revokes Hub keys. `AgentsConnectDialog` connects a provider account.
+- **Header actions.** Install links to `/tools?node=gateway`. `AgentsGatewayKeyDialog` (in `components/`) creates, lists and revokes Workspace keys; the Agents page of an organization renders the same dialog with `organization` set, which switches it to that organization's keys (`hw_org_…`) and endpoints. `AgentsConnectDialog` connects a provider account.
 - **Explorer** (`agents-explorer.tsx`). A provider column (`AGENT_PROVIDERS`, derived from the provider catalogue) selects one provider and shows its accounts as rows that open an account card dialog. The first provider with an account is selected by default. An All / Me / Joined filter and a text search over account label, owner username and plan narrow the list. At `lg` and wider the provider column is sticky; below that it is a wrapping row. Tooltips open after 450 ms.
 - **Access state.** `agentPoolAccess(pool, username)` decides the card button:
 
