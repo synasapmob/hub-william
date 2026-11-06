@@ -292,6 +292,310 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/dashboard/images": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["upload_image"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/dashboard/images/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["get_image"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/dashboard/service/listings": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["list_service_listings"];
+    put?: never;
+    post: operations["create_service_listing"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/dashboard/service/listings/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put: operations["update_service_listing"];
+    post?: never;
+    delete: operations["delete_service_listing"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/dashboard/service/models": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["list_service_models"];
+    put: operations["save_service_model"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/dashboard/service/sales": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["list_service_sales"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/dashboard/service/verify": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["verify_service_account"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/dashboard/session": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["dashboard_session"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/dashboard/staff": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["list_staff"];
+    put?: never;
+    post: operations["add_staff"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/dashboard/staff/{user_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put: operations["change_role"];
+    post?: never;
+    delete: operations["remove_staff"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/dashboard/telegram/announcements": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["announce"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/dashboard/telegram/orders": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["list_orders"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/dashboard/telegram/orders/{reference}/cancel": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["cancel_order"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/dashboard/telegram/orders/{reference}/pay": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["pay_order"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/dashboard/telegram/products": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["list_products"];
+    put?: never;
+    post: operations["create_product"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/dashboard/telegram/products/{slug}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put: operations["update_product"];
+    post?: never;
+    delete: operations["delete_product"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/dashboard/telegram/products/{slug}/stock": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["change_stock"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/dashboard/telegram/revenue": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["revenue"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/dashboard/telegram/sales": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["list_sales"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/gateway-keys": {
     parameters: {
       query?: never;
@@ -319,6 +623,22 @@ export interface paths {
     put?: never;
     post?: never;
     delete: operations["revoke_key"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/gateway-usage": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["gateway_usage"];
+    put?: never;
+    post?: never;
+    delete?: never;
     options?: never;
     head?: never;
     patch?: never;
@@ -499,6 +819,38 @@ export interface paths {
     put: operations["set_default_organization"];
     post?: never;
     delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/organizations/{id}/gateway-keys": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["list_organization_keys"];
+    put?: never;
+    post: operations["create_organization_key"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/organizations/{id}/gateway-keys/{key_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete: operations["revoke_organization_key"];
     options?: never;
     head?: never;
     patch?: never;
@@ -685,6 +1037,166 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/service/keys": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["list_service_keys"];
+    put?: never;
+    post: operations["create_service_key"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/service/keys/{key_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete: operations["revoke_service_key"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/service/listings": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["list_ticket_listings"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/service/listings/{id}/purchase": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["purchase_ticket"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/service/pricing": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["pricing"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/service/tickets": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["list_owned_tickets"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/service/tickets/{key_id}/reissue": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["reissue_ticket_key"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/service/top-up": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["top_up"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/service/usage": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["service_usage"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/service/wallet": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["wallet"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/tts": {
     parameters: {
       query?: never;
@@ -705,6 +1217,12 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    AddStaff: {
+      /** @description `owner`, `manager`, `cashier` or `stock-keeper`. */
+      role: components["schemas"]["Role"];
+      /** @description The username of an account that already exists. */
+      username: string;
+    };
     AgentAuthorizationPrompt: {
       authorization_url: string;
       /** Format: date-time */
@@ -825,6 +1343,20 @@ export interface components {
     /** @enum {string} */
     AgentProvider:
       "chatgpt" | "claude" | "gemini" | "grok" | "deepseek" | "groq";
+    Announced: {
+      /**
+       * Format: int64
+       * @description How many chats the bot is sending it to. They are sent one by one, at a
+       *     pace Telegram allows, so this is how many it has started on.
+       */
+      audience: number;
+      /** @description Whether the channel got it. False when no channel is set, or it refused. */
+      channel: boolean;
+    };
+    Announcement: {
+      /** @description Plain text, up to 4,096 characters. The bot sends it as it is. */
+      text: string;
+    };
     AuthenticatedUser: {
       /** Format: uuid */
       id: string;
@@ -847,6 +1379,9 @@ export interface components {
     };
     /** @enum {string} */
     CallTransport: "codex_v3_webrtc";
+    ChangeRole: {
+      role: components["schemas"]["Role"];
+    };
     CompleteAuthorizationRequest: {
       callback_url: string;
     };
@@ -860,12 +1395,271 @@ export interface components {
       reason: string;
       telegram: string;
     };
+    CreateListing: {
+      /**
+       * Format: uuid
+       * @description The account that is sold, verified again as the ticket is made.
+       */
+      connection_id: string;
+      /**
+       * Format: int32
+       * @description How long the key lasts once it is bought, 1 to 365.
+       */
+      days: number;
+      name: string;
+      /**
+       * Format: int64
+       * @description In micro-dollars, whole cents, $0.01 to $10,000.
+       */
+      price_micro: number;
+    };
     CreateOrganization: {
       description?: string | null;
       name: string;
     };
+    /** @description What a person types into the form; the slug is made from it, once. */
+    CreateProduct: {
+      /**
+       * Format: int32
+       * @description The count to start from, 0 to 1,000,000.
+       */
+      available: number;
+      hot: boolean;
+      /** Format: uuid */
+      image_id?: string | null;
+      listed: boolean;
+      plan: string;
+      /** Format: int64 */
+      price_vnd: number;
+      provider: string;
+      variant?: string | null;
+      /** @description `WF`, `W7D` or `NW`. */
+      warranty: string;
+    };
     CreatedGatewayKey: components["schemas"]["GatewayKey"] & {
       key: string;
+    };
+    DashboardAccount: {
+      /** Format: uuid */
+      id: string;
+      username: string;
+    };
+    /** @description A ticket that has not been sold: for sale, or kept off sale until its owner fixes it. */
+    DashboardListing: {
+      account_label?: string | null;
+      /** Format: date-time */
+      created_at: string;
+      /**
+       * Format: int32
+       * @description How long the key lasts once it is bought.
+       */
+      days: number;
+      /** Format: uuid */
+      id: string;
+      /** @description Whether it is switched on for sale. */
+      listed: boolean;
+      name: string;
+      plan?: string | null;
+      /** Format: int64 */
+      price_micro: number;
+      provider: string;
+      /**
+       * @description What the account had left when it was verified; empty when the provider does
+       *     not say.
+       */
+      quota: components["schemas"]["QuotaMetric"][];
+      /** Format: date-time */
+      quota_captured_at?: string | null;
+      /** @description The username of the member of staff who put it on sale. */
+      seller?: string | null;
+      /**
+       * @description `for_sale`, `hidden` (switched off), `needs_reconnect` (its owner has to
+       *     connect the account again) or `disconnected` (the account is gone).
+       */
+      status: string;
+    };
+    DashboardListings: {
+      listings: components["schemas"]["DashboardListing"][];
+    };
+    DashboardOrder: {
+      /** Format: date-time */
+      created_at: string;
+      customer_first_name: string;
+      /** @description The buyer's Telegram name, when they have one. */
+      customer_username?: string | null;
+      /**
+       * Format: date-time
+       * @description Past this the order no longer holds stock, but it can still be paid.
+       */
+      expires_at: string;
+      /**
+       * @description The username of the member of staff who marked it paid or cancelled it.
+       *     Empty for an order SePay settled, and one the buyer cancelled.
+       */
+      handled_by?: string | null;
+      item_title: string;
+      /** Format: date-time */
+      paid_at?: string | null;
+      /** @description `bank_transfer`, `usdt` or `cash`; set once the order is paid. */
+      payment_method?: string | null;
+      /** Format: int32 */
+      quantity: number;
+      reference: string;
+      /** @description `awaiting_payment`, `paid` or `cancelled`. */
+      status: string;
+      /** Format: int64 */
+      total_vnd: number;
+      /** Format: int64 */
+      unit_price_vnd: number;
+    };
+    DashboardOrders: {
+      /** @description How many orders each status has under the search, whatever status is shown. */
+      counts: components["schemas"]["OrderCounts"];
+      orders: components["schemas"]["DashboardOrder"][];
+      /**
+       * Format: int64
+       * @description How many orders the status and the search match, across every page.
+       */
+      total: number;
+    };
+    /**
+     * @description A product as the dashboard shows it: the catalogue's fields that a page uses,
+     *     with the count split three ways.
+     */
+    DashboardProduct: {
+      /**
+       * Format: int32
+       * @description What a buyer may still order: `on_hand` less `reserved`.
+       */
+      available: number;
+      hot: boolean;
+      /**
+       * Format: uuid
+       * @description The picture, served by `GET /dashboard/images/{id}`.
+       */
+      image_id?: string | null;
+      listed: boolean;
+      /**
+       * Format: int32
+       * @description The count the shop set, before reservations.
+       */
+      on_hand: number;
+      plan: string;
+      /** Format: int64 */
+      price_vnd: number;
+      provider: string;
+      /**
+       * Format: int32
+       * @description Held by orders that await payment and have not expired.
+       */
+      reserved: number;
+      /** @description The identity of the product; it never changes, whatever the name does. */
+      slug: string;
+      variant?: string | null;
+      /** @description `WF` full, `W7D` seven days, `NW` none beyond a one-hour login check. */
+      warranty: string;
+    };
+    DashboardProducts: {
+      products: components["schemas"]["DashboardProduct"][];
+    };
+    DashboardRevenue: {
+      /** @description By what they came to, over the period shown. */
+      by_seller: components["schemas"]["RevenueSeller"][];
+      /**
+       * @description Every day of the period and of the one before it, oldest first, with the
+       *     days that took nothing present as zero. That is `2 * days` entries, so the
+       *     page can set a period against the one before.
+       */
+      daily: components["schemas"]["RevenueDay"][];
+      /** Format: int32 */
+      days: number;
+      /** @description By how many orders, over the period shown. */
+      top_items: components["schemas"]["RevenueItem"][];
+    };
+    DashboardSales: {
+      /** @description The newest first. */
+      orders: components["schemas"]["DashboardOrder"][];
+      /**
+       * @description Every member of staff who has marked an order paid, by username, so the
+       *     history can be narrowed to one of them. It does not depend on the filters.
+       */
+      sellers: string[];
+      /**
+       * Format: int64
+       * @description How many paid orders match, across every page.
+       */
+      total: number;
+      /**
+       * Format: int64
+       * @description What they come to, in đồng, across every page.
+       */
+      total_vnd: number;
+    };
+    DashboardServiceModel: {
+      /**
+       * Format: int64
+       * @description Micro-dollars for a million cached input tokens.
+       */
+      cached_micro_per_million: number;
+      /**
+       * Format: int64
+       * @description Micro-dollars for a million new input tokens.
+       */
+      input_micro_per_million: number;
+      /** @description Whether customers can use it; an unlisted model is refused. */
+      listed: boolean;
+      /** @description The id the agent's API uses. */
+      model: string;
+      /** @description What the Pricing page calls it. */
+      name: string;
+      /**
+       * Format: int64
+       * @description Micro-dollars for a million output tokens.
+       */
+      output_micro_per_million: number;
+      /**
+       * Format: int32
+       * @description Among its agent's models, smallest first.
+       */
+      position: number;
+      provider: string;
+    };
+    DashboardServiceModels: {
+      models: components["schemas"]["DashboardServiceModel"][];
+    };
+    DashboardSession: {
+      /** @description What the role may open, so the page can hide a link the API would refuse. */
+      permissions: components["schemas"]["Permission"][];
+      role: components["schemas"]["Role"];
+      user: components["schemas"]["DashboardAccount"];
+    };
+    /** @description A ticket that was sold. */
+    DashboardTicketSale: {
+      buyer?: string | null;
+      /** Format: int32 */
+      days: number;
+      /**
+       * Format: date-time
+       * @description When that key stops working.
+       */
+      expires_at?: string | null;
+      /** Format: uuid */
+      id: string;
+      /** @description The last four characters of the key the customer got. */
+      key_last_four?: string | null;
+      name: string;
+      /**
+       * Format: int64
+       * @description What the customer paid, in micro-dollars.
+       */
+      price_micro: number;
+      provider: string;
+      seller?: string | null;
+      /** Format: date-time */
+      sold_at: string;
+    };
+    DashboardTicketSales: {
+      sales: components["schemas"]["DashboardTicketSale"][];
     };
     DecideAgentPoolJoinRequest: {
       status: components["schemas"]["AgentPoolRequestStatus"];
@@ -883,6 +1677,71 @@ export interface components {
       /** Format: date-time */
       last_used_at?: string | null;
     };
+    GatewayUsage: {
+      breakdown: components["schemas"]["GatewayUsageBreakdown"][];
+      /**
+       * Format: int64
+       * @description Requests the provider finished; the rest were abandoned or failed.
+       */
+      completed_requests: number;
+      daily_usage: components["schemas"]["GatewayUsageDay"][];
+      /** Format: int64 */
+      known_cached_tokens: number;
+      /** Format: int64 */
+      known_input_tokens: number;
+      /** Format: int64 */
+      known_output_tokens: number;
+      /** Format: int64 */
+      period_days: number;
+      /** Format: int64 */
+      requests: number;
+      /**
+       * Format: int64
+       * @description What the requests were charged to the service wallet, in micro-dollars;
+       *     zero for the Workspace, whose requests are free.
+       */
+      spent_micro: number;
+      /** Format: int64 */
+      token_known_requests: number;
+    };
+    GatewayUsageBreakdown: {
+      /** Format: int64 */
+      completed_requests: number;
+      /**
+       * Format: uuid
+       * @description The Hub key that sent the requests; none for the Playground, or for a
+       *     key that has since been deleted.
+       */
+      gateway_key_id?: string | null;
+      key_last_four?: string | null;
+      /** Format: int64 */
+      known_cached_tokens: number;
+      /** Format: int64 */
+      known_input_tokens: number;
+      /** Format: int64 */
+      known_output_tokens: number;
+      model?: string | null;
+      provider: string;
+      /** Format: int64 */
+      requests: number;
+      /**
+       * Format: int64
+       * @description What these requests were charged to the service wallet, in micro-dollars;
+       *     zero for the Workspace, whose requests are free.
+       */
+      spent_micro: number;
+      /** Format: int64 */
+      token_known_requests: number;
+    };
+    GatewayUsageDay: {
+      date: string;
+      /** Format: int64 */
+      known_total_tokens: number;
+      /** Format: int64 */
+      requests: number;
+      /** Format: int64 */
+      token_known_requests: number;
+    };
     HealthResponse: {
       service: string;
       status: string;
@@ -899,6 +1758,16 @@ export interface components {
     };
     /** @enum {string} */
     ModelCapability: "chat" | "image_input" | "realtime_audio";
+    OrderCounts: {
+      /** Format: int64 */
+      all: number;
+      /** Format: int64 */
+      awaiting_payment: number;
+      /** Format: int64 */
+      cancelled: number;
+      /** Format: int64 */
+      paid: number;
+    };
     Organization: {
       /** Format: date-time */
       created_at: string;
@@ -1085,6 +1954,45 @@ export interface components {
       member_id?: string | null;
       model?: string | null;
     };
+    /** @description A ticket the signed-in user bought, without its key. */
+    OwnedTicket: {
+      /** Format: int32 */
+      days: number;
+      /** Format: date-time */
+      expires_at: string;
+      /**
+       * Format: uuid
+       * @description The key's id, for replacing it.
+       */
+      key_id: string;
+      last_four: string;
+      name: string;
+      /** Format: int64 */
+      price_micro: number;
+      provider: string;
+      /** Format: date-time */
+      purchased_at: string;
+      /** @description `active` or `expired`. */
+      status: string;
+    };
+    OwnedTickets: {
+      tickets: components["schemas"]["OwnedTicket"][];
+    };
+    PayOrder: {
+      /** @description How the money reached the shop. */
+      payment_method: components["schemas"]["PaymentMethod"];
+    };
+    /**
+     * @description How an order was paid. SePay settles a bank transfer by itself; the rest is
+     *     something a member of staff saw and recorded.
+     * @enum {string}
+     */
+    PaymentMethod: "bank_transfer" | "usdt" | "cash";
+    /**
+     * @description What a page or an endpoint asks of a role.
+     * @enum {string}
+     */
+    Permission: "orders" | "history" | "stock" | "revenue" | "staff";
     /** @enum {string} */
     Platform: "x" | "tiktok" | "facebook";
     PlaygroundAttachment:
@@ -1102,13 +2010,19 @@ export interface components {
           text: string;
         };
     PlaygroundChatRequest: {
-      /** Format: uuid */
-      connection_id: string;
+      /**
+       * Format: uuid
+       * @description The account to try first. A Service chat has none: the platform's stock
+       *     serves it.
+       */
+      connection_id?: string | null;
       messages: components["schemas"]["PlaygroundMessage"][];
       model: string;
       /** Format: uuid */
       organization_id?: string | null;
       provider: components["schemas"]["AgentProvider"];
+      /** @description Chat in the Service's scope: charged to the wallet, served by the stock. */
+      service?: boolean;
     };
     PlaygroundMessage: {
       attachments?: components["schemas"]["PlaygroundAttachment"][];
@@ -1138,6 +2052,28 @@ export interface components {
     PlaygroundVoiceSession: {
       sdp: string;
     };
+    /** @description A ticket's key, shown once, with what it is for. */
+    PurchasedTicket: {
+      /** Format: int32 */
+      days: number;
+      /** Format: date-time */
+      expires_at: string;
+      /** @description The key, which is never shown again. */
+      key: string;
+      /** Format: uuid */
+      key_id: string;
+      last_four: string;
+      name: string;
+      /** Format: int64 */
+      price_micro: number;
+      provider: string;
+    };
+    /** @description One line of what an account has left, as the provider reports it. */
+    QuotaMetric: {
+      detail?: string | null;
+      label: string;
+      value: string;
+    };
     RegisterRequest: {
       password: string;
       recovery_email?: string | null;
@@ -1161,21 +2097,251 @@ export interface components {
       variants: components["schemas"]["VideoVariant"][];
       videoUrl: string;
     };
+    RevenueDay: {
+      /** Format: date */
+      date: string;
+      /** Format: int64 */
+      orders: number;
+      /** Format: int64 */
+      total_vnd: number;
+    };
+    RevenueItem: {
+      /** Format: int64 */
+      orders: number;
+      title: string;
+      /** Format: int64 */
+      total_vnd: number;
+    };
+    RevenueSeller: {
+      /** Format: int64 */
+      orders: number;
+      /** @description The username of the member of staff, or empty for what SePay settled. */
+      seller?: string | null;
+      /** Format: int64 */
+      total_vnd: number;
+    };
+    /**
+     * @description What a member of staff is, in the dashboard.
+     * @enum {string}
+     */
+    Role: "owner" | "manager" | "cashier" | "stock-keeper";
+    SaveServiceModel: {
+      /** Format: int64 */
+      cached_micro_per_million: number;
+      /** Format: int64 */
+      input_micro_per_million: number;
+      listed: boolean;
+      /**
+       * @description The id the agent's API uses. A model that has a row is changed, any other
+       *     is added.
+       */
+      model: string;
+      name: string;
+      /** Format: int64 */
+      output_micro_per_million: number;
+      /** @description `chatgpt`, `gemini`, `claude`, `deepseek`, `grok` or `groq`. */
+      provider: string;
+    };
+    ServiceAmount: {
+      /**
+       * Format: int64
+       * @description Micro-dollars.
+       */
+      amount_micro: number;
+    };
+    ServiceModel: {
+      id: string;
+      name: string;
+      price: components["schemas"]["ServicePrice"];
+    };
+    ServicePrice: {
+      /** Format: int64 */
+      cached_micro_per_million: number;
+      /**
+       * Format: int64
+       * @description Micro-dollars (1 USD = 1,000,000) per one million tokens.
+       */
+      input_micro_per_million: number;
+      /** Format: int64 */
+      output_micro_per_million: number;
+    };
+    ServicePricing: {
+      /** @description Whether a top-up is paid by card, through Stripe Checkout. */
+      card_top_up: boolean;
+      currency: string;
+      /**
+       * Format: int64
+       * @description A request starts only when the wallet holds at least this much, since what
+       *     it costs is known only when it ends. Micro-dollars.
+       */
+      min_balance_micro: number;
+      providers: components["schemas"]["ServiceProvider"][];
+      /** @description Whether topping up works without a payment. True on staging only. */
+      test_top_up: boolean;
+    };
+    ServiceProvider: {
+      /**
+       * @description Whether the platform's stock has an account that can serve this agent now.
+       *     When it has none, a request for it answers 502.
+       */
+      available: boolean;
+      label: string;
+      models: components["schemas"]["ServiceModel"][];
+      provider: components["schemas"]["AgentProvider"];
+    };
+    ServiceTopUp: {
+      /**
+       * @description Where to send the customer to pay by card. None when the wallet was
+       *     credited at once, which only happens where test top-ups are on.
+       */
+      checkout_url?: string | null;
+      /**
+       * Format: int64
+       * @description What the customer holds, in micro-dollars. A payment by card is not in it
+       *     until Stripe reports it.
+       */
+      wallet_micro: number;
+    };
+    ServiceWallet: {
+      /**
+       * Format: int64
+       * @description What the customer holds, in micro-dollars.
+       */
+      wallet_micro: number;
+    };
     SessionResponse: {
       user: components["schemas"]["AuthenticatedUser"];
+    };
+    SettledOrder: {
+      /** @description Whether the bot told the buyer. The order is paid either way. */
+      notified: boolean;
+      order: components["schemas"]["DashboardOrder"];
     };
     ShareOrganizationAgent: {
       /** Format: uuid */
       connection_id: string;
     };
+    StaffList: {
+      members: components["schemas"]["StaffMember"][];
+    };
+    StaffMember: {
+      /** Format: uuid */
+      id: string;
+      /**
+       * Format: date-time
+       * @description When they last signed in, or last had their session refreshed.
+       */
+      last_active_at?: string | null;
+      /**
+       * @description The last active owner, whose role cannot change and who cannot be removed,
+       *     so the shop is never left without one.
+       */
+      locked: boolean;
+      /**
+       * Format: int64
+       * @description Orders they marked paid today, in shop time.
+       */
+      orders_today: number;
+      /**
+       * Format: int64
+       * @description What those orders come to, in đồng.
+       */
+      revenue_today_vnd: number;
+      role: components["schemas"]["Role"];
+      username: string;
+    };
     StartAgentConnectionRequest: {
       provider: components["schemas"]["AgentProvider"];
+    };
+    StockChange: {
+      /**
+       * Format: int32
+       * @description Units to put in (up to 100,000) or take out (up to 1,000,000), never 0.
+       */
+      delta: number;
+    };
+    TicketListing: {
+      /**
+       * Format: int32
+       * @description How long the key lasts once it is bought.
+       */
+      days: number;
+      /** Format: uuid */
+      id: string;
+      name: string;
+      /**
+       * Format: int64
+       * @description In micro-dollars.
+       */
+      price_micro: number;
+      /**
+       * @description What the account had left when it was put on sale; empty when the provider
+       *     does not say.
+       */
+      quota: components["schemas"]["QuotaMetric"][];
+      /** Format: date-time */
+      quota_captured_at?: string | null;
+    };
+    TicketListings: {
+      /** @description Only the agents that have a ticket for sale, in the order of the Pricing page. */
+      providers: components["schemas"]["TicketProvider"][];
+    };
+    TicketProvider: {
+      label: string;
+      listings: components["schemas"]["TicketListing"][];
+      provider: string;
     };
     TtsRequest: {
       pitch?: string;
       rate?: string;
       text: string;
       voice?: string;
+    };
+    UpdateListing: {
+      /** Format: int32 */
+      days: number;
+      /** @description Whether it is switched on for sale. */
+      listed: boolean;
+      name: string;
+      /** Format: int64 */
+      price_micro: number;
+    };
+    /**
+     * @description Everything about a product that can be edited. The slug and the count are not
+     *     in it: the slug is the product's identity, and the count has its own change.
+     */
+    UpdateProduct: {
+      hot: boolean;
+      /** Format: uuid */
+      image_id?: string | null;
+      listed: boolean;
+      plan: string;
+      /** Format: int64 */
+      price_vnd: number;
+      provider: string;
+      variant?: string | null;
+      /** @description `WF`, `W7D` or `NW`. */
+      warranty: string;
+    };
+    UploadedImage: {
+      /** Format: uuid */
+      id: string;
+    };
+    VerifiedAccount: {
+      account_label?: string | null;
+      /** Format: date-time */
+      captured_at: string;
+      plan?: string | null;
+      provider: string;
+      /** @description What the account has left, as the provider says; empty when it does not. */
+      quota: components["schemas"]["QuotaMetric"][];
+    };
+    VerifyAccount: {
+      /**
+       * Format: uuid
+       * @description An account the signed-in member connected, on the Agents page or from here.
+       */
+      connection_id: string;
     };
     VideoVariant: {
       /** Format: int64 */
@@ -1929,6 +3095,1414 @@ export interface operations {
       };
     };
   };
+  upload_image: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description A PNG, JPEG, GIF or WebP picture of at most 5 MiB */
+    requestBody: {
+      content: {
+        "application/octet-stream": number[];
+      };
+    };
+    responses: {
+      /** @description The picture was stored */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UploadedImage"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not manage stock */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The picture is over 5 MiB */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description The body is not a PNG, JPEG, GIF or WebP picture */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  get_image: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The picture */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The picture */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "image/*": unknown;
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not a member of staff */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description No such picture */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  list_service_listings: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The tickets that are not sold yet */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DashboardListings"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not manage stock */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  create_service_listing: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateListing"];
+      };
+    };
+    responses: {
+      /** @description The ticket is on sale */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DashboardListing"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not manage stock */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The account is on sale already, or sold to a customer whose ticket has not ended */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The terms are not valid, or the account is not one the member connected */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The provider did not answer a test request through the account */
+      502: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  update_service_listing: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The ticket */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["UpdateListing"];
+      };
+    };
+    responses: {
+      /** @description The ticket as it is now */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DashboardListing"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not manage stock */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description No such ticket, or it is sold */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The terms are not valid */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  delete_service_listing: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The ticket */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Taken off sale; the account itself is untouched */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not manage stock */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description No such ticket, or it is sold */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  list_service_models: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Every model with a price, listed or not */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DashboardServiceModels"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not manage stock */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  save_service_model: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SaveServiceModel"];
+      };
+    };
+    responses: {
+      /** @description The model as it is now priced */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DashboardServiceModel"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not manage stock */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The agent, the id, the name or a price is not valid */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  list_service_sales: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The tickets that were sold, newest first, the last 500 */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DashboardTicketSales"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not see the history */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  verify_service_account: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["VerifyAccount"];
+      };
+    };
+    responses: {
+      /** @description The account answered a test request; what it has left, when the provider says */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VerifiedAccount"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not manage stock */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not an account the member connected, or not connected yet */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The provider did not answer a test request through the account */
+      502: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  dashboard_session: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The signed-in member of staff and what the role may do */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DashboardSession"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The account is not a member of staff, or its access is switched off */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  list_staff: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Everyone who may use the dashboard, with what they did today */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["StaffList"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not manage staff */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  add_staff: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AddStaff"];
+      };
+    };
+    responses: {
+      /** @description The account is now staff */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["StaffMember"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not manage staff */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The account is already staff */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description No account has that username */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  change_role: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The member of staff */
+        user_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ChangeRole"];
+      };
+    };
+    responses: {
+      /** @description The member with the new role */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["StaffMember"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not manage staff */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not a member of staff */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The last owner cannot be given another role */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  remove_staff: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The member of staff */
+        user_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The account is no longer staff */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not manage staff */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not a member of staff */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Oneself, or the last owner, cannot be removed */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  announce: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["Announcement"];
+      };
+    };
+    responses: {
+      /** @description The bot posted it to the channel and started sending it to everyone who can be reached */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Announced"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not manage stock */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The message is empty or longer than 4096 characters */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The dashboard is not connected to the bot */
+      501: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The bot did not answer */
+      502: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  list_orders: {
+    parameters: {
+      query?: {
+        /** @description Only orders in this status: `awaiting_payment`, `paid` or `cancelled`. */
+        status?: string | null;
+        /** @description Matches the reference, the buyer's name and username, and the item. */
+        q?: string | null;
+        /** @description Counted from 1. */
+        page?: number | null;
+        /** @description 1 to 100; 20 when left out. */
+        page_size?: number | null;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description A page of orders, and how many each status has */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DashboardOrders"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not work with orders */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The status or the page is not valid */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  cancel_order: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The order */
+        reference: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The order is cancelled and stops holding stock */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DashboardOrder"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not work with orders */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description No such order */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The order is not waiting for payment */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  pay_order: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The order */
+        reference: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["PayOrder"];
+      };
+    };
+    responses: {
+      /** @description The order is paid, its stock is taken, and the buyer is told when the bot can */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SettledOrder"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not work with orders */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description No such order */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The order is not waiting for payment */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  list_products: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Every product, hidden ones included */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DashboardProducts"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not manage stock */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  create_product: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateProduct"];
+      };
+    };
+    responses: {
+      /** @description The product that was made */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DashboardProduct"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not manage stock */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description A product with that provider, plan and variant exists */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description A field is out of range */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  update_product: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The product */
+        slug: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["UpdateProduct"];
+      };
+    };
+    responses: {
+      /** @description The product as it is now */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DashboardProduct"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not manage stock */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description No such product */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description A field is out of range */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  delete_product: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The product */
+        slug: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The product is gone; orders already made keep their title and price */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not manage stock */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description No such product */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Buyers have orders open for it */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  change_stock: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The product */
+        slug: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["StockChange"];
+      };
+    };
+    responses: {
+      /** @description The product with its new count */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DashboardProduct"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not manage stock */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description No such product */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The change is 0, too large, or takes more than is there */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  revenue: {
+    parameters: {
+      query?: {
+        /** @description The length of the period shown: 7, 14 or 30 days (7 when left out). */
+        days?: number | null;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Takings by day, best sellers and sellers, in đồng */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DashboardRevenue"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not see the revenue */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The period is not 7, 14 or 30 days */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  list_sales: {
+    parameters: {
+      query?: {
+        /** @description The first day to include, in shop time (`YYYY-MM-DD`). */
+        from?: string | null;
+        /** @description The last day to include, in shop time. */
+        to?: string | null;
+        /** @description A staff member's username, or `bot` for what SePay settled by itself. */
+        handled_by?: string | null;
+        /** @description Matches the reference, the buyer's name and username, and the item. */
+        q?: string | null;
+        /** @description Counted from 1. */
+        page?: number | null;
+        /** @description 1 to 100; 20 when left out. */
+        page_size?: number | null;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Paid orders in a range of days, newest first, and what they come to */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DashboardSales"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not see the history */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The range or the page is not valid */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
   list_keys: {
     parameters: {
       query?: never;
@@ -2017,6 +4591,47 @@ export interface operations {
       };
       /** @description Gateway key not found */
       404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  gateway_usage: {
+    parameters: {
+      query?: {
+        /** @description UTC calendar days, 1 through 365; defaults to 30. */
+        days?: number | null;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Requests the signed-in user sent through the gateway with Hub keys and in the Playground; service keys are not counted */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GatewayUsage"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description days is out of range */
+      422: {
         headers: {
           [name: string]: unknown;
         };
@@ -2301,6 +4916,138 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+    };
+  };
+  list_organization_keys: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Organization ID */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The signed-in member's active keys of this organization, newest first */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GatewayKey"][];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The user is not a member of the organization */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  create_organization_key: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Organization ID */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Organization key created and returned once */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CreatedGatewayKey"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The user is not a member of the organization */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The member already holds the most keys allowed */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  revoke_organization_key: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Organization ID */
+        id: string;
+        /** @description Key ID */
+        key_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Organization key revoked */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Key not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
       };
     };
   };
@@ -2781,6 +5528,420 @@ export interface operations {
       };
       /** @description Every relay slot is busy */
       503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  list_service_keys: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The signed-in user's active service keys, newest first */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GatewayKey"][];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  create_service_key: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Service key created and returned once */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CreatedGatewayKey"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The user already holds the most keys allowed */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  revoke_service_key: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Service key ID */
+        key_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Service key revoked */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Service key not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  list_ticket_listings: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The tickets for sale, by agent; an agent with none is left out */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TicketListings"];
+        };
+      };
+    };
+  };
+  purchase_ticket: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The ticket */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Bought: the key, shown once */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PurchasedTicket"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The wallet cannot cover the price */
+      402: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not for sale, or sold just now */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The ticket is the buyer's own */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The account did not answer a test request, and nothing was charged */
+      502: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  pricing: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The agents the service offers, their models and what a million tokens of each cost */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ServicePricing"];
+        };
+      };
+    };
+  };
+  list_owned_tickets: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The tickets the signed-in user bought, newest first */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["OwnedTickets"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  reissue_ticket_key: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The key of the ticket */
+        key_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description A new key for the same ticket, shown once; the old one stops working */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PurchasedTicket"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not the user's ticket, or it has expired */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  top_up: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ServiceAmount"];
+      };
+    };
+    responses: {
+      /** @description Where to pay by card, or the wallet after a test top-up */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ServiceTopUp"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The amount is out of range, or not whole cents */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Topping up is not available */
+      501: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The payment service could not open a checkout */
+      502: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  service_usage: {
+    parameters: {
+      query?: {
+        /** @description UTC calendar days, 1 through 365; defaults to 30. */
+        days?: number | null;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Requests the signed-in user sent with service keys, and what they were charged */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GatewayUsage"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description days is out of range */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  wallet: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The signed-in user's wallet */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ServiceWallet"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
         headers: {
           [name: string]: unknown;
         };

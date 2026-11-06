@@ -28,6 +28,7 @@ import { useWorkspaceSession } from "@/components/workspace-shell/workspace-shel
 import { providerCatalogueService } from "@/services/provider-catalogue/provider-catalogue-service";
 import { agentService } from "@/services/agent/agent-service";
 import { organizationsService } from "@/services/organizations/organizations-service";
+import { serviceBillingService } from "@/services/service-billing/service-billing-service";
 import { agentPoolAccess } from "@/utils/utils.agent-pools";
 import playgroundMedia from "@/utils/utils.playground-media";
 import playgroundSpeechPreload from "@/services/playground/playground-speech-preload";
@@ -38,6 +39,7 @@ import {
 import type {
   PlaygroundAttachment,
   PlaygroundChatOptions,
+  PlaygroundModel,
   PlaygroundProviderId,
 } from "@/services/playground/playground-types";
 
@@ -45,7 +47,7 @@ import readPlaygroundAttachment, {
   PLAYGROUND_FILE_ACCEPT,
 } from "@/utils/utils.playground-attachments";
 
-import type { PlaygroundFormValues } from "./route";
+import type { PlaygroundFormValues, PlaygroundKind } from "./route";
 import PlaygroundResponse from "./playground-response";
 import PlaygroundVoice from "./playground-voice";
 import PlaygroundConversation, {
@@ -92,6 +94,9 @@ const setupQueryOptions = {
   refetchOnWindowFocus: false,
   refetchOnReconnect: false,
 };
+// A Service chat is served by the platform's accounts, so there is no account to
+// pick: each agent the stock can serve stands for one.
+const SERVICE_ACCOUNT_ID = "service";
 const reconnectNote = tv({
   base: "text-sm",
   variants: {
@@ -130,8 +135,10 @@ export default function PlaygroundWorkspace({
   const viewport = useRef<HTMLDivElement>(null);
   const followOutput = useRef(true);
   const userId = session.user?.id;
+  const kind = form.watch("kind");
   const organizationId = form.watch("organizationId");
-  const organizationRequested = Boolean(organizationId);
+  const organizationRequested = kind === "organization";
+  const serviceRequested = kind === "service";
   const poolQueryKey = [...agentService.poolsQueryKey, userId ?? "guest"];
   const organizationAgentsQueryKey = [
     ...organizationsService.queryKey,
@@ -142,7 +149,15 @@ export default function PlaygroundWorkspace({
     ...setupQueryOptions,
     queryKey: poolQueryKey,
     queryFn: () => agentService.listPools(),
-    enabled: session.status !== "loading" && !organizationRequested,
+    enabled: session.status !== "loading" && kind === "workspace",
+  });
+  // The Service's prices say which agents the stock can serve and which models
+  // it sells, so they stand in for the accounts and the models of a Service chat.
+  const pricingQuery = useQuery({
+    ...setupQueryOptions,
+    queryKey: serviceBillingService.pricingQueryKey,
+    queryFn: () => serviceBillingService.pricing(),
+    enabled: serviceRequested,
   });
   const organizationsQuery = useQuery({
     ...setupQueryOptions,
@@ -161,31 +176,45 @@ export default function PlaygroundWorkspace({
   });
   const savedMode = form.watch("mode");
   const providerIds = Object.keys(providers) as PlaygroundProviderId[];
-  const accessibleAccounts = organizationRequested
-    ? (selectedOrganization ? (organizationAgentsQuery.data ?? []) : []).map(
-        (agent) => ({
-          id: agent.id,
-          accountLabel: agent.accountLabel ?? "Connected account",
-          availabilityStatus: agent.availabilityStatus,
-          provider: agent.provider.toLowerCase(),
-          validationUrl: undefined,
-        }),
-      )
-    : (poolQuery.data ?? [])
-        .filter((pool) => {
-          if (!userId) return false;
-          const access = agentPoolAccess(pool, session.user?.username ?? null);
-          return access === "owner" || access === "joined";
-        })
-        .map((pool) => ({
-          id: pool.id,
-          accountLabel: pool.accountLabel,
-          availabilityStatus: pool.availability.status,
-          provider: providerIds.find(
-            (id) => providers[id].label === pool.agent,
-          ),
-          validationUrl: pool.availability.validationUrl,
-        }));
+  const serviceAccounts = (pricingQuery.data?.providers ?? [])
+    .filter((entry) => entry.available)
+    .map((entry) => ({
+      id: SERVICE_ACCOUNT_ID,
+      accountLabel: "Platform accounts",
+      availabilityStatus: "active",
+      provider: entry.provider as string | undefined,
+      validationUrl: undefined as string | undefined,
+    }));
+  const accessibleAccounts = serviceRequested
+    ? serviceAccounts
+    : organizationRequested
+      ? (selectedOrganization ? (organizationAgentsQuery.data ?? []) : []).map(
+          (agent) => ({
+            id: agent.id,
+            accountLabel: agent.accountLabel ?? "Connected account",
+            availabilityStatus: agent.availabilityStatus,
+            provider: agent.provider.toLowerCase(),
+            validationUrl: undefined,
+          }),
+        )
+      : (poolQuery.data ?? [])
+          .filter((pool) => {
+            if (!userId) return false;
+            const access = agentPoolAccess(
+              pool,
+              session.user?.username ?? null,
+            );
+            return access === "owner" || access === "joined";
+          })
+          .map((pool) => ({
+            id: pool.id,
+            accountLabel: pool.accountLabel,
+            availabilityStatus: pool.availability.status,
+            provider: providerIds.find(
+              (id) => providers[id].label === pool.agent,
+            ),
+            validationUrl: pool.availability.validationUrl,
+          }));
   const availableProviderIds = providerIds.filter(
     (id) =>
       providerCatalogueService.supportsMode(id, savedMode) &&
@@ -205,6 +234,11 @@ export default function PlaygroundWorkspace({
   const visibleProviderIds = availableProviderIds.filter((id) =>
     providerCatalogueService.supportsMode(id, mode),
   );
+  // Every agent the mode supports is listed; those with no account to use are
+  // listed as unavailable.
+  const listedProviderIds = providerIds.filter((id) =>
+    providerCatalogueService.supportsMode(id, mode),
+  );
   const provider =
     visibleProviderIds.find((id) => id === requestedProvider) ??
     visibleProviderIds[0] ??
@@ -213,10 +247,13 @@ export default function PlaygroundWorkspace({
     (account) =>
       visibleProviderIds.includes(provider) && account.provider === provider,
   );
-  const accountLoading = organizationRequested
-    ? organizationsQuery.isPending ||
-      Boolean(selectedOrganization && organizationAgentsQuery.isPending)
-    : poolQuery.isPending;
+  const organizationsLoading = Boolean(userId) && organizationsQuery.isPending;
+  const accountLoading = serviceRequested
+    ? pricingQuery.isPending
+    : organizationRequested
+      ? organizationsLoading ||
+        Boolean(selectedOrganization && organizationAgentsQuery.isPending)
+      : poolQuery.isPending;
   const selectedAccount =
     accounts.find((pool) => pool.id === form.watch("connectionId")) ??
     accounts.find(
@@ -254,6 +291,21 @@ export default function PlaygroundWorkspace({
     playgroundMedia.writeMode(mode);
   }, [accountLoading, form, legacyProvider, mode, savedMode, session.status]);
 
+  // Choosing the Organization kind picks the first organization the user is in.
+  useEffect(() => {
+    if (!organizationRequested || organizationId) return;
+    const first = organizationsQuery.data?.[0];
+    if (first) form.setValue("organizationId", first.id);
+  }, [form, organizationId, organizationRequested, organizationsQuery.data]);
+
+  // A Service chat has Chat only: no call is sold.
+  useEffect(() => {
+    if (serviceRequested && savedMode !== "chat") {
+      form.setValue("mode", "chat");
+      playgroundMedia.writeMode("chat");
+    }
+  }, [form, savedMode, serviceRequested]);
+
   useEffect(() => {
     if (accountLoading) return;
     const nextConnectionId = connectionId ?? "";
@@ -284,23 +336,40 @@ export default function PlaygroundWorkspace({
       userId &&
       connectionId &&
       !needsReconnect &&
+      !serviceRequested &&
       (!organizationRequested || selectedOrganization),
     ),
   });
-  const models = (needsReconnect ? [] : (modelQuery.data ?? [])).filter(
-    (entry) => {
-      if (mode === "chat" || mode === "call-whisper")
-        return entry.modes.includes("chat");
-      const profile =
-        entry.call ?? providerCatalogueService.callProfile(provider, entry.id);
-      return (
-        entry.modes.includes("voice") &&
-        profile?.provider === provider &&
-        profile.selector_model === entry.id &&
-        providerCatalogueService.callMode(profile) === mode
-      );
-    },
-  );
+  const serviceModels: PlaygroundModel[] = serviceRequested
+    ? (
+        pricingQuery.data?.providers.find(
+          (entry) => entry.provider === provider,
+        )?.models ?? []
+      ).map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        modes: ["chat"],
+        capabilities: providers[provider].chat_capabilities,
+      }))
+    : [];
+  const models = (
+    needsReconnect
+      ? []
+      : serviceRequested
+        ? serviceModels
+        : (modelQuery.data ?? [])
+  ).filter((entry) => {
+    if (mode === "chat" || mode === "call-whisper")
+      return entry.modes.includes("chat");
+    const profile =
+      entry.call ?? providerCatalogueService.callProfile(provider, entry.id);
+    return (
+      entry.modes.includes("voice") &&
+      profile?.provider === provider &&
+      profile.selector_model === entry.id &&
+      providerCatalogueService.callMode(profile) === mode
+    );
+  });
   const currentLineupOnly =
     providers[provider].discovery.strategy === "official_docs";
   const selectedModel =
@@ -317,18 +386,25 @@ export default function PlaygroundWorkspace({
   const busy = form.formState.isSubmitting || mutation.isPending;
   const attachments = form.watch("attachments");
   const hasMessage = Boolean(form.watch("prompt").trim() || attachments.length);
-  const queryError = organizationRequested
-    ? (organizationsQuery.error ??
-      organizationAgentsQuery.error ??
-      modelQuery.error)
-    : (poolQuery.error ?? modelQuery.error);
+  const queryError = serviceRequested
+    ? pricingQuery.error
+    : organizationRequested
+      ? (organizationsQuery.error ??
+        organizationAgentsQuery.error ??
+        modelQuery.error)
+      : (poolQuery.error ?? modelQuery.error);
+  const organizationMessage =
+    organizationRequested && userId && !organizationsQuery.isPending
+      ? !organizationsQuery.data?.length
+        ? "You are not in an organization yet."
+        : !selectedOrganization
+          ? "This organization is unavailable. Select another organization."
+          : null
+      : null;
   const conversationError =
     queryError?.message ??
-    (organizationRequested &&
-    !organizationsQuery.isPending &&
-    !selectedOrganization
-      ? "This organization is unavailable. Select another organization."
-      : form.formState.errors.root?.message);
+    organizationMessage ??
+    form.formState.errors.root?.message;
 
   useEffect(() => {
     mounted.current = true;
@@ -353,8 +429,9 @@ export default function PlaygroundWorkspace({
     }
     if (organizationRequested && !selectedOrganization) {
       form.setError("root", {
-        message:
-          "This organization is unavailable. Select another organization.",
+        message: organizationsQuery.data?.length
+          ? "This organization is unavailable. Select another organization."
+          : "You are not in an organization yet.",
       });
       return;
     }
@@ -418,16 +495,19 @@ export default function PlaygroundWorkspace({
     form.setValue("attachments", []);
     const refreshAccounts = () =>
       queryClient.invalidateQueries({
-        queryKey: organizationRequested
-          ? organizationAgentsQueryKey
-          : poolQueryKey,
+        queryKey: serviceRequested
+          ? serviceBillingService.pricingQueryKey
+          : organizationRequested
+            ? organizationAgentsQueryKey
+            : poolQueryKey,
         exact: true,
       });
     try {
       const { servedConnectionId } = await mutation.mutateAsync({
         provider,
-        connectionId,
+        connectionId: serviceRequested ? undefined : connectionId,
         organizationId: selectedOrganization?.id,
+        service: serviceRequested || undefined,
         model: selectedModel.id,
         messages: [
           ...history,
@@ -459,6 +539,11 @@ export default function PlaygroundWorkspace({
       // unavailable. Refresh Setup statuses without changing the selection.
       if (servedConnectionId && servedConnectionId !== connectionId)
         void refreshAccounts();
+      // A Service chat spent from the balance.
+      if (serviceRequested)
+        void queryClient.invalidateQueries({
+          queryKey: serviceBillingService.walletQueryKey(userId),
+        });
     } catch (error) {
       if (!mounted.current) return;
       setTurns((current) =>
@@ -539,55 +624,88 @@ export default function PlaygroundWorkspace({
               <h2 className="text-sm font-semibold">Setup</h2>
             </header>
 
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            <div
+              className={
+                organizationRequested
+                  ? "grid gap-4 sm:grid-cols-2 xl:grid-cols-6"
+                  : "grid gap-4 sm:grid-cols-2 xl:grid-cols-5"
+              }
+            >
               <div className="space-y-2">
-                <Label htmlFor="playground-organization">Organization</Label>
+                <Label htmlFor="playground-kind">Kind</Label>
                 <Select
-                  disabled={busy || voiceActive || readingFiles || !userId}
+                  disabled={busy || voiceActive || readingFiles}
                   onValueChange={(value) => {
-                    form.setValue(
-                      "organizationId",
-                      value === "personal" ? "" : value,
-                    );
+                    form.setValue("kind", value as PlaygroundKind);
+                    form.setValue("organizationId", "");
                     form.setValue("connectionId", "");
                     form.setValue("model", "");
                     form.clearErrors("root");
                     setTurns([]);
                   }}
-                  value={organizationId || "personal"}
+                  value={kind}
                 >
                   <SelectTrigger
                     className="h-11! w-full min-w-0 bg-white"
-                    id="playground-organization"
+                    id="playground-kind"
                   >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="personal">Personal</SelectItem>
-                    {(organizationsQuery.data ?? []).map((organization) => (
-                      <SelectItem key={organization.id} value={organization.id}>
-                        {organization.name}
-                      </SelectItem>
-                    ))}
+                    <SelectItem value="workspace">Workspace</SelectItem>
+                    <SelectItem value="organization">Organization</SelectItem>
+                    <SelectItem value="service">Service</SelectItem>
                   </SelectContent>
                 </Select>
-                {!organizationRequested && organizationsQuery.error ? (
-                  <div className="space-y-2">
-                    <p className="text-xs text-destructive">
-                      Organizations could not be loaded.
-                    </p>
-                    <Button
-                      className="min-h-11"
-                      onClick={() => void organizationsQuery.refetch()}
-                      size="sm"
-                      type="button"
-                      variant="outline"
-                    >
-                      Retry organizations
-                    </Button>
-                  </div>
-                ) : null}
               </div>
+
+              {organizationRequested ? (
+                <div className="space-y-2">
+                  <Label htmlFor="playground-organization">Organization</Label>
+                  <Select
+                    disabled={
+                      busy ||
+                      voiceActive ||
+                      readingFiles ||
+                      !userId ||
+                      !organizationsQuery.data?.length
+                    }
+                    onValueChange={(value) => {
+                      form.setValue("organizationId", value);
+                      form.setValue("connectionId", "");
+                      form.setValue("model", "");
+                      form.clearErrors("root");
+                      setTurns([]);
+                    }}
+                    value={organizationId}
+                  >
+                    <SelectTrigger
+                      className="h-11! w-full min-w-0 bg-white"
+                      id="playground-organization"
+                    >
+                      <SelectValue
+                        placeholder={
+                          !userId
+                            ? "Sign in to continue"
+                            : organizationsLoading
+                              ? "Loading organizations…"
+                              : "No organizations"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(organizationsQuery.data ?? []).map((organization) => (
+                        <SelectItem
+                          key={organization.id}
+                          value={organization.id}
+                        >
+                          {organization.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
 
               <div className="space-y-2">
                 <Label htmlFor="playground-mode">Mode</Label>
@@ -633,8 +751,15 @@ export default function PlaygroundWorkspace({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="chat">Chat</SelectItem>
-                    <SelectItem value="call-live">Call Live</SelectItem>
-                    <SelectItem value="call-whisper">Call Whisper</SelectItem>
+                    <SelectItem disabled={serviceRequested} value="call-live">
+                      Call Live
+                    </SelectItem>
+                    <SelectItem
+                      disabled={serviceRequested}
+                      value="call-whisper"
+                    >
+                      Call Whisper
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -643,11 +768,7 @@ export default function PlaygroundWorkspace({
                 <Label htmlFor="playground-provider">Provider</Label>
                 <Select
                   disabled={
-                    busy ||
-                    voiceActive ||
-                    readingFiles ||
-                    accountLoading ||
-                    !visibleProviderIds.length
+                    busy || voiceActive || readingFiles || accountLoading
                   }
                   onValueChange={(value) => {
                     if (!visibleProviderIds.some((id) => id === value)) return;
@@ -671,63 +792,74 @@ export default function PlaygroundWorkspace({
                     />
                   </SelectTrigger>
                   <SelectContent>
-                    {visibleProviderIds.map((id) => (
-                      <SelectItem key={id} value={id}>
-                        <AgentsProviderIcon provider={id} />
-                        <span>
-                          {providers[id].label} (
-                          {
-                            accessibleAccounts.filter(
-                              (account) => account.provider === id,
-                            ).length
-                          }
-                          )
-                        </span>
-                      </SelectItem>
-                    ))}
+                    {listedProviderIds.map((id) => {
+                      const count = accessibleAccounts.filter(
+                        (account) => account.provider === id,
+                      ).length;
+
+                      return (
+                        <SelectItem
+                          disabled={!visibleProviderIds.includes(id)}
+                          key={id}
+                          value={id}
+                        >
+                          <AgentsProviderIcon provider={id} />
+                          <span>
+                            {providers[id].label}{" "}
+                            {count === 0
+                              ? "· unavailable"
+                              : serviceRequested
+                                ? ""
+                                : `(${count})`}
+                          </span>
+                        </SelectItem>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="playground-account">Account</Label>
-                <Select
-                  disabled={
-                    busy ||
-                    voiceActive ||
-                    readingFiles ||
-                    !userId ||
-                    accountLoading ||
-                    !accounts.length
-                  }
-                  onValueChange={(value) => {
-                    form.setValue("connectionId", value);
-                    form.setValue("model", "");
-                    form.clearErrors("root");
-                  }}
-                  value={selectedAccount?.id ?? ""}
-                >
-                  <SelectTrigger
-                    className="h-11! w-full min-w-0 bg-white"
-                    id="playground-account"
+              {serviceRequested ? null : (
+                <div className="space-y-2">
+                  <Label htmlFor="playground-account">Account</Label>
+                  <Select
+                    disabled={
+                      busy ||
+                      voiceActive ||
+                      readingFiles ||
+                      !userId ||
+                      accountLoading ||
+                      !accounts.length
+                    }
+                    onValueChange={(value) => {
+                      form.setValue("connectionId", value);
+                      form.setValue("model", "");
+                      form.clearErrors("root");
+                    }}
+                    value={selectedAccount?.id ?? ""}
                   >
-                    <SelectValue
-                      placeholder={
-                        userId && accountLoading
-                          ? "Loading accounts…"
-                          : "Sign in to continue"
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {accounts.map((account) => (
-                      <SelectItem key={account.id} value={account.id}>
-                        {account.accountLabel}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                    <SelectTrigger
+                      className="h-11! w-full min-w-0 bg-white"
+                      id="playground-account"
+                    >
+                      <SelectValue
+                        placeholder={
+                          userId && accountLoading
+                            ? "Loading accounts…"
+                            : "Sign in to continue"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {accounts.map((account) => (
+                        <SelectItem key={account.id} value={account.id}>
+                          {account.accountLabel}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               <div className="space-y-2">
                 <Label htmlFor="playground-model">Model</Label>

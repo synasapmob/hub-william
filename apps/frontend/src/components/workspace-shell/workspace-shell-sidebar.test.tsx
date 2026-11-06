@@ -86,6 +86,90 @@ describe("Organization navigation", () => {
   });
 });
 
+describe("Service navigation", () => {
+  function renderSidebar(
+    session:
+      | { status: "guest"; user: null }
+      | { status: "loading"; user: null }
+      | {
+          status: "authenticated";
+          user: { id: string; recoveryEmail: null; username: string };
+        },
+  ) {
+    vi.spyOn(organizationsService, "list").mockResolvedValue([]);
+    vi.spyOn(organizationsService, "invitations").mockResolvedValue([]);
+
+    render(
+      <QueryClientProvider client={createQueryClient()}>
+        <WorkspaceShellSessionContext.Provider
+          value={{ openAuth: vi.fn(), signOut: vi.fn(), ...session }}
+        >
+          <MemoryRouter>
+            <WorkspaceShellSidebar />
+          </MemoryRouter>
+        </WorkspaceShellSessionContext.Provider>
+      </QueryClientProvider>,
+    );
+
+    return within(screen.getByRole("navigation", { name: "Service" }));
+  }
+
+  const signedIn = {
+    status: "authenticated",
+    user: {
+      id: "11111111-1111-4111-8111-111111111111",
+      recoveryEmail: null,
+      username: "minh",
+    },
+  } as const;
+
+  it("lists Pricing and Usage after the Organization group", () => {
+    renderSidebar(signedIn);
+
+    const groups = screen
+      .getAllByRole("navigation")
+      .map((group) => group.getAttribute("aria-label"));
+    expect(groups).toEqual(["Workspace", "Organization", "Service"]);
+  });
+
+  it("opens Pricing, Usage and Keys for a signed-in user", () => {
+    const service = renderSidebar(signedIn);
+
+    expect(service.getByRole("link", { name: "Pricing" })).toHaveAttribute(
+      "href",
+      "/service/pricing",
+    );
+    expect(service.getByRole("link", { name: "Usage" })).toHaveAttribute(
+      "href",
+      "/service/usage",
+    );
+    expect(service.getByRole("link", { name: "Keys" })).toHaveAttribute(
+      "href",
+      "/service/keys",
+    );
+  });
+
+  it("leaves a visitor with Pricing alone, and Usage and Keys disabled", () => {
+    const service = renderSidebar({ status: "guest", user: null });
+
+    expect(service.getByRole("link", { name: "Pricing" })).toHaveAttribute(
+      "href",
+      "/service/pricing",
+    );
+    for (const name of ["Usage", "Keys"]) {
+      expect(service.getByRole("button", { name })).toBeDisabled();
+      expect(service.queryByRole("link", { name })).toBeNull();
+    }
+  });
+
+  it("does not grey Usage or Keys out while the session is still being checked", () => {
+    const service = renderSidebar({ status: "loading", user: null });
+
+    expect(service.getByRole("link", { name: "Usage" })).toBeVisible();
+    expect(service.getByRole("link", { name: "Keys" })).toBeVisible();
+  });
+});
+
 describe("Account block", () => {
   it("puts the invitation bell beside Log out", async () => {
     vi.spyOn(organizationsService, "list").mockResolvedValue([]);

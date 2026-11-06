@@ -8,6 +8,7 @@ import {
 
 import { useWorkspaceSession } from "@/components/workspace-shell/workspace-shell-session-context";
 import AgentsConnectDialog from "@/components/agents-connect-dialog";
+import AgentsGatewayKeyDialog from "@/components/agents-gateway-key-dialog";
 import Flex from "@/components/ui/flex";
 import { Skeleton } from "@/components/ui/skeleton";
 import { agentService } from "@/services/agent/agent-service";
@@ -123,18 +124,22 @@ export default function OrganizationAgentsRoute() {
         </div>
 
         {organization ? (
-          <AgentsConnectDialog
-            onAddExisting={async (connection) => {
-              await addMutation.mutateAsync(connection.id);
-            }}
-            onConnected={async (connection) => {
-              const shared =
-                agentsQuery.data ?? (await agentsQuery.refetch()).data ?? [];
-              if (shared.some((agent) => agent.id === connection.id)) return;
-              await addMutation.mutateAsync(connection.id);
-            }}
-            sharedConnectionIds={agents.map((agent) => agent.id)}
-          />
+          <Flex className="flex-wrap items-center gap-2">
+            <AgentsGatewayKeyDialog organization={organization} />
+
+            <AgentsConnectDialog
+              onAddExisting={async (connection) => {
+                await addMutation.mutateAsync(connection.id);
+              }}
+              onConnected={async (connection) => {
+                const shared =
+                  agentsQuery.data ?? (await agentsQuery.refetch()).data ?? [];
+                if (shared.some((agent) => agent.id === connection.id)) return;
+                await addMutation.mutateAsync(connection.id);
+              }}
+              sharedConnectionIds={agents.map((agent) => agent.id)}
+            />
+          </Flex>
         ) : (
           <Skeleton className="h-10 w-32 rounded-lg bg-zinc-200" />
         )}

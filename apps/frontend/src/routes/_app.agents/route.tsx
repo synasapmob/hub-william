@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import Flex from "@/components/ui/flex";
 import { useWorkspaceSession } from "@/components/workspace-shell/workspace-shell-session-context";
 import AgentsConnectDialog from "@/components/agents-connect-dialog";
+import AgentsGatewayKeyDialog from "@/components/agents-gateway-key-dialog";
 import {
   AgentServiceError,
   agentService,
@@ -25,7 +26,6 @@ import AgentsRequestDialog, {
   type RequestFormValues,
 } from "./agents-request-dialog";
 import AgentsRequestsDialog from "./agents-requests-dialog";
-import AgentsGatewayKeyDialog from "./agents-gateway-key-dialog";
 
 interface RequestJoinVariables {
   poolId: string;
