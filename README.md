@@ -105,6 +105,10 @@ the Tools page.
 - **Telegram adapter:** Rust · Axum · Tokio · Reqwest. It runs the Telegram shop
   (orders paid through SePay), has no database and calls the private API for
   everything it stores.
+- **Dashboard:** React · TypeScript · Vite · React Router · Tailwind CSS · Vitest.
+  A sales dashboard for the shop and its staff: orders, stock, revenue and
+  staff, and the agent accounts the shop sells as tickets. It runs on the real
+  API.
 - **Installers:** Python (`gateway.py`, `opencode.py`, `omp.py`) and Bash
   (`download-reel.sh`, `link.sh`)
 - **Hosting:** Railway
@@ -185,6 +189,7 @@ pnpm install
 pnpm dev             # frontend
 pnpm api:dev         # Rust API on :8080
 pnpm telegram:dev    # Telegram adapter on :8090
+pnpm dashboard:dev   # dashboard on :5174
 ```
 
 Set `VITE_API_BASE_URL` in `apps/frontend/.env` to `http://localhost:8080` to use

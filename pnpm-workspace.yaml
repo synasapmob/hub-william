@@ -1,5 +1,6 @@
 packages:
   - "apps/frontend"
+  - "apps/dashboard"
 
 allowBuilds:
   onnxruntime-node: false # Browser-only inference; no native Node runtime needed.
