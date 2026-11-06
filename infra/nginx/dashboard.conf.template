@@ -1,0 +1,57 @@
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+
+    resolver ${NGINX_LOCAL_RESOLVERS} valid=10s ipv6=on;
+
+    root /usr/share/nginx/html;
+
+    # A back office has nothing to offer a search engine.
+    add_header X-Robots-Tag "noindex, nofollow" always;
+
+    location = /healthz {
+        access_log off;
+        add_header Content-Type text/plain;
+        return 200 "ok\n";
+    }
+
+    location = /api/internal {
+        return 404;
+    }
+
+    location ^~ /api/internal/ {
+        return 404;
+    }
+
+    # The dashboard calls the API on its own origin, so the session cookie it
+    # gets back belongs to this site and no CORS rule is involved.
+    location /api/ {
+        set $api_internal_url "${API_INTERNAL_URL}";
+        rewrite ^/api/(.*)$ /$1 break;
+        proxy_pass $api_internal_url;
+        proxy_http_version 1.1;
+        proxy_buffering off;
+        proxy_read_timeout 300s;
+        proxy_set_header Host $proxy_host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # An asset that is gone (a tab opened before the last deploy asks for the old
+    # hash) is a 404, not the shell dressed up as a script.
+    location ^~ /assets/ {
+        try_files $uri =404;
+    }
+
+    # The shell is the one file that changes between deploys; the assets next to
+    # it carry a hash in their name.
+    location = /index.html {
+        add_header Cache-Control "no-cache";
+        add_header X-Robots-Tag "noindex, nofollow" always;
+    }
+
+    location / {
+        try_files $uri /index.html;
+    }
+}

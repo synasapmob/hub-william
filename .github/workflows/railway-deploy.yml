@@ -30,7 +30,7 @@ jobs:
       RAILWAY_PROJECT_ID: f7d4909b-9c94-4dc5-b416-be61b9943909
       DEPLOY_ENVIRONMENT: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
       # Staging has no Telegram adapter deployment.
-      DEPLOY_SERVICES: ${{ github.ref_name == 'main' && 'api telegram frontend' || 'api frontend' }}
+      DEPLOY_SERVICES: ${{ github.ref_name == 'main' && 'api telegram frontend dashboard' || 'api frontend dashboard' }}
 
     steps:
       - name: Check Railway token
