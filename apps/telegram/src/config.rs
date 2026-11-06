@@ -5,6 +5,8 @@ use reqwest::Url;
 const DEFAULT_OWNER_USERNAME: &str = "synasapmob";
 const DEFAULT_MEMO_PREFIX: &str = "CAM TIEN DI CHILL THOI";
 const DEFAULT_USDT_NETWORK: &str = "TRC20";
+const SERVICE_TOKEN: &str = "TELEGRAM_SERVICE_TOKEN";
+const FORMER_SERVICE_TOKEN: &str = "HUB_API_SERVICE_TOKEN";
 const MAXIMUM_MEMO_PREFIX_CHARACTERS: usize = 32;
 
 #[derive(Clone)]
@@ -88,7 +90,7 @@ impl AppConfig {
             env::var("HUB_API_INTERNAL_URL").unwrap_or_else(|_| "http://localhost:8080".to_owned());
         let api_internal_url = Url::parse(&api_internal_url)
             .map_err(|_| ConfigError("HUB_API_INTERNAL_URL must be a valid HTTP URL".to_owned()))?;
-        let api_service_token = required_secret("TELEGRAM_SERVICE_TOKEN")?;
+        let api_service_token = service_token(|name| env::var(name).ok())?;
         let bot_token = required_secret("TELEGRAM_BOT_TOKEN")?;
         let webhook_secret = required_secret("TELEGRAM_WEBHOOK_SECRET")?;
         let telegram_api_base_url = env::var("TELEGRAM_API_BASE_URL")
@@ -265,6 +267,27 @@ fn optional(name: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+/// The secret shared with the API. Both apps call it `TELEGRAM_SERVICE_TOKEN`. The
+/// adapter used to call it `HUB_API_SERVICE_TOKEN`, and that name is still read when
+/// the new one is not set, so a deployment is not broken by the rename.
+fn service_token(lookup: impl Fn(&str) -> Option<String>) -> Result<String, ConfigError> {
+    let set = |name: &str| lookup(name).filter(|value| !value.trim().is_empty());
+
+    set(SERVICE_TOKEN)
+        .or_else(|| {
+            let former = set(FORMER_SERVICE_TOKEN);
+
+            if former.is_some() {
+                eprintln!(
+                    "{FORMER_SERVICE_TOKEN} is the former name of {SERVICE_TOKEN}; rename it"
+                );
+            }
+
+            former
+        })
+        .ok_or_else(|| ConfigError(format!("{SERVICE_TOKEN} must be set")))
+}
+
 fn required_secret(name: &str) -> Result<String, ConfigError> {
     let value = env::var(name)
         .ok()
@@ -277,8 +300,55 @@ fn required_secret(name: &str) -> Result<String, ConfigError> {
 mod tests {
     use super::{
         DEFAULT_MEMO_PREFIX, DEFAULT_USDT_NETWORK, bank_account, memo_prefix, owners, public_url,
-        usdt_wallet,
+        service_token, usdt_wallet,
     };
+
+    fn environment(
+        pairs: &'static [(&'static str, &'static str)],
+    ) -> impl Fn(&str) -> Option<String> {
+        move |name| {
+            pairs
+                .iter()
+                .find(|(key, _)| *key == name)
+                .map(|(_, value)| (*value).to_owned())
+        }
+    }
+
+    #[test]
+    fn the_service_token_is_read_from_the_name_the_api_uses() {
+        let lookup = environment(&[("TELEGRAM_SERVICE_TOKEN", "shared-secret")]);
+
+        assert_eq!(service_token(lookup).unwrap(), "shared-secret");
+    }
+
+    #[test]
+    fn the_former_name_still_works_when_the_new_one_is_not_set() {
+        let lookup = environment(&[("HUB_API_SERVICE_TOKEN", "shared-secret")]);
+
+        assert_eq!(service_token(lookup).unwrap(), "shared-secret");
+    }
+
+    #[test]
+    fn the_new_name_wins_when_both_are_set_and_a_blank_one_counts_as_unset() {
+        let both = environment(&[
+            ("TELEGRAM_SERVICE_TOKEN", "new-secret"),
+            ("HUB_API_SERVICE_TOKEN", "old-secret"),
+        ]);
+        let blank = environment(&[
+            ("TELEGRAM_SERVICE_TOKEN", "   "),
+            ("HUB_API_SERVICE_TOKEN", "old-secret"),
+        ]);
+
+        assert_eq!(service_token(both).unwrap(), "new-secret");
+        assert_eq!(service_token(blank).unwrap(), "old-secret");
+    }
+
+    #[test]
+    fn without_either_name_the_error_asks_for_the_new_one() {
+        let error = service_token(environment(&[])).unwrap_err();
+
+        assert_eq!(error.0, "TELEGRAM_SERVICE_TOKEN must be set");
+    }
 
     #[test]
     fn the_memo_prefix_defaults_and_normalizes_to_bank_safe_text() {
