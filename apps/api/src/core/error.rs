@@ -23,9 +23,14 @@ pub(crate) struct GatewayAuthFailed;
 pub enum ApiError {
     Busy,
     Conflict,
+    /// Something with that identity already exists; the message says what.
+    Exists(&'static str),
     Forbidden,
     GatewayUnauthorized,
+    /// The wallet cannot cover the amount asked for.
+    InsufficientBalance,
     InvalidCredentials,
+    NotAvailable(&'static str),
     NotFound,
     Provider(String),
     RateLimited,
@@ -61,6 +66,13 @@ impl IntoResponse for ApiError {
                     message: "That username is already registered.".to_owned(),
                 },
             ),
+            Self::Exists(message) => (
+                StatusCode::CONFLICT,
+                ErrorResponse {
+                    code: "already_exists".to_owned(),
+                    message: message.to_owned(),
+                },
+            ),
             Self::Forbidden => (
                 StatusCode::FORBIDDEN,
                 ErrorResponse {
@@ -78,6 +90,20 @@ impl IntoResponse for ApiError {
                     },
                 )
             }
+            Self::InsufficientBalance => (
+                StatusCode::PAYMENT_REQUIRED,
+                ErrorResponse {
+                    code: "insufficient_balance".to_owned(),
+                    message: "Insufficient balance.".to_owned(),
+                },
+            ),
+            Self::NotAvailable(message) => (
+                StatusCode::NOT_IMPLEMENTED,
+                ErrorResponse {
+                    code: "not_available".to_owned(),
+                    message: message.to_owned(),
+                },
+            ),
             Self::InvalidCredentials => (
                 StatusCode::UNAUTHORIZED,
                 ErrorResponse {

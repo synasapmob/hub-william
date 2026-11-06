@@ -2,8 +2,9 @@ use super::*;
 
 fn request(provider: AgentProvider) -> PlaygroundChatRequest {
     PlaygroundChatRequest {
-        connection_id: Uuid::new_v4(),
+        connection_id: Some(Uuid::new_v4()),
         organization_id: None,
+        service: false,
         provider,
         model: "test-model".to_owned(),
         messages: vec![

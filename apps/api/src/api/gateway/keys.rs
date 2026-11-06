@@ -1,4 +1,9 @@
-//! Hub keys: create, list and revoke them, and authenticate a request by its key.
+//! Gateway keys: create, list and revoke them, and authenticate a request by its
+//! key. A key belongs to one product. A workspace key is served by its owner's
+//! own accounts and pools, and an organization key by the agents that
+//! organization shares; both cost nothing. A service key is served only by the
+//! platform's stock of accounts and is charged to its owner's service wallet. A
+//! request is told apart by the key it presents.
 
 use axum::{
     Json,
@@ -11,7 +16,7 @@ use chrono::{DateTime, Utc};
 use rand::RngCore;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use sqlx::FromRow;
+use sqlx::{FromRow, PgPool};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -20,6 +25,40 @@ use crate::{
     api::auth::authenticated_user_id,
     core::{ApiError, AppState},
 };
+
+/// The product a key belongs to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum KeyKind {
+    /// The Workspace's: the owner's own accounts and pools.
+    Workspace,
+    /// An organization's: the agents that organization shares.
+    Organization,
+    /// The Service's: the platform's stock, charged to the owner's wallet.
+    Service,
+    /// A ticket's: the one account its listing sold, free, until it expires.
+    Ticket,
+}
+
+impl KeyKind {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Workspace => "workspace",
+            Self::Organization => "organization",
+            Self::Service => "service",
+            Self::Ticket => "ticket",
+        }
+    }
+
+    /// What every key of this kind starts with, so a person can tell them apart.
+    fn prefix(self) -> &'static str {
+        match self {
+            Self::Workspace => "hw_live_",
+            Self::Organization => "hw_org_",
+            Self::Service => "hw_svc_",
+            Self::Ticket => "hw_tkt_",
+        }
+    }
+}
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct GatewayKey {
@@ -49,6 +88,146 @@ pub(super) struct AuthorizedGatewayKey {
     pub(super) id: Uuid,
     pub(super) user_id: Uuid,
     pub(super) organization_id: Option<Uuid>,
+    kind: String,
+}
+
+impl AuthorizedGatewayKey {
+    /// Whether the key is a service key.
+    pub(super) fn is_service(&self) -> bool {
+        self.kind == KeyKind::Service.as_str()
+    }
+}
+
+/// Creates a key of `kind` for `user_id` and returns it; the key itself is shown
+/// only here, since only its hash is kept. An organization key names its
+/// organization, and no other kind does.
+pub(crate) async fn create_key_of_kind(
+    pool: &PgPool,
+    user_id: Uuid,
+    kind: KeyKind,
+    organization_id: Option<Uuid>,
+) -> Result<CreatedGatewayKey, ApiError> {
+    let key = generate_gateway_key(kind);
+    let key_hash = hash_gateway_key(&key);
+    let last_four: String = key
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+    let row = sqlx::query_as::<_, GatewayKeyRow>(
+        "INSERT INTO gateway_keys (id, user_id, key_hash, last_four, kind, organization_id)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id, last_four, created_at, last_used_at",
+    )
+    .bind(Uuid::new_v4())
+    .bind(user_id)
+    .bind(key_hash)
+    .bind(last_four)
+    .bind(kind.as_str())
+    .bind(organization_id)
+    .fetch_one(pool)
+    .await
+    .map_err(database_error)?;
+
+    Ok(CreatedGatewayKey {
+        metadata: gateway_key_from_row(row),
+        key,
+    })
+}
+
+/// Makes the key a customer gets for the ticket `listing_id`, inside the
+/// transaction that charges them for it, so a key never exists without its sale. It
+/// belongs to `user_id` and stops working at `expires_at`; it is shown once, here.
+pub(crate) async fn create_ticket_key(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    user_id: Uuid,
+    listing_id: Uuid,
+    expires_at: DateTime<Utc>,
+) -> Result<CreatedGatewayKey, ApiError> {
+    let key = generate_gateway_key(KeyKind::Ticket);
+    let last_four: String = key
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+    let row = sqlx::query_as::<_, GatewayKeyRow>(
+        "INSERT INTO gateway_keys (id, user_id, key_hash, last_four, kind, listing_id, expires_at)
+         VALUES ($1, $2, $3, $4, 'ticket', $5, $6)
+         RETURNING id, last_four, created_at, last_used_at",
+    )
+    .bind(Uuid::new_v4())
+    .bind(user_id)
+    .bind(hash_gateway_key(&key))
+    .bind(last_four)
+    .bind(listing_id)
+    .bind(expires_at)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(database_error)?;
+
+    Ok(CreatedGatewayKey {
+        metadata: gateway_key_from_row(row),
+        key,
+    })
+}
+
+/// The active keys of `kind` that `user_id` owns, newest first; for an
+/// organization, those of that organization.
+pub(crate) async fn list_keys_of_kind(
+    pool: &PgPool,
+    user_id: Uuid,
+    kind: KeyKind,
+    organization_id: Option<Uuid>,
+) -> Result<Vec<GatewayKey>, ApiError> {
+    let rows = sqlx::query_as::<_, GatewayKeyRow>(
+        "SELECT id, last_four, created_at, last_used_at
+         FROM gateway_keys
+         WHERE user_id = $1 AND kind = $2 AND revoked_at IS NULL
+           AND organization_id IS NOT DISTINCT FROM $3
+         ORDER BY created_at DESC",
+    )
+    .bind(user_id)
+    .bind(kind.as_str())
+    .bind(organization_id)
+    .fetch_all(pool)
+    .await
+    .map_err(database_error)?;
+
+    Ok(rows.into_iter().map(gateway_key_from_row).collect())
+}
+
+/// Revokes a key of `kind` that `user_id` owns (in that organization, for an
+/// organization key); a key of another kind is not found.
+pub(crate) async fn revoke_key_of_kind(
+    pool: &PgPool,
+    user_id: Uuid,
+    key_id: Uuid,
+    kind: KeyKind,
+    organization_id: Option<Uuid>,
+) -> Result<(), ApiError> {
+    let result = sqlx::query(
+        "UPDATE gateway_keys SET revoked_at = NOW()
+         WHERE id = $1 AND user_id = $2 AND kind = $3 AND revoked_at IS NULL
+           AND organization_id IS NOT DISTINCT FROM $4",
+    )
+    .bind(key_id)
+    .bind(user_id)
+    .bind(kind.as_str())
+    .bind(organization_id)
+    .execute(pool)
+    .await
+    .map_err(database_error)?;
+    if result.rows_affected() == 0 {
+        return Err(ApiError::NotFound);
+    }
+
+    Ok(())
 }
 
 #[utoipa::path(
@@ -86,36 +265,9 @@ pub async fn create_key(
         return Err(ApiError::NotFound);
     }
 
-    let key = generate_gateway_key();
-    let key_hash = hash_gateway_key(&key);
-    let last_four: String = key
-        .chars()
-        .rev()
-        .take(4)
-        .collect::<String>()
-        .chars()
-        .rev()
-        .collect();
-    let id = Uuid::new_v4();
-    let row = sqlx::query_as::<_, GatewayKeyRow>(
-        "INSERT INTO gateway_keys (id, user_id, key_hash, last_four)
-         VALUES ($1, $2, $3, $4)
-         RETURNING id, last_four, created_at, last_used_at",
-    )
-    .bind(id)
-    .bind(user_id)
-    .bind(key_hash)
-    .bind(last_four)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(database_error)?;
-
     Ok((
         StatusCode::CREATED,
-        Json(CreatedGatewayKey {
-            metadata: gateway_key_from_row(row)?,
-            key,
-        }),
+        Json(create_key_of_kind(&state.pool, user_id, KeyKind::Workspace, None).await?),
     ))
 }
 
@@ -133,22 +285,10 @@ pub async fn list_keys(
     jar: CookieJar,
 ) -> Result<Json<Vec<GatewayKey>>, ApiError> {
     let user_id = authenticated_user_id(&state, &jar).await?;
-    let rows = sqlx::query_as::<_, GatewayKeyRow>(
-        "SELECT id, last_four, created_at, last_used_at
-         FROM gateway_keys
-         WHERE gateway_keys.user_id = $1 AND gateway_keys.revoked_at IS NULL
-         ORDER BY gateway_keys.created_at DESC",
-    )
-    .bind(user_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(database_error)?;
-    let keys = rows
-        .into_iter()
-        .map(gateway_key_from_row)
-        .collect::<Result<Vec<_>, _>>()?;
 
-    Ok(Json(keys))
+    Ok(Json(
+        list_keys_of_kind(&state.pool, user_id, KeyKind::Workspace, None).await?,
+    ))
 }
 
 #[utoipa::path(
@@ -167,23 +307,12 @@ pub async fn revoke_key(
     Path(key_id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
     let user_id = authenticated_user_id(&state, &jar).await?;
-    let result = sqlx::query(
-        "UPDATE gateway_keys SET revoked_at = NOW()
-         WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL",
-    )
-    .bind(key_id)
-    .bind(user_id)
-    .execute(&state.pool)
-    .await
-    .map_err(database_error)?;
-    if result.rows_affected() == 0 {
-        return Err(ApiError::NotFound);
-    }
+    revoke_key_of_kind(&state.pool, user_id, key_id, KeyKind::Workspace, None).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// The gateway key a request presents, if it is shaped like one.
+/// The gateway key a request presents, if it is shaped like one of either kind.
 pub(crate) fn gateway_key_from_headers(headers: &HeaderMap) -> Option<&str> {
     headers
         .get(header::AUTHORIZATION)
@@ -194,7 +323,17 @@ pub(crate) fn gateway_key_from_headers(headers: &HeaderMap) -> Option<&str> {
                 .get("x-goog-api-key")
                 .and_then(|value| value.to_str().ok())
         })
-        .filter(|value| value.starts_with("hw_live_") && value.len() > 24)
+        .filter(|value| {
+            value.len() > 24
+                && [
+                    KeyKind::Workspace,
+                    KeyKind::Organization,
+                    KeyKind::Service,
+                    KeyKind::Ticket,
+                ]
+                .iter()
+                .any(|kind| value.starts_with(kind.prefix()))
+        })
 }
 
 pub(super) async fn authorize_gateway_key(
@@ -204,8 +343,9 @@ pub(super) async fn authorize_gateway_key(
     let key = gateway_key_from_headers(headers).ok_or(ApiError::GatewayUnauthorized)?;
     let key_hash = hash_gateway_key(key);
     let authorized = sqlx::query_as::<_, AuthorizedGatewayKey>(
-        "SELECT id, user_id, organization_id FROM gateway_keys
-         WHERE key_hash = $1 AND revoked_at IS NULL",
+        "SELECT id, user_id, organization_id, kind FROM gateway_keys
+         WHERE key_hash = $1 AND revoked_at IS NULL
+           AND (expires_at IS NULL OR expires_at > NOW())",
     )
     .bind(key_hash)
     .fetch_optional(&state.pool)
@@ -221,19 +361,19 @@ pub(super) async fn authorize_gateway_key(
     Ok(authorized)
 }
 
-fn gateway_key_from_row(row: GatewayKeyRow) -> Result<GatewayKey, ApiError> {
-    Ok(GatewayKey {
+fn gateway_key_from_row(row: GatewayKeyRow) -> GatewayKey {
+    GatewayKey {
         created_at: row.created_at,
         id: row.id,
         last_four: row.last_four,
         last_used_at: row.last_used_at,
-    })
+    }
 }
 
-fn generate_gateway_key() -> String {
+fn generate_gateway_key(kind: KeyKind) -> String {
     let mut secret = [0_u8; 32];
     rand::thread_rng().fill_bytes(&mut secret);
-    format!("hw_live_{}", URL_SAFE_NO_PAD.encode(secret))
+    format!("{}{}", kind.prefix(), URL_SAFE_NO_PAD.encode(secret))
 }
 
 pub(super) fn hash_gateway_key(key: &str) -> Vec<u8> {

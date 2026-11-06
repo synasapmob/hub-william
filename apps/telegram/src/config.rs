@@ -88,7 +88,7 @@ impl AppConfig {
             env::var("HUB_API_INTERNAL_URL").unwrap_or_else(|_| "http://localhost:8080".to_owned());
         let api_internal_url = Url::parse(&api_internal_url)
             .map_err(|_| ConfigError("HUB_API_INTERNAL_URL must be a valid HTTP URL".to_owned()))?;
-        let api_service_token = required_secret("HUB_API_SERVICE_TOKEN")?;
+        let api_service_token = required_secret("TELEGRAM_SERVICE_TOKEN")?;
         let bot_token = required_secret("TELEGRAM_BOT_TOKEN")?;
         let webhook_secret = required_secret("TELEGRAM_WEBHOOK_SECRET")?;
         let telegram_api_base_url = env::var("TELEGRAM_API_BASE_URL")

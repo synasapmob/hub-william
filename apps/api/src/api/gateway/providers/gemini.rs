@@ -34,6 +34,7 @@ use crate::{
             upstream_network_error,
             usage::{UsageEvent, UsageObserver, UsageOutcome, quota_snapshot, usage_event},
         },
+        service,
     },
     core::{ApiError, AppState},
     utils::provider_catalogue::AgentProvider,
@@ -339,6 +340,15 @@ pub(crate) async fn gemini_proxy_request_for_user(
     operation: GeminiOperation,
     body: Bytes,
 ) -> Result<Response, ApiError> {
+    if !matches!(operation, GeminiOperation::CountTokens) {
+        service::authorize_request(
+            &state.pool,
+            selection.service.then_some(selection.user_id),
+            AgentProvider::Gemini,
+            Some(model),
+        )
+        .await?;
+    }
     let candidates = selected_provider_candidates(state, selection, AgentProvider::Gemini).await?;
     let request_body: Value = serde_json::from_slice(&body)
         .map_err(|_| ApiError::Validation("The Gemini request body must be valid JSON."))?;

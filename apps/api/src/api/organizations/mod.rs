@@ -26,6 +26,8 @@ pub(crate) use routes::{OrganizationsApi, routes};
 const DEFAULT_PERIOD_DAYS: i64 = 30;
 const MAX_PERIOD_DAYS: i64 = 365;
 
+mod keys;
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct Organization {
     pub id: Uuid,
