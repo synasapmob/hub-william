@@ -129,6 +129,61 @@ class GatewayKeysService {
       if (result.error) throw gatewayKeyError(result.error);
     });
   }
+
+  /**
+   * Create a key that works only with the agents shared with an organization.
+   * The full key is only returned here.
+   */
+  async createForOrganization(
+    organizationId: string,
+  ): Promise<CreatedGatewayKey> {
+    return this.guard(async () => {
+      const result = await this.request(() =>
+        this.client.POST("/organizations/{id}/gateway-keys", {
+          params: { path: { id: organizationId } },
+        }),
+      );
+
+      if (!result.data) throw gatewayKeyError(result.error);
+
+      return createdGatewayKeyFromApi(result.data);
+    });
+  }
+
+  /**
+   * List the signed-in member's own keys of an organization
+   */
+  async listForOrganization(organizationId: string): Promise<GatewayKey[]> {
+    return this.guard(async () => {
+      const result = await this.request(() =>
+        this.client.GET("/organizations/{id}/gateway-keys", {
+          params: { path: { id: organizationId } },
+        }),
+      );
+
+      if (!result.data) throw gatewayKeyError(result.error);
+
+      return result.data.map(gatewayKeyFromApi);
+    });
+  }
+
+  /**
+   * Revoke one of the member's organization keys
+   */
+  async revokeForOrganization(
+    organizationId: string,
+    keyId: string,
+  ): Promise<void> {
+    return this.guard(async () => {
+      const result = await this.request(() =>
+        this.client.DELETE("/organizations/{id}/gateway-keys/{key_id}", {
+          params: { path: { id: organizationId, key_id: keyId } },
+        }),
+      );
+
+      if (result.error) throw gatewayKeyError(result.error);
+    });
+  }
 }
 
 export const gatewayKeysService = new GatewayKeysService();

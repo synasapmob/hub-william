@@ -125,4 +125,85 @@ describe("AgentsGatewayKeyDialog", () => {
     ).not.toBeInTheDocument();
     expect(screen.getByText("1 active")).toBeVisible();
   });
+
+  it("keeps an organization's keys apart: its own endpoints, its own prefix", async () => {
+    const requests: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = requestFrom(input, init);
+        requests.push(`${request.method} ${request.pathname}`);
+        if (request.pathname === "/auth/session") {
+          return jsonResponse({
+            user: { id: "user-1", recovery_email: null, username: "syn" },
+          });
+        }
+        if (
+          request.pathname === "/organizations/team/gateway-keys" &&
+          request.method === "GET"
+        ) {
+          return jsonResponse([
+            {
+              created_at: "2026-09-09T11:40:00Z",
+              id: "40d0307e-67ce-40d7-8015-c8608380ed5b",
+              last_four: "wxyz",
+              last_used_at: null,
+            },
+          ]);
+        }
+        if (
+          request.pathname === "/organizations/team/gateway-keys" &&
+          request.method === "POST"
+        ) {
+          return jsonResponse(
+            {
+              created_at: "2026-09-09T11:50:00Z",
+              id: "50e1408f-78df-41e8-8026-d9719491fe6c",
+              key: "hw_org_once-only-secret",
+              last_four: "cret",
+              last_used_at: null,
+            },
+            201,
+          );
+        }
+        return jsonResponse({ message: "Not found" }, 404);
+      }),
+    );
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={createQueryClient()}>
+          <WorkspaceShellSession>
+            <AgentsGatewayKeyDialog
+              organization={{ id: "team", name: "Team Mây" }}
+            />
+          </WorkspaceShellSession>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    const user = userEvent.setup();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Gateway Key" })).toBeEnabled(),
+    );
+    await user.click(screen.getByRole("button", { name: "Gateway Key" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Organization API key" }),
+    ).toBeVisible();
+    expect(await screen.findByText("hw_org_********wxyz")).toBeVisible();
+    expect(
+      screen.getByText(/only with the agents shared with Team Mây/),
+    ).toBeVisible();
+
+    await user.click(
+      screen.getByRole("button", { name: "Create gateway key" }),
+    );
+
+    expect(
+      await screen.findByDisplayValue("hw_org_once-only-secret"),
+    ).toBeVisible();
+    expect(screen.getByText("hw_org_********cret")).toBeVisible();
+    expect(requests).not.toContain("GET /gateway-keys");
+    expect(requests).not.toContain("POST /gateway-keys");
+  });
 });

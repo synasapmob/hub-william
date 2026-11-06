@@ -27,6 +27,8 @@ import playgroundWhisperTurnService from "@/services/playground/playground-whisp
 import playgroundSpeechPreload from "@/services/playground/playground-speech-preload";
 import playgroundVoiceService from "@/services/playground/playground-voice";
 import { providerCatalogueService } from "@/services/provider-catalogue/provider-catalogue-service";
+import { serviceBillingService } from "@/services/service-billing/service-billing-service";
+import type { ServicePricing } from "@/services/service-billing/service-billing-types";
 import createQueryClient from "@/utils/utils.query-client";
 
 import PlaygroundRoute from "./route";
@@ -83,6 +85,36 @@ const account = {
   requests: [],
   availability: { status: "active" },
 } as unknown as AgentPool;
+const servicePricing: ServicePricing = {
+  currency: "USD",
+  minBalanceMicro: 50_000,
+  providers: [
+    {
+      available: true,
+      label: "ChatGPT",
+      provider: "chatgpt",
+      models: [
+        {
+          id: "gpt-6-sol",
+          name: "GPT-6 Sol",
+          price: {
+            cachedMicroPerMillion: 60_000,
+            inputMicroPerMillion: 600_000,
+            outputMicroPerMillion: 4_700_000,
+          },
+        },
+      ],
+    },
+    {
+      available: false,
+      label: "Gemini",
+      provider: "gemini",
+      models: [],
+    },
+  ],
+  cardTopUp: false,
+  testTopUp: false,
+};
 const openAuth = vi.fn();
 afterEach(() => {
   cleanup();
@@ -590,7 +622,7 @@ describe("Playground conversation flow", () => {
         .getAllByRole("combobox")
         .map((element) => element.getAttribute("id")),
     ).toEqual([
-      "playground-organization",
+      "playground-kind",
       "playground-mode",
       "playground-provider",
       "playground-account",
@@ -833,7 +865,20 @@ describe("Playground conversation flow", () => {
     await user.click(screen.getByLabelText("Provider"));
     expect(
       screen.getAllByRole("option").map((option) => option.textContent),
-    ).toEqual(["ChatGPT (1)", "Gemini (1)", "Groq (1)"]);
+    ).toEqual([
+      "ChatGPT (1)",
+      "Claude · unavailable",
+      "Gemini (1)",
+      "Grok · unavailable",
+      "DeepSeek · unavailable",
+      "Groq (1)",
+    ]);
+    expect(
+      screen.getByRole("option", { name: "Claude · unavailable" }),
+    ).toHaveAttribute("aria-disabled", "true");
+    expect(
+      screen.getByRole("option", { name: "ChatGPT (1)" }),
+    ).not.toHaveAttribute("aria-disabled");
     await user.keyboard("{Escape}");
     await chooseOption(user, "Mode", "Call Live");
     await user.click(screen.getByLabelText("Provider"));
@@ -862,7 +907,14 @@ describe("Playground conversation flow", () => {
     await user.click(screen.getByLabelText("Provider"));
     expect(
       screen.getAllByRole("option").map((option) => option.textContent),
-    ).toEqual(["ChatGPT (1)", "Gemini (1)", "Groq (1)"]);
+    ).toEqual([
+      "ChatGPT (1)",
+      "Claude · unavailable",
+      "Gemini (1)",
+      "Grok · unavailable",
+      "DeepSeek · unavailable",
+      "Groq (1)",
+    ]);
     await user.keyboard("{Escape}");
     expect(start).toHaveBeenCalledOnce();
     await user.click(screen.getByRole("button", { name: "Start call" }));
@@ -1171,7 +1223,7 @@ describe("Playground conversation flow", () => {
   });
 
   it.each(["Call Live"])(
-    "hides providers without accessible %s accounts and restores chat providers",
+    "lists providers without accessible %s accounts as unavailable and restores chat providers",
     async (label) => {
       const start = vi.spyOn(playgroundVoiceService, "start");
       const user = userEvent.setup();
@@ -1181,7 +1233,7 @@ describe("Playground conversation flow", () => {
       expect(screen.getByLabelText("Provider")).toHaveTextContent(
         "No providers available",
       );
-      expect(screen.getByLabelText("Provider")).toBeDisabled();
+      expect(screen.getByLabelText("Provider")).toBeEnabled();
       expect(screen.getAllByText("Sign in to continue")).toHaveLength(2);
       expect(screen.getByLabelText("Account")).toHaveTextContent(
         "Sign in to continue",
@@ -1192,14 +1244,24 @@ describe("Playground conversation flow", () => {
       expect(screen.getByRole("button", { name: "Start call" })).toBeDisabled();
       expect(screen.queryByLabelText("Message")).not.toBeInTheDocument();
       await user.click(screen.getByLabelText("Provider"));
-      expect(screen.queryAllByRole("option")).toHaveLength(0);
+      expect(
+        screen.getAllByRole("option").map((option) => option.textContent),
+      ).toEqual(["ChatGPT · unavailable"]);
+      expect(screen.getByRole("option")).toHaveAttribute(
+        "aria-disabled",
+        "true",
+      );
+      await user.keyboard("{Escape}");
       expect(playgroundService.models).toHaveBeenCalledTimes(1);
       await chooseOption(user, "Mode", "Chat");
       await user.click(screen.getByLabelText("Provider"));
-      expect(screen.getAllByRole("option")).toHaveLength(1);
+      expect(screen.getAllByRole("option")).toHaveLength(6);
       expect(
         screen.getByRole("option", { name: "DeepSeek (1)" }),
       ).toBeVisible();
+      expect(
+        screen.getByRole("option", { name: "ChatGPT · unavailable" }),
+      ).toHaveAttribute("aria-disabled", "true");
       expect(start).not.toHaveBeenCalled();
       expect(playgroundService.models).toHaveBeenCalledTimes(2);
       expect(
@@ -1287,7 +1349,7 @@ describe("Playground conversation flow", () => {
       expect(screen.getByLabelText("Provider")).toHaveTextContent(
         "No providers available",
       );
-      expect(screen.getByLabelText("Provider")).toBeDisabled();
+      expect(screen.getByLabelText("Provider")).toBeEnabled();
       expect(screen.getAllByText("Sign in to continue")).toHaveLength(2);
       expect(screen.getByLabelText("Account")).toBeDisabled();
       expect(screen.getByLabelText("Model")).toBeDisabled();
@@ -1331,7 +1393,7 @@ describe("Playground conversation flow", () => {
   it("keeps a guest draft through authentication and loads only accessible models", async () => {
     const user = userEvent.setup();
     render(<Harness guest />);
-    expect(screen.getByLabelText("Provider")).toBeDisabled();
+    expect(screen.getByLabelText("Kind")).toHaveTextContent("Workspace");
     expect(screen.getByLabelText("Account")).toBeDisabled();
     expect(screen.getAllByText("Sign in to continue")).toHaveLength(2);
     const composer = screen.getByRole("group", { name: "Message composer" });
@@ -1360,8 +1422,10 @@ describe("Playground conversation flow", () => {
     expect(
       screen.queryByRole("option", { name: "ChatGPT (0)" }),
     ).not.toBeInTheDocument();
-    expect(screen.getAllByRole("option")).toHaveLength(1);
     expect(screen.getByRole("option", { name: "DeepSeek (1)" })).toBeVisible();
+    expect(
+      screen.getByRole("option", { name: "ChatGPT · unavailable" }),
+    ).toHaveAttribute("aria-disabled", "true");
     await user.keyboard("{Escape}");
     await user.click(screen.getByRole("button", { name: "Send message" }));
     expect(
@@ -1568,8 +1632,8 @@ describe("Playground conversation flow", () => {
 
     await user.click(screen.getByLabelText("Provider"));
     expect(
-      screen.queryByRole("option", { name: /Grok/ }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("option", { name: "Grok · unavailable" }),
+    ).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByRole("option", { name: "Gemini (2)" })).toBeVisible();
     await user.keyboard("{Escape}");
     await chooseOption(user, "Provider", "ChatGPT");
@@ -1766,14 +1830,17 @@ describe("Playground conversation flow", () => {
     render(<Harness />);
 
     await waitFor(() => expect(organizationsService.list).toHaveBeenCalled());
+    expect(
+      screen.queryByRole("combobox", { name: "Organization" }),
+    ).not.toBeInTheDocument();
+    await chooseOption(user, "Kind", "Organization");
     await chooseOption(user, "Organization", "Team Mây");
     await chooseOption(user, "Provider", "DeepSeek");
     await user.click(screen.getByLabelText("Provider"));
-    expect(screen.getAllByRole("option")).toHaveLength(1);
     expect(screen.getByRole("option", { name: "DeepSeek (1)" })).toBeVisible();
     expect(
-      screen.queryByRole("option", { name: /Groq/ }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("option", { name: "Groq · unavailable" }),
+    ).toHaveAttribute("aria-disabled", "true");
     await user.keyboard("{Escape}");
     await waitFor(() =>
       expect(
@@ -1808,5 +1875,141 @@ describe("Playground conversation flow", () => {
       }),
     );
     expect(organizationsService.agents).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true])(
+    "always renders the Kind select with Workspace, Organization and Service (guest: %s)",
+    async (guest) => {
+      const user = userEvent.setup();
+      render(<Harness guest={guest} />);
+
+      expect(screen.getByLabelText("Kind")).toHaveTextContent("Workspace");
+      expect(
+        screen.queryByRole("combobox", { name: "Organization" }),
+      ).not.toBeInTheDocument();
+
+      await user.click(screen.getByLabelText("Kind"));
+      expect(
+        screen.getAllByRole("option").map((option) => option.textContent),
+      ).toEqual(["Workspace", "Organization", "Service"]);
+    },
+  );
+
+  it("renders the Organization select for the Organization kind and says when there is none", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    await chooseOption(user, "Kind", "Organization");
+
+    expect(screen.getByLabelText("Organization")).toHaveTextContent(
+      "No organizations",
+    );
+    expect(screen.getByLabelText("Organization")).toBeDisabled();
+    expect(
+      await screen.findByText("You are not in an organization yet."),
+    ).toBeVisible();
+    await user.click(screen.getByLabelText("Provider"));
+    expect(
+      screen.getAllByRole("option").map((option) => option.textContent),
+    ).toEqual([
+      "ChatGPT · unavailable",
+      "Claude · unavailable",
+      "Gemini · unavailable",
+      "Grok · unavailable",
+      "DeepSeek · unavailable",
+      "Groq · unavailable",
+    ]);
+    expect(
+      screen
+        .getAllByRole("option")
+        .every((option) => option.getAttribute("aria-disabled") === "true"),
+    ).toBe(true);
+  });
+
+  it("asks a guest to sign in under the Organization kind", async () => {
+    const user = userEvent.setup();
+    render(<Harness guest />);
+
+    await chooseOption(user, "Kind", "Organization");
+
+    expect(screen.getByLabelText("Organization")).toHaveTextContent(
+      "Sign in to continue",
+    );
+    expect(screen.getByLabelText("Organization")).toBeDisabled();
+  });
+
+  it("chats through the Service kind with the platform stock and no account", async () => {
+    vi.spyOn(serviceBillingService, "pricing").mockResolvedValue(
+      servicePricing,
+    );
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    await chooseOption(user, "Kind", "Service");
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Provider")).toHaveTextContent("ChatGPT"),
+    );
+    expect(screen.queryByLabelText("Account")).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByLabelText("Model")).toHaveTextContent("GPT-6 Sol"),
+    );
+    // The Workspace kind loaded its own models before the switch.
+    vi.mocked(playgroundService.models).mockClear();
+    await user.click(screen.getByLabelText("Provider"));
+    expect(
+      screen.getByRole("option", { name: "Gemini · unavailable" }),
+    ).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("option", { name: "ChatGPT" })).not.toHaveAttribute(
+      "aria-disabled",
+    );
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByLabelText("Mode"));
+    expect(screen.getByRole("option", { name: "Chat" })).toBeVisible();
+    expect(screen.getByRole("option", { name: "Call Live" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    await user.keyboard("{Escape}");
+
+    await user.type(screen.getByLabelText("Message"), "Hello service");
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+    await screen.findByText("Completed");
+
+    expect(playgroundService.models).not.toHaveBeenCalled();
+    expect(playgroundService.chat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionId: undefined,
+        model: "gpt-6-sol",
+        organizationId: undefined,
+        provider: "chatgpt",
+        service: true,
+      }),
+    );
+  });
+
+  it("lists every provider as unavailable when the platform stock is empty", async () => {
+    vi.spyOn(serviceBillingService, "pricing").mockResolvedValue({
+      ...servicePricing,
+      providers: servicePricing.providers.map((entry) => ({
+        ...entry,
+        available: false,
+      })),
+    });
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    await chooseOption(user, "Kind", "Service");
+    await waitFor(() =>
+      expect(screen.getByLabelText("Provider")).toHaveTextContent(
+        "No providers available",
+      ),
+    );
+    await user.click(screen.getByLabelText("Provider"));
+
+    expect(
+      screen.getByRole("option", { name: "ChatGPT · unavailable" }),
+    ).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByLabelText("Kind")).toHaveTextContent("Service");
   });
 });

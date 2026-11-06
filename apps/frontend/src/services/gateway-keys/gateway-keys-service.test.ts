@@ -80,4 +80,55 @@ describe("gatewayKeysService", () => {
       message: "The gateway key service is unavailable.",
     });
   });
+
+  it("keeps an organization's keys under the organization's own endpoints", async () => {
+    const fetchMock = vi
+      .fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
+      .mockResolvedValueOnce(jsonResponse([apiKey]))
+      .mockResolvedValueOnce(
+        jsonResponse({ ...apiKey, key: "hw_org_once-only-secret" }, 201),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      gatewayKeysService.listForOrganization("org-1"),
+    ).resolves.toHaveLength(1);
+    await expect(
+      gatewayKeysService.createForOrganization("org-1"),
+    ).resolves.toMatchObject({
+      key: "hw_org_once-only-secret",
+      lastFour: "a1b2",
+    });
+    await gatewayKeysService.revokeForOrganization("org-1", "key-1");
+
+    expect(
+      fetchMock.mock.calls.map(([input, init]) => {
+        const request = input instanceof Request ? input : null;
+        return `${init?.method ?? request?.method ?? "GET"} ${pathnameOf(input)}`;
+      }),
+    ).toEqual([
+      "GET /organizations/org-1/gateway-keys",
+      "POST /organizations/org-1/gateway-keys",
+      "DELETE /organizations/org-1/gateway-keys/key-1",
+    ]);
+  });
+
+  it("reports the API message when an organization key is refused", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockImplementation(async () =>
+          jsonResponse(
+            { code: "forbidden", message: "You are not in this organization." },
+            403,
+          ),
+        ),
+    );
+
+    await expect(
+      gatewayKeysService.createForOrganization("org-1"),
+    ).rejects.toMatchObject({ message: "You are not in this organization." });
+  });
 });
