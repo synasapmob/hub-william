@@ -26,6 +26,7 @@ use crate::{
     api::{
         agent::{CredentialLookup, gateway_credential, recover_rejected_credential},
         gateway::providers::gemini::{GeminiOperation, gemini_proxy_request_for_user},
+        service,
     },
     core::{ApiError, AppState},
     utils::provider_catalogue::AgentProvider,
@@ -44,6 +45,26 @@ pub(crate) async fn response_for_user(
         user_id,
         connection_id: Some(connection_id),
         organization_id: None,
+        service: false,
+    };
+    response_for_selection(state, selection, provider, model, body).await
+}
+
+/// A Playground chat in the Service's scope: served by the platform's stock, held
+/// to the price list and charged to the user's wallet, like a service key's.
+pub(crate) async fn response_for_service_user(
+    state: &AppState,
+    user_id: Uuid,
+    provider: AgentProvider,
+    model: &str,
+    body: Bytes,
+) -> Result<Response, ApiError> {
+    let selection = GatewaySelection {
+        key_id: None,
+        user_id,
+        connection_id: None,
+        organization_id: None,
+        service: true,
     };
     response_for_selection(state, selection, provider, model, body).await
 }
@@ -64,6 +85,7 @@ pub(crate) async fn response_for_organization_user(
             user_id,
             connection_id: Some(connection_id),
             organization_id: Some(organization_id),
+            service: false,
         },
         provider,
         model,
@@ -220,6 +242,17 @@ pub(super) async fn proxy_request_for_user(
     body: Bytes,
 ) -> Result<Response, ApiError> {
     let expected_provider = upstream.provider;
+    // A key that pays from the wallet needs a model the service sells and a
+    // balance before anything is sent to the provider.
+    if method == Method::POST && upstream.url != CLAUDE_COUNT_TOKENS_URL {
+        service::authorize_request(
+            &state.pool,
+            selection.service.then_some(selection.user_id),
+            expected_provider,
+            request_model(&body).as_deref(),
+        )
+        .await?;
+    }
     let candidates = selected_provider_candidates(state, selection, expected_provider).await?;
     let upstream_url = append_query(upstream.url, original_uri.query());
     let mut saw_rate_limit = false;

@@ -12,6 +12,7 @@ use crate::{
 
 use super::{
     accept_invitation, create_organization, decline_invitation, delete_organization, invite_member,
+    keys::{create_organization_key, list_organization_keys, revoke_organization_key},
     leave_organization, list_agents, list_invitations, list_members, list_organization_summaries,
     list_organizations, overview, remove_member, set_default_organization, share_agent,
     unshare_agent, usage,
@@ -66,9 +67,17 @@ pub(crate) fn routes(state: &AppState) -> Router<AppState> {
         )
         .route(
             "/organizations/{id}/members/{username}",
-            delete(remove_member).layer(write),
+            delete(remove_member).layer(write.clone()),
         )
         .route("/organizations/{id}/usage", get(usage))
+        .route(
+            "/organizations/{id}/gateway-keys",
+            get(list_organization_keys).merge(post(create_organization_key).layer(write.clone())),
+        )
+        .route(
+            "/organizations/{id}/gateway-keys/{key_id}",
+            delete(revoke_organization_key).layer(write),
+        )
 }
 
 #[derive(OpenApi)]
@@ -90,7 +99,10 @@ pub(crate) fn routes(state: &AppState) -> Router<AppState> {
         super::list_members,
         super::invite_member,
         super::remove_member,
-        super::usage
+        super::usage,
+        super::keys::create_organization_key,
+        super::keys::list_organization_keys,
+        super::keys::revoke_organization_key
     ),
     components(schemas(
         super::CreateOrganization,

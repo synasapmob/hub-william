@@ -9,20 +9,21 @@ what it describes.
 
 ## What runs where
 
-| Part            | Technology                                   | Role                                                                                                                                                   |
-| --------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `apps/frontend` | React Router SPA, TypeScript                 | Home, Tools, Agents, Organization and Playground. Built to static files and served by nginx.                                                           |
-| `infra/nginx`   | nginx                                        | Public edge. Serves the static build and proxies `/api/` to the private API, except `/api/internal` and `/api/internal/*`, which answer 404.           |
-| `apps/api`      | Rust, PostgreSQL                             | Authentication, provider connections, pools, organizations, usage, Tools backends (reel, text to audio) and the streaming gateway, all in one process. |
-| `apps/telegram` | Rust                                         | Telegram shop webhook adapter. Has no database and calls the API under `/internal/telegram/*`.                                                         |
-| `contributors/` | Markdown and scripts                         | Tool sources. The frontend build reads them and publishes them under `/catalog/`.                                                                      |
-| Browser workers | Whisper, Silero, Piper, Vosk                 | Speech recognition, voice activity detection and speech output run on the user's machine and upload no audio.                                          |
-| Local agents    | Codex, Claude Code, AGY, Grok, OpenCode, OMP | Configured by the installers to call the gateway with a Hub key.                                                                                       |
+| Part             | Technology                                   | Role                                                                                                                                                           |
+| ---------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/frontend`  | React Router SPA, TypeScript                 | Home, Tools, Agents, Organization and Playground. Built to static files and served by nginx.                                                                   |
+| `apps/dashboard` | React Router SPA, TypeScript                 | Sales dashboard for the shop and its staff: orders, stock, history, revenue, staff, and the tickets Hub William sells. Calls `/dashboard/*`. Not deployed yet. |
+| `infra/nginx`    | nginx                                        | Public edge. Serves the static build and proxies `/api/` to the private API, except `/api/internal` and `/api/internal/*`, which answer 404.                   |
+| `apps/api`       | Rust, PostgreSQL                             | Authentication, provider connections, pools, organizations, usage, Tools backends (reel, text to audio) and the streaming gateway, all in one process.         |
+| `apps/telegram`  | Rust                                         | Telegram shop webhook adapter. Has no database and calls the API under `/internal/telegram/*`.                                                                 |
+| `contributors/`  | Markdown and scripts                         | Tool sources. The frontend build reads them and publishes them under `/catalog/`.                                                                              |
+| Browser workers  | Whisper, Silero, Piper, Vosk                 | Speech recognition, voice activity detection and speech output run on the user's machine and upload no audio.                                                  |
+| Local agents     | Codex, Claude Code, AGY, Grok, OpenCode, OMP | Configured by the installers to call the gateway with a Hub key.                                                                                               |
 
 The gateway is a module of the API (`apps/api/src/api/gateway/`), merged into
 the same router. Playground calls it in-process, so a prompt makes no extra
 network hop. Cargo has no workspace: `apps/api` and `apps/telegram` are separate
-projects, and `pnpm-workspace.yaml` lists only `apps/frontend`.
+projects, and `pnpm-workspace.yaml` lists `apps/frontend` and `apps/dashboard`.
 
 ## How a request travels
 
@@ -64,6 +65,8 @@ projects, and `pnpm-workspace.yaml` lists only `apps/frontend`.
 | [Playground](./architecture/playground.md)                 | Chat, Call Live and Call Whisper: eligibility, setup, limits.                                |
 | [Speech](./architecture/speech.md)                         | Browser-local speech pipeline, recordings, Vosk, text to audio.                              |
 | [Tools](./architecture/tools.md)                           | Tool catalogue, contribution policy, installers, reel, memory tool.                          |
+| [Service](./architecture/service.md)                       | The rented-agent product: wallet, credit, ledger, pricing, and what is not built yet.        |
 | [Telegram](./architecture/telegram.md)                     | The shop adapter and its payment settlement.                                                 |
+| [Dashboard](./architecture/dashboard.md)                   | The sales dashboard: pages, roles, stock, tickets and the API it calls.                      |
 | [Deployment](./architecture/deployment.md)                 | Environments, CI, nginx, configuration, local development.                                   |
 | [Decisions](./decisions/README.md)                         | The few records that explain a constraint the code cannot show.                              |

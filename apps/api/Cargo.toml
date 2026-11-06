@@ -16,6 +16,7 @@ base64 = "0.22.1"
 chrono = { version = "0.4.42", features = ["serde"] }
 email_address = "0.2.9"
 futures-util = { version = "0.3.31", default-features = false, features = ["std"] }
+hmac = "0.12.1"
 rand = "0.8.5"
 reqwest = { version = "0.12.24", default-features = false, features = ["http2", "json", "rustls-tls", "stream"] }
 serde = { version = "1.0.228", features = ["derive"] }

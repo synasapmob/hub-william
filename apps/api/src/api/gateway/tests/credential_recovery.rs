@@ -394,6 +394,7 @@ fn browser(user_id: Uuid, connection_id: Uuid) -> GatewaySelection {
         user_id,
         connection_id: Some(connection_id),
         organization_id: None,
+        service: false,
     }
 }
 
@@ -834,12 +835,14 @@ async fn organization_selection_fails_over_only_to_that_organizations_shares(poo
         user_id: member,
         connection_id: Some(shared_a),
         organization_id: Some(org_id),
+        service: false,
     };
     let key_client = GatewaySelection {
         key_id: None,
         user_id: member,
         connection_id: None,
         organization_id: Some(org_id),
+        service: false,
     };
 
     // Failover inside the organization still works.
@@ -873,6 +876,7 @@ async fn organization_selection_fails_over_only_to_that_organizations_shares(poo
             user_id: member,
             connection_id: Some(personal),
             organization_id: Some(org_id),
+            service: false,
         },
     )
     .await;

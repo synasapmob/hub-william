@@ -13,7 +13,7 @@ use crate::{
     core::{ApiError, AppState},
 };
 
-mod catalogue;
+pub(crate) mod catalogue;
 mod routes;
 pub(crate) use routes::routes;
 
@@ -232,7 +232,7 @@ pub struct SepayResult {
     pub order: Option<TelegramOrder>,
 }
 
-const ORDER_COLUMNS: &str = "chat_id, expires_at, item_id, item_title, paid_at, quantity, reference, status, telegram_user_id, total_vnd, unit_price_vnd";
+pub(crate) const ORDER_COLUMNS: &str = "chat_id, expires_at, item_id, item_title, paid_at, quantity, reference, status, telegram_user_id, total_vnd, unit_price_vnd";
 
 pub async fn create_order(
     State(state): State<AppState>,
@@ -464,7 +464,7 @@ async fn settle_order(
          ),
          settled AS (
              UPDATE telegram_orders
-             SET status = 'paid', paid_at = NOW()
+             SET status = 'paid', paid_at = NOW(), payment_method = 'bank_transfer'
              WHERE id IN (SELECT id FROM matched)
              RETURNING {ORDER_COLUMNS}
          ),

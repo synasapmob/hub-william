@@ -7,7 +7,10 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::core::{AppState, cors};
 
-use super::{ApiDoc, agent, auth, gateway, health, organizations, playground, reel, telegram, tts};
+use super::{
+    ApiDoc, agent, auth, dashboard, gateway, health, organizations, playground, reel, service,
+    telegram, tts,
+};
 
 pub fn app(state: AppState) -> Router {
     let cors = cors::layer(
@@ -28,6 +31,8 @@ pub fn app(state: AppState) -> Router {
         .merge(agent::routes(&state))
         .merge(gateway::routes(&state))
         .merge(playground::routes(&state))
+        .merge(service::routes(&state))
+        .merge(dashboard::routes(&state))
         .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(cors)
         .with_state(state)

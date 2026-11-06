@@ -96,8 +96,13 @@ pub async fn authorize_chat(
 #[derive(Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PlaygroundChatRequest {
-    pub connection_id: Uuid,
+    /// The account to try first. A Service chat has none: the platform's stock
+    /// serves it.
+    pub connection_id: Option<Uuid>,
     pub organization_id: Option<Uuid>,
+    /// Chat in the Service's scope: charged to the wallet, served by the stock.
+    #[serde(default)]
+    pub service: bool,
     pub provider: AgentProvider,
     pub model: String,
     pub messages: Vec<PlaygroundMessage>,
@@ -279,12 +284,30 @@ pub async fn chat(
     let bytes = serde_json::to_vec(&body)
         .map(Bytes::from)
         .map_err(|_| ApiError::Internal)?;
+    if request.service {
+        if request.connection_id.is_some() || request.organization_id.is_some() {
+            return Err(ApiError::Validation(
+                "A Service chat has no account or organization of its own.",
+            ));
+        }
+        return gateway::response_for_service_user(
+            &state,
+            session.0,
+            request.provider,
+            &request.model,
+            bytes,
+        )
+        .await;
+    }
+    let connection_id = request
+        .connection_id
+        .ok_or(ApiError::Validation("Select an account."))?;
     if let Some(organization_id) = request.organization_id {
         gateway::response_for_organization_user(
             &state,
             session.0,
             organization_id,
-            request.connection_id,
+            connection_id,
             request.provider,
             &request.model,
             bytes,
@@ -294,7 +317,7 @@ pub async fn chat(
         gateway::response_for_user(
             &state,
             session.0,
-            request.connection_id,
+            connection_id,
             request.provider,
             &request.model,
             bytes,

@@ -82,7 +82,7 @@ src/
   api/              every feature with endpoints, plus the composition root
     mod.rs  router.rs  openapi.rs     the only files that list features
     limits/         the rate-limit policy every feature attaches in its routes.rs
-    health/  auth/  agent/  gateway/  organizations/  playground/  reel/  telegram/  tts/
+    health/  auth/  agent/  gateway/  organizations/  playground/  reel/  service/  telegram/  tts/
 ```
 
 - Dependencies point one way: `api` -> `utils` -> `core`. `core` never imports

@@ -79,6 +79,7 @@ async fn organization_candidate_scope_does_not_grant_personal_pool_access(pool: 
         user_id: member,
         connection_id: Some(connection_id),
         organization_id: Some(org_id),
+        service: false,
     };
     assert!(matches!(
         connected_provider_candidates(&state, personal, AgentProvider::Deepseek).await,
@@ -219,6 +220,7 @@ async fn organization_usage_records_only_completed_generation_streams(pool: PgPo
         connection_id,
         provider: AgentProvider::Deepseek,
         model: Some("deepseek-chat".to_owned()),
+        service: false,
     };
     for (path, expected_count) in [
         ("incomplete", 0_i64),
@@ -318,6 +320,7 @@ async fn organization_usage_survives_concurrent_connection_delete(pool: PgPool) 
         connection_id,
         provider: AgentProvider::Deepseek,
         model: Some("deepseek-chat".to_owned()),
+        service: false,
     };
     let insert = tokio::spawn(async move {
         event
