@@ -2446,7 +2446,7 @@ mod tests {
         let unit_price_vnd = product["price_vnd"].as_i64().unwrap_or_default();
         let order = json!({
             "chat_id": payload["chat_id"],
-            "expires_at": Utc::now() + TimeDelta::minutes(15),
+            "expires_at": Utc::now() + TimeDelta::minutes(crate::checkout::ORDER_LIFETIME_MINUTES),
             "item_id": slug,
             "item_title": title_of(&product),
             "paid_at": Value::Null,
