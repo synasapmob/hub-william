@@ -487,6 +487,7 @@ describe("PosRoute, adding", () => {
       stock: 5,
       variant: null,
       warranty: "WF",
+      warranty_note: null,
     });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(toast.success).toHaveBeenCalledWith("Đã thêm Claude Pro 2 tháng");
@@ -513,6 +514,7 @@ describe("PosRoute, adding", () => {
         listed: false,
         variant: "Gia đình",
         warranty: "W7D",
+        warranty_note: null,
       }),
     );
   });
@@ -643,6 +645,58 @@ describe("PosRoute, adding", () => {
     },
   );
 
+  describe("the warranty note", () => {
+    const noteField = () =>
+      screen.getByLabelText("Ghi chú bảo hành (tùy chọn)");
+
+    it("is saved with the new package, as written", async () => {
+      const create = vi.spyOn(fakeStockService, "create");
+      const user = await openAdd();
+
+      await fillPackage(user);
+      await user.type(noteField(), "  Bảo hành login check 1 tiếng  ");
+      await user.click(screen.getByRole("button", { name: "Thêm" }));
+
+      await waitFor(() =>
+        expect(create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            warranty_note: "Bảo hành login check 1 tiếng",
+          }),
+        ),
+      );
+    });
+
+    it("asks for the standard note when it is left empty", async () => {
+      const create = vi.spyOn(fakeStockService, "create");
+      const user = await openAdd();
+
+      await fillPackage(user);
+      await user.click(screen.getByRole("button", { name: "Thêm" }));
+
+      await waitFor(() =>
+        expect(create).toHaveBeenCalledWith(
+          expect.objectContaining({ warranty_note: null }),
+        ),
+      );
+    });
+
+    it("cannot be longer than 200 characters, and says so", async () => {
+      const create = vi.spyOn(fakeStockService, "create");
+      const user = await openAdd();
+
+      await fillPackage(user);
+      await user.click(noteField());
+      await user.paste("a".repeat(201));
+
+      expect(screen.getByText("201/200")).toBeInTheDocument();
+      expect(
+        screen.getByText("Ghi chú bảo hành dài tối đa 200 ký tự."),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Thêm" })).toBeDisabled();
+      expect(create).not.toHaveBeenCalled();
+    });
+  });
+
   it("sends no message when the package could not be saved", async () => {
     const announce = vi.spyOn(fakeStockService, "announce");
 
@@ -720,6 +774,7 @@ describe("PosRoute, adding", () => {
             type: "telegram",
             variant: null,
             warranty: "WF",
+            warranty_note: null,
           });
       }),
     );
@@ -785,6 +840,7 @@ describe("PosRoute, editing", () => {
     provider: "Claude",
     variant: null,
     warranty: "WF",
+    warranty_note: null,
   };
 
   it("starts on the first field", async () => {
@@ -978,6 +1034,57 @@ describe("PosRoute, editing", () => {
       expect(editButton(/Claude Pro 1 tháng/)).toBeInTheDocument();
       expect(update).not.toHaveBeenCalled();
       expect(toast.success).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("the warranty note", () => {
+    const noteField = () =>
+      screen.getByLabelText("Ghi chú bảo hành (tùy chọn)");
+
+    it("is empty on a package that carries the standard note", async () => {
+      await openEdit(/Claude Pro 1 tháng/);
+
+      expect(noteField()).toHaveValue("");
+    });
+
+    it("shows the note a package carries", async () => {
+      await openEdit(/Gemini Advanced/);
+
+      expect(noteField()).toHaveValue("Không bảo hành đổi trả");
+    });
+
+    it("goes back with the form when only something else is edited", async () => {
+      const update = vi.spyOn(fakeStockService, "update");
+      const user = await openEdit(/Gemini Advanced/);
+
+      await user.clear(screen.getByLabelText("Giá (₫)"));
+      await user.type(screen.getByLabelText("Giá (₫)"), "99000");
+      await user.click(screen.getByRole("button", { name: "Lưu" }));
+
+      await waitFor(() =>
+        expect(update).toHaveBeenCalledWith(
+          "gemini-advanced-1-thang-gia-dinh",
+          expect.objectContaining({
+            price_vnd: 99_000,
+            warranty_note: "Không bảo hành đổi trả",
+          }),
+        ),
+      );
+    });
+
+    it("asks for the standard note back when it is cleared", async () => {
+      const update = vi.spyOn(fakeStockService, "update");
+      const user = await openEdit(/Gemini Advanced/);
+
+      await user.clear(noteField());
+      await user.click(screen.getByRole("button", { name: "Lưu" }));
+
+      await waitFor(() =>
+        expect(update).toHaveBeenCalledWith(
+          "gemini-advanced-1-thang-gia-dinh",
+          expect.objectContaining({ warranty_note: null }),
+        ),
+      );
     });
   });
 

@@ -26,6 +26,7 @@ export async function saveStock({
     provider: saved.provider,
     variant: saved.variant,
     warranty: saved.warranty,
+    warranty_note: saved.warranty_note,
   };
 
   if (previous === null)

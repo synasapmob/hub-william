@@ -19,7 +19,9 @@ create, link, or authenticate a Hub William browser account.
 
 Warranty codes are stable and customer-facing: `WF` is a full warranty, `W7D`
 is seven days, `NW` is no warranty beyond a one-hour login check. A package carries exactly one of them — a plan
-sold under two warranties is two catalogue entries.
+sold under two warranties is two catalogue entries. Each code has a standard warranty note in the
+quantity prompt; the dashboard's stock form can replace it with the shop's own words (up to 200
+characters), which are shown to readers of both languages.
 
 ## Checkout
 

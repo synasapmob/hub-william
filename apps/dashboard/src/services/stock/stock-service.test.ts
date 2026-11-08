@@ -30,6 +30,7 @@ const API_PRODUCT = {
   slug: "claude-pro-1-thang",
   variant: null,
   warranty: "WF",
+  warranty_note: null,
 };
 
 const PRODUCT: TelegramProduct = {
@@ -45,6 +46,7 @@ const PRODUCT: TelegramProduct = {
   type: "telegram",
   variant: null,
   warranty: "WF",
+  warranty_note: null,
 };
 
 const INPUT: StockInput = {
@@ -56,6 +58,7 @@ const INPUT: StockInput = {
   provider: "Claude",
   variant: null,
   warranty: "WF",
+  warranty_note: null,
 };
 
 function answer(response: Response | Error) {
@@ -130,6 +133,31 @@ describe("stockService.list", () => {
     expect((await sent(spy)).credentials).toBe("include");
   });
 
+  it("answers the shop's own warranty note, and null when the product has the standard one", async () => {
+    answer(
+      json(200, {
+        products: [
+          { ...API_PRODUCT, warranty_note: "Không bảo hành đổi trả" },
+          { ...API_PRODUCT, slug: "plain", warranty_note: null },
+          // A server that leaves the field out, as it does for the standard note.
+          Object.fromEntries(
+            Object.entries(API_PRODUCT).filter(
+              ([key]) => key !== "warranty_note",
+            ),
+          ),
+        ],
+      }),
+    );
+
+    const products = await stockService.list();
+
+    expect(products.map((product) => product.warranty_note)).toEqual([
+      "Không bảo hành đổi trả",
+      null,
+      null,
+    ]);
+  });
+
   it("raises the API's message when it refuses", async () => {
     answer(json(403, { code: "forbidden", message: "You may not." }));
 
@@ -171,7 +199,23 @@ describe("stockService.create", () => {
       provider: "Claude",
       variant: null,
       warranty: "WF",
+      // No note of the shop's own asks the server for the standard one.
+      warranty_note: "",
     });
+  });
+
+  it("sends the warranty note the shop wrote", async () => {
+    const spy = answer(json(201, API_PRODUCT));
+
+    await stockService.create({
+      ...INPUT,
+      stock: 1,
+      warranty_note: "Không bảo hành đổi trả",
+    });
+
+    expect(JSON.parse((await sent(spy)).body as string).warranty_note).toBe(
+      "Không bảo hành đổi trả",
+    );
   });
 
   it("sends no picture for an address that is not one of the shop's", async () => {
@@ -205,6 +249,27 @@ describe("stockService.create", () => {
 });
 
 describe("stockService.update", () => {
+  it("sends the warranty note the shop wrote", async () => {
+    const spy = answer(json(200, API_PRODUCT));
+
+    await stockService.update("claude-pro-1-thang", {
+      ...INPUT,
+      warranty_note: "Bảo hành login check 1 tiếng",
+    });
+
+    expect(JSON.parse((await sent(spy)).body as string).warranty_note).toBe(
+      "Bảo hành login check 1 tiếng",
+    );
+  });
+
+  it("sends an empty note to go back to the standard one", async () => {
+    const spy = answer(json(200, API_PRODUCT));
+
+    await stockService.update("claude-pro-1-thang", INPUT);
+
+    expect(JSON.parse((await sent(spy)).body as string).warranty_note).toBe("");
+  });
+
   it("puts the fields on the package, named by its slug and nothing else", async () => {
     const spy = answer(json(200, API_PRODUCT));
 
@@ -228,6 +293,8 @@ describe("stockService.update", () => {
       provider: "Claude",
       variant: null,
       warranty: "WF",
+      // No note of the shop's own asks the server for the standard one.
+      warranty_note: "",
     });
   });
 });

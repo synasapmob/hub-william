@@ -1440,6 +1440,11 @@ export interface components {
       variant?: string | null;
       /** @description `WF`, `W7D` or `NW`. */
       warranty: string;
+      /**
+       * @description The warranty note a buyer reads, up to 200 characters. Blank or absent
+       *     uses the standard note for the warranty code.
+       */
+      warranty_note?: string | null;
     };
     CreatedGatewayKey: components["schemas"]["GatewayKey"] & {
       key: string;
@@ -1563,6 +1568,11 @@ export interface components {
       variant?: string | null;
       /** @description `WF` full, `W7D` seven days, `NW` none beyond a one-hour login check. */
       warranty: string;
+      /**
+       * @description The shop's own warranty note, in Vietnamese. Absent when the product
+       *     carries the standard note for its warranty code.
+       */
+      warranty_note?: string | null;
     };
     DashboardProducts: {
       products: components["schemas"]["DashboardProduct"][];
@@ -2327,6 +2337,12 @@ export interface components {
       variant?: string | null;
       /** @description `WF`, `W7D` or `NW`. */
       warranty: string;
+      /**
+       * @description The warranty note a buyer reads, up to 200 characters. Blank uses the
+       *     standard note for the warranty code. Absent leaves the note as it is,
+       *     unless the warranty code changes, which resets it to the standard one.
+       */
+      warranty_note?: string | null;
     };
     UploadedImage: {
       /** Format: uuid */

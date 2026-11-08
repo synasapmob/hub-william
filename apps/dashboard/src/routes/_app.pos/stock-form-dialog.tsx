@@ -43,11 +43,16 @@ const MAX_RESTOCK = 100_000;
 // Telegram refuses a message longer than this.
 const MAX_MESSAGE = 4096;
 
+// The longest warranty note `apps/api` stores.
+const MAX_WARRANTY_NOTE = 200;
+
 interface Draft {
   provider: string;
   plan: string;
   variant: string;
   warranty: Warranty;
+  /** What a buyer reads about the warranty; the standard note when empty. */
+  warrantyNote: string;
   price: string;
   /** Units to add (or, negative, take). */
   adjust: string;
@@ -63,6 +68,7 @@ function draftOf(item: TelegramProduct | null, provider: string): Draft {
     plan: item?.plan ?? "",
     variant: item?.variant ?? "",
     warranty: item?.warranty ?? "WF",
+    warrantyNote: item?.warranty_note ?? "",
     price: item ? String(item.price_vnd) : "",
     adjust: "0",
     hot: item?.hot ?? false,
@@ -125,6 +131,8 @@ export default function StockFormDialog({
   const onHand = (item?.on_hand ?? 0) + adjust;
   const message = draft.message.trim();
   const messageValid = message.length <= MAX_MESSAGE;
+  const warrantyNote = draft.warrantyNote.trim();
+  const warrantyNoteValid = warrantyNote.length <= MAX_WARRANTY_NOTE;
   const slugTaken = !editing && takenSlugs.includes(slug);
   // The agents Hub William supports, chosen from and never typed, so a provider
   // cannot be misspelt into a card of its own. A provider the shop already has
@@ -155,6 +163,7 @@ export default function StockFormDialog({
     adjust <= (editing ? MAX_RESTOCK : MAX_INITIAL_STOCK);
   const valid =
     messageValid &&
+    warrantyNoteValid &&
     draft.provider.trim() !== "" &&
     draft.plan.trim() !== "" &&
     slug !== "" &&
@@ -263,6 +272,47 @@ export default function StockFormDialog({
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="col-span-2 space-y-1.5">
+                <Flex className="items-baseline justify-between gap-2">
+                  <Label htmlFor="stock-warranty-note">
+                    Ghi chú bảo hành (tùy chọn)
+                  </Label>
+
+                  {warrantyNote.length > 0 && (
+                    <span
+                      className={
+                        warrantyNoteValid
+                          ? "text-xs text-muted-foreground tabular-nums"
+                          : "text-xs text-destructive tabular-nums"
+                      }
+                    >
+                      {warrantyNote.length}/{MAX_WARRANTY_NOTE}
+                    </span>
+                  )}
+                </Flex>
+
+                <Textarea
+                  aria-invalid={!warrantyNoteValid}
+                  id="stock-warranty-note"
+                  placeholder="Ví dụ: Bảo hành login check 1 tiếng (sau 1 tiếng kể từ khi mua không bảo hành mọi trường hợp)"
+                  rows={2}
+                  value={draft.warrantyNote}
+                  onChange={(event) => set("warrantyNote", event.target.value)}
+                />
+
+                <p
+                  className={
+                    warrantyNoteValid
+                      ? "text-xs text-muted-foreground"
+                      : "text-xs text-destructive"
+                  }
+                >
+                  {warrantyNoteValid
+                    ? "Khách đọc dòng này khi chọn gói trong bot. Để trống thì dùng ghi chú chuẩn của loại bảo hành đã chọn."
+                    : `Ghi chú bảo hành dài tối đa ${MAX_WARRANTY_NOTE} ký tự.`}
+                </p>
               </div>
 
               <div className="col-span-2 space-y-1.5">
@@ -382,6 +432,7 @@ export default function StockFormDialog({
                 plan: draft.plan.trim(),
                 variant: draft.variant.trim() || null,
                 warranty: draft.warranty,
+                warranty_note: warrantyNote || null,
                 price_vnd: price,
                 on_hand: onHand,
                 reserved: item?.reserved ?? 0,

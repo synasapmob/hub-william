@@ -171,6 +171,7 @@ pub async fn create_product(
                 provider: payload.provider,
                 variant: payload.variant,
                 warranty: payload.warranty,
+                warranty_note: None,
             },
         )
         .await?,
@@ -191,6 +192,9 @@ pub(crate) struct NewProduct {
     pub provider: String,
     pub variant: Option<String>,
     pub warranty: String,
+    /// What the shop says about the warranty, in its own words. Blank or absent
+    /// means the standard note for the warranty code.
+    pub warranty_note: Option<String>,
 }
 
 /// A slug that is already taken answers `Conflict`.
@@ -209,6 +213,7 @@ pub(crate) async fn insert_product(
     let detail = product.detail.and_then(|value| normalize_text(value, 32));
     let category = product.category.and_then(|value| normalize_text(value, 64));
     let warranty = normalize_warranty(&product.warranty)?;
+    let (note_en, note_vi) = warranty_notes(warranty, product.warranty_note)?;
     let price_vnd = normalize_price(product.price_vnd)?;
     let available = normalize_stock(product.available)?;
 
@@ -244,8 +249,8 @@ pub(crate) async fn insert_product(
     .bind(&variant)
     .bind(&detail)
     .bind(warranty)
-    .bind(default_warranty_note_en(warranty))
-    .bind(default_warranty_note_vi(warranty))
+    .bind(&note_en)
+    .bind(&note_vi)
     .bind(price_vnd)
     .bind(available)
     .bind(&category)
@@ -514,6 +519,42 @@ fn normalize_stock(available: i32) -> Result<i32, ApiError> {
 pub(crate) fn normalize_text(value: String, maximum_characters: usize) -> Option<String> {
     let value = value.split_whitespace().collect::<Vec<_>>().join(" ");
     (!value.is_empty()).then(|| value.chars().take(maximum_characters).collect())
+}
+
+/// The longest warranty note a shop may write. It is read by the buyer in the
+/// quantity prompt, so it is refused rather than quietly cut short.
+pub(crate) const MAXIMUM_WARRANTY_NOTE_CHARACTERS: usize = 200;
+
+/// What the shop wrote, tidied; `None` when it wrote nothing.
+pub(crate) fn normalize_warranty_note(value: String) -> Result<Option<String>, ApiError> {
+    let note = value.split_whitespace().collect::<Vec<_>>().join(" ");
+
+    if note.chars().count() > MAXIMUM_WARRANTY_NOTE_CHARACTERS {
+        return Err(ApiError::Validation(
+            "A warranty note is at most 200 characters.",
+        ));
+    }
+
+    Ok((!note.is_empty()).then_some(note))
+}
+
+/// The note to store in English and in Vietnamese. A note the shop wrote is
+/// stored in both: the shop writes in one language, and its own words are a
+/// better answer to a reader of the other than a standard note that may say
+/// something else. Without one, each language gets the standard note.
+pub(crate) fn warranty_notes(
+    warranty: &str,
+    written: Option<String>,
+) -> Result<(String, String), ApiError> {
+    Ok(
+        match written.map(normalize_warranty_note).transpose()?.flatten() {
+            Some(note) => (note.clone(), note),
+            None => (
+                default_warranty_note_en(warranty).to_owned(),
+                default_warranty_note_vi(warranty).to_owned(),
+            ),
+        },
+    )
 }
 
 pub(crate) fn default_warranty_note_en(warranty: &str) -> &'static str {
