@@ -141,12 +141,15 @@ class StockService {
     });
   }
 
-  /** Has the bot send a message to the channel and to every chat it can reach. */
-  async announce(text: string): Promise<Announced> {
+  /**
+   * Has the bot send a message to the channel and to every chat it can reach.
+   * Naming a package adds a "Mua ngay" button that opens it in the bot.
+   */
+  async announce(text: string, product?: string): Promise<Announced> {
     return guarded(async () => {
       const { data, error, response } = await apiClient.POST(
         "/dashboard/telegram/announcements",
-        { body: { text } },
+        { body: { product, text } },
       );
 
       if (!data)

@@ -569,7 +569,8 @@ describe("PosRoute, adding", () => {
           "Bot đã đăng lên kênh và đang gửi cho 12 người đã bấm Start.",
       }),
     );
-    expect(announce).toHaveBeenCalledWith("Hàng mới về");
+    // The button opens the package the server saved.
+    expect(announce).toHaveBeenCalledWith("Hàng mới về", "claude-pro-2-thang");
     // The package is saved before anyone is told about it.
     expect(create.mock.invocationCallOrder[0]).toBeLessThan(
       announce.mock.invocationCallOrder[0],
@@ -1002,6 +1003,7 @@ describe("PosRoute, editing", () => {
       await waitFor(() =>
         expect(announce).toHaveBeenCalledWith(
           "Giảm giá Claude Pro còn 399.000 ₫",
+          "claude-pro-1-thang",
         ),
       );
       await waitFor(() =>

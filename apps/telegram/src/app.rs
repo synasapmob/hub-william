@@ -28,7 +28,7 @@ const AUDIENCE_PATH: &str = "/internal/telegram/audience";
 const BROADCAST_INTERVAL: std::time::Duration = std::time::Duration::from_millis(50);
 /// Telegram refuses a message longer than this.
 const MAXIMUM_ANNOUNCEMENT_CHARACTERS: usize = 4096;
-const QR_IMAGE: &[u8] = include_bytes!("../assets/qr-bank.png");
+const MAXIMUM_SLUG_CHARACTERS: usize = 64;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -40,7 +40,6 @@ pub struct AppState {
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
-        .route("/qr.png", get(qr_image))
         .route("/sepay", post(sepay_webhook))
         .route("/webhook", post(webhook))
         // The API asks the adapter to send, because the bot's token is here and
@@ -55,23 +54,6 @@ async fn health() -> Json<HealthResponse> {
         status: "ok",
         service: "hub-william-telegram",
     })
-}
-
-/// The shop's payment QR, served publicly because Telegram fetches a photo by
-/// URL. It is a fixed image of a receiving account, not per-buyer data.
-async fn qr_image() -> Response {
-    png(QR_IMAGE)
-}
-
-fn png(image: &'static [u8]) -> Response {
-    (
-        [
-            (header::CONTENT_TYPE, "image/png"),
-            (header::CACHE_CONTROL, "public, max-age=3600"),
-        ],
-        image,
-    )
-        .into_response()
 }
 
 async fn webhook(
@@ -218,6 +200,10 @@ async fn payment_notice(
 #[derive(Deserialize)]
 struct AnnounceRequest {
     text: String,
+    /// The package the "Mua ngay" button opens; without one the message goes
+    /// out bare, as the shop wrote it.
+    #[serde(default)]
+    product: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -229,9 +215,9 @@ struct AnnounceResult {
 }
 
 /// Posts a message of the shop's own to the channel and to everyone who has
-/// started the bot. The people are sent to one by one in the background, at a
-/// pace Telegram allows, so the answer says how many there are, not how many
-/// have been reached.
+/// started the bot, with a "Mua ngay" button when it names a product. The
+/// people are sent to one by one in the background, at a pace Telegram allows,
+/// so the answer says how many there are, not how many have been reached.
 async fn announce(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -244,6 +230,14 @@ async fn announce(
     if text.is_empty() || text.chars().count() > MAXIMUM_ANNOUNCEMENT_CHARACTERS {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
+    // The slug goes into a link, so one that is not a slug is refused.
+    let product = request.product;
+    if product
+        .as_deref()
+        .is_some_and(|slug| !is_product_slug(slug))
+    {
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
 
     // Who to send to is read first, so a failure here sends nothing at all.
     let audience = fetch_audience(&state).await?;
@@ -251,7 +245,12 @@ async fn announce(
 
     let channel = match state.config.announce_chat_id.clone() {
         Some(chat_id) => {
-            let post = telegram::SendMessage::to_chat(chat_id, text.clone());
+            let post = view::announcement_channel_post(
+                chat_id,
+                &text,
+                product.as_deref(),
+                state.config.bot_username.as_deref(),
+            );
 
             match serde_json::to_value(&post) {
                 Ok(body) => call_telegram(&state, "sendMessage", body).await.is_ok(),
@@ -263,7 +262,12 @@ async fn announce(
 
     tokio::spawn(async move {
         broadcast(&state, audience, |chat_id| {
-            telegram::SendMessage::new(chat_id, text.clone())
+            view::announcement(
+                chat_id,
+                &text,
+                product.as_deref(),
+                state.config.bot_username.as_deref(),
+            )
         })
         .await;
     });
@@ -1230,12 +1234,18 @@ fn counted(text: &str) -> Option<i64> {
 /// `/start <payload>` is how Telegram delivers a deep link, which is what the
 /// "Mua ngay" button on an announcement uses.
 fn start_payload(text: &str) -> Option<&str> {
-    text.split_whitespace().nth(1).filter(|payload| {
-        !payload.is_empty()
-            && payload.chars().all(|character| {
-                character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
-            })
-    })
+    text.split_whitespace()
+        .nth(1)
+        .filter(|payload| is_product_slug(payload))
+}
+
+/// A slug as the catalogue allows it. Telegram carries at most 64 characters in
+/// a deep link, so a longer one could not be followed anyway.
+fn is_product_slug(value: &str) -> bool {
+    (1..=MAXIMUM_SLUG_CHARACTERS).contains(&value.len())
+        && value.chars().all(|character| {
+            character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
+        })
 }
 
 fn quantity(text: &str, product: &Product) -> Option<i64> {
@@ -1405,7 +1415,7 @@ mod tests {
         assert_eq!(response["method"], "editMessageText");
         assert_eq!(
             response["text"],
-            "Claude\n\nChọn một gói để xem chi tiết.\nWF = bảo hành đầy đủ · W7D = bảo hành 7 ngày · NW = không bảo hành"
+            "Claude\n\nChọn một gói để xem chi tiết.\nWF = bảo hành đầy đủ\nW7D = bảo hành 7 ngày\nNW = không bảo hành"
         );
         assert_eq!(
             keyboard[0][0]["text"],
@@ -1493,7 +1503,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_vnd_method_renders_the_shop_qr_and_transfer_note() {
+    async fn the_vnd_method_renders_the_order_qr_and_transfer_note() {
         let shop = Shop::open().await;
         shop.update_json(callback_update("catalog:claude-max-x20"))
             .await;
@@ -1504,28 +1514,22 @@ mod tests {
         let caption = response["caption"].as_str().expect("a payment caption");
 
         assert_eq!(response["method"], "sendPhoto");
-        assert_eq!(response["photo"], "https://shop.example.test/qr.png");
+        // The QR is made for this order: the total and the note are in it, and
+        // the account is the one the caption names.
+        let photo = response["photo"].as_str().expect("a QR link");
+        assert!(photo.starts_with("https://vietqr.app/img?acc="));
+        assert!(photo.contains("&amount=270000&"));
+        assert!(photo.contains("&des=CAM+TIEN+DI+CHILL+THOI+TESTREF00001&"));
         assert!(caption.starts_with(
             "🏦 Thanh toán chuyển khoản\n\n🏛️ Ngân hàng: TECHCOMBANK\n👤 Chủ TK: TRAN VAN SON\n💳 Số TK: 19036951867026\n💰 Số tiền: 270,000₫\n📝 Nội dung CK: CAM TIEN DI CHILL THOI TESTREF00001\n"
         ));
         assert!(caption.ends_with(
-            "\n\n👆 Quét mã QR phía trên, rồi tự nhập số tiền và nội dung CK ở trên.\n✅ Đơn hàng xử lý tự động sau khi thanh toán."
+            "\n\n👆 Quét mã QR phía trên: số tiền và nội dung CK đã được điền sẵn.\n✅ Đơn hàng xử lý tự động sau khi thanh toán."
         ));
         assert_eq!(
             response["reply_markup"]["inline_keyboard"][0][0]["text"],
             "🔄 Kiểm tra thanh toán"
         );
-    }
-
-    #[tokio::test]
-    async fn the_qr_route_serves_a_png() {
-        let shop = Shop::open().await;
-        let response = shop.get("/qr.png").await;
-
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(response.headers()["content-type"], "image/png");
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        assert_eq!(&body[..4], b"\x89PNG");
     }
 
     #[tokio::test]
@@ -1871,6 +1875,71 @@ mod tests {
         assert!(buyer.get("reply_markup").is_none());
     }
 
+    /// The shop's own words stay as written; naming a product only adds the
+    /// button, on the channel post and on the message to each chat alike.
+    #[tokio::test]
+    async fn an_announcement_naming_a_product_carries_the_buy_now_button() {
+        let shop = Shop::open().await;
+        let (status, _) = call_internal(
+            &shop,
+            "/internal/announce",
+            Some(API_TOKEN),
+            json!({
+                "text": "20% off up to five ChatGPT Business Standard seats for 48 months",
+                "product": "claude-max-x20"
+            }),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        let posted = shop.api.notified.lock().unwrap().clone();
+        let channel = posted
+            .iter()
+            .find(|message| message["chat_id"] == "@hubwilliam")
+            .expect("a channel post");
+        let buyer = posted
+            .iter()
+            .find(|message| message["chat_id"] == 555)
+            .expect("a message to the contact");
+
+        for message in [channel, buyer] {
+            assert_eq!(
+                message["text"],
+                "20% off up to five ChatGPT Business Standard seats for 48 months"
+            );
+            assert_eq!(
+                message["reply_markup"]["inline_keyboard"][0][0]["text"],
+                "🛒 Mua ngay"
+            );
+            assert_eq!(
+                message["reply_markup"]["inline_keyboard"][0][0]["url"],
+                "https://t.me/hub_william_bot?start=claude-max-x20"
+            );
+        }
+    }
+
+    /// The slug is put into a link, so anything that is not one sends nothing.
+    #[tokio::test]
+    async fn an_announcement_naming_something_that_is_not_a_slug_sends_nothing() {
+        let shop = Shop::open().await;
+
+        for product in ["", "Claude Max", "a&b=c", "../start", &"a".repeat(65)] {
+            let (status, _) = call_internal(
+                &shop,
+                "/internal/announce",
+                Some(API_TOKEN),
+                json!({"text": "Hello", "product": product}),
+            )
+            .await;
+
+            assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{product:?}");
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert!(shop.api.notified.lock().unwrap().is_empty());
+    }
+
     #[tokio::test]
     async fn an_announcement_says_so_when_there_is_no_channel() {
         let mut shop = Shop::open().await;
@@ -2129,18 +2198,6 @@ mod tests {
             serde_json::from_slice(&body).expect("response should be Telegram API JSON")
         }
 
-        async fn get(&self, path: &str) -> Response<Body> {
-            router(self.state.clone())
-                .oneshot(
-                    Request::builder()
-                        .uri(path)
-                        .body(Body::empty())
-                        .expect("valid request"),
-                )
-                .await
-                .expect("the route should respond")
-        }
-
         async fn send_update(&self, body: String) -> Response<Body> {
             router(self.state.clone())
                 .oneshot(
@@ -2334,7 +2391,6 @@ mod tests {
                     memo_prefix: "CAM TIEN DI CHILL THOI".to_owned(),
                     usdt: None,
                 },
-                public_url: Some(Url::parse("https://shop.example.test").expect("valid origin")),
                 sepay_api_key: Some("sepay-secret".to_owned()),
                 telegram_api_base_url: Url::parse(api_url).expect("test API URL should parse"),
                 webhook_secret: b"telegram-secret".to_vec(),

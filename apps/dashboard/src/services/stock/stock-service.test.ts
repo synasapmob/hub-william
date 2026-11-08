@@ -307,6 +307,19 @@ describe("stockService.announce", () => {
     expect(announced).toEqual({ audience: 12, channel: true });
   });
 
+  it("names the package the button opens when it is given one", async () => {
+    const spy = answer(json(200, { audience: 12, channel: true }));
+
+    await stockService.announce("20% off ChatGPT Business", "chatgpt-business");
+
+    const request = await sent(spy);
+
+    expect(JSON.parse(String(request.body))).toEqual({
+      product: "chatgpt-business",
+      text: "20% off ChatGPT Business",
+    });
+  });
+
   it.each([
     [
       501,

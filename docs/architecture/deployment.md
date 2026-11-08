@@ -17,7 +17,7 @@ Facts about public domains, private hostnames and Railway variables are service 
 - `frontend` is the public entry point, and reaches `api` over Railway private networking through `API_INTERNAL_URL`.
 - `dashboard` has a public domain of its own and reaches `api` the same way, through its own `API_INTERNAL_URL`. It is a separate site, so its session cookie is its own: signing in on one does not sign in on the other.
 - `api` has no public domain.
-- `telegram` has its own public HTTPS domain, used for the Telegram and SePay webhooks and for the payment QR image that Telegram fetches (`GET /qr.png`). It calls `api` over the private network with a separate service token.
+- `telegram` has its own public HTTPS domain, used for the Telegram and SePay webhooks and for SePay's bank-transaction webhook. It calls `api` over the private network with a separate service token.
 
 The repository root is the Docker build context for all four images (the `Dockerfile`s copy `apps/…`, `contributors/` and `infra/` paths from it). Cargo has no workspace: `apps/api` and `apps/telegram` are separate crates with their own `Cargo.lock`, and the root scripts address them with `--manifest-path`. `pnpm-workspace.yaml` lists `apps/frontend` and `apps/dashboard`.
 
@@ -160,7 +160,7 @@ The API publishes an OpenAPI document generated from its handlers (`utoipa`). `/
 | ------------------- | -------------------------------------------------------------------------------------------------------------- |
 | `pnpm dev`          | Vite dev server for `apps/frontend`, bound to `127.0.0.1`                                                      |
 | `pnpm api:dev`      | `cargo run` of `hub-william-backend`; needs a local Postgres and the variables above (`apps/api/.env.example`) |
-| `pnpm telegram:dev` | `cargo run` of `hub-william-telegram` (`apps/telegram/.env.example`)                                           |
+| `pnpm telegram:dev` | `cargo run` of `hub-william-telegram` (variables in `apps/telegram/README.md`)                                 |
 
 - **Choosing the API.** `VITE_API_BASE_URL` (in `apps/frontend/.env`) is the base for every API URL; it falls back to `http://localhost:8080` when unset. A local API accepts the Vite origin because local origins are allowed while `COOKIE_SECURE` is false.
 - **Dev proxy.** `DEV_API_PROXY_TARGET` (read from `.env` with the `DEV_` prefix) makes the dev server proxy `/api` to that target and, for requests whose `Origin` is the dev server's own origin, rewrite `Origin` to the target's origin. Setting `VITE_API_BASE_URL=/api` together with it lets a local frontend use a deployed API behind its edge; sessions stay separate from the deployed site, and the deployed API's cookie and origin rules still apply.

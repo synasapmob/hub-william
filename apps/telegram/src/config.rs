@@ -3,7 +3,7 @@ use std::{env, fmt};
 use reqwest::Url;
 
 const DEFAULT_OWNER_USERNAME: &str = "synasapmob";
-const DEFAULT_MEMO_PREFIX: &str = "CAM TIEN DI CHILL THOI";
+const DEFAULT_MEMO_PREFIX: &str = "MOT NGAY VUI VE";
 const DEFAULT_USDT_NETWORK: &str = "TRC20";
 const SERVICE_TOKEN: &str = "TELEGRAM_SERVICE_TOKEN";
 const FORMER_SERVICE_TOKEN: &str = "HUB_API_SERVICE_TOKEN";
@@ -21,9 +21,6 @@ pub struct AppConfig {
     pub bot_username: Option<String>,
     pub owners: Owners,
     pub payment: PaymentConfig,
-    /// This service's own public HTTPS origin. Telegram fetches the payment QR
-    /// from it, so it must be reachable from the public internet.
-    pub public_url: Option<Url>,
     pub sepay_api_key: Option<String>,
     pub telegram_api_base_url: Url,
     pub webhook_secret: Vec<u8>,
@@ -122,9 +119,6 @@ impl AppConfig {
                 optional("TELEGRAM_OWNER_IDS"),
             ),
             payment: PaymentConfig::from_env()?,
-            public_url: public_url(
-                optional("TELEGRAM_PUBLIC_URL").or_else(|| optional("TELEGRAM_WEBHOOK_URL")),
-            )?,
             sepay_api_key: optional("SEPAY_API_KEY"),
             telegram_api_base_url,
             webhook_secret: webhook_secret.into_bytes(),
@@ -171,8 +165,8 @@ fn memo_prefix(configured: Option<String>) -> Result<String, ConfigError> {
     Ok(prefix)
 }
 
-/// The QR the buyer scans is a fixed image of this account, so the three fields
-/// are only ever displayed — nothing is derived from them.
+/// The three fields are shown on the VND panel and put into its QR link, so the
+/// code the buyer scans always points at the account the caption names.
 fn bank_account(
     name: Option<String>,
     holder: Option<String>,
@@ -199,16 +193,6 @@ fn bank_account(
         name: name.to_uppercase(),
         number,
     }))
-}
-
-fn public_url(configured: Option<String>) -> Result<Option<Url>, ConfigError> {
-    configured
-        .map(|value| {
-            Url::parse(&value).map_err(|_| {
-                ConfigError("TELEGRAM_PUBLIC_URL must be a valid HTTPS URL".to_owned())
-            })
-        })
-        .transpose()
 }
 
 fn usdt_wallet(
@@ -299,7 +283,7 @@ fn required_secret(name: &str) -> Result<String, ConfigError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        DEFAULT_MEMO_PREFIX, DEFAULT_USDT_NETWORK, bank_account, memo_prefix, owners, public_url,
+        DEFAULT_MEMO_PREFIX, DEFAULT_USDT_NETWORK, bank_account, memo_prefix, owners,
         service_token, usdt_wallet,
     };
 
@@ -419,17 +403,6 @@ mod tests {
     fn the_owner_username_defaults_to_the_operator() {
         assert!(owners(None, None).includes(1, Some("synasapmob")));
         assert!(!owners(None, None).includes(1, Some("impostor")));
-    }
-
-    #[test]
-    fn a_public_url_is_optional_but_must_parse() {
-        assert!(public_url(None).unwrap().is_none());
-        assert!(
-            public_url(Some("https://telegram.example.test".to_owned()))
-                .unwrap()
-                .is_some()
-        );
-        assert!(public_url(Some("not a url".to_owned())).is_err());
     }
 
     #[test]

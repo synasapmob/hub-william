@@ -1354,6 +1354,11 @@ export interface components {
       channel: boolean;
     };
     Announcement: {
+      /**
+       * @description The slug of a package. Naming one adds a "Mua ngay" button that opens
+       *     that package in the bot; without it the message goes out bare.
+       */
+      product?: string | null;
       /** @description Plain text, up to 4,096 characters. The bot sends it as it is. */
       text: string;
     };
@@ -3905,7 +3910,7 @@ export interface operations {
           "application/json": components["schemas"]["ErrorResponse"];
         };
       };
-      /** @description The message is empty or longer than 4096 characters */
+      /** @description The message is empty or longer than 4096 characters, or the package is not a slug */
       422: {
         headers: {
           [name: string]: unknown;

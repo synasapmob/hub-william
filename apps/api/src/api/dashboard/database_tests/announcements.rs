@@ -79,6 +79,60 @@ async fn nothing_reaches_the_bot_unless_the_message_is_fit_to_send(pool: PgPool)
 }
 
 #[sqlx::test]
+async fn a_package_is_passed_on_so_the_bot_can_add_its_button(pool: PgPool) {
+    let (bot, url) =
+        FakeBot::start(StatusCode::OK, json!({ "channel": true, "audience": 3 })).await;
+    let owner = account(&pool, Some(("owner", true))).await;
+    let state = state_with_bot(pool, Some(&url));
+
+    let (status, _) = call(
+        &state,
+        "POST",
+        "/dashboard/telegram/announcements",
+        Some(&owner.cookie),
+        Some(json!({
+            "text": "20% off up to five ChatGPT Business Standard seats",
+            "product": "  ChatGPT-Business  "
+        })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+
+    // The slug reaches the bot the way the catalogue spells it.
+    let received = bot.received();
+    assert_eq!(
+        received[0].2,
+        json!({
+            "text": "20% off up to five ChatGPT Business Standard seats",
+            "product": "chatgpt-business"
+        })
+    );
+}
+
+#[sqlx::test]
+async fn nothing_reaches_the_bot_when_the_package_is_not_a_slug(pool: PgPool) {
+    let (bot, url) =
+        FakeBot::start(StatusCode::OK, json!({ "channel": true, "audience": 1 })).await;
+    let owner = account(&pool, Some(("owner", true))).await;
+    let state = state_with_bot(pool, Some(&url));
+
+    for product in ["", "Claude Max", "a&b=c", &"a".repeat(65)] {
+        let (status, _) = call(
+            &state,
+            "POST",
+            "/dashboard/telegram/announcements",
+            Some(&owner.cookie),
+            Some(json!({ "text": "Hello", "product": product })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{product:?}");
+    }
+    assert!(bot.received().is_empty());
+}
+
+#[sqlx::test]
 async fn it_says_so_when_the_dashboard_is_not_connected_to_a_bot(pool: PgPool) {
     let owner = account(&pool, Some(("owner", true))).await;
     let state = state(pool);
