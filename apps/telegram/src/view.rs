@@ -9,7 +9,6 @@ use crate::{
 };
 
 const LANGUAGE_PROMPT: &str = "Choose a language / Chọn ngôn ngữ";
-const SUPPORT_HANDLE: &str = "@synasapmob";
 
 pub fn language_picker(chat_id: i64) -> SendMessage {
     SendMessage::new(chat_id, LANGUAGE_PROMPT).with_keyboard(language_keyboard())
@@ -115,9 +114,9 @@ pub fn payment_methods(chat_id: i64, language: Language, order: &Order) -> SendM
     })
 }
 
-/// The QR is a fixed image of the shop's account, so it carries no amount and
-/// no note. Both have to be typed by the buyer, and the transfer note is what
-/// SePay matches the order on — the caption says so in as many words.
+/// The QR is made for this order, with the account, amount and transfer note
+/// already in it. The note is what SePay matches the order on, so the caption
+/// still spells it out for a buyer who types the transfer by hand.
 pub fn bank_transfer(chat_id: i64, language: Language, config: &AppConfig, order: &Order) -> Reply {
     let Some(bank) = config.payment.bank.as_ref() else {
         return unconfigured_method(
@@ -128,6 +127,7 @@ pub fn bank_transfer(chat_id: i64, language: Language, config: &AppConfig, order
                 english: "⚠️ Bank transfer is not configured yet.",
                 vietnamese: "⚠️ Chuyển khoản ngân hàng chưa được cấu hình.",
             },
+            &config.owner.handle(),
         )
         .into();
     };
@@ -137,30 +137,26 @@ pub fn bank_transfer(chat_id: i64, language: Language, config: &AppConfig, order
     let expiry = format_expiry(order.expires_at);
     let caption = match language {
         Language::English => format!(
-            "🏦 Bank transfer\n\n🏛️ Bank: {name}\n👤 Account name: {holder}\n💳 Account number: {number}\n💰 Amount: {total}₫\n📝 Transfer note: {transfer_memo}\n⚠️ A transfer sent with the wrong note needs manual handling and is charged $2 per transaction.\n⏳ Expires: {expiry}. Pay before then: after it this order is void and a later transfer will not settle it.\n\n👆 Scan the QR above, then type the amount and the transfer note yourself.\n✅ The order is processed automatically once the payment arrives.",
+            "🏦 Bank transfer\n\n🏛️ Bank: {name}\n👤 Account name: {holder}\n💳 Account number: {number}\n💰 Amount: {total}₫\n📝 Transfer note: {transfer_memo}\n⚠️ A transfer sent with the wrong note needs manual handling and is charged $2 per transaction.\n⏳ Expires: {expiry}. Pay before then: after it this order is void and a later transfer will not settle it.\n\n👆 Scan the QR above: the amount and the transfer note are already filled in.\n✅ The order is processed automatically once the payment arrives.",
             holder = bank.holder,
             name = bank.name,
             number = bank.number,
         ),
         Language::Vietnamese => format!(
-            "🏦 Thanh toán chuyển khoản\n\n🏛️ Ngân hàng: {name}\n👤 Chủ TK: {holder}\n💳 Số TK: {number}\n💰 Số tiền: {total}₫\n📝 Nội dung CK: {transfer_memo}\n⚠️ Giao dịch chuyển sai cú pháp sẽ cần xử lý thủ công và bị tính phí $2/giao dịch.\n⏳ Hết hạn: {expiry}. Hãy chuyển khoản trước giờ này: sau đó đơn không còn hiệu lực và giao dịch chuyển trễ sẽ không được khớp.\n\n👆 Quét mã QR phía trên, rồi tự nhập số tiền và nội dung CK ở trên.\n✅ Đơn hàng xử lý tự động sau khi thanh toán.",
+            "🏦 Thanh toán chuyển khoản\n\n🏛️ Ngân hàng: {name}\n👤 Chủ TK: {holder}\n💳 Số TK: {number}\n💰 Số tiền: {total}₫\n📝 Nội dung CK: {transfer_memo}\n⚠️ Giao dịch chuyển sai cú pháp sẽ cần xử lý thủ công và bị tính phí $2/giao dịch.\n⏳ Hết hạn: {expiry}. Hãy chuyển khoản trước giờ này: sau đó đơn không còn hiệu lực và giao dịch chuyển trễ sẽ không được khớp.\n\n👆 Quét mã QR phía trên: số tiền và nội dung CK đã được điền sẵn.\n✅ Đơn hàng xử lý tự động sau khi thanh toán.",
             holder = bank.holder,
             name = bank.name,
             number = bank.number,
         ),
     };
 
-    let keyboard = watch_keyboard(language, &order.reference);
-    match config.public_url.as_ref().and_then(qr_image_url) {
-        Some(photo) => SendPhoto::new(chat_id, photo, caption)
-            .with_keyboard(keyboard)
-            .into(),
-        // Without a public origin Telegram cannot fetch the QR, so the account
-        // details go out on their own rather than as a broken photo.
-        None => SendMessage::new(chat_id, caption)
-            .with_keyboard(keyboard)
-            .into(),
-    }
+    SendPhoto::new(
+        chat_id,
+        qr_image_url(bank, order.total_vnd, &transfer_memo),
+        caption,
+    )
+    .with_keyboard(watch_keyboard(language, &order.reference))
+    .into()
 }
 
 pub fn usdt_transfer(
@@ -178,20 +174,22 @@ pub fn usdt_transfer(
                 english: "⚠️ USDT payment is not configured yet.",
                 vietnamese: "⚠️ Thanh toán USDT chưa được cấu hình.",
             },
+            &config.owner.handle(),
         );
     };
 
     let amount = usdt_amount(order.total_vnd, wallet.vnd_rate);
     let transfer_memo = memo(&config.payment.memo_prefix, &order.reference);
     let expiry = format_expiry(order.expires_at);
+    let support = config.owner.handle();
     let text = match language {
         Language::English => format!(
-            "₮ USDT payment\n\n🌐 Network: {network}\n🏷️ Address: {address}\n💰 Amount: {amount} USDT\n📝 Memo: {transfer_memo}\n⏳ Expires: {expiry}\n\n⚠️ A USDT transfer is reconciled by hand — send the transaction hash to {SUPPORT_HANDLE} after paying.",
+            "₮ USDT payment\n\n🌐 Network: {network}\n🏷️ Address: {address}\n💰 Amount: {amount} USDT\n📝 Memo: {transfer_memo}\n⏳ Expires: {expiry}\n\n⚠️ A USDT transfer is reconciled by hand — send the transaction hash to {support} after paying.",
             address = wallet.address,
             network = wallet.network,
         ),
         Language::Vietnamese => format!(
-            "₮ Thanh toán USDT\n\n🌐 Mạng: {network}\n🏷️ Địa chỉ: {address}\n💰 Số tiền: {amount} USDT\n📝 Ghi chú: {transfer_memo}\n⏳ Hết hạn: {expiry}\n\n⚠️ USDT được đối soát thủ công — gửi mã giao dịch cho {SUPPORT_HANDLE} sau khi chuyển.",
+            "₮ Thanh toán USDT\n\n🌐 Mạng: {network}\n🏷️ Địa chỉ: {address}\n💰 Số tiền: {amount} USDT\n📝 Ghi chú: {transfer_memo}\n⏳ Hết hạn: {expiry}\n\n⚠️ USDT được đối soát thủ công — gửi mã giao dịch cho {support} sau khi chuyển.",
             address = wallet.address,
             network = wallet.network,
         ),
@@ -202,7 +200,7 @@ pub fn usdt_transfer(
 
 /// Reports the order as the API currently holds it, so a settled transfer shows
 /// as settled and an unsettled one is not dressed up as anything else.
-pub fn order_status(chat_id: i64, language: Language, order: &Order) -> SendMessage {
+pub fn order_status(chat_id: i64, language: Language, order: &Order, support: &str) -> SendMessage {
     let expiry = format_expiry(order.expires_at);
     let reference = &order.reference;
     let title = &order.item_title;
@@ -213,10 +211,10 @@ pub fn order_status(chat_id: i64, language: Language, order: &Order) -> SendMess
         OrderStatus::Paid => (
             match language {
                 Language::English => format!(
-                    "✅ Payment received for order {reference}.\n\n{title}\nQuantity: {quantity}\nTotal: {total}₫\n\n{SUPPORT_HANDLE} will hand the account over shortly."
+                    "✅ Payment received for order {reference}.\n\n{title}\nQuantity: {quantity}\nTotal: {total}₫\n\n{support} will hand the account over shortly."
                 ),
                 Language::Vietnamese => format!(
-                    "✅ Đã nhận thanh toán cho đơn {reference}.\n\n{title}\nSố lượng: {quantity}\nTổng: {total}₫\n\n{SUPPORT_HANDLE} sẽ bàn giao tài khoản ngay."
+                    "✅ Đã nhận thanh toán cho đơn {reference}.\n\n{title}\nSố lượng: {quantity}\nTổng: {total}₫\n\n{support} sẽ bàn giao tài khoản ngay."
                 ),
             },
             back_keyboard(language),
@@ -261,8 +259,13 @@ pub fn order_status(chat_id: i64, language: Language, order: &Order) -> SendMess
 
 /// Sent unprompted when SePay reports a matching transfer, so the buyer is not
 /// left pressing the check button.
-pub fn payment_received(chat_id: i64, language: Language, order: &Order) -> SendMessage {
-    order_status(chat_id, language, order)
+pub fn payment_received(
+    chat_id: i64,
+    language: Language,
+    order: &Order,
+    support: &str,
+) -> SendMessage {
+    order_status(chat_id, language, order, support)
 }
 
 pub fn payment_cancelled(chat_id: i64, language: Language, reference: &str) -> SendMessage {
@@ -402,8 +405,8 @@ fn menu_text(language: Language, catalogue: &Catalogue) -> &'static str {
 fn provider_text(language: Language, provider: &Provider) -> String {
     let heading = &provider.name;
     let guidance = language.pick(Localized {
-        english: "Pick a package to see its details.\nWF = full warranty · W7D = 7-day warranty · NW = no warranty",
-        vietnamese: "Chọn một gói để xem chi tiết.\nWF = bảo hành đầy đủ · W7D = bảo hành 7 ngày · NW = không bảo hành",
+        english: "Pick a package to see its details.\nWF = full warranty\nW7D = 7-day warranty\nNW = no warranty",
+        vietnamese: "Chọn một gói để xem chi tiết.\nWF = bảo hành đầy đủ\nW7D = bảo hành 7 ngày\nNW = không bảo hành",
     });
 
     if provider.products.is_empty() {
@@ -440,15 +443,16 @@ fn unconfigured_method(
     language: Language,
     order: &Order,
     reason: Localized,
+    support: &str,
 ) -> SendMessage {
     let reference = &order.reference;
     let text = match language {
         Language::English => format!(
-            "{}\n\nContact {SUPPORT_HANDLE} to pay for order {reference}.",
+            "{}\n\nContact {support} to pay for order {reference}.",
             reason.english
         ),
         Language::Vietnamese => format!(
-            "{}\n\nLiên hệ {SUPPORT_HANDLE} để thanh toán đơn {reference}.",
+            "{}\n\nLiên hệ {support} để thanh toán đơn {reference}.",
             reason.vietnamese
         ),
     };
@@ -653,7 +657,7 @@ pub fn restock_announcement(
     bot_username: Option<&str>,
 ) -> SendMessage {
     SendMessage::new(chat_id, restock_text(added, product))
-        .with_keyboard(buy_now_keyboard(product, bot_username))
+        .with_keyboard(buy_now_keyboard(&product.slug, bot_username))
 }
 
 /// The same announcement addressed to a channel, which Telegram takes by
@@ -665,7 +669,7 @@ pub fn restock_channel_post(
     bot_username: Option<&str>,
 ) -> SendMessage {
     SendMessage::to_chat(chat_id, restock_text(added, product))
-        .with_keyboard(buy_now_keyboard(product, bot_username))
+        .with_keyboard(buy_now_keyboard(&product.slug, bot_username))
 }
 
 fn restock_text(added: i64, product: &Product) -> String {
@@ -685,14 +689,46 @@ fn restock_text(added: i64, product: &Product) -> String {
     )
 }
 
+/// A message of the shop's own words. Naming a product gives it the same
+/// "Mua ngay" button a restock carries, so the button needs no text of its own.
+pub fn announcement(
+    chat_id: i64,
+    text: &str,
+    product: Option<&str>,
+    bot_username: Option<&str>,
+) -> SendMessage {
+    with_buy_now(SendMessage::new(chat_id, text), product, bot_username)
+}
+
+/// The same message addressed to a channel.
+pub fn announcement_channel_post(
+    chat_id: String,
+    text: &str,
+    product: Option<&str>,
+    bot_username: Option<&str>,
+) -> SendMessage {
+    with_buy_now(SendMessage::to_chat(chat_id, text), product, bot_username)
+}
+
+fn with_buy_now(
+    message: SendMessage,
+    product: Option<&str>,
+    bot_username: Option<&str>,
+) -> SendMessage {
+    match product {
+        Some(slug) => message.with_keyboard(buy_now_keyboard(slug, bot_username)),
+        None => message,
+    }
+}
+
 /// Without a bot username there is no link to send anyone to, so the message
 /// goes out on its own rather than with a dead button.
-fn buy_now_keyboard(product: &Product, bot_username: Option<&str>) -> InlineKeyboardMarkup {
+fn buy_now_keyboard(slug: &str, bot_username: Option<&str>) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup {
         inline_keyboard: match bot_username {
             Some(username) => vec![vec![InlineKeyboardButton::url(
                 "🛒 Mua ngay",
-                format!("https://t.me/{username}?start={}", product.slug),
+                format!("https://t.me/{username}?start={slug}"),
             )]],
             None => Vec::new(),
         },
@@ -838,7 +874,8 @@ mod tests {
     }
 
     fn text_of(language: Language, order: &Order) -> String {
-        let message: Value = serde_json::to_value(order_status(123, language, order)).unwrap();
+        let message: Value =
+            serde_json::to_value(order_status(123, language, order, "@shop_owner")).unwrap();
         message["text"].as_str().unwrap().to_owned()
     }
 

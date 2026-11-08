@@ -3,11 +3,13 @@ use std::{env, fmt};
 use reqwest::Url;
 
 const DEFAULT_OWNER_USERNAME: &str = "synasapmob";
-const DEFAULT_MEMO_PREFIX: &str = "CAM TIEN DI CHILL THOI";
+const OWNER_USERNAME: &str = "TELEGRAM_USERNAME_OWNER";
+const DEFAULT_MEMO_PREFIX: &str = "MOT NGAY VUI VE";
 const DEFAULT_USDT_NETWORK: &str = "TRC20";
 const SERVICE_TOKEN: &str = "TELEGRAM_SERVICE_TOKEN";
 const FORMER_SERVICE_TOKEN: &str = "HUB_API_SERVICE_TOKEN";
 const MAXIMUM_MEMO_PREFIX_CHARACTERS: usize = 32;
+const PAYMENT_QR_URL: &str = "TELEGRAM_PAYMENT_QR_URL";
 
 #[derive(Clone)]
 pub struct AppConfig {
@@ -19,11 +21,8 @@ pub struct AppConfig {
     pub bot_token: String,
     /// Needed for the "Mua ngay" deep link on an announcement.
     pub bot_username: Option<String>,
-    pub owners: Owners,
+    pub owner: Owner,
     pub payment: PaymentConfig,
-    /// This service's own public HTTPS origin. Telegram fetches the payment QR
-    /// from it, so it must be reachable from the public internet.
-    pub public_url: Option<Url>,
     pub sepay_api_key: Option<String>,
     pub telegram_api_base_url: Url,
     pub webhook_secret: Vec<u8>,
@@ -39,31 +38,58 @@ pub struct PaymentConfig {
     pub usdt: Option<UsdtWallet>,
 }
 
-/// Who may use the owner side of `/catalog`. A username is what the operator
-/// recognises, but Telegram usernames can be released and taken by someone
-/// else, so a numeric ID allowlist is the stronger check and wins when set.
-#[derive(Clone, Default)]
-pub struct Owners {
-    pub telegram_user_ids: Vec<i64>,
-    pub usernames: Vec<String>,
+/// The one Telegram username that runs the shop. It decides who may use the
+/// owner side of `/catalog`, and it is the handle a buyer is told to contact. A
+/// username belongs to one account at a time, so no numeric ID is kept beside it.
+#[derive(Clone)]
+pub struct Owner {
+    username: String,
 }
 
-impl Owners {
-    pub fn includes(&self, telegram_user_id: i64, username: Option<&str>) -> bool {
-        if self.telegram_user_ids.contains(&telegram_user_id) {
-            return true;
+impl Owner {
+    /// Telegram usernames are 5-32 letters, digits or underscores. Anything else,
+    /// such as a list left over from a comma-separated setting, is refused rather
+    /// than quietly locking the owner out.
+    pub fn parse(value: &str) -> Result<Self, ConfigError> {
+        let username = value.trim().trim_start_matches('@');
+
+        if !(5..=32).contains(&username.len())
+            || !username
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || character == '_')
+        {
+            return Err(ConfigError(format!(
+                "{OWNER_USERNAME} must be one Telegram username of 5-32 letters, digits or underscores"
+            )));
         }
-        username
-            .map(|username| username.trim_start_matches('@').to_lowercase())
-            .is_some_and(|username| self.usernames.contains(&username))
+
+        Ok(Self {
+            username: username.to_lowercase(),
+        })
+    }
+
+    pub fn includes(&self, username: Option<&str>) -> bool {
+        username.is_some_and(|username| {
+            username
+                .trim_start_matches('@')
+                .eq_ignore_ascii_case(&self.username)
+        })
+    }
+
+    /// How the owner is written in a message, so a buyer can tap it.
+    pub fn handle(&self) -> String {
+        format!("@{}", self.username)
     }
 }
 
+/// The shop's receiving account, read out of its VietQR link.
 #[derive(Clone)]
 pub struct BankAccount {
     pub holder: String,
     pub name: String,
     pub number: String,
+    /// The link as configured. Each order's amount and note go on a copy of it.
+    pub qr: Url,
 }
 
 #[derive(Clone)]
@@ -117,14 +143,10 @@ impl AppConfig {
             bot_token,
             bot_username: optional("TELEGRAM_BOT_USERNAME")
                 .map(|username| username.trim_start_matches('@').to_owned()),
-            owners: owners(
-                optional("TELEGRAM_OWNER_USERNAMES"),
-                optional("TELEGRAM_OWNER_IDS"),
-            ),
-            payment: PaymentConfig::from_env()?,
-            public_url: public_url(
-                optional("TELEGRAM_PUBLIC_URL").or_else(|| optional("TELEGRAM_WEBHOOK_URL")),
+            owner: Owner::parse(
+                &optional(OWNER_USERNAME).unwrap_or_else(|| DEFAULT_OWNER_USERNAME.to_owned()),
             )?,
+            payment: PaymentConfig::from_env()?,
             sepay_api_key: optional("SEPAY_API_KEY"),
             telegram_api_base_url,
             webhook_secret: webhook_secret.into_bytes(),
@@ -135,11 +157,7 @@ impl AppConfig {
 impl PaymentConfig {
     fn from_env() -> Result<Self, ConfigError> {
         Ok(Self {
-            bank: bank_account(
-                optional("TELEGRAM_PAYMENT_BANK_NAME"),
-                optional("TELEGRAM_PAYMENT_ACCOUNT_HOLDER"),
-                optional("TELEGRAM_PAYMENT_ACCOUNT_NUMBER"),
-            )?,
+            bank: bank_account(optional(PAYMENT_QR_URL))?,
             memo_prefix: memo_prefix(optional("TELEGRAM_PAYMENT_MEMO_PREFIX"))?,
             usdt: usdt_wallet(
                 optional("TELEGRAM_PAYMENT_USDT_ADDRESS"),
@@ -171,44 +189,42 @@ fn memo_prefix(configured: Option<String>) -> Result<String, ConfigError> {
     Ok(prefix)
 }
 
-/// The QR the buyer scans is a fixed image of this account, so the three fields
-/// are only ever displayed — nothing is derived from them.
-fn bank_account(
-    name: Option<String>,
-    holder: Option<String>,
-    number: Option<String>,
-) -> Result<Option<BankAccount>, ConfigError> {
-    let (name, holder, number) = match (name, holder, number) {
-        (Some(name), Some(holder), Some(number)) => (name, holder, number),
-        (None, None, None) => return Ok(None),
-        _ => {
-            return Err(ConfigError(
-                "TELEGRAM_PAYMENT_BANK_NAME, TELEGRAM_PAYMENT_ACCOUNT_HOLDER, and TELEGRAM_PAYMENT_ACCOUNT_NUMBER must be set together".to_owned(),
-            ));
-        }
+/// The receiving account is one VietQR link, for example
+/// `https://vietqr.app/img?bank=MBBank&acc=0123456789&holder=NGUYEN VAN A`. Its
+/// bank, account and holder are shown on the VND panel, and every order puts its
+/// own amount and note on a copy of it, so a `des` or `amount` in the link
+/// itself is never used.
+fn bank_account(link: Option<String>) -> Result<Option<BankAccount>, ConfigError> {
+    let Some(link) = link else {
+        return Ok(None);
+    };
+    let invalid = |reason: &str| ConfigError(format!("{PAYMENT_QR_URL} {reason}"));
+
+    let qr = Url::parse(&link)
+        .ok()
+        .filter(|url| url.scheme() == "https")
+        .ok_or_else(|| invalid("must be a valid HTTPS URL"))?;
+    let field = |name: &str| {
+        qr.query_pairs()
+            .find(|(key, _)| key == name)
+            .map(|(_, value)| value.trim().to_owned())
+            .filter(|value| !value.is_empty())
+    };
+    let (Some(name), Some(number), Some(holder)) = (field("bank"), field("acc"), field("holder"))
+    else {
+        return Err(invalid("must carry bank, acc and holder"));
     };
 
     if !number.chars().all(|character| character.is_ascii_digit()) {
-        return Err(ConfigError(
-            "TELEGRAM_PAYMENT_ACCOUNT_NUMBER must contain digits only".to_owned(),
-        ));
+        return Err(invalid("must have an acc of digits only"));
     }
 
     Ok(Some(BankAccount {
         holder: holder.to_uppercase(),
         name: name.to_uppercase(),
         number,
+        qr,
     }))
-}
-
-fn public_url(configured: Option<String>) -> Result<Option<Url>, ConfigError> {
-    configured
-        .map(|value| {
-            Url::parse(&value).map_err(|_| {
-                ConfigError("TELEGRAM_PUBLIC_URL must be a valid HTTPS URL".to_owned())
-            })
-        })
-        .transpose()
 }
 
 fn usdt_wallet(
@@ -242,22 +258,6 @@ fn usdt_wallet(
         network: network.unwrap_or_else(|| DEFAULT_USDT_NETWORK.to_owned()),
         vnd_rate,
     }))
-}
-
-fn owners(usernames: Option<String>, telegram_user_ids: Option<String>) -> Owners {
-    Owners {
-        telegram_user_ids: telegram_user_ids
-            .unwrap_or_default()
-            .split(',')
-            .filter_map(|value| value.trim().parse().ok())
-            .collect(),
-        usernames: usernames
-            .unwrap_or_else(|| DEFAULT_OWNER_USERNAME.to_owned())
-            .split(',')
-            .map(|value| value.trim().trim_start_matches('@').to_lowercase())
-            .filter(|value| !value.is_empty())
-            .collect(),
-    }
 }
 
 fn optional(name: &str) -> Option<String> {
@@ -299,8 +299,8 @@ fn required_secret(name: &str) -> Result<String, ConfigError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        DEFAULT_MEMO_PREFIX, DEFAULT_USDT_NETWORK, bank_account, memo_prefix, owners, public_url,
-        service_token, usdt_wallet,
+        DEFAULT_MEMO_PREFIX, DEFAULT_OWNER_USERNAME, DEFAULT_USDT_NETWORK, Owner, bank_account,
+        memo_prefix, service_token, usdt_wallet,
     };
 
     fn environment(
@@ -361,75 +361,85 @@ mod tests {
         assert!(memo_prefix(Some("x".repeat(33))).is_err());
     }
 
+    const FAKE_LINK: &str =
+        "https://vietqr.app/img?bank=MBBank&acc=0123456789&holder=Nguyen Van A&showinfo=true";
+
     #[test]
-    fn a_bank_account_is_configured_completely_or_not_at_all() {
-        assert!(bank_account(None, None, None).unwrap().is_none());
-        match bank_account(Some("Techcombank".to_owned()), None, None) {
-            Err(error) => assert!(error.to_string().contains("must be set together")),
-            Ok(_) => panic!("a half-configured bank account should be rejected"),
-        }
+    fn without_a_qr_link_there_is_no_bank_account() {
+        assert!(bank_account(None).unwrap().is_none());
     }
 
     #[test]
-    fn a_bank_account_is_displayed_in_upper_case() {
-        let bank = bank_account(
-            Some("techcombank".to_owned()),
-            Some("trần văn sơn".to_owned()),
-            Some("19036951867026".to_owned()),
-        )
-        .unwrap()
-        .expect("a fully configured bank account");
+    fn a_bank_account_is_read_from_the_link_and_displayed_in_upper_case() {
+        let bank = bank_account(Some(FAKE_LINK.to_owned()))
+            .unwrap()
+            .expect("a configured bank account");
 
-        assert_eq!(bank.name, "TECHCOMBANK");
-        assert_eq!(bank.holder, "TRẦN VĂN SƠN");
-        assert_eq!(bank.number, "19036951867026");
+        assert_eq!(bank.name, "MBBANK");
+        assert_eq!(bank.holder, "NGUYEN VAN A");
+        assert_eq!(bank.number, "0123456789");
+        // The link itself is kept as it was written.
+        assert!(
+            bank.qr
+                .as_str()
+                .starts_with("https://vietqr.app/img?bank=MBBank&acc=")
+        );
+    }
+
+    #[test]
+    fn a_qr_link_must_be_https_and_name_the_bank_the_account_and_the_holder() {
+        for link in [
+            "not a link",
+            "http://vietqr.app/img?bank=MBBank&acc=0123456789&holder=NGUYEN",
+            "https://vietqr.app/img?acc=0123456789&holder=NGUYEN",
+            "https://vietqr.app/img?bank=MBBank&holder=NGUYEN",
+            "https://vietqr.app/img?bank=MBBank&acc=0123456789",
+            "https://vietqr.app/img?bank=MBBank&acc=0123456789&holder=%20",
+        ] {
+            assert!(bank_account(Some(link.to_owned())).is_err(), "{link}");
+        }
     }
 
     #[test]
     fn a_bank_account_number_rejects_anything_but_digits() {
         assert!(
-            bank_account(
-                Some("Techcombank".to_owned()),
-                Some("TRAN VAN SON".to_owned()),
-                Some("1903 6951 8670 26".to_owned()),
-            )
+            bank_account(Some(
+                "https://vietqr.app/img?bank=MBBank&acc=0123 4567&holder=NGUYEN".to_owned()
+            ))
             .is_err()
         );
     }
 
     #[test]
-    fn an_owner_is_recognised_by_username_or_by_id() {
-        let owners = owners(
-            Some(" @Synasapmob , second ".to_owned()),
-            Some("42, x".to_owned()),
-        );
+    fn the_owner_is_recognised_by_username_in_any_case_with_or_without_the_at() {
+        let owner = Owner::parse(" @Synasapmob ").unwrap();
 
-        assert!(owners.includes(1, Some("synasapmob")));
-        assert!(owners.includes(1, Some("@SYNASAPMOB")));
-        assert!(owners.includes(1, Some("second")));
-        assert!(
-            owners.includes(42, None),
-            "an id allowlist stands on its own"
-        );
-        assert!(!owners.includes(1, Some("someone-else")));
-        assert!(!owners.includes(1, None));
+        assert!(owner.includes(Some("synasapmob")));
+        assert!(owner.includes(Some("@SYNASAPMOB")));
+        assert!(!owner.includes(Some("someone_else")));
+        assert!(!owner.includes(None));
+        assert_eq!(owner.handle(), "@synasapmob");
     }
 
     #[test]
-    fn the_owner_username_defaults_to_the_operator() {
-        assert!(owners(None, None).includes(1, Some("synasapmob")));
-        assert!(!owners(None, None).includes(1, Some("impostor")));
+    fn the_owner_defaults_to_the_operator() {
+        let owner = Owner::parse(DEFAULT_OWNER_USERNAME).unwrap();
+
+        assert!(owner.includes(Some("synasapmob")));
+        assert!(!owner.includes(Some("impostor")));
     }
 
     #[test]
-    fn a_public_url_is_optional_but_must_parse() {
-        assert!(public_url(None).unwrap().is_none());
-        assert!(
-            public_url(Some("https://telegram.example.test".to_owned()))
-                .unwrap()
-                .is_some()
-        );
-        assert!(public_url(Some("not a url".to_owned())).is_err());
+    fn the_owner_must_be_one_valid_telegram_username() {
+        for value in [
+            "",
+            "abcd",
+            "first_owner,second_owner",
+            "with space",
+            &"a".repeat(33),
+        ] {
+            assert!(Owner::parse(value).is_err(), "{value:?}");
+        }
     }
 
     #[test]

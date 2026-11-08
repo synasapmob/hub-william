@@ -216,8 +216,13 @@ export default function PosRoute() {
             onSave={async (saved, { message }) => {
               const title = `${dialog.item ? "Đã lưu" : "Đã thêm"} ${stockItemTitle(saved)}`;
 
+              let stocked;
+
               try {
-                await save.mutateAsync({ previous: dialog.item, saved });
+                stocked = await save.mutateAsync({
+                  previous: dialog.item,
+                  saved,
+                });
               } catch (error) {
                 toast.error("Không lưu được", {
                   description: messageOf(error),
@@ -237,7 +242,10 @@ export default function PosRoute() {
 
               // The stock is saved either way; only the message may not go out.
               try {
-                const announced = await stockService.announce(message);
+                const announced = await stockService.announce(
+                  message,
+                  stocked.slug,
+                );
 
                 toast.success(title, { description: announcedText(announced) });
               } catch (error) {

@@ -9,7 +9,10 @@ use axum_extra::extract::CookieJar;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::core::{ApiError, AppState};
+use crate::{
+    api::telegram::catalogue::normalize_slug,
+    core::{ApiError, AppState},
+};
 
 use super::access::{Permission, authorize};
 
@@ -62,6 +65,10 @@ pub(crate) async fn call_adapter<Body: Serialize>(
 pub struct Announcement {
     /// Plain text, up to 4,096 characters. The bot sends it as it is.
     pub text: String,
+    /// The slug of a package. Naming one adds a "Mua ngay" button that opens
+    /// that package in the bot; without it the message goes out bare.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub product: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
@@ -81,7 +88,7 @@ pub struct Announced {
         (status = 200, description = "The bot posted it to the channel and started sending it to everyone who can be reached", body = Announced),
         (status = 401, description = "Hub login required", body = crate::core::ErrorResponse),
         (status = 403, description = "The role may not manage stock", body = crate::core::ErrorResponse),
-        (status = 422, description = "The message is empty or longer than 4096 characters", body = crate::core::ErrorResponse),
+        (status = 422, description = "The message is empty or longer than 4096 characters, or the package is not a slug", body = crate::core::ErrorResponse),
         (status = 501, description = "The dashboard is not connected to the bot", body = crate::core::ErrorResponse),
         (status = 502, description = "The bot did not answer", body = crate::core::ErrorResponse)
     ),
@@ -104,10 +111,13 @@ pub async fn announce(
         ));
     }
 
+    let product = body.product.as_deref().map(normalize_slug).transpose()?;
+
     let response = call_adapter(
         &state,
         "/internal/announce",
         &Announcement {
+            product,
             text: text.to_owned(),
         },
     )
