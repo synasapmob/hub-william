@@ -8,6 +8,7 @@ const DEFAULT_USDT_NETWORK: &str = "TRC20";
 const SERVICE_TOKEN: &str = "TELEGRAM_SERVICE_TOKEN";
 const FORMER_SERVICE_TOKEN: &str = "HUB_API_SERVICE_TOKEN";
 const MAXIMUM_MEMO_PREFIX_CHARACTERS: usize = 32;
+const PAYMENT_QR_URL: &str = "TELEGRAM_PAYMENT_QR_URL";
 
 #[derive(Clone)]
 pub struct AppConfig {
@@ -56,11 +57,14 @@ impl Owners {
     }
 }
 
+/// The shop's receiving account, read out of its VietQR link.
 #[derive(Clone)]
 pub struct BankAccount {
     pub holder: String,
     pub name: String,
     pub number: String,
+    /// The link as configured. Each order's amount and note go on a copy of it.
+    pub qr: Url,
 }
 
 #[derive(Clone)]
@@ -129,11 +133,7 @@ impl AppConfig {
 impl PaymentConfig {
     fn from_env() -> Result<Self, ConfigError> {
         Ok(Self {
-            bank: bank_account(
-                optional("TELEGRAM_PAYMENT_BANK_NAME"),
-                optional("TELEGRAM_PAYMENT_ACCOUNT_HOLDER"),
-                optional("TELEGRAM_PAYMENT_ACCOUNT_NUMBER"),
-            )?,
+            bank: bank_account(optional(PAYMENT_QR_URL))?,
             memo_prefix: memo_prefix(optional("TELEGRAM_PAYMENT_MEMO_PREFIX"))?,
             usdt: usdt_wallet(
                 optional("TELEGRAM_PAYMENT_USDT_ADDRESS"),
@@ -165,33 +165,41 @@ fn memo_prefix(configured: Option<String>) -> Result<String, ConfigError> {
     Ok(prefix)
 }
 
-/// The three fields are shown on the VND panel and put into its QR link, so the
-/// code the buyer scans always points at the account the caption names.
-fn bank_account(
-    name: Option<String>,
-    holder: Option<String>,
-    number: Option<String>,
-) -> Result<Option<BankAccount>, ConfigError> {
-    let (name, holder, number) = match (name, holder, number) {
-        (Some(name), Some(holder), Some(number)) => (name, holder, number),
-        (None, None, None) => return Ok(None),
-        _ => {
-            return Err(ConfigError(
-                "TELEGRAM_PAYMENT_BANK_NAME, TELEGRAM_PAYMENT_ACCOUNT_HOLDER, and TELEGRAM_PAYMENT_ACCOUNT_NUMBER must be set together".to_owned(),
-            ));
-        }
+/// The receiving account is one VietQR link, for example
+/// `https://vietqr.app/img?bank=MBBank&acc=0123456789&holder=NGUYEN VAN A`. Its
+/// bank, account and holder are shown on the VND panel, and every order puts its
+/// own amount and note on a copy of it, so a `des` or `amount` in the link
+/// itself is never used.
+fn bank_account(link: Option<String>) -> Result<Option<BankAccount>, ConfigError> {
+    let Some(link) = link else {
+        return Ok(None);
+    };
+    let invalid = |reason: &str| ConfigError(format!("{PAYMENT_QR_URL} {reason}"));
+
+    let qr = Url::parse(&link)
+        .ok()
+        .filter(|url| url.scheme() == "https")
+        .ok_or_else(|| invalid("must be a valid HTTPS URL"))?;
+    let field = |name: &str| {
+        qr.query_pairs()
+            .find(|(key, _)| key == name)
+            .map(|(_, value)| value.trim().to_owned())
+            .filter(|value| !value.is_empty())
+    };
+    let (Some(name), Some(number), Some(holder)) = (field("bank"), field("acc"), field("holder"))
+    else {
+        return Err(invalid("must carry bank, acc and holder"));
     };
 
     if !number.chars().all(|character| character.is_ascii_digit()) {
-        return Err(ConfigError(
-            "TELEGRAM_PAYMENT_ACCOUNT_NUMBER must contain digits only".to_owned(),
-        ));
+        return Err(invalid("must have an acc of digits only"));
     }
 
     Ok(Some(BankAccount {
         holder: holder.to_uppercase(),
         name: name.to_uppercase(),
         number,
+        qr,
     }))
 }
 
@@ -345,38 +353,51 @@ mod tests {
         assert!(memo_prefix(Some("x".repeat(33))).is_err());
     }
 
+    const FAKE_LINK: &str =
+        "https://vietqr.app/img?bank=MBBank&acc=0123456789&holder=Nguyen Van A&showinfo=true";
+
     #[test]
-    fn a_bank_account_is_configured_completely_or_not_at_all() {
-        assert!(bank_account(None, None, None).unwrap().is_none());
-        match bank_account(Some("Techcombank".to_owned()), None, None) {
-            Err(error) => assert!(error.to_string().contains("must be set together")),
-            Ok(_) => panic!("a half-configured bank account should be rejected"),
-        }
+    fn without_a_qr_link_there_is_no_bank_account() {
+        assert!(bank_account(None).unwrap().is_none());
     }
 
     #[test]
-    fn a_bank_account_is_displayed_in_upper_case() {
-        let bank = bank_account(
-            Some("techcombank".to_owned()),
-            Some("trần văn sơn".to_owned()),
-            Some("19036951867026".to_owned()),
-        )
-        .unwrap()
-        .expect("a fully configured bank account");
+    fn a_bank_account_is_read_from_the_link_and_displayed_in_upper_case() {
+        let bank = bank_account(Some(FAKE_LINK.to_owned()))
+            .unwrap()
+            .expect("a configured bank account");
 
-        assert_eq!(bank.name, "TECHCOMBANK");
-        assert_eq!(bank.holder, "TRẦN VĂN SƠN");
-        assert_eq!(bank.number, "19036951867026");
+        assert_eq!(bank.name, "MBBANK");
+        assert_eq!(bank.holder, "NGUYEN VAN A");
+        assert_eq!(bank.number, "0123456789");
+        // The link itself is kept as it was written.
+        assert!(
+            bank.qr
+                .as_str()
+                .starts_with("https://vietqr.app/img?bank=MBBank&acc=")
+        );
+    }
+
+    #[test]
+    fn a_qr_link_must_be_https_and_name_the_bank_the_account_and_the_holder() {
+        for link in [
+            "not a link",
+            "http://vietqr.app/img?bank=MBBank&acc=0123456789&holder=NGUYEN",
+            "https://vietqr.app/img?acc=0123456789&holder=NGUYEN",
+            "https://vietqr.app/img?bank=MBBank&holder=NGUYEN",
+            "https://vietqr.app/img?bank=MBBank&acc=0123456789",
+            "https://vietqr.app/img?bank=MBBank&acc=0123456789&holder=%20",
+        ] {
+            assert!(bank_account(Some(link.to_owned())).is_err(), "{link}");
+        }
     }
 
     #[test]
     fn a_bank_account_number_rejects_anything_but_digits() {
         assert!(
-            bank_account(
-                Some("Techcombank".to_owned()),
-                Some("TRAN VAN SON".to_owned()),
-                Some("1903 6951 8670 26".to_owned()),
-            )
+            bank_account(Some(
+                "https://vietqr.app/img?bank=MBBank&acc=0123 4567&holder=NGUYEN".to_owned()
+            ))
             .is_err()
         );
     }

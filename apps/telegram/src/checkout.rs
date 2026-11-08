@@ -4,7 +4,6 @@ use std::{
 };
 
 use chrono::{DateTime, FixedOffset, TimeDelta, Utc};
-use reqwest::Url;
 use serde::Deserialize;
 
 use crate::config::BankAccount;
@@ -14,7 +13,6 @@ use crate::config::BankAccount;
 pub const ORDER_LIFETIME_MINUTES: i64 = 5;
 const SELECTION_LIFETIME_MINUTES: i64 = 30;
 const VIETNAM_UTC_OFFSET_SECONDS: i32 = 7 * 3_600;
-const QR_IMAGE_ENDPOINT: &str = "https://vietqr.app/img";
 
 /// An order as `apps/api` owns it. The adapter never stores one; every payment
 /// screen reads the order back by its reference, so a redeploy cannot lose a
@@ -131,25 +129,23 @@ pub fn format_expiry(at: DateTime<Utc>) -> String {
         .to_string()
 }
 
-/// A VietQR image of this order, with the account, amount and note already in
-/// it, so the buyer scans and pays without typing either. Telegram fetches a
-/// photo by URL, so the image comes from SePay's QR service rather than from
-/// this one. The service reads the bank name in any case.
+/// A VietQR image of this order. The configured link names the account; the
+/// order's amount and note go on a copy of it, in place of any it carried, so
+/// the buyer scans and pays without typing either. Telegram fetches a photo by
+/// URL, so the image comes from the QR service the link points at.
 pub fn qr_image_url(bank: &BankAccount, total_vnd: i64, memo: &str) -> String {
-    let total = total_vnd.to_string();
-    let url = Url::parse_with_params(
-        QR_IMAGE_ENDPOINT,
-        [
-            ("acc", bank.number.as_str()),
-            ("amount", total.as_str()),
-            ("bank", bank.name.as_str()),
-            ("des", memo),
-            ("fullacc", "true"),
-            ("holder", bank.holder.as_str()),
-            ("showinfo", "true"),
-        ],
-    )
-    .expect("the QR endpoint is a valid URL");
+    let mut url = bank.qr.clone();
+    let kept: Vec<(String, String)> = url
+        .query_pairs()
+        .filter(|(key, _)| key != "amount" && key != "des")
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect();
+
+    url.query_pairs_mut()
+        .clear()
+        .extend_pairs(kept)
+        .append_pair("amount", &total_vnd.to_string())
+        .append_pair("des", memo);
 
     url.into()
 }
@@ -165,6 +161,7 @@ pub fn usdt_amount(total_vnd: i64, vnd_rate: i64) -> String {
 #[cfg(test)]
 mod tests {
     use chrono::{TimeDelta, TimeZone, Utc};
+    use reqwest::Url;
 
     use crate::config::BankAccount;
 
@@ -192,16 +189,20 @@ mod tests {
     }
 
     #[test]
-    fn the_qr_carries_the_account_the_amount_and_the_note() {
+    fn the_qr_carries_this_orders_amount_and_note_in_place_of_the_links_own() {
         let bank = BankAccount {
             holder: "NGUYEN VAN A".to_owned(),
             name: "MBBANK".to_owned(),
             number: "0123456789".to_owned(),
+            qr: Url::parse(
+                "https://vietqr.app/img?bank=MBBank&acc=0123456789&des=OLD NOTE&amount=1&holder=Nguyen Van A&showinfo=true",
+            )
+            .unwrap(),
         };
 
         assert_eq!(
             qr_image_url(&bank, 270_000, "MOT NGAY VUI VE 1GS0H75MMX9P"),
-            "https://vietqr.app/img?acc=0123456789&amount=270000&bank=MBBANK&des=MOT+NGAY+VUI+VE+1GS0H75MMX9P&fullacc=true&holder=NGUYEN+VAN+A&showinfo=true"
+            "https://vietqr.app/img?bank=MBBank&acc=0123456789&holder=Nguyen+Van+A&showinfo=true&amount=270000&des=MOT+NGAY+VUI+VE+1GS0H75MMX9P"
         );
     }
 

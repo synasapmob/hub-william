@@ -30,10 +30,10 @@ expected answer, for 30 minutes) — the order itself lives in
 `telegram_orders`, so a redeploy cannot lose a buyer's checkout and every
 payment button reads its order back by reference.
 
-The VND panel shows a VietQR image made for that order. Its link
-(`https://vietqr.app/img`, SePay's QR service) carries the receiving account, the
-order total and the transfer note, so the buyer scans and pays without typing
-anything. The note is `TELEGRAM_PAYMENT_MEMO_PREFIX` (default `MOT NGAY VUI VE`)
+The VND panel shows a VietQR image made for that order. The shop configures its
+receiving account as one QR link (`TELEGRAM_PAYMENT_QR_URL`); every order puts its
+own total and transfer note on a copy of that link, so the buyer scans and pays
+without typing anything. The note is `TELEGRAM_PAYMENT_MEMO_PREFIX` (default `MOT NGAY VUI VE`)
 plus the order reference, and that reference is what settles the order. Telegram
 fetches the image from that service, so the panel depends on it being up.
 
@@ -161,20 +161,20 @@ Set these service variables:
   not read it; `scripts/configure-webhook.sh` does, to register Telegram's webhook.
 - `SEPAY_API_KEY`: the key SePay sends on its webhook. Without it `/sepay`
   refuses every call, so bank transfers are never settled automatically.
-- `TELEGRAM_PAYMENT_BANK_NAME`, `TELEGRAM_PAYMENT_ACCOUNT_HOLDER`, and
-  `TELEGRAM_PAYMENT_ACCOUNT_NUMBER`: the shop's receiving account, displayed on
-  the panel and put into its QR link. The bank name is any code, short name or
-  alias SePay's QR service knows, in any case, for example `MBBank`. Set all
-  three or none; a partial set fails startup, and an unset set makes the VND
-  button say transfers are not configured. `TELEGRAM_PAYMENT_MEMO_PREFIX` is an
-  optional override.
+- `TELEGRAM_PAYMENT_QR_URL`: the shop's receiving account as an HTTPS link to
+  SePay's QR service, for example
+  `https://vietqr.app/img?bank=MBBank&acc=<account number>&holder=<account holder>&showinfo=true&fullacc=true`.
+  It must carry `bank`, `acc` (digits only) and `holder`; a link without them
+  fails startup. Those three are shown on the panel, and any `amount` or `des` in
+  the link is replaced for each order. Unset, the VND button says transfers are
+  not configured. `TELEGRAM_PAYMENT_MEMO_PREFIX` is an optional override.
 - `TELEGRAM_PAYMENT_USDT_ADDRESS` and `TELEGRAM_PAYMENT_USDT_VND_RATE`:
   optional, and also all-or-nothing. `TELEGRAM_PAYMENT_USDT_NETWORK` defaults
   to `TRC20`. Without them the USDT button says the method is not configured
   rather than showing an address the shop does not own.
 
-To change the receiving account, update the three account variables. The QR is
-built from them for every order, so nothing needs rebuilding.
+To change the receiving account, change `TELEGRAM_PAYMENT_QR_URL`. Nothing needs
+rebuilding.
 
 `apps/api` takes the variable of the same name: set `TELEGRAM_SERVICE_TOKEN` there
 to the **same** value. The API remains private; this second secret ensures

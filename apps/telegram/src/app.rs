@@ -1514,14 +1514,14 @@ mod tests {
         let caption = response["caption"].as_str().expect("a payment caption");
 
         assert_eq!(response["method"], "sendPhoto");
-        // The QR is made for this order: the total and the note are in it, and
-        // the account is the one the caption names.
-        let photo = response["photo"].as_str().expect("a QR link");
-        assert!(photo.starts_with("https://vietqr.app/img?acc="));
-        assert!(photo.contains("&amount=270000&"));
-        assert!(photo.contains("&des=CAM+TIEN+DI+CHILL+THOI+TESTREF00001&"));
+        // The QR is made for this order: the link's account, this order's total
+        // and note, and none of the amount or note the link was configured with.
+        assert_eq!(
+            response["photo"],
+            "https://vietqr.app/img?bank=MBBank&acc=0123456789&holder=Nguyen+Van+A&showinfo=true&amount=270000&des=CAM+TIEN+DI+CHILL+THOI+TESTREF00001"
+        );
         assert!(caption.starts_with(
-            "🏦 Thanh toán chuyển khoản\n\n🏛️ Ngân hàng: TECHCOMBANK\n👤 Chủ TK: TRAN VAN SON\n💳 Số TK: 19036951867026\n💰 Số tiền: 270,000₫\n📝 Nội dung CK: CAM TIEN DI CHILL THOI TESTREF00001\n"
+            "🏦 Thanh toán chuyển khoản\n\n🏛️ Ngân hàng: MBBANK\n👤 Chủ TK: NGUYEN VAN A\n💳 Số TK: 0123456789\n💰 Số tiền: 270,000₫\n📝 Nội dung CK: CAM TIEN DI CHILL THOI TESTREF00001\n"
         ));
         assert!(caption.ends_with(
             "\n\n👆 Quét mã QR phía trên: số tiền và nội dung CK đã được điền sẵn.\n✅ Đơn hàng xử lý tự động sau khi thanh toán."
@@ -2223,9 +2223,9 @@ mod tests {
             }
             let body = json!({
                 "id": 92_704,
-                "gateway": "Techcombank",
+                "gateway": "MBBank",
                 "transactionDate": "2026-09-10 15:31:00",
-                "accountNumber": "19036951867026",
+                "accountNumber": "0123456789",
                 "content": format!("CAM TIEN DI CHILL THOI {REFERENCE}"),
                 "transferType": "in",
                 "transferAmount": 270_000,
@@ -2384,9 +2384,15 @@ mod tests {
                 owners: owners(),
                 payment: PaymentConfig {
                     bank: Some(BankAccount {
-                        holder: "TRAN VAN SON".to_owned(),
-                        name: "TECHCOMBANK".to_owned(),
-                        number: "19036951867026".to_owned(),
+                        holder: "NGUYEN VAN A".to_owned(),
+                        name: "MBBANK".to_owned(),
+                        number: "0123456789".to_owned(),
+                        // The note and amount in it are the link's own; an order
+                        // replaces both.
+                        qr: Url::parse(
+                            "https://vietqr.app/img?bank=MBBank&acc=0123456789&des=OLD NOTE&amount=1&holder=Nguyen Van A&showinfo=true",
+                        )
+                        .expect("test QR link should parse"),
                     }),
                     memo_prefix: "CAM TIEN DI CHILL THOI".to_owned(),
                     usdt: None,
