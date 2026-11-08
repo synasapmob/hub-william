@@ -21,6 +21,12 @@ pub fn menu(chat_id: i64, language: Language, catalogue: &Catalogue) -> SendMess
 
 /// Every shop screen is text, so a button rewrites the message it belongs to
 /// rather than replacing it — nothing moves to the end of the chat.
+/// What a refresh button's data starts with; the rest says which screen to draw.
+pub const REFRESH_PREFIX: &str = "refresh:";
+
+/// The most Telegram allows in the data of one button.
+const MAXIMUM_CALLBACK_DATA_BYTES: usize = 64;
+
 pub fn edit_menu(
     chat_id: i64,
     message_id: i64,
@@ -48,12 +54,12 @@ pub fn edit_quantity_prompt(
     product: &Product,
 ) -> EditMessageText {
     EditMessageText::new(chat_id, message_id, quantity_prompt_text(language, product))
-        .with_keyboard(back_to_provider_keyboard(language, &product.provider_slug))
+        .with_keyboard(back_to_provider_keyboard(language, product))
 }
 
 pub fn quantity_prompt(chat_id: i64, language: Language, product: &Product) -> SendMessage {
     SendMessage::new(chat_id, quantity_prompt_text(language, product))
-        .with_keyboard(back_to_provider_keyboard(language, &product.provider_slug))
+        .with_keyboard(back_to_provider_keyboard(language, product))
 }
 
 pub fn quantity_error(chat_id: i64, language: Language, product: &Product) -> SendMessage {
@@ -493,6 +499,10 @@ fn provider_keyboard(language: Language, provider: &Provider) -> InlineKeyboardM
             .iter()
             .map(|product| vec![catalogue_button(language, product)])
             .chain(std::iter::once(vec![back_to_menu_button(language)]))
+            .chain(
+                refresh_button(language, &format!("provider:{}", provider.slug))
+                    .map(|button| vec![button]),
+            )
             .collect(),
     }
 }
@@ -514,13 +524,42 @@ fn catalogue_button(language: Language, product: &Product) -> InlineKeyboardButt
 }
 
 fn back_to_menu_button(language: Language) -> InlineKeyboardButton {
-    InlineKeyboardButton::callback(
-        language.pick(Localized {
-            english: "‹ Back to shop",
-            vietnamese: "‹ Quay lại shop",
-        }),
-        "menu",
-    )
+    InlineKeyboardButton::callback(back_label(language), "menu")
+}
+
+/// Every screen says "back" the same way, whichever screen it goes back to.
+fn back_label(language: Language) -> &'static str {
+    language.pick(Localized {
+        english: "‹ Back",
+        vietnamese: "‹ Quay trở lại",
+    })
+}
+
+/// A button that draws the screen it sits on again from the API, so a count or a
+/// price that changed since the screen was opened shows up. `screen` is what
+/// opens that screen (`provider:claude`, `catalog:claude-pro`). Telegram refuses
+/// button data over 64 bytes, and one bad button would break the whole screen,
+/// so a screen whose address is too long goes without the button.
+fn refresh_button(language: Language, screen: &str) -> Option<InlineKeyboardButton> {
+    let data = format!("{REFRESH_PREFIX}{screen}");
+
+    (data.len() <= MAXIMUM_CALLBACK_DATA_BYTES).then(|| {
+        InlineKeyboardButton::callback(
+            language.pick(Localized {
+                english: "🔄 Refresh",
+                vietnamese: "🔄 Tải lại",
+            }),
+            data,
+        )
+    })
+}
+
+/// What a buyer sees for a moment after tapping the refresh button.
+pub fn refreshed_notice(language: Language) -> &'static str {
+    language.pick(Localized {
+        english: "✅ Refreshed",
+        vietnamese: "✅ Đã tải lại",
+    })
 }
 
 fn back_keyboard(language: Language) -> InlineKeyboardMarkup {
@@ -529,15 +568,19 @@ fn back_keyboard(language: Language) -> InlineKeyboardMarkup {
     }
 }
 
-fn back_to_provider_keyboard(language: Language, provider_slug: &str) -> InlineKeyboardMarkup {
+/// The quantity prompt: back to the package list, and below it a refresh of the
+/// prompt itself.
+fn back_to_provider_keyboard(language: Language, product: &Product) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup {
-        inline_keyboard: vec![vec![InlineKeyboardButton::callback(
-            language.pick(Localized {
-                english: "‹ Back",
-                vietnamese: "‹ Quay lại",
-            }),
-            format!("provider:{provider_slug}"),
-        )]],
+        inline_keyboard: std::iter::once(vec![InlineKeyboardButton::callback(
+            back_label(language),
+            format!("provider:{}", product.provider_slug),
+        )])
+        .chain(
+            refresh_button(language, &format!("catalog:{}", product.slug))
+                .map(|button| vec![button]),
+        )
+        .collect(),
     }
 }
 
@@ -633,7 +676,7 @@ pub fn admin_new_product_prompt(chat_id: i64, message_id: i64) -> EditMessageTex
     )
     .with_keyboard(InlineKeyboardMarkup {
         inline_keyboard: vec![vec![InlineKeyboardButton::callback(
-            "‹ Quay lại",
+            "‹ Quay trở lại",
             "admin",
         )]],
     })
@@ -844,7 +887,7 @@ fn admin_product_keyboard(product: &Product) -> InlineKeyboardMarkup {
 fn admin_back_keyboard(slug: &str) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup {
         inline_keyboard: vec![vec![InlineKeyboardButton::callback(
-            "‹ Quay lại",
+            "‹ Quay trở lại",
             format!("admin:open:{slug}"),
         )]],
     }
@@ -855,8 +898,8 @@ mod tests {
     use chrono::{TimeDelta, Utc};
     use serde_json::{Value, json};
 
-    use super::order_status;
-    use crate::{checkout::Order, language::Language};
+    use super::{order_status, quantity_prompt};
+    use crate::{catalog::Product, checkout::Order, language::Language};
 
     fn order(status: &str, expires_in_minutes: i64) -> Order {
         serde_json::from_value(json!({
@@ -871,6 +914,32 @@ mod tests {
             "unit_price_vnd": 135_000
         }))
         .unwrap()
+    }
+
+    fn package(slug: &str) -> Product {
+        serde_json::from_value(json!({
+            "available": 5, "category": null, "detail": null, "hot": false, "listed": true,
+            "on_hand": 5, "plan": "Pro", "price_vnd": 100_000, "provider_name": "Claude",
+            "provider_slug": "claude", "reserved": 0, "slug": slug, "variant": null,
+            "warranty": "WF", "warranty_note_en": "note", "warranty_note_vi": "ghi chú"
+        }))
+        .unwrap()
+    }
+
+    fn rows_of(product: &Product) -> usize {
+        let message: Value =
+            serde_json::to_value(quantity_prompt(123, Language::Vietnamese, product)).unwrap();
+        message["reply_markup"]["inline_keyboard"]
+            .as_array()
+            .unwrap()
+            .len()
+    }
+
+    #[test]
+    fn a_screen_whose_refresh_data_would_be_too_long_goes_without_the_button() {
+        // `refresh:catalog:` is 16 bytes, so 48 more is the most that fits in 64.
+        assert_eq!(rows_of(&package(&"a".repeat(48))), 2, "back and refresh");
+        assert_eq!(rows_of(&package(&"a".repeat(49))), 1, "back only");
     }
 
     fn text_of(language: Language, order: &Order) -> String {
