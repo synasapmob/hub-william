@@ -308,8 +308,9 @@ async fn handle_callback(
     // is the only progress a buyer sees while the API round trips run.
     let outcome = resolve_callback(state, message, &callback).await;
     let notice = match &outcome {
-        Ok(Outcome::Alert(text)) => Some(text.as_str()),
-        Err(_) => Some(BUSY_NOTICE),
+        Ok(Outcome::Alert(text)) => Some(Notice::Popup(text)),
+        Ok(Outcome::Refreshed(_, text)) => Some(Notice::Toast(text)),
+        Err(_) => Some(Notice::Popup(BUSY_NOTICE)),
         _ => None,
     };
     if let Err(status) = acknowledge_callback(state, &callback.id, notice).await {
@@ -325,7 +326,9 @@ async fn handle_callback(
             }
             Ok(Json(reply).into_response())
         }
-        Outcome::Edit(edit) => Ok(Json(Reply::from(edit)).into_response()),
+        Outcome::Edit(edit) | Outcome::Refreshed(edit, _) => {
+            Ok(Json(Reply::from(edit)).into_response())
+        }
         Outcome::Alert(_) | Outcome::Nothing => Ok(StatusCode::NO_CONTENT.into_response()),
     }
 }
@@ -717,18 +720,32 @@ async fn call_telegram(
 
 /// A `notice` is shown as a popup the buyer has to dismiss, which is how a
 /// result that does not deserve its own chat message gets delivered.
+/// What a tapped button says back to the buyer.
+enum Notice<'a> {
+    /// A popup the buyer has to dismiss.
+    Popup(&'a str),
+    /// A short word that fades by itself.
+    Toast(&'a str),
+}
+
 async fn acknowledge_callback(
     state: &AppState,
     callback_query_id: &str,
-    notice: Option<&str>,
+    notice: Option<Notice<'_>>,
 ) -> Result<(), StatusCode> {
     // `text` is omitted rather than sent as JSON null, which Telegram renders
     // to the buyer as a floating "null".
     let mut body = serde_json::json!({ "callback_query_id": callback_query_id });
     if let Some(notice) = notice {
-        body["show_alert"] = serde_json::Value::Bool(true);
+        let (text, popup) = match notice {
+            Notice::Popup(text) => (text, true),
+            Notice::Toast(text) => (text, false),
+        };
+        if popup {
+            body["show_alert"] = serde_json::Value::Bool(true);
+        }
         body["text"] =
-            serde_json::Value::String(notice.chars().take(MAXIMUM_NOTICE_CHARACTERS).collect());
+            serde_json::Value::String(text.chars().take(MAXIMUM_NOTICE_CHARACTERS).collect());
     }
 
     call_telegram(state, "answerCallbackQuery", body).await
@@ -768,8 +785,58 @@ enum Outcome {
     /// Rewrite the message the button belongs to.
     Edit(telegram::EditMessageText),
     Nothing,
+    /// The same rewrite, for a button that only draws the screen again, with a
+    /// short word to the buyer: when nothing changed, Telegram refuses an edit that
+    /// changes nothing and the screen looks as if the tap did nothing.
+    Refreshed(telegram::EditMessageText, String),
     /// Remove that message and send this one in its place.
     Replace(Reply),
+}
+
+/// Draws a shop screen again from the API. A package that has gone, been hidden
+/// or sold out since the buyer opened it is shown where it now stands: in its
+/// provider's list, or in the menu when the provider has gone too.
+async fn refresh_outcome(
+    state: &AppState,
+    chat_id: i64,
+    message_id: i64,
+    telegram_user_id: i64,
+    language: Language,
+    screen: &str,
+) -> Result<Outcome, StatusCode> {
+    let edit = if let Some(slug) = screen.strip_prefix("provider:") {
+        let catalogue = fetch_catalogue(state).await?;
+
+        match catalogue.provider(slug) {
+            Some(provider) => view::edit_provider(chat_id, message_id, language, provider),
+            None => view::edit_menu(chat_id, message_id, language, &catalogue),
+        }
+    } else if let Some(slug) = screen.strip_prefix("catalog:") {
+        match fetch_product(state, slug).await? {
+            Some(product) if product.listed && product.is_available() => {
+                state
+                    .sessions
+                    .expect(telegram_user_id, Pending::Quantity(product.slug.clone()));
+                view::edit_quantity_prompt(chat_id, message_id, language, &product)
+            }
+            other => {
+                let catalogue = fetch_catalogue(state).await?;
+                let provider = other.and_then(|product| catalogue.provider(&product.provider_slug));
+
+                match provider {
+                    Some(provider) => view::edit_provider(chat_id, message_id, language, provider),
+                    None => view::edit_menu(chat_id, message_id, language, &catalogue),
+                }
+            }
+        }
+    } else {
+        return Ok(Outcome::Nothing);
+    };
+
+    Ok(Outcome::Refreshed(
+        edit,
+        view::refreshed_notice(language).to_owned(),
+    ))
 }
 
 async fn callback_reply(
@@ -792,6 +859,17 @@ async fn callback_reply(
     let language = observed_language.unwrap_or(Language::Vietnamese);
     // Shop screens are all text, so browsing rewrites one message in place.
     // Only a payment panel, which is a photo, has to replace it.
+    if let Some(screen) = data.strip_prefix(view::REFRESH_PREFIX) {
+        return refresh_outcome(
+            state,
+            chat_id,
+            message_id,
+            telegram_user_id,
+            language,
+            screen,
+        )
+        .await;
+    }
     if data == "menu" {
         let catalogue = fetch_catalogue(state).await?;
         return Ok(Outcome::Edit(view::edit_menu(
@@ -1448,6 +1526,139 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_package_list_ends_with_back_and_a_refresh_below_it() {
+        let shop = Shop::open().await;
+        let response = shop.update_json(callback_update("provider:claude")).await;
+        let rows = response["reply_markup"]["inline_keyboard"]
+            .as_array()
+            .expect("a package keyboard");
+        let [back, refresh] = &rows[rows.len() - 2..] else {
+            panic!("a back row and a refresh row");
+        };
+
+        assert_eq!(back[0]["text"], "‹ Quay trở lại");
+        assert_eq!(back[0]["callback_data"], "menu");
+        assert_eq!(refresh[0]["text"], "🔄 Tải lại");
+        assert_eq!(refresh[0]["callback_data"], "refresh:provider:claude");
+    }
+
+    #[tokio::test]
+    async fn the_quantity_prompt_has_back_and_a_refresh_below_it() {
+        let shop = Shop::open().await;
+        let response = shop
+            .update_json(callback_update("catalog:claude-max-x20"))
+            .await;
+        let rows = &response["reply_markup"]["inline_keyboard"];
+
+        assert_eq!(rows[0][0]["text"], "‹ Quay trở lại");
+        assert_eq!(rows[0][0]["callback_data"], "provider:claude");
+        assert_eq!(rows[1][0]["text"], "🔄 Tải lại");
+        assert_eq!(
+            rows[1][0]["callback_data"],
+            "refresh:catalog:claude-max-x20"
+        );
+        assert!(rows[2].is_null());
+    }
+
+    #[tokio::test]
+    async fn refreshing_the_package_list_draws_it_again_and_says_so() {
+        let shop = Shop::open().await;
+        let opened = shop.update_json(callback_update("provider:claude")).await;
+        let refreshed = shop
+            .update_json(callback_update("refresh:provider:claude"))
+            .await;
+
+        assert_eq!(refreshed["method"], "editMessageText");
+        assert_eq!(refreshed["text"], opened["text"]);
+        assert_eq!(
+            refreshed["reply_markup"]["inline_keyboard"],
+            opened["reply_markup"]["inline_keyboard"]
+        );
+
+        // A toast that fades by itself, not a popup to dismiss.
+        let answer = shop.last_answer();
+        assert_eq!(answer["text"], "✅ Đã tải lại");
+        assert!(answer.get("show_alert").is_none());
+    }
+
+    #[tokio::test]
+    async fn refreshing_a_quantity_prompt_keeps_the_buyer_on_it() {
+        let shop = Shop::open().await;
+        let opened = shop
+            .update_json(callback_update("catalog:claude-max-x20"))
+            .await;
+        let refreshed = shop
+            .update_json(callback_update("refresh:catalog:claude-max-x20"))
+            .await;
+
+        assert_eq!(refreshed["method"], "editMessageText");
+        assert_eq!(refreshed["text"], opened["text"]);
+        assert_eq!(shop.last_answer()["text"], "✅ Đã tải lại");
+
+        // The number the buyer sends next still answers this prompt.
+        let order = shop.update_json(message_update("2")).await;
+        assert_eq!(
+            order["reply_markup"]["inline_keyboard"][0][0]["callback_data"],
+            format!("pay:vnd:{REFERENCE}")
+        );
+    }
+
+    #[tokio::test]
+    async fn refreshing_a_package_that_sold_out_shows_the_list_where_it_is_red() {
+        let shop = Shop::open().await;
+        let refreshed = shop
+            .update_json(callback_update("refresh:catalog:grok-supergrok"))
+            .await;
+        let row = &refreshed["reply_markup"]["inline_keyboard"][0][0];
+
+        assert_eq!(refreshed["method"], "editMessageText");
+        assert_eq!(
+            row["text"],
+            "Grok SuperGrok (Personal) (NW) --- 259,000đ (hết hàng)"
+        );
+        assert_eq!(row["style"], "danger");
+    }
+
+    #[tokio::test]
+    async fn refreshing_a_package_that_was_hidden_or_never_existed_leaves_the_prompt() {
+        let shop = Shop::open().await;
+        shop.update_json(owner_callback("admin:listed:claude-max-x5"))
+            .await;
+
+        // Hidden: the provider's list, without it.
+        let hidden = shop
+            .update_json(callback_update("refresh:catalog:claude-max-x5"))
+            .await;
+        let rows = hidden["reply_markup"]["inline_keyboard"]
+            .as_array()
+            .expect("the provider's list");
+        assert_eq!(rows.len(), 3, "one package, back and refresh");
+        assert_eq!(rows[0][0]["callback_data"], "catalog:claude-max-x20");
+
+        // Unknown: the shop menu.
+        let unknown = shop
+            .update_json(callback_update("refresh:catalog:no-such-package"))
+            .await;
+        assert_eq!(unknown["method"], "editMessageText");
+        assert!(
+            unknown["text"]
+                .as_str()
+                .unwrap()
+                .starts_with("Hub William shop")
+        );
+    }
+
+    #[tokio::test]
+    async fn refreshing_something_that_is_not_a_shop_screen_does_nothing() {
+        let shop = Shop::open().await;
+        let response = shop
+            .send_update(callback_update("refresh:somewhere-else"))
+            .await;
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
     async fn a_package_opens_a_quantity_prompt_that_returns_to_its_provider() {
         let shop = Shop::open().await;
         let response = shop
@@ -1708,7 +1919,11 @@ mod tests {
         let rows = shopper["reply_markup"]["inline_keyboard"]
             .as_array()
             .expect("a package keyboard");
-        assert_eq!(rows.len(), 2, "one package plus the back button");
+        assert_eq!(
+            rows.len(),
+            3,
+            "one package, the back button and the refresh button"
+        );
 
         let owner = shop.update_json(owner_message("/catalog")).await;
         assert!(
@@ -2248,6 +2463,17 @@ mod tests {
         }
 
         /// The popup Telegram was told to show for the most recent tap, if any.
+        /// The body of the last `answerCallbackQuery`, popup or toast.
+        fn last_answer(&self) -> Value {
+            self.api
+                .alerts
+                .lock()
+                .unwrap()
+                .last()
+                .cloned()
+                .expect("a callback answer")
+        }
+
         fn last_alert(&self) -> Option<String> {
             let alerts = self.api.alerts.lock().unwrap();
             let last = alerts.last()?;
