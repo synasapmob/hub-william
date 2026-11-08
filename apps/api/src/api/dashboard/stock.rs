@@ -18,7 +18,7 @@ use crate::{
         MAXIMUM_RESTOCK, MAXIMUM_STOCK, NewProduct, PRODUCT_COLUMNS, RESERVED_JOIN,
         TelegramProduct, default_warranty_note_en, default_warranty_note_vi, ensure_provider,
         insert_product, normalize_price, normalize_slug, normalize_text, normalize_warranty,
-        slugify,
+        slugify, warranty_notes,
     },
     core::{ApiError, AppState},
 };
@@ -50,6 +50,9 @@ pub struct DashboardProduct {
     pub variant: Option<String>,
     /// `WF` full, `W7D` seven days, `NW` none beyond a one-hour login check.
     pub warranty: String,
+    /// The shop's own warranty note, in Vietnamese. Absent when the product
+    /// carries the standard note for its warranty code.
+    pub warranty_note: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -67,6 +70,8 @@ struct ProductRow {
 impl From<ProductRow> for DashboardProduct {
     fn from(row: ProductRow) -> Self {
         let ProductRow { product, image_id } = row;
+        let written = product.warranty_note_vi != default_warranty_note_vi(&product.warranty)
+            || product.warranty_note_en != default_warranty_note_en(&product.warranty);
 
         Self {
             available: product.available,
@@ -81,6 +86,7 @@ impl From<ProductRow> for DashboardProduct {
             slug: product.slug,
             variant: product.variant,
             warranty: product.warranty,
+            warranty_note: written.then_some(product.warranty_note_vi),
         }
     }
 }
@@ -99,6 +105,9 @@ pub struct CreateProduct {
     pub variant: Option<String>,
     /// `WF`, `W7D` or `NW`.
     pub warranty: String,
+    /// The warranty note a buyer reads, up to 200 characters. Blank or absent
+    /// uses the standard note for the warranty code.
+    pub warranty_note: Option<String>,
 }
 
 /// Everything about a product that can be edited. The slug and the count are not
@@ -114,6 +123,10 @@ pub struct UpdateProduct {
     pub variant: Option<String>,
     /// `WF`, `W7D` or `NW`.
     pub warranty: String,
+    /// The warranty note a buyer reads, up to 200 characters. Blank uses the
+    /// standard note for the warranty code. Absent leaves the note as it is,
+    /// unless the warranty code changes, which resets it to the standard one.
+    pub warranty_note: Option<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -219,6 +232,7 @@ pub async fn create_product(
             provider: body.provider,
             variant: body.variant,
             warranty: body.warranty,
+            warranty_note: body.warranty_note,
         },
     )
     .await
@@ -265,21 +279,30 @@ pub async fn update_product(
         normalize_text(body.plan, 64).ok_or(ApiError::Validation("A product needs a plan."))?;
     let variant = body.variant.and_then(|value| normalize_text(value, 32));
     let warranty = normalize_warranty(&body.warranty)?;
+    // A note that is absent leaves the stored one alone (unless the warranty
+    // changes). One that is sent is written, and a blank one asks for the
+    // standard note back.
+    let leave_note = body.warranty_note.is_none();
+    let (note_en, note_vi) = warranty_notes(warranty, body.warranty_note)?;
     let price_vnd = normalize_price(body.price_vnd)?;
     ensure_image(&state, body.image_id).await?;
 
     let mut database = state.pool.begin().await.map_err(database_error)?;
     let provider_id = ensure_provider(&mut database, &provider_name, &provider_slug).await?;
 
-    // The warranty note only changes with the warranty, so a note the shop
-    // wrote by hand survives an edit that leaves the warranty alone.
+    // The stored notes stay when the warranty is unchanged and the note is
+    // absent or is the Vietnamese note already stored. The second case is a form
+    // that sends back what it was given, which must not overwrite an English
+    // note the form never showed.
     let updated = sqlx::query_scalar::<_, Uuid>(
         "UPDATE telegram_products
          SET provider_id = $2,
              plan = $3,
              variant = $4,
-             warranty_note_en = CASE WHEN warranty <> $5 THEN $6 ELSE warranty_note_en END,
-             warranty_note_vi = CASE WHEN warranty <> $5 THEN $7 ELSE warranty_note_vi END,
+             warranty_note_en = CASE WHEN warranty = $5 AND ($12 OR $7 = warranty_note_vi)
+                                     THEN warranty_note_en ELSE $6 END,
+             warranty_note_vi = CASE WHEN warranty = $5 AND ($12 OR $7 = warranty_note_vi)
+                                     THEN warranty_note_vi ELSE $7 END,
              warranty = $5,
              price_vnd = $8,
              hot = $9,
@@ -294,12 +317,13 @@ pub async fn update_product(
     .bind(&plan)
     .bind(&variant)
     .bind(warranty)
-    .bind(default_warranty_note_en(warranty))
-    .bind(default_warranty_note_vi(warranty))
+    .bind(&note_en)
+    .bind(&note_vi)
     .bind(price_vnd)
     .bind(body.hot)
     .bind(body.listed)
     .bind(body.image_id)
+    .bind(leave_note)
     .fetch_optional(&mut *database)
     .await
     .map_err(database_error)?;

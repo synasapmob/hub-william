@@ -27,6 +27,7 @@ const product: TelegramProduct = {
   plan: "Pro 1 tháng",
   variant: null,
   warranty: "WF",
+  warranty_note: null,
   price_vnd: 459_000,
   on_hand: 12,
   reserved: 2,

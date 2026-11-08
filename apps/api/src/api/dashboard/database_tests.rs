@@ -513,6 +513,290 @@ async fn editing_leaves_a_warranty_note_alone_when_the_warranty_is_unchanged(poo
     assert_eq!(note, "Written by hand");
 }
 
+/// The English and the Vietnamese note a product is stored with.
+async fn notes_of(pool: &PgPool, slug: &str) -> (String, String) {
+    sqlx::query_as(
+        "SELECT warranty_note_en, warranty_note_vi FROM telegram_products WHERE slug = $1",
+    )
+    .bind(slug)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+fn edit_with_note(product: &Value, note: Value) -> Value {
+    let mut edit = edit_of(product);
+    edit["warranty_note"] = note;
+    edit
+}
+
+#[sqlx::test]
+async fn a_warranty_note_the_shop_writes_is_stored_in_both_languages_and_listed(pool: PgPool) {
+    let (state, owner) = owner_and_state(pool.clone()).await;
+    let cookie = Some(owner.cookie.as_str());
+
+    let mut written = new_product("Pro");
+    written["warranty_note"] = json!("  Bảo hành 30 ngày,\n đổi tài khoản   khác  ");
+    let (status, created) = call(
+        &state,
+        "POST",
+        "/dashboard/telegram/products",
+        cookie,
+        Some(written),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::CREATED);
+    // Tidied to one line, and the same words for a reader of either language.
+    assert_eq!(
+        created["warranty_note"],
+        "Bảo hành 30 ngày, đổi tài khoản khác"
+    );
+    assert_eq!(
+        notes_of(&pool, "acme-pro").await,
+        (
+            "Bảo hành 30 ngày, đổi tài khoản khác".to_owned(),
+            "Bảo hành 30 ngày, đổi tài khoản khác".to_owned()
+        )
+    );
+
+    // Without a note the standard one applies, and the dashboard is told there
+    // is nothing of the shop's own to show.
+    let (status, plain) = call(
+        &state,
+        "POST",
+        "/dashboard/telegram/products",
+        cookie,
+        Some(new_product("Plus")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert!(plain["warranty_note"].is_null());
+    let (en, vi) = notes_of(&pool, "acme-plus").await;
+    assert!(en.contains("login check"), "{en}");
+    assert!(vi.contains("login check"), "{vi}");
+
+    let (_, listing) = call(&state, "GET", "/dashboard/telegram/products", cookie, None).await;
+    assert_eq!(
+        product_in(&listing, "acme-pro")["warranty_note"],
+        "Bảo hành 30 ngày, đổi tài khoản khác"
+    );
+    assert!(product_in(&listing, "acme-plus")["warranty_note"].is_null());
+}
+
+#[sqlx::test]
+async fn an_edit_can_write_a_warranty_note_and_a_blank_one_brings_the_standard_back(pool: PgPool) {
+    let (state, owner) = owner_and_state(pool.clone()).await;
+    let cookie = Some(owner.cookie.as_str());
+    let (_, created) = call(
+        &state,
+        "POST",
+        "/dashboard/telegram/products",
+        cookie,
+        Some(new_product("Pro")),
+    )
+    .await;
+
+    let (status, edited) = call(
+        &state,
+        "PUT",
+        "/dashboard/telegram/products/acme-pro",
+        cookie,
+        Some(edit_with_note(&created, json!("Không bảo hành"))),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(edited["warranty_note"], "Không bảo hành");
+    assert_eq!(
+        notes_of(&pool, "acme-pro").await,
+        ("Không bảo hành".to_owned(), "Không bảo hành".to_owned())
+    );
+
+    let (status, reset) = call(
+        &state,
+        "PUT",
+        "/dashboard/telegram/products/acme-pro",
+        cookie,
+        Some(edit_with_note(&edited, json!("   "))),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(reset["warranty_note"].is_null());
+    let (en, vi) = notes_of(&pool, "acme-pro").await;
+    assert!(en.contains("login check"), "{en}");
+    assert!(vi.contains("login check"), "{vi}");
+}
+
+#[sqlx::test]
+async fn a_form_that_sends_back_the_note_it_was_given_keeps_the_english_one(pool: PgPool) {
+    let (state, owner) = owner_and_state(pool.clone()).await;
+    let cookie = Some(owner.cookie.as_str());
+    let (_, created) = call(
+        &state,
+        "POST",
+        "/dashboard/telegram/products",
+        cookie,
+        Some(new_product("Pro")),
+    )
+    .await;
+    sqlx::query(
+        "UPDATE telegram_products
+         SET warranty_note_en = 'Written in English', warranty_note_vi = 'Viết bằng tiếng Việt'
+         WHERE slug = 'acme-pro'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // The dashboard shows the Vietnamese note; saving a price change sends it back.
+    let (_, listing) = call(&state, "GET", "/dashboard/telegram/products", cookie, None).await;
+    let shown = product_in(&listing, "acme-pro")["warranty_note"].clone();
+    assert_eq!(shown, "Viết bằng tiếng Việt");
+
+    let mut edit = edit_with_note(&created, shown);
+    edit["price_vnd"] = json!(55000);
+    let (status, _) = call(
+        &state,
+        "PUT",
+        "/dashboard/telegram/products/acme-pro",
+        cookie,
+        Some(edit),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        notes_of(&pool, "acme-pro").await,
+        (
+            "Written in English".to_owned(),
+            "Viết bằng tiếng Việt".to_owned()
+        )
+    );
+
+    // A different note replaces both.
+    let (status, _) = call(
+        &state,
+        "PUT",
+        "/dashboard/telegram/products/acme-pro",
+        cookie,
+        Some(edit_with_note(&created, json!("Ghi chú mới"))),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        notes_of(&pool, "acme-pro").await,
+        ("Ghi chú mới".to_owned(), "Ghi chú mới".to_owned())
+    );
+}
+
+#[sqlx::test]
+async fn changing_the_warranty_keeps_a_note_sent_with_it_and_resets_one_that_is_absent(
+    pool: PgPool,
+) {
+    let (state, owner) = owner_and_state(pool.clone()).await;
+    let cookie = Some(owner.cookie.as_str());
+    let (_, created) = call(
+        &state,
+        "POST",
+        "/dashboard/telegram/products",
+        cookie,
+        Some(new_product("Pro")),
+    )
+    .await;
+
+    let mut with_note = edit_with_note(&created, json!("Đổi trả trong 3 ngày"));
+    with_note["warranty"] = json!("W7D");
+    let (status, _) = call(
+        &state,
+        "PUT",
+        "/dashboard/telegram/products/acme-pro",
+        cookie,
+        Some(with_note),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        notes_of(&pool, "acme-pro").await,
+        (
+            "Đổi trả trong 3 ngày".to_owned(),
+            "Đổi trả trong 3 ngày".to_owned()
+        )
+    );
+
+    // No note sent: the old one belonged to the old warranty, so the standard
+    // note for the new one takes its place.
+    let mut without_note = edit_of(&created);
+    without_note["warranty"] = json!("WF");
+    let (status, _) = call(
+        &state,
+        "PUT",
+        "/dashboard/telegram/products/acme-pro",
+        cookie,
+        Some(without_note),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (en, _) = notes_of(&pool, "acme-pro").await;
+    assert!(en.contains("full warranty"), "{en}");
+}
+
+#[sqlx::test]
+async fn a_warranty_note_longer_than_200_characters_is_refused_and_nothing_changes(pool: PgPool) {
+    let (state, owner) = owner_and_state(pool.clone()).await;
+    let cookie = Some(owner.cookie.as_str());
+    let (_, created) = call(
+        &state,
+        "POST",
+        "/dashboard/telegram/products",
+        cookie,
+        Some(new_product("Pro")),
+    )
+    .await;
+    let before = notes_of(&pool, "acme-pro").await;
+    let too_long = "ă".repeat(201);
+
+    let (status, _) = call(
+        &state,
+        "PUT",
+        "/dashboard/telegram/products/acme-pro",
+        cookie,
+        Some(edit_with_note(&created, json!(too_long))),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(notes_of(&pool, "acme-pro").await, before);
+
+    let mut rejected = new_product("Plus");
+    rejected["warranty_note"] = json!(too_long);
+    let (status, _) = call(
+        &state,
+        "POST",
+        "/dashboard/telegram/products",
+        cookie,
+        Some(rejected),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let exists: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM telegram_products WHERE slug = 'acme-plus'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(exists, 0);
+
+    // The limit is in characters, not bytes: 200 of a two-byte letter is fine.
+    let mut at_limit = new_product("Plus");
+    at_limit["warranty_note"] = json!("ă".repeat(200));
+    let (status, _) = call(
+        &state,
+        "POST",
+        "/dashboard/telegram/products",
+        cookie,
+        Some(at_limit),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+}
+
 #[sqlx::test]
 async fn a_product_that_exists_cannot_be_made_again(pool: PgPool) {
     let (state, owner) = owner_and_state(pool).await;

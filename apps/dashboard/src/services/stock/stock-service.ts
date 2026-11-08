@@ -11,6 +11,8 @@ export interface StockInput {
   plan: string;
   variant: string | null;
   warranty: Warranty;
+  /** What a buyer reads about the warranty; null asks for the standard note. */
+  warranty_note: string | null;
   price_vnd: number;
   hot: boolean;
   listed: boolean;
@@ -51,6 +53,7 @@ function productFromApi(product: ApiProduct): TelegramProduct {
     plan: product.plan,
     variant: product.variant ?? null,
     warranty: product.warranty as Warranty,
+    warranty_note: product.warranty_note ?? null,
     price_vnd: product.price_vnd,
     on_hand: product.on_hand,
     reserved: product.reserved,
@@ -70,6 +73,8 @@ function fieldsOf(input: StockInput) {
     provider: input.provider,
     variant: input.variant,
     warranty: input.warranty,
+    // Blank asks the server for the standard note, which is what null means.
+    warranty_note: input.warranty_note ?? "",
   };
 }
 

@@ -26,6 +26,8 @@ export interface TelegramProduct {
   plan: string;
   variant: string | null;
   warranty: Warranty;
+  /** The shop's own warranty note; null when the standard note for the warranty applies. */
+  warranty_note: string | null;
   price_vnd: number;
   /** The count the seller set. */
   on_hand: number;
