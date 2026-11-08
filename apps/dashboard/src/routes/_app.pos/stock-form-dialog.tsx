@@ -350,7 +350,7 @@ export default function StockFormDialog({
             }
           >
             {messageValid
-              ? "Để trống thì không gửi gì. Có nội dung thì khi lưu, bot đăng đúng nội dung này lên kênh và gửi cho người đã bấm Start."
+              ? "Để trống thì không gửi gì. Có nội dung thì khi lưu, bot đăng đúng nội dung này lên kênh và gửi cho người đã bấm Start, kèm nút “Mua ngay” mở gói này."
               : `Tin nhắn Telegram dài tối đa ${MAX_MESSAGE} ký tự.`}
           </p>
         </div>

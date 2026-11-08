@@ -2,7 +2,6 @@ FROM rust:1.98-bookworm AS builder
 
 WORKDIR /app
 COPY apps/telegram/Cargo.toml apps/telegram/Cargo.lock ./
-COPY apps/telegram/assets ./assets
 COPY apps/telegram/src ./src
 RUN cargo build --locked --release --bin hub-william-telegram
 

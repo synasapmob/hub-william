@@ -2,8 +2,7 @@
 
 `apps/telegram` is Hub William's public webhook service. Its only public
 routes are Telegram's authenticated webhook (`POST /webhook`), SePay's
-authenticated bank-transaction webhook (`POST /sepay`), the payment QR image
-(`GET /qr.png`) and `GET /health`. Two more routes, `POST /internal/announce` and
+authenticated bank-transaction webhook (`POST /sepay`) and `GET /health`. Two more routes, `POST /internal/announce` and
 `POST /internal/payment-notice`, are for `apps/api` alone and need its shared secret
 (`x-hub-william-telegram-token`): the dashboard uses them to have the bot send a
 message and to tell a buyer their order is paid. It calls the private `apps/api` service for
@@ -31,11 +30,12 @@ expected answer, for 30 minutes) — the order itself lives in
 `telegram_orders`, so a redeploy cannot lose a buyer's checkout and every
 payment button reads its order back by reference.
 
-The VND panel shows `assets/qr-bank.png`, the shop's fixed VietQR image, served
-publicly at `/qr.png` because Telegram fetches a photo by URL. A fixed QR
-carries no amount and no note, so the buyer types both; the note is
-`TELEGRAM_PAYMENT_MEMO_PREFIX` plus the order reference, and that reference is
-what settles the order.
+The VND panel shows a VietQR image made for that order. The shop configures its
+receiving account as one QR link (`TELEGRAM_PAYMENT_QR_URL`); every order puts its
+own total and transfer note on a copy of that link, so the buyer scans and pays
+without typing anything. The note is `TELEGRAM_PAYMENT_MEMO_PREFIX` (default `MOT NGAY VUI VE`)
+plus the order reference, and that reference is what settles the order. Telegram
+fetches the image from that service, so the panel depends on it being up.
 
 USDT has no automatic settlement and says so on its own panel.
 
@@ -53,9 +53,10 @@ including hidden ones, with buttons to add stock, change a price, flag a
 package hot, or hide it from the shop, plus a template for creating a new one.
 To everybody else it is the ordinary shop, the same screen `/menu` gives.
 
-Ownership is checked against `TELEGRAM_OWNER_USERNAMES` and
-`TELEGRAM_OWNER_IDS`, and it is re-checked on every button and on the message
-that answers a prompt, not only when `/catalog` was typed.
+Ownership is checked against `TELEGRAM_USERNAME_OWNER`, one Telegram username,
+and it is re-checked on every button and on the message that answers a prompt,
+not only when `/catalog` was typed. The same username is the handle a buyer is
+told to contact.
 
 Adding stock — or creating a product that already has stock — announces it:
 
@@ -76,6 +77,12 @@ the owner's own reply and paced at one message per 50ms, under Telegram's bulk
 limit. The API can record a blocked chat so that later announcements skip it, but
 the adapter does not call that route today. The button is a `t.me` deep link, so tapping it opens the
 bot on that product's quantity prompt.
+
+The dashboard's own message, typed in the stock form, goes out through
+`POST /internal/announce` with the text exactly as written. When the request also
+names a `product` slug, both the channel post and the message to each chat carry
+the same “🛒 Mua ngay” button for that product; without one the message is bare.
+A `product` that is not a slug is refused before anything is sent.
 
 ## Stock that is held, not just counted
 
@@ -151,25 +158,28 @@ Set these service variables:
   notifications and restock announcements); the configuration script also uses
   it to register Telegram's webhook and command menu.
 - `TELEGRAM_WEBHOOK_URL`: the public Railway URL, for example
-  `https://telegram-production-example.up.railway.app`.
+  `https://telegram-production-example.up.railway.app`. The running service does
+  not read it; `scripts/configure-webhook.sh` does, to register Telegram's webhook.
+- `TELEGRAM_USERNAME_OWNER`: the one Telegram username that owns the shop, with
+  or without the `@`. It may use the owner side of `/catalog`, and buyers are told
+  to contact it. Defaults to `synasapmob`. Anything that is not a single username
+  (for example a comma-separated list) fails startup.
 - `SEPAY_API_KEY`: the key SePay sends on its webhook. Without it `/sepay`
   refuses every call, so bank transfers are never settled automatically.
-- `TELEGRAM_PAYMENT_BANK_NAME`, `TELEGRAM_PAYMENT_ACCOUNT_HOLDER`, and
-  `TELEGRAM_PAYMENT_ACCOUNT_NUMBER`: the shop's receiving account, displayed
-  beside the QR. Set all three or none; a partial set fails startup, and an
-  unset set makes the VND button say transfers are not configured.
-  `TELEGRAM_PAYMENT_MEMO_PREFIX` is an optional override.
-- `TELEGRAM_PUBLIC_URL`: optional; defaults to `TELEGRAM_WEBHOOK_URL`. Telegram
-  fetches `/qr.png` from it, so without either the VND panel falls back to
-  text-only account details.
+- `TELEGRAM_PAYMENT_QR_URL`: the shop's receiving account as an HTTPS link to
+  SePay's QR service, for example
+  `https://vietqr.app/img?bank=MBBank&acc=<account number>&holder=<account holder>&showinfo=true&fullacc=true`.
+  It must carry `bank`, `acc` (digits only) and `holder`; a link without them
+  fails startup. Those three are shown on the panel, and any `amount` or `des` in
+  the link is replaced for each order. Unset, the VND button says transfers are
+  not configured. `TELEGRAM_PAYMENT_MEMO_PREFIX` is an optional override.
 - `TELEGRAM_PAYMENT_USDT_ADDRESS` and `TELEGRAM_PAYMENT_USDT_VND_RATE`:
   optional, and also all-or-nothing. `TELEGRAM_PAYMENT_USDT_NETWORK` defaults
   to `TRC20`. Without them the USDT button says the method is not configured
   rather than showing an address the shop does not own.
 
-To change the payment QR, replace `assets/qr-bank.png` and update the three
-account variables to match. The image is compiled into the binary, so the
-service has to be rebuilt.
+To change the receiving account, change `TELEGRAM_PAYMENT_QR_URL`. Nothing needs
+rebuilding.
 
 `apps/api` takes the variable of the same name: set `TELEGRAM_SERVICE_TOKEN` there
 to the **same** value. The API remains private; this second secret ensures

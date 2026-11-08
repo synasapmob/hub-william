@@ -17,7 +17,7 @@ Facts about public domains, private hostnames and Railway variables are service 
 - `frontend` is the public entry point, and reaches `api` over Railway private networking through `API_INTERNAL_URL`.
 - `dashboard` has a public domain of its own and reaches `api` the same way, through its own `API_INTERNAL_URL`. It is a separate site, so its session cookie is its own: signing in on one does not sign in on the other.
 - `api` has no public domain.
-- `telegram` has its own public HTTPS domain, used for the Telegram and SePay webhooks and for the payment QR image that Telegram fetches (`GET /qr.png`). It calls `api` over the private network with a separate service token.
+- `telegram` has its own public HTTPS domain, used for the Telegram and SePay webhooks and for SePay's bank-transaction webhook. It calls `api` over the private network with a separate service token.
 
 The repository root is the Docker build context for all four images (the `Dockerfile`s copy `apps/…`, `contributors/` and `infra/` paths from it). Cargo has no workspace: `apps/api` and `apps/telegram` are separate crates with their own `Cargo.lock`, and the root scripts address them with `--manifest-path`. `pnpm-workspace.yaml` lists `apps/frontend` and `apps/dashboard`.
 

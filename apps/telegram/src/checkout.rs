@@ -4,15 +4,15 @@ use std::{
 };
 
 use chrono::{DateTime, FixedOffset, TimeDelta, Utc};
-use reqwest::Url;
 use serde::Deserialize;
+
+use crate::config::BankAccount;
 
 /// How long a buyer has to pay. After it the order is void: a transfer that
 /// the bank made later no longer settles it.
 pub const ORDER_LIFETIME_MINUTES: i64 = 5;
 const SELECTION_LIFETIME_MINUTES: i64 = 30;
 const VIETNAM_UTC_OFFSET_SECONDS: i32 = 7 * 3_600;
-const QR_IMAGE_PATH: &str = "/qr.png";
 
 /// An order as `apps/api` owns it. The adapter never stores one; every payment
 /// screen reads the order back by its reference, so a redeploy cannot lose a
@@ -129,10 +129,25 @@ pub fn format_expiry(at: DateTime<Utc>) -> String {
         .to_string()
 }
 
-/// Telegram fetches an image over the public internet, so the QR is served
-/// from this service's own origin rather than embedded in the reply.
-pub fn qr_image_url(public_url: &Url) -> Option<String> {
-    Some(public_url.join(QR_IMAGE_PATH).ok()?.to_string())
+/// A VietQR image of this order. The configured link names the account; the
+/// order's amount and note go on a copy of it, in place of any it carried, so
+/// the buyer scans and pays without typing either. Telegram fetches a photo by
+/// URL, so the image comes from the QR service the link points at.
+pub fn qr_image_url(bank: &BankAccount, total_vnd: i64, memo: &str) -> String {
+    let mut url = bank.qr.clone();
+    let kept: Vec<(String, String)> = url
+        .query_pairs()
+        .filter(|(key, _)| key != "amount" && key != "des")
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect();
+
+    url.query_pairs_mut()
+        .clear()
+        .extend_pairs(kept)
+        .append_pair("amount", &total_vnd.to_string())
+        .append_pair("des", memo);
+
+    url.into()
 }
 
 /// Rounds up so a buyer never under-pays by a fraction of a cent.
@@ -147,6 +162,8 @@ pub fn usdt_amount(total_vnd: i64, vnd_rate: i64) -> String {
 mod tests {
     use chrono::{TimeDelta, TimeZone, Utc};
     use reqwest::Url;
+
+    use crate::config::BankAccount;
 
     use super::{
         ORDER_LIFETIME_MINUTES, Order, OrderStatus, Pending, Sessions, format_expiry, memo,
@@ -172,12 +189,20 @@ mod tests {
     }
 
     #[test]
-    fn the_qr_is_served_from_this_service_origin() {
-        let public_url = Url::parse("https://telegram-production-e4cf.up.railway.app").unwrap();
+    fn the_qr_carries_this_orders_amount_and_note_in_place_of_the_links_own() {
+        let bank = BankAccount {
+            holder: "NGUYEN VAN A".to_owned(),
+            name: "MBBANK".to_owned(),
+            number: "0123456789".to_owned(),
+            qr: Url::parse(
+                "https://vietqr.app/img?bank=MBBank&acc=0123456789&des=OLD NOTE&amount=1&holder=Nguyen Van A&showinfo=true",
+            )
+            .unwrap(),
+        };
 
         assert_eq!(
-            qr_image_url(&public_url).unwrap(),
-            "https://telegram-production-e4cf.up.railway.app/qr.png"
+            qr_image_url(&bank, 270_000, "MOT NGAY VUI VE 1GS0H75MMX9P"),
+            "https://vietqr.app/img?bank=MBBank&acc=0123456789&holder=Nguyen+Van+A&showinfo=true&amount=270000&des=MOT+NGAY+VUI+VE+1GS0H75MMX9P"
         );
     }
 
