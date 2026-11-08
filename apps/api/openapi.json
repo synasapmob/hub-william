@@ -4915,6 +4915,10 @@
           "warranty": {
             "type": "string",
             "description": "`WF`, `W7D` or `NW`."
+          },
+          "warranty_note": {
+            "type": ["string", "null"],
+            "description": "The warranty note a buyer reads, up to 200 characters. Blank or absent\nuses the standard note for the warranty code."
           }
         }
       },
@@ -5177,6 +5181,10 @@
           "warranty": {
             "type": "string",
             "description": "`WF` full, `W7D` seven days, `NW` none beyond a one-hour login check."
+          },
+          "warranty_note": {
+            "type": ["string", "null"],
+            "description": "The shop's own warranty note, in Vietnamese. Absent when the product\ncarries the standard note for its warranty code."
           }
         }
       },
@@ -7003,6 +7011,10 @@
           "warranty": {
             "type": "string",
             "description": "`WF`, `W7D` or `NW`."
+          },
+          "warranty_note": {
+            "type": ["string", "null"],
+            "description": "The warranty note a buyer reads, up to 200 characters. Blank uses the\nstandard note for the warranty code. Absent leaves the note as it is,\nunless the warranty code changes, which resets it to the standard one."
           }
         }
       },

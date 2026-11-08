@@ -75,7 +75,7 @@ Owner expectations are re-checked when the answering message arrives, not only w
 
 - **Owner check.** `Owner::includes` accepts the one username (case-insensitive, `@` stripped) set in `TELEGRAM_USERNAME_OWNER`, which defaults to `synasapmob`, and the check runs on every owner button and every owner prompt reply. The same username is the handle buyers are told to contact. Why one username and no numeric id: a username belongs to one account at a time, so losing the account is the only way to lose the shop's owner, and that is the operator's own risk.
 - **New product template.** Lines of `key: value`. Keys match loosely (accents and case ignored) in Vietnamese or English: provider (`nhà cung cấp`/`provider`), plan (`tên`/`plan`), warranty (`bảo hành`/`warranty`), price (`giá`/`price`) are required; stock (`tồn`/`stock`), category (`danh mục`/`category`), detail (`chi tiết`/`detail`) and variant (`biến thể`/`variant`) are optional. Numbers tolerate space, `.`, `,` and `_` separators.
-- **Warranty codes.** `WF` (full), `W7D` (seven days), `NW` (no warranty beyond a one-hour login check). A package carries exactly one; a plan sold under two warranties is two products.
+- **Warranty codes.** `WF` (full), `W7D` (seven days), `NW` (no warranty beyond a one-hour login check). A package carries exactly one; a plan sold under two warranties is two products. Each code has a standard note shown in the quantity prompt; the dashboard form can replace it with the shop's own words (up to 200 characters), stored for both languages.
 
 ## Catalogue and stock
 
