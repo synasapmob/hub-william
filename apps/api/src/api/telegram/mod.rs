@@ -381,6 +381,8 @@ pub async fn record_sepay_payment(
 ) -> Result<Json<SepayResult>, ApiError> {
     authorize_telegram_service(&state, &headers)?;
 
+    let transferred_at = sepay_transferred_at(transaction.transaction_date.as_deref());
+
     let mut database = state.pool.begin().await.map_err(database_error)?;
     let payment_id: Option<Uuid> = sqlx::query_scalar(
         "INSERT INTO telegram_payments
@@ -408,9 +410,7 @@ pub async fn record_sepay_payment(
             .as_deref()
             .map(|value| truncate(value, 64)),
     )
-    .bind(sepay_transferred_at(
-        transaction.transaction_date.as_deref(),
-    ))
+    .bind(transferred_at)
     .fetch_optional(&mut *database)
     .await
     .map_err(database_error)?;
@@ -423,14 +423,16 @@ pub async fn record_sepay_payment(
         }));
     };
 
-    // Only money arriving can settle an order, and only a transfer that covers
-    // the full total; anything else is recorded and left for a human.
+    // Only money arriving can settle an order, only a transfer that covers the
+    // full total, and only one made before the order ran out; anything else is
+    // recorded and left for a human.
     let order = if transaction.transfer_type.eq_ignore_ascii_case("in") {
         settle_order(
             &mut database,
             payment_id,
             &searchable_content(&transaction),
             transaction.transfer_amount,
+            transferred_at,
         )
         .await?
     } else {
@@ -449,7 +451,13 @@ async fn settle_order(
     payment_id: Uuid,
     content: &str,
     amount: i64,
+    transferred_at: Option<DateTime<Utc>>,
 ) -> Result<Option<TelegramOrder>, ApiError> {
+    // An order is only good until `expires_at`. What counts is when the bank
+    // moved the money, so a transfer made in time still settles when its
+    // webhook arrives a moment late; without the bank's time it is now.
+    let paid_by = transferred_at.unwrap_or_else(Utc::now);
+
     // `FOR UPDATE SKIP LOCKED` keeps two transfers arriving together from
     // settling the same order; the second one simply finds no match.
     let order = sqlx::query_as::<_, TelegramOrder>(&format!(
@@ -458,6 +466,7 @@ async fn settle_order(
              WHERE status = 'awaiting_payment'
                AND POSITION(reference IN $2) > 0
                AND total_vnd <= $3
+               AND expires_at > $4
              ORDER BY created_at
              LIMIT 1
              FOR UPDATE SKIP LOCKED
@@ -478,6 +487,7 @@ async fn settle_order(
     .bind(payment_id)
     .bind(content)
     .bind(amount)
+    .bind(paid_by)
     .fetch_optional(&mut *database)
     .await
     .map_err(database_error)?;
