@@ -9,7 +9,9 @@ use serde::Deserialize;
 
 use crate::config::BankAccount;
 
-pub const ORDER_LIFETIME_MINUTES: i64 = 15;
+/// How long a buyer has to pay. After it the order is void: a transfer that
+/// the bank made later no longer settles it.
+pub const ORDER_LIFETIME_MINUTES: i64 = 5;
 const SELECTION_LIFETIME_MINUTES: i64 = 30;
 const VIETNAM_UTC_OFFSET_SECONDS: i32 = 7 * 3_600;
 const QR_IMAGE_ENDPOINT: &str = "https://vietqr.app/img";
@@ -167,7 +169,8 @@ mod tests {
     use crate::config::BankAccount;
 
     use super::{
-        Order, OrderStatus, Pending, Sessions, format_expiry, memo, qr_image_url, usdt_amount,
+        ORDER_LIFETIME_MINUTES, Order, OrderStatus, Pending, Sessions, format_expiry, memo,
+        qr_image_url, usdt_amount,
     };
 
     #[test]
@@ -207,6 +210,11 @@ mod tests {
         assert_eq!(usdt_amount(260_000, 26_000), "10.00");
         assert_eq!(usdt_amount(270_000, 26_000), "10.39");
         assert_eq!(usdt_amount(1, 26_000), "0.01");
+    }
+
+    #[test]
+    fn a_buyer_has_five_minutes_to_pay() {
+        assert_eq!(ORDER_LIFETIME_MINUTES, 5);
     }
 
     #[test]

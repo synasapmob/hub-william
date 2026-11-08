@@ -137,13 +137,13 @@ pub fn bank_transfer(chat_id: i64, language: Language, config: &AppConfig, order
     let expiry = format_expiry(order.expires_at);
     let caption = match language {
         Language::English => format!(
-            "🏦 Bank transfer\n\n🏛️ Bank: {name}\n👤 Account name: {holder}\n💳 Account number: {number}\n💰 Amount: {total}₫\n📝 Transfer note: {transfer_memo}\n⚠️ A transfer sent with the wrong note needs manual handling and is charged $2 per transaction.\n⏳ Expires: {expiry}\n\n👆 Scan the QR above: the amount and the transfer note are already filled in.\n✅ The order is processed automatically once the payment arrives.",
+            "🏦 Bank transfer\n\n🏛️ Bank: {name}\n👤 Account name: {holder}\n💳 Account number: {number}\n💰 Amount: {total}₫\n📝 Transfer note: {transfer_memo}\n⚠️ A transfer sent with the wrong note needs manual handling and is charged $2 per transaction.\n⏳ Expires: {expiry}. Pay before then: after it this order is void and a later transfer will not settle it.\n\n👆 Scan the QR above: the amount and the transfer note are already filled in.\n✅ The order is processed automatically once the payment arrives.",
             holder = bank.holder,
             name = bank.name,
             number = bank.number,
         ),
         Language::Vietnamese => format!(
-            "🏦 Thanh toán chuyển khoản\n\n🏛️ Ngân hàng: {name}\n👤 Chủ TK: {holder}\n💳 Số TK: {number}\n💰 Số tiền: {total}₫\n📝 Nội dung CK: {transfer_memo}\n⚠️ Giao dịch chuyển sai cú pháp sẽ cần xử lý thủ công và bị tính phí $2/giao dịch.\n⏳ Hết hạn: {expiry}\n\n👆 Quét mã QR phía trên: số tiền và nội dung CK đã được điền sẵn.\n✅ Đơn hàng xử lý tự động sau khi thanh toán.",
+            "🏦 Thanh toán chuyển khoản\n\n🏛️ Ngân hàng: {name}\n👤 Chủ TK: {holder}\n💳 Số TK: {number}\n💰 Số tiền: {total}₫\n📝 Nội dung CK: {transfer_memo}\n⚠️ Giao dịch chuyển sai cú pháp sẽ cần xử lý thủ công và bị tính phí $2/giao dịch.\n⏳ Hết hạn: {expiry}. Hãy chuyển khoản trước giờ này: sau đó đơn không còn hiệu lực và giao dịch chuyển trễ sẽ không được khớp.\n\n👆 Quét mã QR phía trên: số tiền và nội dung CK đã được điền sẵn.\n✅ Đơn hàng xử lý tự động sau khi thanh toán.",
             holder = bank.holder,
             name = bank.name,
             number = bank.number,
@@ -231,10 +231,10 @@ pub fn order_status(chat_id: i64, language: Language, order: &Order) -> SendMess
         OrderStatus::AwaitingPayment | OrderStatus::Unknown if order.has_expired() => (
             match language {
                 Language::English => format!(
-                    "⌛ Order {reference} expired at {expiry} without a transfer.\n\nIf you have already paid, it is still matched when the transfer arrives with the right note; otherwise use /menu to start a new one."
+                    "⌛ Order {reference} expired at {expiry} without a transfer.\n\nThis order is no longer valid, so please do not transfer for it. Use /menu to start a new one."
                 ),
                 Language::Vietnamese => format!(
-                    "⌛ Đơn {reference} đã hết hạn lúc {expiry} mà chưa có giao dịch.\n\nNếu bạn đã chuyển khoản, đơn vẫn được khớp khi giao dịch về đúng nội dung; nếu chưa thì dùng /menu để tạo đơn mới."
+                    "⌛ Đơn {reference} đã hết hạn lúc {expiry} mà chưa có giao dịch.\n\nĐơn này không còn hiệu lực, vui lòng không chuyển khoản cho đơn này. Dùng /menu để tạo đơn mới."
                 ),
             },
             back_keyboard(language),
@@ -839,5 +839,56 @@ fn admin_back_keyboard(slug: &str) -> InlineKeyboardMarkup {
             "‹ Quay lại",
             format!("admin:open:{slug}"),
         )]],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{TimeDelta, Utc};
+    use serde_json::{Value, json};
+
+    use super::order_status;
+    use crate::{checkout::Order, language::Language};
+
+    fn order(status: &str, expires_in_minutes: i64) -> Order {
+        serde_json::from_value(json!({
+            "chat_id": 123,
+            "expires_at": Utc::now() + TimeDelta::minutes(expires_in_minutes),
+            "item_title": "Claude MAX X20",
+            "quantity": 1,
+            "reference": "1GS0H75MMX9P",
+            "status": status,
+            "telegram_user_id": 456,
+            "total_vnd": 135_000,
+            "unit_price_vnd": 135_000
+        }))
+        .unwrap()
+    }
+
+    fn text_of(language: Language, order: &Order) -> String {
+        let message: Value = serde_json::to_value(order_status(123, language, order)).unwrap();
+        message["text"].as_str().unwrap().to_owned()
+    }
+
+    #[test]
+    fn an_expired_order_tells_the_buyer_not_to_transfer_for_it() {
+        let expired = order("awaiting_payment", -1);
+
+        let english = text_of(Language::English, &expired);
+        assert!(english.contains("no longer valid"), "{english}");
+        assert!(english.contains("do not transfer"), "{english}");
+        assert!(!english.contains("still matched"), "{english}");
+
+        let vietnamese = text_of(Language::Vietnamese, &expired);
+        assert!(vietnamese.contains("không còn hiệu lực"), "{vietnamese}");
+        assert!(vietnamese.contains("không chuyển khoản"), "{vietnamese}");
+        assert!(!vietnamese.contains("vẫn được khớp"), "{vietnamese}");
+    }
+
+    #[test]
+    fn an_order_still_inside_its_window_is_waiting_for_the_transfer() {
+        let open = order("awaiting_payment", 3);
+
+        assert!(text_of(Language::English, &open).contains("No transfer has arrived"));
     }
 }
