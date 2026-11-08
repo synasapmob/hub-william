@@ -112,8 +112,8 @@ transaction to the private API, which:
 The adapter then messages the buyer. `Kiểm tra thanh toán` reads the same
 record, so it reports a real result rather than a guess. An incoming transfer
 that matches nothing is still stored for a human to reconcile, and an order
-that expires stays matchable — a late transfer with the right note still
-settles it.
+that expires is void: a buyer has five minutes to pay, and a transfer the bank
+made after that is stored for a human to reconcile but does not settle it.
 
 Point SePay's webhook at `https://<public-host>/sepay` and set the same API key
 on both sides.

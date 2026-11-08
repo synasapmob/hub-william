@@ -91,20 +91,20 @@ Tables (`apps/api/migrations/…_create_telegram_*.sql`): `telegram_contacts`, `
 
 ## Orders and checkout
 
-1. The buyer taps a package and sends a quantity. The adapter calls `POST /internal/telegram/contacts/{id}/orders` with the product slug, quantity, chat id and `lifetime_minutes = 15`.
+1. The buyer taps a package and sends a quantity. The adapter calls `POST /internal/telegram/contacts/{id}/orders` with the product slug, quantity, chat id and `lifetime_minutes = 5`.
 2. The API validates (`1 ≤ quantity ≤ 1000`, `1 ≤ lifetime ≤ 1440`, product listed, quantity ≤ sellable stock), copies the current price and title onto the order, and inserts it with a random 12-character reference over `A–Z0–9` (up to 8 attempts on a collision). A client can never set its own price.
 3. The adapter offers VND or USDT.
    - **VND** shows `/qr.png` and the receiving account (`TELEGRAM_PAYMENT_BANK_NAME`, `…ACCOUNT_HOLDER`, `…ACCOUNT_NUMBER`). The QR is fixed and carries no amount or note, so the buyer types both; the note is `TELEGRAM_PAYMENT_MEMO_PREFIX` (default `CAM TIEN DI CHILL THOI`, uppercase ASCII letters and spaces, at most 32 characters) plus the order reference. Expiry is rendered in UTC+7.
    - **USDT** shows the wallet address, network (default `TRC20`) and an amount rounded up to the cent from the VND total and `TELEGRAM_PAYMENT_USDT_VND_RATE`. It has no automatic settlement and says so.
 4. The buyer can check payment (`pay:check:<reference>`; still unpaid answers in a popup so the QR stays on screen) or cancel (`pay:cancel:<reference>`).
 
-Order `status` is `awaiting_payment`, `paid` or `cancelled` (a database `CHECK`), and `paid_at` is set exactly when the status is `paid`. Cancel moves only an `awaiting_payment` order to `cancelled` and stops later matching; a transfer that already arrived stays recorded. An order past `expires_at` keeps the status `awaiting_payment`: it stops reserving stock but remains matchable.
+Order `status` is `awaiting_payment`, `paid` or `cancelled` (a database `CHECK`), and `paid_at` is set exactly when the status is `paid`. Cancel moves only an `awaiting_payment` order to `cancelled` and stops later matching; a transfer that already arrived stays recorded. An order past `expires_at` keeps the status `awaiting_payment`: it stops reserving stock and a transfer can no longer settle it, though staff can still mark it paid by hand on the dashboard.
 
 ## SePay settlement
 
 1. SePay posts each bank transaction to `POST /sepay`. The adapter authenticates it and forwards the JSON to `POST /internal/telegram/payments/sepay`.
 2. In one database transaction the API inserts the payment into `telegram_payments`, keyed by `sepay_transaction_id` (`ON CONFLICT DO NOTHING`). A repeated transaction id returns `duplicate: true` and nothing else happens, so a retry is neither re-recorded nor re-notified.
-3. Only `transferType = in` can settle. The API builds a search string from SePay's `code` plus `content`, keeps ASCII letters and digits and upper-cases them (banks rewrite case, spacing and punctuation), then selects the oldest order where `status = 'awaiting_payment'`, the string contains the order `reference`, and `total_vnd <= transferAmount`. `FOR UPDATE SKIP LOCKED` prevents two simultaneous transfers from settling one order. The match does not look at `expires_at`, so a late transfer with the right note still settles. The order becomes `paid`, `paid_at = NOW()`, and the payment row is linked to it.
+3. Only `transferType = in` can settle. The API builds a search string from SePay's `code` plus `content`, keeps ASCII letters and digits and upper-cases them (banks rewrite case, spacing and punctuation), then selects the oldest order where `status = 'awaiting_payment'`, the string contains the order `reference`, and `total_vnd <= transferAmount`. `FOR UPDATE SKIP LOCKED` prevents two simultaneous transfers from settling one order. The match also needs `expires_at` to be later than the time the bank made the transfer (SePay's `transactionDate`, read as Vietnamese local time, or the moment the webhook arrives when it is missing). A transfer made in time still settles when its webhook is a little late; a later one is stored unmatched, like any other transfer that matches nothing. The order becomes `paid`, `paid_at = NOW()`, and the payment row is linked to it.
 4. In the same transaction the product's `available` drops by the order quantity (`GREATEST(available − quantity, 0)`, guarding against the owner having lowered the count meanwhile).
 5. A transfer that matches nothing is stored for a human to reconcile.
 6. The adapter then sends the buyer a `sendMessage` (in the contact's saved language, read without touching `last_seen_at`). A failed notification is logged and does not fail the webhook, because a SePay retry would be deduplicated and the buyer would never hear. `Kiểm tra thanh toán` reads the same order, so it reports the real status.
@@ -166,5 +166,5 @@ With a method unconfigured, its button tells the buyer the method is not configu
 
 - **Fulfilment.** `paid` is terminal. Nothing delivers the product; the owner does that by hand after the buyer is notified.
 - **Automatic USDT settlement.** USDT orders are reconciled by hand.
-- **Order expiry as a status.** Expiry only releases the stock reservation.
+- **Order expiry as a status.** Expiry releases the stock reservation and stops a transfer from settling the order, but the row stays `awaiting_payment`; nothing marks it `cancelled`, so the dashboard's awaiting queue still lists it.
 - **Linking to browser accounts.** `/start` creates or updates a Telegram contact; it does not create, link or authenticate a Hub William browser account.

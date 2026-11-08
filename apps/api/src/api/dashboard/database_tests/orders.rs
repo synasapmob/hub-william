@@ -729,3 +729,117 @@ async fn an_order_sepay_settles_is_a_bank_transfer_with_nobody_in_the_shop_behin
     assert_eq!(paid["orders"][0]["payment_method"], "bank_transfer");
     assert_eq!(paid["orders"][0]["handled_by"], Value::Null);
 }
+
+// ------------------------------------------------- a transfer after the order ran out
+
+/// What SePay sends for a transfer of 49,000 with the order's reference in the
+/// note. `made_minutes_ago` is the bank's own time, in Vietnamese local time as
+/// SePay writes it; `None` leaves the field out.
+async fn sepay_transfer(
+    state: &crate::core::AppState,
+    transaction_id: i64,
+    reference: &str,
+    made_minutes_ago: Option<i64>,
+) -> Value {
+    let mut body = json!({
+        "id": transaction_id,
+        "gateway": "Techcombank",
+        "transferAmount": 49_000,
+        "transferType": "in",
+        "content": format!("CAM TIEN {reference}")
+    });
+    if let Some(minutes) = made_minutes_ago {
+        let vietnam = chrono::FixedOffset::east_opt(7 * 3_600).unwrap();
+        let made = chrono::Utc::now().with_timezone(&vietnam) - chrono::TimeDelta::minutes(minutes);
+        body["transactionDate"] = json!(made.format("%Y-%m-%d %H:%M:%S").to_string());
+    }
+
+    let request = axum::http::Request::builder()
+        .method("POST")
+        .uri("/internal/telegram/payments/sepay")
+        .header("content-type", "application/json")
+        .header("x-hub-william-telegram-token", "test-service-token")
+        .body(axum::body::Body::from(body.to_string()))
+        .unwrap();
+    let response = tower::ServiceExt::oneshot(crate::api::app(state.clone()), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    serde_json::from_slice(&bytes).unwrap()
+}
+
+/// The order a recorded transfer was matched to, if any.
+async fn matched_order(pool: &PgPool, transaction_id: i64) -> Option<uuid::Uuid> {
+    sqlx::query_scalar("SELECT order_id FROM telegram_payments WHERE sepay_transaction_id = $1")
+        .bind(transaction_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+#[sqlx::test]
+async fn a_transfer_that_arrives_after_the_order_expired_is_kept_and_settles_nothing(pool: PgPool) {
+    let state = state(pool.clone());
+    product(&pool, "acme-pro", 10).await;
+    // Made twenty minutes ago, so it ran out five minutes ago.
+    Order::new("LATE00000001")
+        .awaiting("20 minutes")
+        .insert(&pool)
+        .await;
+
+    let result = sepay_transfer(&state, 9101, "LATE00000001", None).await;
+
+    assert_eq!(result["order"], Value::Null);
+    assert_eq!(
+        row(&pool, "LATE00000001").await,
+        ("awaiting_payment".to_owned(), None, None)
+    );
+    assert_eq!(available(&pool, "acme-pro").await, 10);
+    // The money is on record for a person to deal with.
+    assert_eq!(matched_order(&pool, 9101).await, None);
+}
+
+#[sqlx::test]
+async fn a_transfer_the_bank_dates_after_the_order_expired_settles_nothing(pool: PgPool) {
+    let state = state(pool.clone());
+    product(&pool, "acme-pro", 10).await;
+    Order::new("LATE00000002")
+        .awaiting("20 minutes")
+        .insert(&pool)
+        .await;
+
+    // Two minutes ago is three minutes after the order ran out.
+    let result = sepay_transfer(&state, 9102, "LATE00000002", Some(2)).await;
+
+    assert_eq!(result["order"], Value::Null);
+    assert_eq!(
+        row(&pool, "LATE00000002").await,
+        ("awaiting_payment".to_owned(), None, None)
+    );
+    assert_eq!(available(&pool, "acme-pro").await, 10);
+}
+
+#[sqlx::test]
+async fn a_transfer_made_in_time_still_settles_when_it_is_reported_late(pool: PgPool) {
+    let state = state(pool.clone());
+    product(&pool, "acme-pro", 10).await;
+    Order::new("LATE00000003")
+        .awaiting("20 minutes")
+        .insert(&pool)
+        .await;
+
+    // The bank moved the money ten minutes ago, five before the order ran out,
+    // and SePay only told us now.
+    let result = sepay_transfer(&state, 9103, "LATE00000003", Some(10)).await;
+
+    assert_eq!(result["order"]["reference"], "LATE00000003");
+    assert_eq!(
+        row(&pool, "LATE00000003").await,
+        ("paid".to_owned(), Some("bank_transfer".to_owned()), None)
+    );
+    assert_eq!(available(&pool, "acme-pro").await, 9);
+    assert!(matched_order(&pool, 9103).await.is_some());
+}
