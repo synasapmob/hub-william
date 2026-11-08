@@ -73,7 +73,7 @@ Owner expectations are re-checked when the answering message arrives, not only w
 
 `/catalog` for an owner lists every product, including unlisted ones, with buttons to add stock, set the price, toggle `hot` (a 🔥 before the name on the catalogue row and the quantity prompt) or toggle `listed`, and a template for creating a product.
 
-- **Owner check.** `Owners::includes` accepts a Telegram user id listed in `TELEGRAM_OWNER_IDS` or a username (case-insensitive, `@` stripped) listed in `TELEGRAM_OWNER_USERNAMES`. Usernames default to `synasapmob`. Either list grants access, and the check runs on every owner button and every owner prompt reply. Why: a username can be released and reassigned, a numeric id cannot, so the id list is the stronger check.
+- **Owner check.** `Owner::includes` accepts the one username (case-insensitive, `@` stripped) set in `TELEGRAM_USERNAME_OWNER`, which defaults to `synasapmob`, and the check runs on every owner button and every owner prompt reply. The same username is the handle buyers are told to contact. Why one username and no numeric id: a username belongs to one account at a time, so losing the account is the only way to lose the shop's owner, and that is the operator's own risk.
 - **New product template.** Lines of `key: value`. Keys match loosely (accents and case ignored) in Vietnamese or English: provider (`nhà cung cấp`/`provider`), plan (`tên`/`plan`), warranty (`bảo hành`/`warranty`), price (`giá`/`price`) are required; stock (`tồn`/`stock`), category (`danh mục`/`category`), detail (`chi tiết`/`detail`) and variant (`biến thể`/`variant`) are optional. Numbers tolerate space, `.`, `,` and `_` separators.
 - **Warranty codes.** `WF` (full), `W7D` (seven days), `NW` (no warranty beyond a one-hour login check). A package carries exactly one; a plan sold under two warranties is two products.
 
@@ -142,7 +142,7 @@ Each handler calls `authorize_telegram_service`: the `x-hub-william-telegram-tok
 
 ## Configuration
 
-Adapter variables (`apps/telegram/src/config.rs`). `AppConfig::from_env` fails startup on the first violation.
+Adapter variables (`apps/telegram/src/config.rs`, `apps/telegram/.env.example`). `AppConfig::from_env` fails startup on the first violation.
 
 | Variable                                                                  | Rule                                                                                                                                                                                                     |
 | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -152,7 +152,7 @@ Adapter variables (`apps/telegram/src/config.rs`). `AppConfig::from_env` fails s
 | `TELEGRAM_PAYMENT_QR_URL`                                                 | The receiving account as an HTTPS QR link. It must carry `bank`, `acc` (digits only) and `holder`, or startup fails. Those are shown upper-case; any `amount` or `des` in it is replaced for each order. |
 | `TELEGRAM_PAYMENT_USDT_ADDRESS`, `…_USDT_VND_RATE`, `…_USDT_NETWORK`      | Address and rate all-or-nothing, rate a positive integer; network defaults to `TRC20`.                                                                                                                   |
 | `SEPAY_API_KEY`                                                           | Optional at boot; without it `/sepay` refuses every call.                                                                                                                                                |
-| `TELEGRAM_OWNER_USERNAMES`, `TELEGRAM_OWNER_IDS`                          | Comma-separated owner lists.                                                                                                                                                                             |
+| `TELEGRAM_USERNAME_OWNER`                                                 | One Telegram username (5-32 letters, digits or underscores; the `@` is optional). Defaults to `synasapmob`; anything else fails startup.                                                                 |
 | `TELEGRAM_ANNOUNCE_CHAT_ID`, `TELEGRAM_BOT_USERNAME`                      | Optional announcement target and deep-link bot name.                                                                                                                                                     |
 | `TELEGRAM_API_BASE_URL`                                                   | Test override; defaults to `https://api.telegram.org/`.                                                                                                                                                  |
 | `PORT`                                                                    | Defaults to `8090`.                                                                                                                                                                                      |

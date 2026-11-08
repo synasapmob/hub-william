@@ -53,9 +53,10 @@ including hidden ones, with buttons to add stock, change a price, flag a
 package hot, or hide it from the shop, plus a template for creating a new one.
 To everybody else it is the ordinary shop, the same screen `/menu` gives.
 
-Ownership is checked against `TELEGRAM_OWNER_USERNAMES` and
-`TELEGRAM_OWNER_IDS`, and it is re-checked on every button and on the message
-that answers a prompt, not only when `/catalog` was typed.
+Ownership is checked against `TELEGRAM_USERNAME_OWNER`, one Telegram username,
+and it is re-checked on every button and on the message that answers a prompt,
+not only when `/catalog` was typed. The same username is the handle a buyer is
+told to contact.
 
 Adding stock — or creating a product that already has stock — announces it:
 
@@ -126,8 +127,8 @@ on both sides.
 
 ## Local development
 
-Set the variables listed under Railway setup in your local secret manager, then
-start the API and adapter separately:
+Copy `.env.example` into your local secret manager, then start the API and
+adapter separately:
 
 ```bash
 pnpm api:dev
@@ -159,6 +160,10 @@ Set these service variables:
 - `TELEGRAM_WEBHOOK_URL`: the public Railway URL, for example
   `https://telegram-production-example.up.railway.app`. The running service does
   not read it; `scripts/configure-webhook.sh` does, to register Telegram's webhook.
+- `TELEGRAM_USERNAME_OWNER`: the one Telegram username that owns the shop, with
+  or without the `@`. It may use the owner side of `/catalog`, and buyers are told
+  to contact it. Defaults to `synasapmob`. Anything that is not a single username
+  (for example a comma-separated list) fails startup.
 - `SEPAY_API_KEY`: the key SePay sends on its webhook. Without it `/sepay`
   refuses every call, so bank transfers are never settled automatically.
 - `TELEGRAM_PAYMENT_QR_URL`: the shop's receiving account as an HTTPS link to

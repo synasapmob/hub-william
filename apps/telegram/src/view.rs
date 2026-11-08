@@ -9,7 +9,6 @@ use crate::{
 };
 
 const LANGUAGE_PROMPT: &str = "Choose a language / Chọn ngôn ngữ";
-const SUPPORT_HANDLE: &str = "@synasapmob";
 
 pub fn language_picker(chat_id: i64) -> SendMessage {
     SendMessage::new(chat_id, LANGUAGE_PROMPT).with_keyboard(language_keyboard())
@@ -128,6 +127,7 @@ pub fn bank_transfer(chat_id: i64, language: Language, config: &AppConfig, order
                 english: "⚠️ Bank transfer is not configured yet.",
                 vietnamese: "⚠️ Chuyển khoản ngân hàng chưa được cấu hình.",
             },
+            &config.owner.handle(),
         )
         .into();
     };
@@ -174,20 +174,22 @@ pub fn usdt_transfer(
                 english: "⚠️ USDT payment is not configured yet.",
                 vietnamese: "⚠️ Thanh toán USDT chưa được cấu hình.",
             },
+            &config.owner.handle(),
         );
     };
 
     let amount = usdt_amount(order.total_vnd, wallet.vnd_rate);
     let transfer_memo = memo(&config.payment.memo_prefix, &order.reference);
     let expiry = format_expiry(order.expires_at);
+    let support = config.owner.handle();
     let text = match language {
         Language::English => format!(
-            "₮ USDT payment\n\n🌐 Network: {network}\n🏷️ Address: {address}\n💰 Amount: {amount} USDT\n📝 Memo: {transfer_memo}\n⏳ Expires: {expiry}\n\n⚠️ A USDT transfer is reconciled by hand — send the transaction hash to {SUPPORT_HANDLE} after paying.",
+            "₮ USDT payment\n\n🌐 Network: {network}\n🏷️ Address: {address}\n💰 Amount: {amount} USDT\n📝 Memo: {transfer_memo}\n⏳ Expires: {expiry}\n\n⚠️ A USDT transfer is reconciled by hand — send the transaction hash to {support} after paying.",
             address = wallet.address,
             network = wallet.network,
         ),
         Language::Vietnamese => format!(
-            "₮ Thanh toán USDT\n\n🌐 Mạng: {network}\n🏷️ Địa chỉ: {address}\n💰 Số tiền: {amount} USDT\n📝 Ghi chú: {transfer_memo}\n⏳ Hết hạn: {expiry}\n\n⚠️ USDT được đối soát thủ công — gửi mã giao dịch cho {SUPPORT_HANDLE} sau khi chuyển.",
+            "₮ Thanh toán USDT\n\n🌐 Mạng: {network}\n🏷️ Địa chỉ: {address}\n💰 Số tiền: {amount} USDT\n📝 Ghi chú: {transfer_memo}\n⏳ Hết hạn: {expiry}\n\n⚠️ USDT được đối soát thủ công — gửi mã giao dịch cho {support} sau khi chuyển.",
             address = wallet.address,
             network = wallet.network,
         ),
@@ -198,7 +200,7 @@ pub fn usdt_transfer(
 
 /// Reports the order as the API currently holds it, so a settled transfer shows
 /// as settled and an unsettled one is not dressed up as anything else.
-pub fn order_status(chat_id: i64, language: Language, order: &Order) -> SendMessage {
+pub fn order_status(chat_id: i64, language: Language, order: &Order, support: &str) -> SendMessage {
     let expiry = format_expiry(order.expires_at);
     let reference = &order.reference;
     let title = &order.item_title;
@@ -209,10 +211,10 @@ pub fn order_status(chat_id: i64, language: Language, order: &Order) -> SendMess
         OrderStatus::Paid => (
             match language {
                 Language::English => format!(
-                    "✅ Payment received for order {reference}.\n\n{title}\nQuantity: {quantity}\nTotal: {total}₫\n\n{SUPPORT_HANDLE} will hand the account over shortly."
+                    "✅ Payment received for order {reference}.\n\n{title}\nQuantity: {quantity}\nTotal: {total}₫\n\n{support} will hand the account over shortly."
                 ),
                 Language::Vietnamese => format!(
-                    "✅ Đã nhận thanh toán cho đơn {reference}.\n\n{title}\nSố lượng: {quantity}\nTổng: {total}₫\n\n{SUPPORT_HANDLE} sẽ bàn giao tài khoản ngay."
+                    "✅ Đã nhận thanh toán cho đơn {reference}.\n\n{title}\nSố lượng: {quantity}\nTổng: {total}₫\n\n{support} sẽ bàn giao tài khoản ngay."
                 ),
             },
             back_keyboard(language),
@@ -257,8 +259,13 @@ pub fn order_status(chat_id: i64, language: Language, order: &Order) -> SendMess
 
 /// Sent unprompted when SePay reports a matching transfer, so the buyer is not
 /// left pressing the check button.
-pub fn payment_received(chat_id: i64, language: Language, order: &Order) -> SendMessage {
-    order_status(chat_id, language, order)
+pub fn payment_received(
+    chat_id: i64,
+    language: Language,
+    order: &Order,
+    support: &str,
+) -> SendMessage {
+    order_status(chat_id, language, order, support)
 }
 
 pub fn payment_cancelled(chat_id: i64, language: Language, reference: &str) -> SendMessage {
@@ -436,15 +443,16 @@ fn unconfigured_method(
     language: Language,
     order: &Order,
     reason: Localized,
+    support: &str,
 ) -> SendMessage {
     let reference = &order.reference;
     let text = match language {
         Language::English => format!(
-            "{}\n\nContact {SUPPORT_HANDLE} to pay for order {reference}.",
+            "{}\n\nContact {support} to pay for order {reference}.",
             reason.english
         ),
         Language::Vietnamese => format!(
-            "{}\n\nLiên hệ {SUPPORT_HANDLE} để thanh toán đơn {reference}.",
+            "{}\n\nLiên hệ {support} để thanh toán đơn {reference}.",
             reason.vietnamese
         ),
     };
@@ -866,7 +874,8 @@ mod tests {
     }
 
     fn text_of(language: Language, order: &Order) -> String {
-        let message: Value = serde_json::to_value(order_status(123, language, order)).unwrap();
+        let message: Value =
+            serde_json::to_value(order_status(123, language, order, "@shop_owner")).unwrap();
         message["text"].as_str().unwrap().to_owned()
     }
 

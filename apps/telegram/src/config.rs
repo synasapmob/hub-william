@@ -3,6 +3,7 @@ use std::{env, fmt};
 use reqwest::Url;
 
 const DEFAULT_OWNER_USERNAME: &str = "synasapmob";
+const OWNER_USERNAME: &str = "TELEGRAM_USERNAME_OWNER";
 const DEFAULT_MEMO_PREFIX: &str = "MOT NGAY VUI VE";
 const DEFAULT_USDT_NETWORK: &str = "TRC20";
 const SERVICE_TOKEN: &str = "TELEGRAM_SERVICE_TOKEN";
@@ -20,7 +21,7 @@ pub struct AppConfig {
     pub bot_token: String,
     /// Needed for the "Mua ngay" deep link on an announcement.
     pub bot_username: Option<String>,
-    pub owners: Owners,
+    pub owner: Owner,
     pub payment: PaymentConfig,
     pub sepay_api_key: Option<String>,
     pub telegram_api_base_url: Url,
@@ -37,23 +38,47 @@ pub struct PaymentConfig {
     pub usdt: Option<UsdtWallet>,
 }
 
-/// Who may use the owner side of `/catalog`. A username is what the operator
-/// recognises, but Telegram usernames can be released and taken by someone
-/// else, so a numeric ID allowlist is the stronger check and wins when set.
-#[derive(Clone, Default)]
-pub struct Owners {
-    pub telegram_user_ids: Vec<i64>,
-    pub usernames: Vec<String>,
+/// The one Telegram username that runs the shop. It decides who may use the
+/// owner side of `/catalog`, and it is the handle a buyer is told to contact. A
+/// username belongs to one account at a time, so no numeric ID is kept beside it.
+#[derive(Clone)]
+pub struct Owner {
+    username: String,
 }
 
-impl Owners {
-    pub fn includes(&self, telegram_user_id: i64, username: Option<&str>) -> bool {
-        if self.telegram_user_ids.contains(&telegram_user_id) {
-            return true;
+impl Owner {
+    /// Telegram usernames are 5-32 letters, digits or underscores. Anything else,
+    /// such as a list left over from a comma-separated setting, is refused rather
+    /// than quietly locking the owner out.
+    pub fn parse(value: &str) -> Result<Self, ConfigError> {
+        let username = value.trim().trim_start_matches('@');
+
+        if !(5..=32).contains(&username.len())
+            || !username
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || character == '_')
+        {
+            return Err(ConfigError(format!(
+                "{OWNER_USERNAME} must be one Telegram username of 5-32 letters, digits or underscores"
+            )));
         }
-        username
-            .map(|username| username.trim_start_matches('@').to_lowercase())
-            .is_some_and(|username| self.usernames.contains(&username))
+
+        Ok(Self {
+            username: username.to_lowercase(),
+        })
+    }
+
+    pub fn includes(&self, username: Option<&str>) -> bool {
+        username.is_some_and(|username| {
+            username
+                .trim_start_matches('@')
+                .eq_ignore_ascii_case(&self.username)
+        })
+    }
+
+    /// How the owner is written in a message, so a buyer can tap it.
+    pub fn handle(&self) -> String {
+        format!("@{}", self.username)
     }
 }
 
@@ -118,10 +143,9 @@ impl AppConfig {
             bot_token,
             bot_username: optional("TELEGRAM_BOT_USERNAME")
                 .map(|username| username.trim_start_matches('@').to_owned()),
-            owners: owners(
-                optional("TELEGRAM_OWNER_USERNAMES"),
-                optional("TELEGRAM_OWNER_IDS"),
-            ),
+            owner: Owner::parse(
+                &optional(OWNER_USERNAME).unwrap_or_else(|| DEFAULT_OWNER_USERNAME.to_owned()),
+            )?,
             payment: PaymentConfig::from_env()?,
             sepay_api_key: optional("SEPAY_API_KEY"),
             telegram_api_base_url,
@@ -236,22 +260,6 @@ fn usdt_wallet(
     }))
 }
 
-fn owners(usernames: Option<String>, telegram_user_ids: Option<String>) -> Owners {
-    Owners {
-        telegram_user_ids: telegram_user_ids
-            .unwrap_or_default()
-            .split(',')
-            .filter_map(|value| value.trim().parse().ok())
-            .collect(),
-        usernames: usernames
-            .unwrap_or_else(|| DEFAULT_OWNER_USERNAME.to_owned())
-            .split(',')
-            .map(|value| value.trim().trim_start_matches('@').to_lowercase())
-            .filter(|value| !value.is_empty())
-            .collect(),
-    }
-}
-
 fn optional(name: &str) -> Option<String> {
     env::var(name)
         .ok()
@@ -291,8 +299,8 @@ fn required_secret(name: &str) -> Result<String, ConfigError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        DEFAULT_MEMO_PREFIX, DEFAULT_USDT_NETWORK, bank_account, memo_prefix, owners,
-        service_token, usdt_wallet,
+        DEFAULT_MEMO_PREFIX, DEFAULT_OWNER_USERNAME, DEFAULT_USDT_NETWORK, Owner, bank_account,
+        memo_prefix, service_token, usdt_wallet,
     };
 
     fn environment(
@@ -403,27 +411,35 @@ mod tests {
     }
 
     #[test]
-    fn an_owner_is_recognised_by_username_or_by_id() {
-        let owners = owners(
-            Some(" @Synasapmob , second ".to_owned()),
-            Some("42, x".to_owned()),
-        );
+    fn the_owner_is_recognised_by_username_in_any_case_with_or_without_the_at() {
+        let owner = Owner::parse(" @Synasapmob ").unwrap();
 
-        assert!(owners.includes(1, Some("synasapmob")));
-        assert!(owners.includes(1, Some("@SYNASAPMOB")));
-        assert!(owners.includes(1, Some("second")));
-        assert!(
-            owners.includes(42, None),
-            "an id allowlist stands on its own"
-        );
-        assert!(!owners.includes(1, Some("someone-else")));
-        assert!(!owners.includes(1, None));
+        assert!(owner.includes(Some("synasapmob")));
+        assert!(owner.includes(Some("@SYNASAPMOB")));
+        assert!(!owner.includes(Some("someone_else")));
+        assert!(!owner.includes(None));
+        assert_eq!(owner.handle(), "@synasapmob");
     }
 
     #[test]
-    fn the_owner_username_defaults_to_the_operator() {
-        assert!(owners(None, None).includes(1, Some("synasapmob")));
-        assert!(!owners(None, None).includes(1, Some("impostor")));
+    fn the_owner_defaults_to_the_operator() {
+        let owner = Owner::parse(DEFAULT_OWNER_USERNAME).unwrap();
+
+        assert!(owner.includes(Some("synasapmob")));
+        assert!(!owner.includes(Some("impostor")));
+    }
+
+    #[test]
+    fn the_owner_must_be_one_valid_telegram_username() {
+        for value in [
+            "",
+            "abcd",
+            "first_owner,second_owner",
+            "with space",
+            &"a".repeat(33),
+        ] {
+            assert!(Owner::parse(value).is_err(), "{value:?}");
+        }
     }
 
     #[test]

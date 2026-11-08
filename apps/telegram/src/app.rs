@@ -153,7 +153,12 @@ async fn notify_paid(state: &AppState, order: &Order) -> Result<(), StatusCode> 
     let response = state
         .http
         .post(endpoint)
-        .json(&view::payment_received(order.chat_id, language, order))
+        .json(&view::payment_received(
+            order.chat_id,
+            language,
+            order,
+            &state.config.owner.handle(),
+        ))
         .send()
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -844,7 +849,7 @@ async fn admin_outcome(
     username: Option<&str>,
     action: &str,
 ) -> Result<Outcome, StatusCode> {
-    if !state.config.owners.includes(telegram_user_id, username) {
+    if !state.config.owner.includes(username) {
         return Ok(Outcome::Nothing);
     }
 
@@ -960,7 +965,9 @@ async fn payment_outcome(
         "check" if order.status() == OrderStatus::AwaitingPayment => {
             Outcome::Alert(view::pending_alert(language, &order))
         }
-        "check" => Outcome::Replace(view::order_status(chat_id, language, &order).into()),
+        "check" => Outcome::Replace(
+            view::order_status(chat_id, language, &order, &state.config.owner.handle()).into(),
+        ),
         _ => unknown(),
     })
 }
@@ -977,7 +984,7 @@ async fn command_reply(
         return Ok(None);
     }
 
-    let owner = state.config.owners.includes(telegram_user_id, username);
+    let owner = state.config.owner.includes(username);
     let command = text
         .split_whitespace()
         .next()
@@ -1039,7 +1046,7 @@ async fn pending_reply(
 
     // An owner expectation is re-checked here, not just when the button was
     // tapped, so losing owner status between the two stops the write.
-    let owner = state.config.owners.includes(telegram_user_id, username);
+    let owner = state.config.owner.includes(username);
     match pending {
         Pending::Quantity(slug) => {
             quantity_reply(state, chat_id, telegram_user_id, language, &slug, text).await
@@ -1334,14 +1341,11 @@ mod tests {
     use super::{AppState, router};
     use crate::{
         checkout::Sessions,
-        config::{AppConfig, BankAccount, Owners, PaymentConfig},
+        config::{AppConfig, BankAccount, Owner, PaymentConfig},
     };
 
-    fn owners() -> Owners {
-        Owners {
-            telegram_user_ids: Vec::new(),
-            usernames: vec!["synasapmob".to_owned()],
-        }
+    fn owner() -> Owner {
+        Owner::parse("synasapmob").expect("a valid owner username")
     }
 
     const REFERENCE: &str = "TESTREF00001";
@@ -2381,7 +2385,7 @@ mod tests {
                 bot_token: "bot-token".to_owned(),
                 announce_chat_id: Some("@hubwilliam".to_owned()),
                 bot_username: Some("hub_william_bot".to_owned()),
-                owners: owners(),
+                owner: owner(),
                 payment: PaymentConfig {
                     bank: Some(BankAccount {
                         holder: "NGUYEN VAN A".to_owned(),
