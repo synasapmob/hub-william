@@ -1578,7 +1578,7 @@ export interface components {
       available: number;
       /**
        * @description Hands the buyer an account when they have paid, from accounts loaded
-       *     with `POST .../accounts`. Fixed once the package is made.
+       *     with `POST .../accounts`. It can be changed later with `PUT .../{slug}`.
        */
       delivers_accounts?: boolean;
       hot: boolean;
@@ -2550,9 +2550,18 @@ export interface components {
     };
     /**
      * @description Everything about a product that can be edited. The slug and the count are not
-     *     in it: the slug is the product's identity, and the count has its own change.
+     *     in it: the slug is the product's identity, and the count has its own change
+     *     (a package that hands out accounts counts its accounts instead).
      */
     UpdateProduct: {
+      /**
+       * @description Makes the package hand out accounts, or stop. Absent leaves it as it is.
+       *     Turning it on makes the count the number of accounts not sold (0 for a
+       *     package that never held any), so the count typed in by hand is gone; it is
+       *     refused while buyers have orders open. Turning it off is refused while the
+       *     package still holds accounts not sold.
+       */
+      delivers_accounts?: boolean | null;
       hot: boolean;
       /** Format: uuid */
       image_id?: string | null;
@@ -4789,7 +4798,7 @@ export interface operations {
           "application/json": components["schemas"]["ErrorResponse"];
         };
       };
-      /** @description A field is out of range */
+      /** @description A field is out of range, buyers have orders open while the package is made to hand out accounts, or accounts not sold remain while it is made to stop */
       422: {
         headers: {
           [name: string]: unknown;

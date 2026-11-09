@@ -67,7 +67,7 @@ interface Draft {
   listed: boolean;
   /** What the bot sends to Telegram on save; nothing when empty. */
   message: string;
-  /** Hands the buyer an account when they have paid; fixed once it is made. */
+  /** Hands the buyer an account when they have paid. */
   deliversAccounts: boolean;
   /** Accounts to load on save, one `email|mật khẩu` per line. Never kept anywhere else. */
   accounts: string;
@@ -158,6 +158,9 @@ export default function StockFormDialog({
     ? (item?.on_hand ?? 0)
     : (item?.on_hand ?? 0) + adjust;
   const accounts = checkAccountLines(draft.accounts);
+  // Accounts not sold have to be dealt with before a package stops handing them
+  // out, so the switch holds until none is left.
+  const holdsAccounts = !!item?.delivers_accounts && item.on_hand > 0;
   const message = draft.message.trim();
   const messageValid = message.length <= MAX_MESSAGE;
   const warrantyNote = draft.warrantyNote.trim();
@@ -370,27 +373,17 @@ export default function StockFormDialog({
             )}
           </>
 
-          {!editing && (
-            <Flex className="items-center gap-2">
-              <Switch
-                checked={draft.deliversAccounts}
-                id="stock-delivers"
-                onCheckedChange={(next) => set("deliversAccounts", next)}
-              />
-
-              <Label htmlFor="stock-delivers">Giao tài khoản tự động</Label>
-            </Flex>
-          )}
-
           {delivers ? (
             <div className="space-y-4">
-              {item && <StockAccounts item={item} />}
+              {item?.delivers_accounts && <StockAccounts item={item} />}
 
               <div className="space-y-1.5">
                 <Flex className="items-baseline justify-between gap-2">
                   <Label htmlFor="stock-accounts">
-                    {editing ? "Nạp thêm tài khoản" : "Nạp tài khoản"} (tùy
-                    chọn)
+                    {item?.delivers_accounts
+                      ? "Nạp thêm tài khoản"
+                      : "Nạp tài khoản"}{" "}
+                    (tùy chọn)
                   </Label>
 
                   {accounts.count > 0 && (
@@ -425,7 +418,7 @@ export default function StockFormDialog({
                 >
                   {accounts.problem ??
                     `${
-                      item
+                      item?.delivers_accounts
                         ? `Trong kho ${item.on_hand} tài khoản chưa bán. `
                         : "Tồn kho là số tài khoản đã nạp. "
                     }Mỗi dòng một tài khoản, dạng email|mật khẩu. Một dòng là một tài khoản, kể cả khi email giống nhau. Tài khoản được mã hóa khi lưu; danh sách chỉ hiện email đã che, chủ shop xem và sửa được bằng nút Xem / Sửa.`}
@@ -463,7 +456,40 @@ export default function StockFormDialog({
 
               <Label htmlFor="stock-hot">Hot</Label>
             </Flex>
+
+            <Flex className="items-center gap-2">
+              <Switch
+                checked={draft.deliversAccounts}
+                disabled={holdsAccounts}
+                id="stock-delivers"
+                onCheckedChange={(next) => set("deliversAccounts", next)}
+              />
+
+              <Label htmlFor="stock-delivers">Giao tài khoản tự động</Label>
+            </Flex>
           </Flex>
+
+          {holdsAccounts && (
+            <p className="text-xs text-muted-foreground">
+              Còn {item.on_hand} tài khoản chưa bán. Xóa hết (nút Xem / sửa cả
+              gói, để trống rồi lưu) trước khi tắt giao tự động.
+            </p>
+          )}
+
+          {item && !item.delivers_accounts && delivers && (
+            <p className="text-xs text-muted-foreground">
+              Tồn kho sẽ tính theo số tài khoản đã nạp. Gói đang có{" "}
+              {item.on_hand} gõ tay, con số này sẽ mất và gói hết hàng cho tới
+              khi bạn nạp tài khoản.
+            </p>
+          )}
+
+          {item?.delivers_accounts && !delivers && (
+            <p className="text-xs text-muted-foreground">
+              Gói sẽ về tồn kho gõ tay, bắt đầu từ 0. Tài khoản đã bán vẫn được
+              giữ lại làm lịch sử.
+            </p>
+          )}
         </div>
 
         <div className="space-y-1.5">

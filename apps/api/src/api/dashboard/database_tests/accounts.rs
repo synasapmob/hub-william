@@ -10,7 +10,9 @@ use sqlx::PgPool;
 use tower::ServiceExt;
 use uuid::Uuid;
 
-use super::{account, call, new_product, owner_and_state, product_in, state};
+use super::{
+    account, call, edit_of, new_product, owner_and_state, product_in, state, support::Order,
+};
 use crate::{
     api::{app, telegram::accounts},
     core::AppState,
@@ -1883,4 +1885,252 @@ async fn only_the_owner_edits_a_block_and_it_needs_valid_lines_and_the_key(pool:
         edit(&state, cookie, SLUG, &ids, &block, false).await.0,
         StatusCode::NOT_IMPLEMENTED
     );
+}
+
+// ------------------------------------- turning a package into one that hands out accounts
+
+/// Makes an ordinary package with 10 in stock (`acme-pro`).
+async fn make_plain_package(state: &AppState, cookie: Option<&str>) -> Value {
+    let (status, created) = call(
+        state,
+        "POST",
+        "/dashboard/telegram/products",
+        cookie,
+        Some(new_product("Pro")),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(created["delivers_accounts"], false);
+
+    created
+}
+
+/// Saves the package as it is, with the flag set to `delivers`.
+async fn set_flag(
+    state: &AppState,
+    cookie: Option<&str>,
+    product: &Value,
+    delivers: Value,
+) -> (StatusCode, Value) {
+    let mut body = edit_of(product);
+    body["delivers_accounts"] = delivers;
+
+    call(
+        state,
+        "PUT",
+        &format!("/dashboard/telegram/products/{SLUG}"),
+        cookie,
+        Some(body),
+    )
+    .await
+}
+
+async fn package(state: &AppState, cookie: Option<&str>) -> Value {
+    let (_, listing) = call(state, "GET", "/dashboard/telegram/products", cookie, None).await;
+
+    product_in(&listing, SLUG).clone()
+}
+
+#[sqlx::test]
+async fn an_ordinary_package_can_be_made_to_hand_out_accounts_and_its_count_follows_them(
+    pool: PgPool,
+) {
+    let (state, owner) = owner_and_state(pool.clone()).await;
+    let cookie = Some(owner.cookie.as_str());
+    let plain = make_plain_package(&state, cookie).await;
+    assert_eq!(plain["on_hand"], 10);
+
+    let (status, converted) = set_flag(&state, cookie, &plain, json!(true)).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(converted["delivers_accounts"], true);
+    // The 10 typed in by hand are gone: it counts accounts, and there are none.
+    assert_eq!(converted["on_hand"], 0);
+    assert_eq!(converted["available"], 0);
+    // And the change is on the record, by whom.
+    let changes: Vec<(i32, i32, Uuid)> = sqlx::query_as(
+        "SELECT delta, available_after, changed_by FROM telegram_stock_changes
+         WHERE product_id = (SELECT id FROM telegram_products WHERE slug = $1)
+         ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(SLUG)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(changes, [(-10, 0, owner.id)]);
+
+    // It now takes accounts, and the count is how many.
+    let (status, loaded) = load(&state, cookie, &["a@example.test|1", "b@example.test|2"]).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(loaded["available"], 2);
+    assert_eq!(package(&state, cookie).await["on_hand"], 2);
+    // The stepper no longer applies to it.
+    let (status, _) = call(
+        &state,
+        "POST",
+        &format!("/dashboard/telegram/products/{SLUG}/stock"),
+        cookie,
+        Some(json!({ "delta": 1 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[sqlx::test]
+async fn the_flag_is_left_alone_when_the_edit_does_not_mention_it(pool: PgPool) {
+    let (state, owner) = owner_and_state(pool.clone()).await;
+    let cookie = Some(owner.cookie.as_str());
+    make_package(&state, cookie).await;
+    load(&state, cookie, &["a@example.test|1"]).await;
+    let delivering = package(&state, cookie).await;
+
+    // The same edit as every form made before the flag could be edited.
+    let (status, edited) = call(
+        &state,
+        "PUT",
+        &format!("/dashboard/telegram/products/{SLUG}"),
+        cookie,
+        Some(edit_of(&delivering)),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(edited["delivers_accounts"], true);
+    assert_eq!(edited["on_hand"], 1);
+    // And saying what it already is changes nothing either.
+    let (_, same) = set_flag(&state, cookie, &delivering, json!(true)).await;
+    assert_eq!(same["on_hand"], 1);
+    let changes: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM telegram_stock_changes")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(changes, 1, "only the load is on the record");
+}
+
+#[sqlx::test]
+async fn a_package_with_buyers_paying_is_not_converted_and_the_rest_of_the_edit_is_undone(
+    pool: PgPool,
+) {
+    let (state, owner) = owner_and_state(pool.clone()).await;
+    let cookie = Some(owner.cookie.as_str());
+    let plain = make_plain_package(&state, cookie).await;
+    // An order made two minutes ago is good for another thirteen.
+    Order::new("OPEN00000001")
+        .awaiting("2 minutes")
+        .insert(&pool)
+        .await;
+
+    let mut changed_price = plain.clone();
+    changed_price["price_vnd"] = json!(61_000);
+    let (status, body) = set_flag(&state, cookie, &changed_price, json!(true)).await;
+
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(body["message"].as_str().unwrap().contains("orders open"));
+    let after = package(&state, cookie).await;
+    assert_eq!(after["delivers_accounts"], false);
+    assert_eq!(after["on_hand"], 10);
+    // The price edit that came with it was not kept either.
+    assert_eq!(after["price_vnd"], plain["price_vnd"]);
+
+    // Once the order has run out, it goes through.
+    sqlx::query("UPDATE telegram_orders SET expires_at = NOW() - INTERVAL '1 minute'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (status, _) = set_flag(&state, cookie, &plain, json!(true)).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[sqlx::test]
+async fn a_package_that_still_holds_accounts_is_not_turned_back_into_an_ordinary_one(pool: PgPool) {
+    let (state, owner) = owner_and_state(pool.clone()).await;
+    let cookie = Some(owner.cookie.as_str());
+    make_package(&state, cookie).await;
+    load(&state, cookie, &["a@example.test|1", "b@example.test|2"]).await;
+    let delivering = package(&state, cookie).await;
+
+    let (status, body) = set_flag(&state, cookie, &delivering, json!(false)).await;
+
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(body["message"].as_str().unwrap().contains("not sold"));
+    let after = package(&state, cookie).await;
+    assert_eq!(after["delivers_accounts"], true);
+    assert_eq!(after["on_hand"], 2);
+    assert_eq!(stored(&pool).await.len(), 2, "no account was lost");
+}
+
+#[sqlx::test]
+async fn once_every_account_is_sold_or_gone_the_package_can_go_back_to_a_hand_set_count(
+    pool: PgPool,
+) {
+    let (state, owner) = owner_and_state(pool.clone()).await;
+    let cookie = Some(owner.cookie.as_str());
+    make_package(&state, cookie).await;
+    load(
+        &state,
+        cookie,
+        &["sold@example.test|1", "gone@example.test|2"],
+    )
+    .await;
+    sell(&pool, "sold@example.test", "SOLD00000010").await;
+    let gone = id_of(&pool, &state, "gone@example.test").await;
+    let (status, _) = call(
+        &state,
+        "DELETE",
+        &format!("/dashboard/telegram/accounts/{gone}"),
+        cookie,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let delivering = package(&state, cookie).await;
+    // The sale above was marked by hand, so the count still says 1 though no
+    // account is left to sell.
+    assert_eq!(delivering["on_hand"], 1);
+
+    let (status, back) = set_flag(&state, cookie, &delivering, json!(false)).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(back["delivers_accounts"], false);
+    // A count that had drifted from its accounts does not outlive them.
+    assert_eq!(back["on_hand"], 0);
+    // The account that was sold stays as the record of it.
+    assert_eq!(stored(&pool).await.len(), 1);
+    // The count is the owner's again.
+    let (status, restocked) = call(
+        &state,
+        "POST",
+        &format!("/dashboard/telegram/products/{SLUG}/stock"),
+        cookie,
+        Some(json!({ "delta": 5 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(restocked["on_hand"], 5);
+    // And accounts can no longer be loaded into it.
+    assert_eq!(
+        load(&state, cookie, &["x@example.test|1"]).await.0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+}
+
+#[sqlx::test]
+async fn converting_a_package_that_is_not_there_is_not_found(pool: PgPool) {
+    let (state, owner) = owner_and_state(pool.clone()).await;
+    let cookie = Some(owner.cookie.as_str());
+    let plain = make_plain_package(&state, cookie).await;
+    let mut body = edit_of(&plain);
+    body["delivers_accounts"] = json!(true);
+
+    let (status, _) = call(
+        &state,
+        "PUT",
+        "/dashboard/telegram/products/no-such-package",
+        cookie,
+        Some(body),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }
