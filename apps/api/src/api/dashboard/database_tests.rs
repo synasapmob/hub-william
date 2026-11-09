@@ -539,7 +539,8 @@ async fn a_warranty_note_the_shop_writes_is_stored_in_both_languages_and_listed(
     let cookie = Some(owner.cookie.as_str());
 
     let mut written = new_product("Pro");
-    written["warranty_note"] = json!("  Bảo hành 30 ngày,\n đổi tài khoản   khác  ");
+    written["warranty_note"] =
+        json!("  Bảo hành 30 ngày,\r\n\r\n  đổi tài khoản   khác \n\nLiên hệ shop  ");
     let (status, created) = call(
         &state,
         "POST",
@@ -550,17 +551,13 @@ async fn a_warranty_note_the_shop_writes_is_stored_in_both_languages_and_listed(
     .await;
 
     assert_eq!(status, StatusCode::CREATED);
-    // Tidied to one line, and the same words for a reader of either language.
-    assert_eq!(
-        created["warranty_note"],
-        "Bảo hành 30 ngày, đổi tài khoản khác"
-    );
+    // As written, with its line breaks, blank lines and spacing; only the ends are
+    // trimmed and the line breaks made alike. The same words for either language.
+    let as_stored = "Bảo hành 30 ngày,\n\n  đổi tài khoản   khác \n\nLiên hệ shop";
+    assert_eq!(created["warranty_note"], as_stored);
     assert_eq!(
         notes_of(&pool, "acme-pro").await,
-        (
-            "Bảo hành 30 ngày, đổi tài khoản khác".to_owned(),
-            "Bảo hành 30 ngày, đổi tài khoản khác".to_owned()
-        )
+        (as_stored.to_owned(), as_stored.to_owned())
     );
 
     // Without a note the standard one applies, and the dashboard is told there
@@ -580,11 +577,69 @@ async fn a_warranty_note_the_shop_writes_is_stored_in_both_languages_and_listed(
     assert!(vi.contains("login check"), "{vi}");
 
     let (_, listing) = call(&state, "GET", "/dashboard/telegram/products", cookie, None).await;
-    assert_eq!(
-        product_in(&listing, "acme-pro")["warranty_note"],
-        "Bảo hành 30 ngày, đổi tài khoản khác"
-    );
+    assert_eq!(product_in(&listing, "acme-pro")["warranty_note"], as_stored);
     assert!(product_in(&listing, "acme-plus")["warranty_note"].is_null());
+}
+
+#[sqlx::test]
+async fn a_multi_line_note_sent_back_by_the_form_is_left_as_it_is_and_an_edit_of_it_is_kept(
+    pool: PgPool,
+) {
+    let (state, owner) = owner_and_state(pool.clone()).await;
+    let cookie = Some(owner.cookie.as_str());
+    let mut written = new_product("Pro");
+    written["warranty_note"] = json!("Dòng một\n\nDòng ba, có   hai dấu cách");
+    let (_, created) = call(
+        &state,
+        "POST",
+        "/dashboard/telegram/products",
+        cookie,
+        Some(written),
+    )
+    .await;
+    let stored = created["warranty_note"].clone();
+    // The English note is something the form never shows; an edit that sends back
+    // the note it was given must leave it alone.
+    sqlx::query("UPDATE telegram_products SET warranty_note_en = 'Written in English' WHERE slug = 'acme-pro'")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let (status, same) = call(
+        &state,
+        "PUT",
+        "/dashboard/telegram/products/acme-pro",
+        cookie,
+        Some(edit_with_note(&created, stored.clone())),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(same["warranty_note"], stored);
+    assert_eq!(
+        notes_of(&pool, "acme-pro").await,
+        (
+            "Written in English".to_owned(),
+            stored.as_str().unwrap().to_owned()
+        )
+    );
+
+    // Changing one line keeps the others where they were.
+    let changed = "Dòng một\n\nDòng ba đã đổi\nDòng bốn";
+    let (status, edited) = call(
+        &state,
+        "PUT",
+        "/dashboard/telegram/products/acme-pro",
+        cookie,
+        Some(edit_with_note(&created, json!(changed))),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(edited["warranty_note"], changed);
+    assert_eq!(
+        notes_of(&pool, "acme-pro").await,
+        (changed.to_owned(), changed.to_owned())
+    );
 }
 
 #[sqlx::test]

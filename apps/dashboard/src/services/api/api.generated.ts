@@ -1593,7 +1593,8 @@ export interface components {
       /** @description `WF`, `W7D` or `NW`. */
       warranty: string;
       /**
-       * @description The warranty note a buyer reads, up to 200 characters. Blank or absent
+       * @description The warranty note a buyer reads, up to 200 characters (line breaks count),
+       *     kept as typed: line breaks, blank lines and spacing survive. Blank or absent
        *     uses the standard note for the warranty code.
        */
       warranty_note?: string | null;
@@ -2574,7 +2575,8 @@ export interface components {
       /** @description `WF`, `W7D` or `NW`. */
       warranty: string;
       /**
-       * @description The warranty note a buyer reads, up to 200 characters. Blank uses the
+       * @description The warranty note a buyer reads, up to 200 characters (line breaks count),
+       *     kept as typed: line breaks, blank lines and spacing survive. Blank uses the
        *     standard note for the warranty code. Absent leaves the note as it is,
        *     unless the warranty code changes, which resets it to the standard one.
        */

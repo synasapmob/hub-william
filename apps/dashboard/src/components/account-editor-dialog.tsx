@@ -233,11 +233,22 @@ function EditStep({
 interface ConfirmStepProps {
   plan: AccountsEdited;
   productTitle: string;
-  save: UseMutationResult<AccountsEdited, Error, void>;
+  /** Whether the change is being written. */
+  pending: boolean;
+  /** What went wrong writing it, if it did. */
+  error: Error | null;
   onBack: () => void;
+  onConfirm: () => void;
 }
 
-function ConfirmStep({ onBack, plan, productTitle, save }: ConfirmStepProps) {
+function ConfirmStep({
+  error,
+  onBack,
+  onConfirm,
+  pending,
+  plan,
+  productTitle,
+}: ConfirmStepProps) {
   return (
     <div className="space-y-4">
       <DialogHeader>
@@ -284,9 +295,9 @@ function ConfirmStep({ onBack, plan, productTitle, save }: ConfirmStepProps) {
         <p className="text-xs text-muted-foreground">Không có gì thay đổi.</p>
       )}
 
-      {save.error && (
+      {error && (
         <p className="text-xs text-destructive" role="alert">
-          {save.error.message}
+          {error.message}
         </p>
       )}
 
@@ -296,16 +307,32 @@ function ConfirmStep({ onBack, plan, productTitle, save }: ConfirmStepProps) {
         </Button>
 
         <Button
-          disabled={
-            plan.changed + plan.added + plan.removed === 0 || save.isPending
-          }
+          disabled={plan.changed + plan.added + plan.removed === 0 || pending}
           variant={plan.removed > 0 ? "destructive" : "default"}
-          onClick={() => save.mutate()}
+          onClick={onConfirm}
         >
           Lưu thay đổi
         </Button>
       </DialogFooter>
     </div>
+  );
+}
+
+interface AccountsChangeConfirmProps extends Omit<ConfirmStepProps, "onBack"> {
+  /** Back to the block, with it as it was left. */
+  onBack: () => void;
+}
+
+/**
+ * Says what a block of accounts would change, as a dialog of its own, and waits
+ * to be told to go on. For a form that writes the accounts together with
+ * something else.
+ */
+export function AccountsChangeConfirm(props: AccountsChangeConfirmProps) {
+  return (
+    <Shell onClose={props.onBack}>
+      <ConfirmStep {...props} />
+    </Shell>
   );
 }
 
@@ -397,14 +424,16 @@ export default function AccountEditorDialog({
     return (
       <Shell onClose={onClose}>
         <ConfirmStep
+          error={save.error}
+          pending={save.isPending}
           plan={plan}
           productTitle={accounts[0].product_title}
-          save={save}
           onBack={() => {
             setPlan(null);
             check.reset();
             save.reset();
           }}
+          onConfirm={() => save.mutate()}
         />
       </Shell>
     );

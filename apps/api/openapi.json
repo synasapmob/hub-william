@@ -5645,7 +5645,7 @@
           },
           "warranty_note": {
             "type": ["string", "null"],
-            "description": "The warranty note a buyer reads, up to 200 characters. Blank or absent\nuses the standard note for the warranty code."
+            "description": "The warranty note a buyer reads, up to 200 characters (line breaks count),\nkept as typed: line breaks, blank lines and spacing survive. Blank or absent\nuses the standard note for the warranty code."
           }
         }
       },
@@ -7886,7 +7886,7 @@
           },
           "warranty_note": {
             "type": ["string", "null"],
-            "description": "The warranty note a buyer reads, up to 200 characters. Blank uses the\nstandard note for the warranty code. Absent leaves the note as it is,\nunless the warranty code changes, which resets it to the standard one."
+            "description": "The warranty note a buyer reads, up to 200 characters (line breaks count),\nkept as typed: line breaks, blank lines and spacing survive. Blank uses the\nstandard note for the warranty code. Absent leaves the note as it is,\nunless the warranty code changes, which resets it to the standard one."
           }
         }
       },

@@ -789,6 +789,41 @@ describe("PosRoute, adding", () => {
       );
     });
 
+    it("keeps the line breaks, blank lines and spacing it was typed with, and trims only its ends", async () => {
+      const create = vi.spyOn(fakeStockService, "create");
+      const user = await openAdd();
+
+      await fillPackage(user);
+      await user.click(noteField());
+      await user.paste("\n Dòng một\n\n  Dòng ba   có dấu cách\n\n");
+      await user.click(screen.getByRole("button", { name: "Thêm" }));
+
+      await waitFor(() =>
+        expect(create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            warranty_note: "Dòng một\n\n  Dòng ba   có dấu cách",
+          }),
+        ),
+      );
+    });
+
+    it("counts what is typed in characters, line breaks included, as the server does", async () => {
+      const user = await openAdd();
+
+      await fillPackage(user);
+      await user.click(noteField());
+      await user.paste("ab\ncd");
+
+      expect(screen.getByText("5/200")).toBeInTheDocument();
+
+      await user.clear(noteField());
+      // An emoji is one character, though JavaScript counts it as two.
+      await user.paste("😀".repeat(200));
+
+      expect(screen.getByText("200/200")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Thêm" })).toBeEnabled();
+    });
+
     it("asks for the standard note when it is left empty", async () => {
       const create = vi.spyOn(fakeStockService, "create");
       const user = await openAdd();
@@ -1396,6 +1431,41 @@ describe("PosRoute, editing", () => {
       expect(noteField()).toHaveValue("Không bảo hành đổi trả");
     });
 
+    it("shows a note with its line breaks and blank lines as it was written, and sends it back untouched", async () => {
+      const written =
+        "Bảo hành 30 ngày\n\n  - Đổi tài khoản khác\n- Không hoàn tiền   sau 7 ngày";
+      const gemini = fakeStockServiceProducts().find(
+        (product) => product.provider === "Gemini",
+      )!;
+      await fakeStockService.update(gemini.slug, {
+        delivers_accounts: gemini.delivers_accounts,
+        hot: gemini.hot,
+        image_url: gemini.image_url,
+        listed: gemini.listed,
+        plan: gemini.plan,
+        price_vnd: gemini.price_vnd,
+        provider: gemini.provider,
+        variant: gemini.variant,
+        warranty: gemini.warranty,
+        warranty_note: written,
+      });
+      const update = vi.spyOn(fakeStockService, "update");
+      const user = await openEdit(/Gemini Advanced/);
+
+      expect(noteField()).toHaveValue(written);
+
+      await user.clear(screen.getByLabelText("Giá (₫)"));
+      await user.type(screen.getByLabelText("Giá (₫)"), "99000");
+      await user.click(screen.getByRole("button", { name: "Lưu" }));
+
+      await waitFor(() =>
+        expect(update).toHaveBeenCalledWith(
+          gemini.slug,
+          expect.objectContaining({ warranty_note: written }),
+        ),
+      );
+    });
+
     it("goes back with the form when only something else is edited", async () => {
       const update = vi.spyOn(fakeStockService, "update");
       const user = await openEdit(/Gemini Advanced/);
@@ -1644,18 +1714,286 @@ describe("PosRoute, the accounts in stock", () => {
     return user;
   }
 
-  it("lists them with the email hidden, whether each is sold and who loaded it, and never a password", async () => {
+  const passwordField = () => screen.getByLabelText(/Mật khẩu của bạn/);
+
+  /** Types the owner's password and opens the accounts into the box. */
+  async function unlock(user: ReturnType<typeof userEvent.setup>) {
+    await user.type(passwordField(), FAKE_OWNER_PASSWORD);
+    await user.click(screen.getByRole("button", { name: "Hiện" }));
+
+    return screen.findByLabelText("Tài khoản trong kho");
+  }
+
+  it("asks the owner for their password and shows nothing of the accounts until then", async () => {
     await openAccounts();
 
-    expect(screen.getByText("o***@example.com")).toBeInTheDocument();
-    expect(screen.getByText("Chưa bán · nạp bởi minhanh")).toBeInTheDocument();
-    expect(
-      screen.getByText("Đã bán · đơn ABC123DEF456 · nạp bởi ducthinh"),
-    ).toBeInTheDocument();
     expect(screen.getByText("1 chưa bán · 1 đã bán")).toBeInTheDocument();
-    expect(screen.queryByText(/right-secret/)).not.toBeInTheDocument();
+    expect(passwordField()).toBeInTheDocument();
+    // No list of hidden emails, no buttons for one account at a time.
+    expect(screen.queryByText("o***@example.com")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /tài khoản o\*\*\*@example\.com/ }),
+    ).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("right-secret");
     expect(document.body.textContent).not.toContain("already-sent");
   });
+
+  it("shows the accounts not sold as the lines email|password once the password is right, and says when it is wrong", async () => {
+    const reveal = vi.spyOn(fakeStockService, "revealAccounts");
+    const user = await openAccounts();
+
+    await user.type(passwordField(), "not-it");
+    await user.click(screen.getByRole("button", { name: "Hiện" }));
+
+    expect(await screen.findByText("Mật khẩu không đúng.")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("right-secret");
+
+    await user.clear(passwordField());
+
+    const block = await unlock(user);
+
+    // The one sold is not in it.
+    expect(block).toHaveValue("owner@example.com|right-secret");
+    expect(screen.getByText("1 dòng · 1 đã bán")).toBeInTheDocument();
+    expect(reveal).toHaveBeenLastCalledWith(
+      ["account-unsold"],
+      FAKE_OWNER_PASSWORD,
+    );
+    // The box for adding gives way to the block, which can add too.
+    expect(
+      screen.queryByLabelText("Nạp thêm tài khoản (tùy chọn)"),
+    ).not.toBeInTheDocument();
+    // The password is not left in the field.
+    expect(document.body.textContent).not.toContain(FAKE_OWNER_PASSWORD);
+  });
+
+  it("saves the package alone when the block is left as it was", async () => {
+    const edit = vi.spyOn(fakeStockService, "editAccounts");
+    const update = vi.spyOn(fakeStockService, "update");
+    const user = await openAccounts();
+
+    await unlock(user);
+    await user.click(screen.getByRole("button", { name: "Lưu" }));
+
+    await waitFor(() => expect(update).toHaveBeenCalled());
+    expect(edit).not.toHaveBeenCalled();
+    expect(toast.success).toHaveBeenCalledWith("Đã lưu Claude Max 5x 1 tháng");
+  });
+
+  it("says what a changed block would do before it does anything, then saves the package and the accounts", async () => {
+    const edit = vi.spyOn(fakeStockService, "editAccounts");
+    const update = vi.spyOn(fakeStockService, "update");
+    const user = await openAccounts();
+    const block = await unlock(user);
+
+    await user.clear(block);
+    await user.paste(
+      "owner@example.com|new-secret\nsecond@example.com|second-pass",
+    );
+    await user.click(screen.getByRole("button", { name: "Lưu" }));
+
+    // Looked at, not done.
+    expect(await screen.findByText("Xác nhận thay đổi")).toBeInTheDocument();
+    expect(screen.getByText(/Đổi email hoặc mật khẩu:/)).toHaveTextContent(
+      "Đổi email hoặc mật khẩu: 1",
+    );
+    expect(screen.getByText(/Thêm mới:/)).toHaveTextContent("Thêm mới: 1");
+    expect(edit).toHaveBeenCalledTimes(1);
+    expect(edit).toHaveBeenLastCalledWith(
+      "claude-max-5x-1-thang",
+      expect.objectContaining({ dryRun: true, ids: ["account-unsold"] }),
+    );
+    expect(update).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Lưu thay đổi" }));
+
+    await waitFor(() =>
+      expect(edit).toHaveBeenLastCalledWith("claude-max-5x-1-thang", {
+        accounts:
+          "owner@example.com|new-secret\nsecond@example.com|second-pass",
+        dryRun: false,
+        ids: ["account-unsold"],
+      }),
+    );
+    // The package first, then its accounts.
+    expect(update.mock.invocationCallOrder[0]).toBeLessThan(
+      edit.mock.invocationCallOrder[1],
+    );
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith(
+        "Đã lưu Claude Max 5x 1 tháng",
+        {
+          description: "Đổi 1, thêm 1. Trong kho còn 5 tài khoản.",
+        },
+      ),
+    );
+    // Nothing of the accounts stays on the page.
+    expect(document.body.textContent).not.toContain("new-secret");
+  });
+
+  it("goes back to the block as it was left when the summary is not confirmed", async () => {
+    const update = vi.spyOn(fakeStockService, "update");
+    const user = await openAccounts();
+    const block = await unlock(user);
+
+    await user.clear(block);
+    await user.paste("owner@example.com|changed");
+    await user.click(screen.getByRole("button", { name: "Lưu" }));
+    await screen.findByText("Xác nhận thay đổi");
+    await user.click(screen.getByRole("button", { name: "Quay lại sửa" }));
+
+    expect(screen.queryByText("Xác nhận thay đổi")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Tài khoản trong kho")).toHaveValue(
+      "owner@example.com|changed",
+    );
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("takes an account out of stock by deleting its line, with a warning, once confirmed", async () => {
+    const user = await openAccounts();
+    const block = await unlock(user);
+
+    await user.clear(block);
+    await user.click(screen.getByRole("button", { name: "Lưu" }));
+
+    expect(await screen.findByText(/Xóa khỏi kho:/)).toHaveTextContent(
+      "Xóa khỏi kho: 1",
+    );
+    expect(
+      screen.getByText(/Tài khoản bị xóa không còn được bán/),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Lưu thay đổi" }));
+
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith(
+        "Đã lưu Claude Max 5x 1 tháng",
+        {
+          description: "Xóa 1. Trong kho còn 3 tài khoản.",
+        },
+      ),
+    );
+  });
+
+  it("names the line that is wrong without quoting it, and does not let it be saved", async () => {
+    const user = await openAccounts();
+    const block = await unlock(user);
+
+    await user.type(block, "\nno-bar-here");
+
+    expect(
+      screen.getByText("Dòng 2 không đúng dạng email|mật khẩu."),
+    ).not.toHaveTextContent("no-bar-here");
+    expect(screen.getByRole("button", { name: "Lưu" })).toBeDisabled();
+  });
+
+  it("keeps the form open and the block as it was when the accounts changed meanwhile", async () => {
+    const user = await openAccounts();
+    const block = await unlock(user);
+
+    await user.clear(block);
+    await user.paste("owner@example.com|changed");
+    await user.click(screen.getByRole("button", { name: "Lưu" }));
+    await screen.findByText("Xác nhận thay đổi");
+    vi.spyOn(fakeStockService, "editAccounts").mockRejectedValueOnce(
+      new ServiceError(
+        "Some of these accounts were sold or removed while you were editing. Open them again.",
+        422,
+        "validation_error",
+      ),
+    );
+    await user.click(screen.getByRole("button", { name: "Lưu thay đổi" }));
+
+    // The package is saved either way; the accounts are said not to be.
+    await waitFor(() =>
+      expect(toast.warning).toHaveBeenCalledWith(
+        "Đã lưu Claude Max 5x 1 tháng",
+        {
+          description: expect.stringContaining(
+            "Chưa lưu được thay đổi của tài khoản",
+          ),
+        },
+      ),
+    );
+  });
+
+  it("hides the accounts again and forgets them when the form is left alone", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+      renderPage(<PosRoute />);
+      await user.click(
+        await screen.findByRole("button", { name: /Claude Max 5x/ }),
+      );
+      await screen.findByText("Tài khoản trong kho");
+      expect(await unlock(user)).toHaveValue("owner@example.com|right-secret");
+
+      await act(() => vi.advanceTimersByTimeAsync(5 * 60_000 + 1_000));
+
+      expect(document.body.textContent).not.toContain("right-secret");
+      // Back at the question, with the form still open.
+      expect(passwordField()).toHaveValue("");
+      expect(toast).toHaveBeenCalledWith(
+        "Đã ẩn tài khoản vì lâu không thao tác.",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("offers only the box for adding to a package that holds no account not sold", async () => {
+    await fakeStockService.create({
+      delivers_accounts: true,
+      hot: false,
+      image_url: "",
+      listed: true,
+      plan: "Empty Pack",
+      price_vnd: 50_000,
+      provider: "Claude",
+      stock: 0,
+      variant: null,
+      warranty: "NW",
+      warranty_note: null,
+    });
+    const user = userEvent.setup();
+
+    renderPage(<PosRoute />);
+    await user.click(await screen.findByRole("button", { name: /Empty Pack/ }));
+
+    expect(
+      await screen.findByText("Chưa có tài khoản nào chưa bán."),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Mật khẩu của bạn/)).not.toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Nạp thêm tài khoản (tùy chọn)"),
+    ).toBeInTheDocument();
+  });
+
+  it.each(["manager", "stock-keeper"] as const)(
+    "lists the accounts to a %s with the email hidden, whether each is sold and who loaded it, and never a password or a way to open one",
+    async (role: Role) => {
+      await openAccounts(role);
+
+      expect(screen.getByText("o***@example.com")).toBeInTheDocument();
+      expect(
+        screen.getByText("Chưa bán · nạp bởi minhanh"),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText("Đã bán · đơn ABC123DEF456 · nạp bởi ducthinh"),
+      ).toBeInTheDocument();
+      expect(screen.getByText("1 chưa bán · 1 đã bán")).toBeInTheDocument();
+      expect(
+        screen.queryByLabelText(/Mật khẩu của bạn/),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /^Xem( \/ sửa)? tài khoản/ }),
+      ).not.toBeInTheDocument();
+      expect(document.body.textContent).not.toContain("right-secret");
+      expect(document.body.textContent).not.toContain("already-sent");
+    },
+  );
 
   it("is not shown for a package that does not hand them out", async () => {
     const user = userEvent.setup();
@@ -1668,115 +2006,8 @@ describe("PosRoute, the accounts in stock", () => {
     expect(screen.queryByText("Tài khoản trong kho")).not.toBeInTheDocument();
   });
 
-  it("lets the owner open one with their password, and says when it is wrong", async () => {
-    const reveal = vi.spyOn(fakeStockService, "revealAccounts");
-    const user = await openAccounts();
-
-    await user.click(
-      screen.getByRole("button", {
-        name: "Xem / sửa tài khoản o***@example.com",
-      }),
-    );
-    await user.type(screen.getByLabelText("Mật khẩu của bạn"), "not-it");
-    await user.click(screen.getByRole("button", { name: "Mở" }));
-
-    expect(await screen.findByText("Mật khẩu không đúng.")).toBeInTheDocument();
-    expect(screen.queryByText(/right-secret/)).not.toBeInTheDocument();
-
-    await user.clear(screen.getByLabelText("Mật khẩu của bạn"));
-    await user.type(
-      screen.getByLabelText("Mật khẩu của bạn"),
-      FAKE_OWNER_PASSWORD,
-    );
-    await user.click(screen.getByRole("button", { name: "Mở" }));
-
-    expect(await screen.findByLabelText("Tài khoản")).toHaveValue(
-      "owner@example.com|right-secret",
-    );
-    expect(reveal).toHaveBeenLastCalledWith(
-      ["account-unsold"],
-      FAKE_OWNER_PASSWORD,
-    );
-
-    // Closing drops it: nothing of the account stays on the page.
-    await user.click(screen.getByRole("button", { name: "Hủy" }));
-
-    expect(document.body.textContent).not.toContain("right-secret");
-    expect(
-      screen.getByRole("button", {
-        name: "Xem / sửa tài khoản o***@example.com",
-      }),
-    ).toBeInTheDocument();
-  });
-
-  it("opens every account not sold of the package at once, to edit as a block", async () => {
-    const user = await openAccounts();
-
-    await user.click(
-      screen.getByRole("button", { name: "Xem / sửa cả gói (1)" }),
-    );
-    await user.type(
-      screen.getByLabelText("Mật khẩu của bạn"),
-      FAKE_OWNER_PASSWORD,
-    );
-    await user.click(screen.getByRole("button", { name: "Mở" }));
-
-    // The sold one is not in the block.
-    expect(await screen.findByLabelText("Tài khoản")).toHaveValue(
-      "owner@example.com|right-secret",
-    );
-  });
-
-  it("closes the account and forgets it when it is left alone", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-
-    try {
-      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-
-      renderPage(<PosRoute />);
-      await user.click(
-        await screen.findByRole("button", { name: /Claude Max 5x/ }),
-      );
-      await user.click(
-        await screen.findByRole("button", {
-          name: "Xem / sửa tài khoản o***@example.com",
-        }),
-      );
-      await user.type(
-        screen.getByLabelText("Mật khẩu của bạn"),
-        FAKE_OWNER_PASSWORD,
-      );
-      await user.click(screen.getByRole("button", { name: "Mở" }));
-      expect(await screen.findByLabelText("Tài khoản")).toHaveValue(
-        "owner@example.com|right-secret",
-      );
-
-      await act(() => vi.advanceTimersByTimeAsync(5 * 60_000 + 1_000));
-
-      expect(document.body.textContent).not.toContain("right-secret");
-      expect(
-        screen.queryByLabelText("Mật khẩu của bạn"),
-      ).not.toBeInTheDocument();
-      expect(toast).toHaveBeenCalledWith("Đã đóng vì lâu không thao tác.");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it.each(["manager", "stock-keeper"] as const)(
-    "offers a %s no way to look at one",
-    async (role: Role) => {
-      await openAccounts(role);
-
-      expect(screen.getByText("o***@example.com")).toBeInTheDocument();
-      expect(
-        screen.queryByRole("button", { name: /^Xem( \/ sửa)? tài khoản/ }),
-      ).not.toBeInTheDocument();
-    },
-  );
-
-  it("takes an unsold one out after a second press, and offers no way to take a sold one out", async () => {
-    const user = await openAccounts();
+  it("lets a manager take an unsold one out after a second press, and offers no way to take a sold one out", async () => {
+    const user = await openAccounts("manager");
 
     expect(
       screen.queryByRole("button", { name: "Xóa tài khoản b***@example.com" }),

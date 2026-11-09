@@ -125,7 +125,8 @@ pub struct CreateProduct {
     pub variant: Option<String>,
     /// `WF`, `W7D` or `NW`.
     pub warranty: String,
-    /// The warranty note a buyer reads, up to 200 characters. Blank or absent
+    /// The warranty note a buyer reads, up to 200 characters (line breaks count),
+    /// kept as typed: line breaks, blank lines and spacing survive. Blank or absent
     /// uses the standard note for the warranty code.
     pub warranty_note: Option<String>,
 }
@@ -150,7 +151,8 @@ pub struct UpdateProduct {
     pub variant: Option<String>,
     /// `WF`, `W7D` or `NW`.
     pub warranty: String,
-    /// The warranty note a buyer reads, up to 200 characters. Blank uses the
+    /// The warranty note a buyer reads, up to 200 characters (line breaks count),
+    /// kept as typed: line breaks, blank lines and spacing survive. Blank uses the
     /// standard note for the warranty code. Absent leaves the note as it is,
     /// unless the warranty code changes, which resets it to the standard one.
     pub warranty_note: Option<String>,

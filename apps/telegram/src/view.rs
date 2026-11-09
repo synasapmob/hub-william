@@ -1045,6 +1045,26 @@ mod tests {
     }
 
     #[test]
+    fn a_warranty_note_reaches_the_buyer_with_its_line_breaks_and_blank_lines_as_written() {
+        let note = "Bảo hành 30 ngày\n\n  - Đổi tài khoản khác\n- Không hoàn tiền   sau 7 ngày\n\nLiên hệ shop";
+        let mut product = package("claude-pro");
+        product.warranty_note_en = note.to_owned();
+        product.warranty_note_vi = note.to_owned();
+
+        for language in [Language::English, Language::Vietnamese] {
+            let message: Value =
+                serde_json::to_value(quantity_prompt(123, language, &product)).unwrap();
+            let text = message["text"].as_str().unwrap();
+
+            // At the end of the prompt, byte for byte.
+            assert!(text.ends_with(&format!("\n\n{note}")), "{text}");
+            // Plain text: Telegram is not asked to read it as markup, which would
+            // eat the characters it takes for formatting.
+            assert!(message.get("parse_mode").is_none(), "{message}");
+        }
+    }
+
+    #[test]
     fn a_paid_order_with_nothing_handed_out_sends_the_buyer_to_the_owner_with_its_reference() {
         let paid = order("paid", 0);
 
