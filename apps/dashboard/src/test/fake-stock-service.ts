@@ -283,8 +283,25 @@ export const fakeStockService = {
 
   async update(slug: string, input: StockInput): Promise<TelegramProduct> {
     const product = find(slug);
+    const { delivers_accounts: delivers, ...fields } = input;
+    const unsold = accountRows.filter(
+      (row) => row.slug === slug && !row.account.order_reference,
+    ).length;
 
-    Object.assign(product, input);
+    // As the server does: turning it off needs no account left to sell, and
+    // either way the count becomes the accounts not sold, which is none for a
+    // package that never held any. A refusal changes nothing.
+    if (product.delivers_accounts && !delivers && unsold > 0)
+      throw refusal(
+        "This package still holds accounts that are not sold. Take them out first, then turn this off.",
+      );
+
+    if (product.delivers_accounts !== delivers) {
+      product.delivers_accounts = delivers;
+      product.on_hand = delivers ? unsold : 0;
+    }
+
+    Object.assign(product, fields);
 
     return structuredClone(product);
   },

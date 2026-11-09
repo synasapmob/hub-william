@@ -22,6 +22,7 @@ import {
   resetFakeServiceStock,
 } from "@/test/fake-service-stock-service";
 import renderPage from "@/test/render-page";
+import slugify from "@/utils/utils.slug";
 
 import PosRoute from "./route";
 
@@ -955,6 +956,7 @@ describe("PosRoute, editing", () => {
 
   /** The fields of Claude Pro as the page sends them on an edit. */
   const claudePro = {
+    delivers_accounts: false,
     hot: true,
     image_url: "https://picsum.photos/400/300?random=4",
     listed: true,
@@ -1168,12 +1170,19 @@ describe("PosRoute, editing", () => {
       expect(row(/Claude Pro 1 tháng/)).not.toHaveTextContent("Giao tự động");
     });
 
-    it("has no switch to flip and no stepper, and says how many are left", async () => {
+    it("has no stepper, a switch that holds while accounts are left, and says how many", async () => {
       await openEdit(/Claude Max 5x/);
 
+      const delivers = screen.getByRole("switch", {
+        name: "Giao tài khoản tự động",
+      });
+
+      expect(delivers).toBeChecked();
+      // Accounts not sold are dealt with before the package stops handing them out.
+      expect(delivers).toBeDisabled();
       expect(
-        screen.queryByRole("switch", { name: "Giao tài khoản tự động" }),
-      ).not.toBeInTheDocument();
+        screen.getByText(/Còn 4 tài khoản chưa bán\. Xóa hết/),
+      ).toBeInTheDocument();
       expect(
         screen.queryByText("Thêm hoặc bớt tồn kho"),
       ).not.toBeInTheDocument();
@@ -1206,16 +1215,168 @@ describe("PosRoute, editing", () => {
       );
     });
 
-    it("is not offered on a package that does not hand out accounts", async () => {
+    it("offers the switch on a package that does not hand out accounts, off, with its stepper", async () => {
       await openEdit(/Claude Pro 1 tháng/);
 
       expect(
-        screen.queryByRole("switch", { name: "Giao tài khoản tự động" }),
-      ).not.toBeInTheDocument();
+        screen.getByRole("switch", { name: "Giao tài khoản tự động" }),
+      ).not.toBeChecked();
       expect(
         screen.queryByLabelText(/Nạp thêm tài khoản/),
       ).not.toBeInTheDocument();
       expect(screen.getByText("Thêm hoặc bớt tồn kho")).toBeInTheDocument();
+    });
+
+    it("sits in one row with the switches for selling and for hot, in that order", async () => {
+      await openEdit(/Claude Pro 1 tháng/);
+
+      expect(
+        screen.getAllByRole("switch").map((control) => control.id),
+      ).toEqual(["stock-listed", "stock-hot", "stock-delivers"]);
+      expect(
+        screen.getByRole("switch", { name: "Đang bán" }).closest("div")
+          ?.parentElement,
+      ).toBe(
+        screen
+          .getByRole("switch", { name: "Giao tài khoản tự động" })
+          .closest("div")?.parentElement,
+      );
+    });
+
+    it("turns an ordinary package into one that hands out accounts, and says what happens to its count", async () => {
+      const update = vi.spyOn(fakeStockService, "update");
+      const changeStock = vi.spyOn(fakeStockService, "changeStock");
+      const accounts = vi.spyOn(fakeStockService, "accounts");
+      const user = await openEdit(/Claude Pro 1 tháng/);
+
+      await user.click(
+        screen.getByRole("switch", { name: "Giao tài khoản tự động" }),
+      );
+
+      // The stepper gives way to the box for accounts, and the hand-set count is
+      // said to go.
+      expect(
+        screen.queryByText("Thêm hoặc bớt tồn kho"),
+      ).not.toBeInTheDocument();
+      expect(screen.getByLabelText("Nạp tài khoản (tùy chọn)")).toHaveValue("");
+      expect(
+        screen.getByText(/Gói đang có 12 gõ tay, con số này sẽ mất/),
+      ).toBeInTheDocument();
+      // It holds no accounts yet, so there is no list to ask for.
+      expect(accounts).not.toHaveBeenCalled();
+
+      await user.click(screen.getByRole("button", { name: "Lưu" }));
+
+      await waitFor(() =>
+        expect(row(/Claude Pro 1 tháng/)).toHaveTextContent("Giao tự động"),
+      );
+      expect(update).toHaveBeenCalledWith("claude-pro-1-thang", {
+        ...claudePro,
+        delivers_accounts: true,
+      });
+      // The server sets the count; none is moved by hand. It holds no account yet,
+      // so it is sold out until some are loaded.
+      expect(changeStock).not.toHaveBeenCalled();
+      expect(row(/Claude Pro 1 tháng/)).toHaveTextContent("Hết hàng");
+    });
+
+    it("loads the accounts typed in straight after the package is made to hand them out", async () => {
+      const update = vi.spyOn(fakeStockService, "update");
+      const load = vi.spyOn(fakeStockService, "loadAccounts");
+      const user = await openEdit(/Claude Pro 1 tháng/);
+
+      await user.click(
+        screen.getByRole("switch", { name: "Giao tài khoản tự động" }),
+      );
+      await user.click(screen.getByLabelText("Nạp tài khoản (tùy chọn)"));
+      await user.paste("one@example.test|first\ntwo@example.test|second");
+      await user.click(screen.getByRole("button", { name: "Lưu" }));
+
+      await waitFor(() =>
+        expect(load).toHaveBeenCalledWith(
+          "claude-pro-1-thang",
+          "one@example.test|first\ntwo@example.test|second",
+        ),
+      );
+      expect(update.mock.invocationCallOrder[0]).toBeLessThan(
+        load.mock.invocationCallOrder[0],
+      );
+      await waitFor(() =>
+        expect(toast.success).toHaveBeenCalledWith(
+          "Đã lưu Claude Pro 1 tháng",
+          { description: "Trong kho còn 2 tài khoản." },
+        ),
+      );
+    });
+
+    it("lets a package with no account left go back to a count of its own", async () => {
+      await fakeStockService.create({
+        delivers_accounts: true,
+        hot: false,
+        image_url: "",
+        listed: true,
+        plan: "Empty Pack",
+        price_vnd: 50_000,
+        provider: "Claude",
+        stock: 0,
+        variant: null,
+        warranty: "NW",
+        warranty_note: null,
+      });
+
+      const slug = slugify("Claude", "Empty Pack", null);
+      const update = vi.spyOn(fakeStockService, "update");
+      const changeStock = vi.spyOn(fakeStockService, "changeStock");
+      const user = await openEdit(/Empty Pack/);
+      const delivers = screen.getByRole("switch", {
+        name: "Giao tài khoản tự động",
+      });
+
+      expect(delivers).toBeChecked();
+      expect(delivers).toBeEnabled();
+
+      await user.click(delivers);
+
+      expect(
+        screen.getByText(/Gói sẽ về tồn kho gõ tay, bắt đầu từ 0/),
+      ).toBeInTheDocument();
+      await setAdjust(user, "Thêm hoặc bớt tồn kho", "7");
+      await user.click(screen.getByRole("button", { name: "Lưu" }));
+
+      await waitFor(() => expect(row(/Empty Pack/)).toHaveTextContent("Còn 7"));
+      expect(update).toHaveBeenCalledWith(
+        slug,
+        expect.objectContaining({ delivers_accounts: false }),
+      );
+      expect(changeStock).toHaveBeenCalledWith(slug, 7);
+      expect(row(/Empty Pack/)).not.toHaveTextContent("Giao tự động");
+    });
+
+    it("keeps the form open with the server's words when it will not turn the package", async () => {
+      vi.spyOn(fakeStockService, "update").mockRejectedValueOnce(
+        new ServiceError(
+          "Buyers have orders open for this package. Try again once they have paid or run out.",
+          422,
+          "validation_error",
+        ),
+      );
+      const user = await openEdit(/Claude Pro 1 tháng/);
+
+      await user.click(
+        screen.getByRole("switch", { name: "Giao tài khoản tự động" }),
+      );
+      await user.click(screen.getByRole("button", { name: "Lưu" }));
+
+      await waitFor(() =>
+        expect(toast.error).toHaveBeenCalledWith("Không lưu được", {
+          description:
+            "Buyers have orders open for this package. Try again once they have paid or run out.",
+        }),
+      );
+      // Still open, with the switch as it was set, to be fixed or given up.
+      expect(
+        screen.getByRole("switch", { name: "Giao tài khoản tự động" }),
+      ).toBeChecked();
     });
   });
 

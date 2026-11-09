@@ -590,6 +590,25 @@ pub(crate) fn default_warranty_note_vi(warranty: &str) -> &'static str {
     }
 }
 
+/// Whether buyers have orders open for a package: awaiting payment and not yet
+/// run out. They hold stock, and what they will be handed is decided when they
+/// pay, so a package is not removed or changed to hand out accounts meanwhile.
+pub(crate) async fn has_open_orders(
+    database: &mut sqlx::PgConnection,
+    slug: &str,
+) -> Result<bool, ApiError> {
+    sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (
+             SELECT 1 FROM telegram_orders
+             WHERE item_id = $1 AND status = 'awaiting_payment' AND expires_at > NOW()
+         )",
+    )
+    .bind(slug)
+    .fetch_one(database)
+    .await
+    .map_err(database_error)
+}
+
 /// Why a hand-set count was not applied: the package is not there, or it counts
 /// its own accounts and the count follows them.
 pub(crate) async fn refusal_to_count_by_hand(
