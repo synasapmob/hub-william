@@ -53,6 +53,10 @@ export default function StockRow({ item, onEdit }: StockRowProps) {
           )}
 
           {!item.listed && <Badge variant="outline">Đang ẩn</Badge>}
+
+          {item.delivers_accounts && (
+            <Badge variant="secondary">Giao tự động</Badge>
+          )}
         </Flex>
 
         <p className="text-xs text-muted-foreground">

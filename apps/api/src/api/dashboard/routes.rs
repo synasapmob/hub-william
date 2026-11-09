@@ -1,11 +1,15 @@
 use axum::{
     Router,
     extract::DefaultBodyLimit,
-    routing::{get, post, put},
+    middleware::from_fn_with_state,
+    routing::{delete, get, post, put},
 };
 use utoipa::OpenApi;
 
-use crate::core::AppState;
+use crate::{
+    api::limits::{Limit, UserLimit, limit_by_user},
+    core::AppState,
+};
 
 use super::{
     dashboard_session,
@@ -19,10 +23,14 @@ use super::{
     },
     service_prices::{list_service_models, save_service_model},
     staff::{add_staff, change_role, list_staff, remove_staff},
-    stock::{change_stock, create_product, delete_product, list_products, update_product},
+    stock::{
+        add_accounts, change_stock, create_product, delete_account, delete_product, edit_accounts,
+        list_accounts, list_products, reveal_accounts, search_accounts, update_account,
+        update_product,
+    },
 };
 
-pub(crate) fn routes(_state: &AppState) -> Router<AppState> {
+pub(crate) fn routes(state: &AppState) -> Router<AppState> {
     Router::new()
         .route("/dashboard/session", get(dashboard_session))
         .route(
@@ -36,6 +44,22 @@ pub(crate) fn routes(_state: &AppState) -> Router<AppState> {
         .route(
             "/dashboard/telegram/products/{slug}/stock",
             post(change_stock),
+        )
+        .route(
+            "/dashboard/telegram/products/{slug}/accounts",
+            get(list_accounts).post(add_accounts).put(edit_accounts),
+        )
+        .route("/dashboard/telegram/accounts", get(search_accounts))
+        .route(
+            "/dashboard/telegram/accounts/{id}",
+            delete(delete_account).put(update_account),
+        )
+        .route(
+            "/dashboard/telegram/accounts/reveal",
+            post(reveal_accounts).layer(from_fn_with_state(
+                UserLimit::new(state, Limit::SecretReveal),
+                limit_by_user,
+            )),
         )
         // The picture is the one body here that is more than a few lines of JSON.
         .route(
@@ -84,6 +108,13 @@ pub(crate) fn routes(_state: &AppState) -> Router<AppState> {
         super::stock::create_product,
         super::stock::update_product,
         super::stock::change_stock,
+        super::stock::add_accounts,
+        super::stock::edit_accounts,
+        super::stock::list_accounts,
+        super::stock::search_accounts,
+        super::stock::delete_account,
+        super::stock::reveal_accounts,
+        super::stock::update_account,
         super::stock::delete_product,
         super::images::upload_image,
         super::images::get_image,
@@ -140,9 +171,23 @@ pub(crate) fn routes(_state: &AppState) -> Router<AppState> {
         super::staff::ChangeRole,
         super::staff::StaffList,
         super::staff::StaffMember,
+        super::stock::AccountList,
+        super::stock::AccountUpdated,
+        super::stock::AccountRemoved,
+        super::stock::AccountsLoaded,
         super::stock::CreateProduct,
         super::stock::DashboardProduct,
         super::stock::DashboardProducts,
+        super::stock::LoadAccounts,
+        super::stock::AccountsEdited,
+        super::stock::EditAccounts,
+        super::stock::RevealAccounts,
+        super::stock::RevealedAccount,
+        super::stock::RevealedAccounts,
+        super::stock::UpdateAccount,
+        crate::api::telegram::accounts::AccountCounts,
+        crate::api::telegram::accounts::AccountPage,
+        crate::api::telegram::accounts::StockAccount,
         super::stock::StockChange,
         super::stock::UpdateProduct
     )),

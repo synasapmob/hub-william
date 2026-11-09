@@ -31,6 +31,7 @@ const API_PRODUCT = {
   variant: null,
   warranty: "WF",
   warranty_note: null,
+  delivers_accounts: false,
 };
 
 const PRODUCT: TelegramProduct = {
@@ -47,6 +48,7 @@ const PRODUCT: TelegramProduct = {
   variant: null,
   warranty: "WF",
   warranty_note: null,
+  delivers_accounts: false,
 };
 
 const INPUT: StockInput = {
@@ -181,7 +183,13 @@ describe("stockService.create", () => {
   it("sends the fields, the first count and the picture's id", async () => {
     const spy = answer(json(201, API_PRODUCT));
 
-    expect(await stockService.create({ ...INPUT, stock: 12 })).toEqual(PRODUCT);
+    expect(
+      await stockService.create({
+        ...INPUT,
+        delivers_accounts: false,
+        stock: 12,
+      }),
+    ).toEqual(PRODUCT);
 
     const request = await sent(spy);
 
@@ -201,6 +209,7 @@ describe("stockService.create", () => {
       warranty: "WF",
       // No note of the shop's own asks the server for the standard one.
       warranty_note: "",
+      delivers_accounts: false,
     });
   });
 
@@ -209,6 +218,7 @@ describe("stockService.create", () => {
 
     await stockService.create({
       ...INPUT,
+      delivers_accounts: false,
       stock: 1,
       warranty_note: "Không bảo hành đổi trả",
     });
@@ -223,6 +233,7 @@ describe("stockService.create", () => {
 
     await stockService.create({
       ...INPUT,
+      delivers_accounts: false,
       image_url: "blob:somewhere",
       stock: 1,
     });
@@ -239,12 +250,314 @@ describe("stockService.create", () => {
     );
 
     await expect(
-      stockService.create({ ...INPUT, stock: 1 }),
+      stockService.create({ ...INPUT, delivers_accounts: false, stock: 1 }),
     ).rejects.toMatchObject({
       code: "already_exists",
       message: "That product already exists.",
       status: 409,
     });
+  });
+});
+
+describe("stockService.loadAccounts", () => {
+  it("posts the block to the package and answers the counts, nothing else", async () => {
+    const spy = answer(json(200, { added: 2, available: 5, duplicates: 1 }));
+
+    const loaded = await stockService.loadAccounts(
+      "claude-pro-1-thang",
+      "one@example.test|first\ntwo@example.test|second",
+    );
+
+    const request = await sent(spy);
+
+    expect(request).toMatchObject({
+      credentials: "include",
+      method: "POST",
+      path: "/dashboard/telegram/products/claude-pro-1-thang/accounts",
+    });
+    expect(JSON.parse(request.body as string)).toEqual({
+      accounts: "one@example.test|first\ntwo@example.test|second",
+    });
+    expect(loaded).toEqual({ added: 2, available: 5, duplicates: 1 });
+  });
+
+  it("raises the API's own words when it refuses", async () => {
+    answer(
+      json(422, {
+        code: "validation_error",
+        message: "That package does not hand out accounts.",
+      }),
+    );
+
+    await expect(
+      stockService.loadAccounts("claude-pro-1-thang", "a@example.test|x"),
+    ).rejects.toMatchObject({
+      code: "validation_error",
+      message: "That package does not hand out accounts.",
+      status: 422,
+    });
+  });
+});
+
+describe("stockService.accounts", () => {
+  it("lists the accounts of a package, hidden as the API hides them", async () => {
+    const spy = answer(
+      json(200, {
+        accounts: [
+          {
+            email_hint: "s***@example.test",
+            id: "account-1",
+            loaded_at: "2026-11-08T09:00:00Z",
+            loaded_by: "minhanh",
+            order_reference: null,
+            sold_at: null,
+          },
+        ],
+      }),
+    );
+
+    const accounts = await stockService.accounts("claude-pro-1-thang");
+
+    expect(await sent(spy)).toMatchObject({
+      credentials: "include",
+      method: "GET",
+      path: "/dashboard/telegram/products/claude-pro-1-thang/accounts",
+    });
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0].email_hint).toBe("s***@example.test");
+  });
+
+  it("is keyed under the stock, so a change to the stock refreshes it", () => {
+    expect(stockService.accountsKey("claude-pro-1-thang")).toEqual([
+      ...stockService.queryKey,
+      "accounts",
+      "claude-pro-1-thang",
+    ]);
+  });
+});
+
+describe("stockService.searchAccounts", () => {
+  const PAGE = {
+    accounts: [],
+    counts: { all: 3, sold: 1, unsold: 2 },
+    total: 1,
+  };
+
+  it("asks for a page of accounts with the filters it was given", async () => {
+    const spy = answer(json(200, PAGE));
+
+    const page = await stockService.searchAccounts({
+      page: 2,
+      product: "claude-pro-1-thang",
+      query: "  abc123  ",
+      status: "sold",
+    });
+
+    const request = await sent(spy);
+    const [first] = spy.mock.calls[0] as [Request | string];
+    const url = new URL(first instanceof Request ? first.url : first);
+
+    expect(request).toMatchObject({ credentials: "include", method: "GET" });
+    expect(request.path).toBe("/dashboard/telegram/accounts");
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      page: "2",
+      page_size: "20",
+      product: "claude-pro-1-thang",
+      q: "abc123",
+      status: "sold",
+    });
+    expect(page).toEqual(PAGE);
+  });
+
+  it("leaves a filter out when it is not set", async () => {
+    const spy = answer(json(200, PAGE));
+
+    await stockService.searchAccounts({
+      page: 1,
+      product: null,
+      query: "   ",
+      status: "all",
+    });
+
+    const [first] = spy.mock.calls[0] as [Request | string];
+    const url = new URL(first instanceof Request ? first.url : first);
+
+    expect(url.searchParams.get("page")).toBe("1");
+    expect(url.searchParams.get("page_size")).toBe("20");
+    expect(url.searchParams.has("product")).toBe(false);
+    expect(url.searchParams.has("q")).toBe(false);
+    expect(url.searchParams.has("status")).toBe(false);
+  });
+});
+
+describe("stockService.removeAccount", () => {
+  it("deletes the account and answers the count now", async () => {
+    const spy = answer(json(200, { available: 3 }));
+
+    expect(await stockService.removeAccount("account-1")).toBe(3);
+    expect(await sent(spy)).toMatchObject({
+      method: "DELETE",
+      path: "/dashboard/telegram/accounts/account-1",
+    });
+  });
+});
+
+describe("stockService.revealAccounts", () => {
+  it("sends the password with the accounts wanted and answers their lines in order", async () => {
+    const spy = answer(
+      json(200, {
+        accounts: [
+          { account: "two@example.test|b", id: "account-2" },
+          { account: "one@example.test|a", id: "account-1" },
+        ],
+      }),
+    );
+
+    expect(
+      await stockService.revealAccounts(
+        ["account-2", "account-1"],
+        "my-password",
+      ),
+    ).toEqual([
+      { account: "two@example.test|b", id: "account-2" },
+      { account: "one@example.test|a", id: "account-1" },
+    ]);
+
+    const request = await sent(spy);
+
+    expect(request).toMatchObject({
+      credentials: "include",
+      method: "POST",
+      path: "/dashboard/telegram/accounts/reveal",
+    });
+    expect(JSON.parse(request.body as string)).toEqual({
+      ids: ["account-2", "account-1"],
+      password: "my-password",
+    });
+  });
+
+  it("raises the API's refusal with its status, so the page can say what it means", async () => {
+    answer(
+      json(422, {
+        code: "validation_error",
+        message: "That password is not right.",
+      }),
+    );
+
+    await expect(
+      stockService.revealAccounts(["account-1"], "wrong"),
+    ).rejects.toMatchObject({ code: "validation_error", status: 422 });
+  });
+});
+
+describe("stockService.editAccounts", () => {
+  it("sends the block with the accounts it was made from, and whether it is only a check", async () => {
+    const spy = answer(
+      json(200, {
+        added: 1,
+        available: 4,
+        changed: 2,
+        duplicates: 0,
+        removed: 3,
+      }),
+    );
+
+    expect(
+      await stockService.editAccounts("claude-pro-1-thang", {
+        accounts: "one@example.test|a\ntwo@example.test|b",
+        dryRun: true,
+        ids: ["account-1", "account-2"],
+      }),
+    ).toEqual({
+      added: 1,
+      available: 4,
+      changed: 2,
+      duplicates: 0,
+      removed: 3,
+    });
+
+    const request = await sent(spy);
+
+    expect(request).toMatchObject({
+      credentials: "include",
+      method: "PUT",
+      path: "/dashboard/telegram/products/claude-pro-1-thang/accounts",
+    });
+    expect(JSON.parse(request.body as string)).toEqual({
+      accounts: "one@example.test|a\ntwo@example.test|b",
+      dry_run: true,
+      ids: ["account-1", "account-2"],
+    });
+  });
+
+  it("raises the API's refusal, so the page can say what it means", async () => {
+    answer(
+      json(422, {
+        code: "validation_error",
+        message:
+          "Some of these accounts were sold or removed while you were editing.",
+      }),
+    );
+
+    await expect(
+      stockService.editAccounts("claude-pro-1-thang", {
+        accounts: "",
+        dryRun: false,
+        ids: ["account-1"],
+      }),
+    ).rejects.toMatchObject({ code: "validation_error", status: 422 });
+  });
+});
+
+describe("stockService.updateAccount", () => {
+  it("sends only what changes and answers the email as a list shows it", async () => {
+    const spy = answer(json(200, { email_hint: "n***@example.test" }));
+
+    expect(
+      await stockService.updateAccount("account-1", { password: "new-pass" }),
+    ).toBe("n***@example.test");
+
+    const request = await sent(spy);
+
+    expect(request).toMatchObject({
+      credentials: "include",
+      method: "PUT",
+      path: "/dashboard/telegram/accounts/account-1",
+    });
+    expect(JSON.parse(request.body as string)).toEqual({
+      password: "new-pass",
+    });
+  });
+
+  it("raises the API's refusal, so the page can say what it means", async () => {
+    answer(
+      json(422, {
+        code: "validation_error",
+        message: "That account is already in stock for this package.",
+      }),
+    );
+
+    await expect(
+      stockService.updateAccount("account-1", { email: "other@example.test" }),
+    ).rejects.toMatchObject({ code: "validation_error", status: 422 });
+  });
+});
+
+describe("stockService.create, for a package that hands out accounts", () => {
+  it("says so, with none in stock", async () => {
+    const spy = answer(json(201, { ...API_PRODUCT, delivers_accounts: true }));
+
+    const created = await stockService.create({
+      ...INPUT,
+      delivers_accounts: true,
+      stock: 0,
+    });
+
+    expect(JSON.parse((await sent(spy)).body as string)).toMatchObject({
+      available: 0,
+      delivers_accounts: true,
+    });
+    expect(created.delivers_accounts).toBe(true);
   });
 });
 

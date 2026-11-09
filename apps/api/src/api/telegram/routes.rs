@@ -11,7 +11,7 @@ use super::{
         adjust_product, catalogue, create_product, full_catalogue, get_product, restock_product,
     },
     create_order, get_contact, get_order, list_audience, list_orders, observe_contact,
-    record_sepay_payment, set_contact_language,
+    order_delivery, record_sepay_payment, set_contact_language,
 };
 
 /// Internal endpoints for the Telegram adapter. They are not part of the
@@ -38,6 +38,10 @@ pub(crate) fn routes() -> Router<AppState> {
         .route(
             "/internal/telegram/contacts/{telegram_user_id}/orders/{reference}/cancel",
             post(cancel_order),
+        )
+        .route(
+            "/internal/telegram/contacts/{telegram_user_id}/orders/{reference}/delivery",
+            get(order_delivery),
         )
         .route(
             "/internal/telegram/payments/sepay",

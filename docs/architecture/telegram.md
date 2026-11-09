@@ -88,6 +88,26 @@ Tables (`apps/api/migrations/…_create_telegram_*.sql`): `telegram_contacts`, `
 - A restock updates `available` and inserts a `telegram_restocks` row (`added`, `available_after`) in one transaction.
 - `GET /internal/telegram/catalogue` returns listed providers with listed products only (a provider with nothing listed is omitted); `…/catalogue/full` returns everything.
 
+## Accounts handed out automatically
+
+A package made with `delivers_accounts` hands the buyer an account when they have paid. The accounts are loaded in advance from the dashboard, one `email|password` line each, into `telegram_stock_accounts`.
+
+- **Encrypted at rest.** Each line is sealed with AES-256-GCM under `STOCK_ENCRYPTION_KEY`, which lives in the API's environment and nowhere else: not in the database, not in the repository, not in the bot. The nonce is random per line and the row's id is the associated data, so a ciphertext copied onto another row does not open. A copy of the database alone shows no account.
+- **One line is one account.** Two accounts may share an email and differ in their password: each line is a unit of stock and is handed to one buyer. Only the very same line twice (the email in any case, the password exactly) is a repeat, because it would hand one account to two buyers; a keyed hash (HMAC-SHA-256 under a key derived from the encryption key) is unique per package for that, so a repeat is noticed without keeping the line readable, and a repeated line is counted as a duplicate and left out. A second hash of the email alone only serves the search for an email in full.
+- **The count follows the accounts.** The package's count is recounted from the accounts not yet sold on every load, never added to. The dashboard's stock change, the bot owner's restock and the form's stock stepper all refuse such a package.
+- **Nothing returns an account.** Loading answers counts only, listings carry no account, a refused line is never quoted back, and the request type is not `Debug` so it cannot be logged by accident.
+- **Who loaded what, and changing it.** Each account records who loaded it. A collaborator (role `stock-keeper`) sees only the accounts they loaded and can delete or change only those; an owner or manager can delete or change any. An unsold account can be taken out, or given a new email and/or password without being opened (`PUT /dashboard/telegram/accounts/{id}`: the server opens it, changes it and seals it again, so the caller never needs the old password; a change that would make it exactly the same line as another account of the package is refused). A sold account can be neither, because it already belongs to a buyer.
+- **Opening and editing as a block (owner only).** The owner proves who they are with their password once and opens any number of accounts at a time (`POST /dashboard/telegram/accounts/reveal`; each account opened is recorded). They are shown as one `email|password` line each, to read and edit as text, and saved with `PUT /dashboard/telegram/products/{slug}/accounts`, which says first (`dry_run`) what it would do: a line left as it was is untouched; a line changed is rewritten in place (paired with the new line of the same email, else the next new line, so a changed password keeps the account, its id, its loader and its date); a line deleted takes the account out of stock; a line added is put in. Accounts the block never opened are not touched, so a collaborator's load made meanwhile survives. If any account opened was sold or removed since, the whole edit is refused, since the block no longer describes the package. The count moves by what was taken out and put in, and the change is recorded. The page drops the opened accounts after five minutes without a keystroke.
+- **Seeing and managing all of them.** The dashboard's Accounts page lists every account of every such package, sold or not, with filters, counts and a search; the email is hidden in the list and a search for it needs the whole address. It is also where accounts are added, opened and edited, and deleted, so the package form is not the only way in. See `GET /dashboard/telegram/accounts`.
+- **Looking at a password is the owner's alone.** Only the `secrets` permission, which only the owner holds, opens an account in the clear, one at a time. It needs the owner's login password, is limited to five tries a minute, is recorded (who, which account, when) before the account is returned, and is sent with `no-store`. The page hides it again after 30 seconds. The login has no second factor, so this is as strong as the owner's password; the record is for noticing afterwards, not for preventing.
+- **The flag is fixed at creation.** Flipping it on a package with a hand-set count would leave the count and the accounts disagreeing.
+- **Handed out when the order is paid.** In the same transaction that marks the order paid (SePay or by hand from the dashboard), the oldest unsold accounts are given to it, `quantity` of them, with `FOR UPDATE SKIP LOCKED`: an account another sale is taking at that moment is skipped, so two sales at once never take the same account and neither waits for the other. The count is lowered by what was actually taken. A retried SePay transaction is a duplicate and hands out nothing a second time.
+- **An order can be paid and find none left.** Two buyers can both be let through for the last account (the stock check when an order is made is not atomic, and the order is made before anyone pays). Both orders stay paid. The first to settle gets the account; the other gets what is left, possibly nothing, and its message says how many are missing and tells the buyer to write to the owner (`TELEGRAM_USERNAME_OWNER`) with the order's reference. Refunding or finding another account is then between the two of them; the system does nothing more.
+- **A package with no accounts loaded is handed over by the owner.** A package that does not hand out accounts (its count is set by hand) has nothing to put in the buyer's message, so the paid message tells the buyer to write to the owner with the order's reference, and the owner gives them the account. The owner is not told of the payment; the buyer's message starts it. The same sentence is what a buyer reads if the API could not say what was handed out.
+- **Who is turned away, and when.** An open order reserves its quantity, so once the last unit is in someone's order the next buyers are told it is sold out before they pay, and get the unit back if that order expires. The "write to the owner" message after paying is for what gets past that: orders made in the same moment, or stock taken out while an order was open. The stock check when an order is made is not atomic with making it. Money sent for an order that has already expired is stored for the owner to reconcile and settles nothing. If the note names that order, SePay's result carries it as `late` (with the amount) and the bot tells the buyer the money arrived, the order did not complete, and to write to the owner with the order's reference; only a transfer that came after the order ran out counts, so a transfer that is short or for an order stopped by the buyer is not announced, and a transfer SePay sends twice is announced once.
+- **How the buyer gets them.** After a payment the adapter asks `GET /internal/telegram/contacts/{id}/orders/{reference}/delivery`. The API opens the accounts and answers `{accounts, missing}` to the contact whose order it is, only once it is paid, and the same on every ask. The paid message carries them, numbered when there are several. The check-payment button asks again, so a buyer whose message did not arrive gets them back from the payment panel. If the API cannot be asked, the paid message goes out without accounts rather than not at all. Nothing in the adapter or the API logs an account, and the types that hold one are not `Debug`.
+- **Ten at a time.** A package that hands out accounts sells at most 10 in one order (the API refuses more; the bot shows the lower maximum), so an order's accounts, at most 300 characters each, always fit in the one Telegram message that carries them.
+
 ## Orders and checkout
 
 1. The buyer taps a package and sends a quantity. The adapter calls `POST /internal/telegram/contacts/{id}/orders` with the product slug, quantity, chat id and `lifetime_minutes = 5`.
@@ -104,9 +124,9 @@ Order `status` is `awaiting_payment`, `paid` or `cancelled` (a database `CHECK`)
 1. SePay posts each bank transaction to `POST /sepay`. The adapter authenticates it and forwards the JSON to `POST /internal/telegram/payments/sepay`.
 2. In one database transaction the API inserts the payment into `telegram_payments`, keyed by `sepay_transaction_id` (`ON CONFLICT DO NOTHING`). A repeated transaction id returns `duplicate: true` and nothing else happens, so a retry is neither re-recorded nor re-notified.
 3. Only `transferType = in` can settle. The API builds a search string from SePay's `code` plus `content`, keeps ASCII letters and digits and upper-cases them (banks rewrite case, spacing and punctuation), then selects the oldest order where `status = 'awaiting_payment'`, the string contains the order `reference`, and `total_vnd <= transferAmount`. `FOR UPDATE SKIP LOCKED` prevents two simultaneous transfers from settling one order. The match also needs `expires_at` to be later than the time the bank made the transfer (SePay's `transactionDate`, read as Vietnamese local time, or the moment the webhook arrives when it is missing). A transfer made in time still settles when its webhook is a little late; a later one is stored unmatched, like any other transfer that matches nothing. The order becomes `paid`, `paid_at = NOW()`, and the payment row is linked to it.
-4. In the same transaction the product's `available` drops by the order quantity (`GREATEST(available − quantity, 0)`, guarding against the owner having lowered the count meanwhile).
-5. A transfer that matches nothing is stored for a human to reconcile.
-6. The adapter then sends the buyer a `sendMessage` (in the contact's saved language, read without touching `last_seen_at`). A failed notification is logged and does not fail the webhook, because a SePay retry would be deduplicated and the buyer would never hear. `Kiểm tra thanh toán` reads the same order, so it reports the real status.
+4. In the same transaction the product's `available` drops by the order quantity (`GREATEST(available − quantity, 0)`, guarding against the owner having lowered the count meanwhile). For a package that hands out accounts the accounts are handed to the order here and `available` drops by the number actually given (see above).
+5. A transfer that matches nothing is stored for a human to reconcile. When it names an order that had already run out before the money moved (`expires_at` at or before the transfer's time), nothing is settled either, but the result carries `late: {amount_vnd, order}` so the adapter can tell that buyer.
+6. The adapter then sends the buyer a `sendMessage` (for `late`, the message that the money arrived but the order did not complete) (in the contact's saved language, read without touching `last_seen_at`). A failed notification is logged and does not fail the webhook, because a SePay retry would be deduplicated and the buyer would never hear. `Kiểm tra thanh toán` reads the same order, so it reports the real status.
 
 SePay timestamps (`transactionDate`, `%Y-%m-%d %H:%M:%S`) are read as UTC+7.
 
@@ -124,21 +144,22 @@ All routes live in `apps/api/src/api/telegram/routes.rs`, are not in the publish
 
 Each handler calls `authorize_telegram_service`: the `x-hub-william-telegram-token` request header must equal `TELEGRAM_SERVICE_TOKEN` (constant-time comparison). When `TELEGRAM_SERVICE_TOKEN` is unset or blank every route returns `403`, so the API fails closed. The adapter has the same variable and sends its value.
 
-| Method and path                                                   | Purpose                                       |
-| ----------------------------------------------------------------- | --------------------------------------------- |
-| `POST /internal/telegram/contacts`                                | Upsert contact, return `preferred_language`   |
-| `GET /internal/telegram/contacts/{id}`                            | Read language without touching `last_seen_at` |
-| `PUT /internal/telegram/contacts/{id}/language`                   | Set language (`en` or `vi`)                   |
-| `GET`, `POST /internal/telegram/contacts/{id}/orders`             | List the latest 10 orders; create an order    |
-| `GET /internal/telegram/contacts/{id}/orders/{reference}`         | Read one order (scoped to that contact)       |
-| `POST /internal/telegram/contacts/{id}/orders/{reference}/cancel` | Cancel an `awaiting_payment` order            |
-| `POST /internal/telegram/payments/sepay`                          | Record and settle a SePay transaction         |
-| `GET /internal/telegram/audience`                                 | Chats that have not blocked the bot           |
-| `POST /internal/telegram/audience/{chat_id}/block`                | Mark a chat blocked                           |
-| `GET /internal/telegram/catalogue`, `…/catalogue/full`            | Buyer view; owner view                        |
-| `POST /internal/telegram/products`                                | Create a product                              |
-| `GET`, `PATCH /internal/telegram/products/{slug}`                 | Read; change `hot`, `listed`, `price_vnd`     |
-| `POST /internal/telegram/products/{slug}/restock`                 | Add stock                                     |
+| Method and path                                                    | Purpose                                                  |
+| ------------------------------------------------------------------ | -------------------------------------------------------- |
+| `POST /internal/telegram/contacts`                                 | Upsert contact, return `preferred_language`              |
+| `GET /internal/telegram/contacts/{id}`                             | Read language without touching `last_seen_at`            |
+| `PUT /internal/telegram/contacts/{id}/language`                    | Set language (`en` or `vi`)                              |
+| `GET`, `POST /internal/telegram/contacts/{id}/orders`              | List the latest 10 orders; create an order               |
+| `GET /internal/telegram/contacts/{id}/orders/{reference}`          | Read one order (scoped to that contact)                  |
+| `POST /internal/telegram/contacts/{id}/orders/{reference}/cancel`  | Cancel an `awaiting_payment` order                       |
+| `GET /internal/telegram/contacts/{id}/orders/{reference}/delivery` | The accounts a paid order was handed, for its buyer only |
+| `POST /internal/telegram/payments/sepay`                           | Record and settle a SePay transaction                    |
+| `GET /internal/telegram/audience`                                  | Chats that have not blocked the bot                      |
+| `POST /internal/telegram/audience/{chat_id}/block`                 | Mark a chat blocked                                      |
+| `GET /internal/telegram/catalogue`, `…/catalogue/full`             | Buyer view; owner view                                   |
+| `POST /internal/telegram/products`                                 | Create a product                                         |
+| `GET`, `PATCH /internal/telegram/products/{slug}`                  | Read; change `hot`, `listed`, `price_vnd`                |
+| `POST /internal/telegram/products/{slug}/restock`                  | Add stock                                                |
 
 ## Configuration
 
@@ -163,7 +184,7 @@ With a method unconfigured, its button tells the buyer the method is not configu
 
 ## Not implemented
 
-- **Fulfilment.** `paid` is terminal. Nothing delivers the product; the owner does that by hand after the buyer is notified.
+- **Fulfilment.** `paid` is terminal. Nothing delivers the product; the owner does that by hand after the buyer is notified. Packages that hand out accounts are the exception: their accounts are delivered automatically (see above).
 - **Automatic USDT settlement.** USDT orders are reconciled by hand.
 - **Order expiry as a status.** Expiry releases the stock reservation and stops a transfer from settling the order, but the row stays `awaiting_payment`; nothing marks it `cancelled`, so the dashboard's awaiting queue still lists it.
 - **Linking to browser accounts.** `/start` creates or updates a Telegram contact; it does not create, link or authenticate a Hub William browser account.

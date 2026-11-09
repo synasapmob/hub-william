@@ -30,6 +30,7 @@ import {
   warrantyLabels,
 } from "@/services/sales/sales-labels";
 import type { TelegramProduct, Warranty } from "@/services/sales/sales-types";
+import { checkAccountLines } from "@/utils/utils.account-lines";
 import { stockItemTitle } from "@/utils/utils.format";
 import slugify from "@/utils/utils.slug";
 
@@ -38,6 +39,7 @@ import {
   composePackageName,
   parsePackageName,
 } from "./package-name";
+import StockAccounts from "./stock-accounts";
 import StockAdjuster from "./stock-adjuster";
 
 // Limits `apps/api` enforces on a product.
@@ -65,6 +67,10 @@ interface Draft {
   listed: boolean;
   /** What the bot sends to Telegram on save; nothing when empty. */
   message: string;
+  /** Hands the buyer an account when they have paid; fixed once it is made. */
+  deliversAccounts: boolean;
+  /** Accounts to load on save, one `email|mật khẩu` per line. Never kept anywhere else. */
+  accounts: string;
 }
 
 function draftOf(item: TelegramProduct | null, provider: string): Draft {
@@ -78,6 +84,8 @@ function draftOf(item: TelegramProduct | null, provider: string): Draft {
     hot: item?.hot ?? false,
     listed: item?.listed ?? true,
     message: "",
+    deliversAccounts: item?.delivers_accounts ?? false,
+    accounts: "",
   };
 }
 
@@ -109,8 +117,14 @@ interface StockFormDialogProps {
   takenSlugs: string[];
   onClose: () => void;
   onDelete: () => void;
-  /** `message` is what the bot sends to Telegram on save; empty sends nothing. */
-  onSave: (item: TelegramProduct, change: { message: string }) => Promise<void>;
+  /**
+   * `message` is what the bot sends to Telegram on save; empty sends nothing.
+   * `accounts` is what is loaded into stock on save; empty loads nothing.
+   */
+  onSave: (
+    item: TelegramProduct,
+    change: { accounts: string; message: string },
+  ) => Promise<void>;
 }
 
 /** One form to add a package and to edit it: an edit opens already filled in. */
@@ -137,7 +151,13 @@ export default function StockFormDialog({
   const slug = item ? item.slug : slugify(draft.provider, plan, variant);
   const adjust = Number(draft.adjust);
   const price = Number(draft.price);
-  const onHand = (item?.on_hand ?? 0) + adjust;
+  // A package that hands out accounts counts the accounts loaded, so the stepper
+  // does not apply to it.
+  const delivers = draft.deliversAccounts;
+  const onHand = delivers
+    ? (item?.on_hand ?? 0)
+    : (item?.on_hand ?? 0) + adjust;
+  const accounts = checkAccountLines(draft.accounts);
   const message = draft.message.trim();
   const messageValid = message.length <= MAX_MESSAGE;
   const warrantyNote = draft.warrantyNote.trim();
@@ -167,10 +187,12 @@ export default function StockFormDialog({
     price >= 0 &&
     price <= MAX_PRICE_VND;
   const stockValid =
-    Number.isInteger(adjust) &&
-    onHand >= 0 &&
-    adjust <= (editing ? MAX_RESTOCK : MAX_INITIAL_STOCK);
+    delivers ||
+    (Number.isInteger(adjust) &&
+      onHand >= 0 &&
+      adjust <= (editing ? MAX_RESTOCK : MAX_INITIAL_STOCK));
   const valid =
+    accounts.problem === null &&
     messageValid &&
     warrantyNoteValid &&
     draft.provider.trim() !== "" &&
@@ -191,7 +213,10 @@ export default function StockFormDialog({
     setSaving(true);
 
     try {
-      await onSave(saved, { message });
+      await onSave(saved, {
+        accounts: delivers ? draft.accounts.trim() : "",
+        message,
+      });
     } catch {
       // Reported by the page.
     } finally {
@@ -345,14 +370,78 @@ export default function StockFormDialog({
             )}
           </>
 
-          <StockAdjuster
-            hint={stockHint({ item, result: onHand, valid: stockValid })}
-            invalid={!stockValid}
-            label={editing ? "Thêm hoặc bớt tồn kho" : "Tồn kho ban đầu"}
-            unit="gói"
-            value={draft.adjust}
-            onChange={(next) => set("adjust", next)}
-          />
+          {!editing && (
+            <Flex className="items-center gap-2">
+              <Switch
+                checked={draft.deliversAccounts}
+                id="stock-delivers"
+                onCheckedChange={(next) => set("deliversAccounts", next)}
+              />
+
+              <Label htmlFor="stock-delivers">Giao tài khoản tự động</Label>
+            </Flex>
+          )}
+
+          {delivers ? (
+            <div className="space-y-4">
+              {item && <StockAccounts item={item} />}
+
+              <div className="space-y-1.5">
+                <Flex className="items-baseline justify-between gap-2">
+                  <Label htmlFor="stock-accounts">
+                    {editing ? "Nạp thêm tài khoản" : "Nạp tài khoản"} (tùy
+                    chọn)
+                  </Label>
+
+                  {accounts.count > 0 && (
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      {accounts.count} tài khoản
+                    </span>
+                  )}
+                </Flex>
+
+                <Textarea
+                  aria-invalid={accounts.problem !== null}
+                  autoCapitalize="off"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  className="font-mono"
+                  id="stock-accounts"
+                  placeholder={
+                    "email1@example.com|mat-khau-1\nemail2@example.com|mat-khau-2"
+                  }
+                  rows={5}
+                  spellCheck={false}
+                  value={draft.accounts}
+                  onChange={(event) => set("accounts", event.target.value)}
+                />
+
+                <p
+                  className={
+                    accounts.problem === null
+                      ? "text-xs text-muted-foreground"
+                      : "text-xs text-destructive"
+                  }
+                >
+                  {accounts.problem ??
+                    `${
+                      item
+                        ? `Trong kho ${item.on_hand} tài khoản chưa bán. `
+                        : "Tồn kho là số tài khoản đã nạp. "
+                    }Mỗi dòng một tài khoản, dạng email|mật khẩu. Một dòng là một tài khoản, kể cả khi email giống nhau. Tài khoản được mã hóa khi lưu; danh sách chỉ hiện email đã che, chủ shop xem và sửa được bằng nút Xem / Sửa.`}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <StockAdjuster
+              hint={stockHint({ item, result: onHand, valid: stockValid })}
+              invalid={!stockValid}
+              label={editing ? "Thêm hoặc bớt tồn kho" : "Tồn kho ban đầu"}
+              unit="gói"
+              value={draft.adjust}
+              onChange={(next) => set("adjust", next)}
+            />
+          )}
 
           <Flex className="flex-wrap gap-x-6 gap-y-3">
             <Flex className="items-center gap-2">
@@ -444,6 +533,7 @@ export default function StockFormDialog({
                 variant,
                 warranty: draft.warranty,
                 warranty_note: warrantyNote || null,
+                delivers_accounts: delivers,
                 price_vnd: price,
                 on_hand: onHand,
                 reserved: item?.reserved ?? 0,

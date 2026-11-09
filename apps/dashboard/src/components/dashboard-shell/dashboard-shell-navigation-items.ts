@@ -3,6 +3,7 @@ import {
   ChartNoAxesCombined,
   ClipboardList,
   History,
+  KeyRound,
   Package,
   Users,
 } from "lucide-react";
@@ -27,6 +28,12 @@ export const storeNavigationItems: NavigationItem[] = [
     href: "/pos",
     icon: Package,
     label: "Inventory",
+    permission: "stock",
+  },
+  {
+    href: "/accounts",
+    icon: KeyRound,
+    label: "Accounts",
     permission: "stock",
   },
   {

@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
     catalog::{Catalogue, Product},
-    checkout::{ORDER_LIFETIME_MINUTES, Order, OrderStatus, Pending, Sessions},
+    checkout::{Delivery, ORDER_LIFETIME_MINUTES, Order, OrderStatus, Pending, Sessions},
     config::AppConfig,
     language::Language,
     telegram::{self, Reply},
@@ -137,6 +137,11 @@ async fn sepay_webhook(
     {
         eprintln!("Telegram payment notification failed with status {status}");
     }
+    if let Some(late) = result.late.as_ref()
+        && let Err(status) = notify_late(&state, late).await
+    {
+        eprintln!("Telegram late payment notification failed with status {status}");
+    }
 
     Ok(Json(SepayAcknowledgement { success: true }).into_response())
 }
@@ -145,6 +150,46 @@ async fn notify_paid(state: &AppState, order: &Order) -> Result<(), StatusCode> 
     let language = contact_language(state, order.telegram_user_id)
         .await
         .unwrap_or(Language::Vietnamese);
+
+    send_to_buyer(
+        state,
+        &view::payment_received(
+            order.chat_id,
+            language,
+            order,
+            &state.config.owner.handle(),
+            fetch_delivery(state, order.telegram_user_id, &order.reference)
+                .await
+                .as_ref(),
+        ),
+    )
+    .await
+}
+
+/// Tells a buyer their money came too late for the order, and to write to the
+/// owner about it.
+async fn notify_late(state: &AppState, late: &LateTransfer) -> Result<(), StatusCode> {
+    let language = contact_language(state, late.order.telegram_user_id)
+        .await
+        .unwrap_or(Language::Vietnamese);
+
+    send_to_buyer(
+        state,
+        &view::late_payment(
+            late.order.chat_id,
+            language,
+            &late.order,
+            late.amount_vnd,
+            &state.config.owner.handle(),
+        ),
+    )
+    .await
+}
+
+async fn send_to_buyer(
+    state: &AppState,
+    message: &telegram::SendMessage,
+) -> Result<(), StatusCode> {
     let endpoint = state
         .config
         .telegram_api_base_url
@@ -153,12 +198,7 @@ async fn notify_paid(state: &AppState, order: &Order) -> Result<(), StatusCode> 
     let response = state
         .http
         .post(endpoint)
-        .json(&view::payment_received(
-            order.chat_id,
-            language,
-            order,
-            &state.config.owner.handle(),
-        ))
+        .json(message)
         .send()
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -522,6 +562,25 @@ async fn fetch_order(
         None,
     )
     .await
+}
+
+/// What a paid order was handed. `None` when there is nothing to say, or when the
+/// API could not be asked: the message then goes out without accounts rather than
+/// not at all, and the buyer can ask again with the check button.
+async fn fetch_delivery(
+    state: &AppState,
+    telegram_user_id: i64,
+    reference: &str,
+) -> Option<Delivery> {
+    call_api(
+        state,
+        Method::GET,
+        &format!("/internal/telegram/contacts/{telegram_user_id}/orders/{reference}/delivery"),
+        None,
+    )
+    .await
+    .ok()
+    .flatten()
 }
 
 async fn stop_order(
@@ -1043,9 +1102,22 @@ async fn payment_outcome(
         "check" if order.status() == OrderStatus::AwaitingPayment => {
             Outcome::Alert(view::pending_alert(language, &order))
         }
-        "check" => Outcome::Replace(
-            view::order_status(chat_id, language, &order, &state.config.owner.handle()).into(),
-        ),
+        "check" => {
+            // A buyer whose accounts did not arrive asks again here, and the API
+            // gives them back to the buyer whose order it is.
+            let delivery = fetch_delivery(state, telegram_user_id, &order.reference).await;
+
+            Outcome::Replace(
+                view::order_status(
+                    chat_id,
+                    language,
+                    &order,
+                    &state.config.owner.handle(),
+                    delivery.as_ref(),
+                )
+                .into(),
+            )
+        }
         _ => unknown(),
     })
 }
@@ -1337,7 +1409,7 @@ fn quantity(text: &str, product: &Product) -> Option<i64> {
     text.trim()
         .parse::<i64>()
         .ok()
-        .filter(|quantity| (1..=product.available).contains(quantity))
+        .filter(|quantity| (1..=product.order_limit()).contains(quantity))
 }
 
 fn webhook_secret_matches(expected: &[u8], headers: &HeaderMap) -> bool {
@@ -1374,7 +1446,16 @@ struct TelegramContact {
 
 #[derive(Deserialize)]
 struct SepayResult {
+    /// Money that came for an order that had already run out.
+    #[serde(default)]
+    late: Option<LateTransfer>,
     order: Option<Order>,
+}
+
+#[derive(Deserialize)]
+struct LateTransfer {
+    amount_vnd: i64,
+    order: Order,
 }
 
 /// The announcement copy is Vietnamese only for now, so a contact's stored
@@ -2385,6 +2466,261 @@ mod tests {
         assert!(text.starts_with(&format!("✅ Đã nhận thanh toán cho đơn {REFERENCE}.")));
     }
 
+    #[tokio::test]
+    async fn money_that_comes_after_the_order_ran_out_tells_the_buyer_to_write_to_the_owner() {
+        let shop = Shop::open().await;
+        shop.update_json(callback_update("catalog:claude-max-x20"))
+            .await;
+        shop.update_json(message_update("2")).await;
+        shop.pays_too_late(270_000);
+
+        assert_eq!(
+            shop.post_sepay(Some("Apikey sepay-secret")).await,
+            StatusCode::OK
+        );
+
+        let notified = shop.api.notified.lock().unwrap().clone();
+        assert_eq!(notified.len(), 1);
+        assert_eq!(notified[0]["chat_id"], 123);
+        let text = notified[0]["text"].as_str().expect("a notification");
+        assert!(
+            text.starts_with(&format!(
+                "⚠️ Đã nhận 270,000₫ từ bạn, nhưng đơn {REFERENCE} đã hết hạn nên chưa hoàn tất."
+            )),
+            "{text}"
+        );
+        assert!(
+            text.ends_with(&format!(
+                "📩 Nhắn @synasapmob kèm mã đơn {REFERENCE}, chủ shop sẽ giao hàng hoặc hoàn tiền cho bạn."
+            )),
+            "{text}"
+        );
+        // Not told it is paid: it is not.
+        assert!(!text.contains("✅"), "{text}");
+        assert_eq!(
+            shop.api.orders.lock().unwrap()[REFERENCE]["status"],
+            "awaiting_payment"
+        );
+    }
+
+    /// A buyer's order paid by SePay, the bot having been told what the API handed out.
+    async fn paid_by_sepay(shop: &Shop) -> String {
+        shop.update_json(callback_update("catalog:claude-max-x20"))
+            .await;
+        shop.update_json(message_update("2")).await;
+        assert_eq!(
+            shop.post_sepay(Some("Apikey sepay-secret")).await,
+            StatusCode::OK
+        );
+
+        let notified = shop.api.notified.lock().unwrap().clone();
+        assert_eq!(notified.len(), 1);
+        assert_eq!(notified[0]["chat_id"], 123);
+
+        notified[0]["text"]
+            .as_str()
+            .expect("a notification")
+            .to_owned()
+    }
+
+    #[tokio::test]
+    async fn the_message_that_says_a_payment_arrived_carries_the_accounts() {
+        let shop = Shop::open().await;
+        shop.hands_out(
+            StatusCode::OK,
+            json!({"accounts": ["buyer@example.test|pw-one"], "missing": 0}),
+        );
+
+        let text = paid_by_sepay(&shop).await;
+
+        assert!(
+            text.contains("🔑 Tài khoản của bạn:\nbuyer@example.test|pw-one"),
+            "{text}"
+        );
+        assert!(
+            text.ends_with("Hãy đổi mật khẩu ngay sau khi nhận."),
+            "{text}"
+        );
+        assert!(!text.contains("sẽ bàn giao"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn several_accounts_are_numbered() {
+        let shop = Shop::open().await;
+        shop.hands_out(
+            StatusCode::OK,
+            json!({"accounts": ["a@example.test|1", "b@example.test|2"], "missing": 0}),
+        );
+
+        let text = paid_by_sepay(&shop).await;
+
+        assert!(
+            text.contains("🔑 Tài khoản của bạn:\n1. a@example.test|1\n2. b@example.test|2"),
+            "{text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_order_that_found_none_left_is_told_to_write_to_the_owner_with_its_reference() {
+        let shop = Shop::open().await;
+        shop.hands_out(StatusCode::OK, json!({"accounts": [], "missing": 1}));
+
+        let text = paid_by_sepay(&shop).await;
+
+        assert!(
+            text.starts_with(&format!("✅ Đã nhận thanh toán cho đơn {REFERENCE}.")),
+            "{text}"
+        );
+        assert!(
+            text.ends_with(&format!(
+                "Tài khoản đã hết nên chưa giao được. Nhắn @synasapmob kèm mã đơn {REFERENCE} để được xử lý."
+            )),
+            "{text}"
+        );
+        assert!(!text.contains("🔑"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn an_order_that_got_only_some_lists_them_and_says_how_many_are_missing() {
+        let shop = Shop::open().await;
+        shop.hands_out(
+            StatusCode::OK,
+            json!({"accounts": ["only@example.test|1"], "missing": 1}),
+        );
+
+        let text = paid_by_sepay(&shop).await;
+
+        assert!(
+            text.contains("🔑 Tài khoản của bạn:\nonly@example.test|1"),
+            "{text}"
+        );
+        assert!(
+            text.ends_with(&format!(
+                "Còn thiếu 1 tài khoản vì đã hết hàng. Nhắn @synasapmob kèm mã đơn {REFERENCE} để được xử lý."
+            )),
+            "{text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_package_with_no_accounts_loaded_tells_the_buyer_to_write_to_the_owner_with_the_order()
+     {
+        let shop = Shop::open().await;
+
+        let text = paid_by_sepay(&shop).await;
+
+        assert!(
+            text.ends_with(&format!(
+                "📩 Để nhận tài khoản, nhắn @synasapmob kèm mã đơn {REFERENCE}, chủ shop sẽ bàn giao cho bạn."
+            )),
+            "{text}"
+        );
+        assert!(!text.contains("🔑"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn when_the_api_cannot_say_what_was_handed_out_the_buyer_still_hears_of_the_payment() {
+        let shop = Shop::open().await;
+        shop.hands_out(StatusCode::SERVICE_UNAVAILABLE, json!({}));
+
+        let text = paid_by_sepay(&shop).await;
+
+        assert!(
+            text.starts_with(&format!("✅ Đã nhận thanh toán cho đơn {REFERENCE}.")),
+            "{text}"
+        );
+        // It cannot say what was handed out, so the buyer is sent to the owner, who can.
+        assert!(
+            text.ends_with(&format!(
+                "nhắn @synasapmob kèm mã đơn {REFERENCE}, chủ shop sẽ bàn giao cho bạn."
+            )),
+            "{text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_check_button_gives_a_buyer_the_accounts_again() {
+        let shop = Shop::open().await;
+        shop.update_json(callback_update("catalog:claude-max-x20"))
+            .await;
+        shop.update_json(message_update("2")).await;
+        shop.settle_order();
+        shop.hands_out(
+            StatusCode::OK,
+            json!({"accounts": ["again@example.test|pw"], "missing": 0}),
+        );
+
+        let response = shop
+            .update_json(callback_update(&format!("pay:check:{REFERENCE}")))
+            .await;
+        let text = response["text"].as_str().expect("a status message");
+
+        assert!(
+            text.contains("🔑 Tài khoản của bạn:\nagain@example.test|pw"),
+            "{text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_payment_the_dashboard_recorded_carries_the_accounts_too() {
+        let shop = Shop::open().await;
+        shop.hands_out(
+            StatusCode::OK,
+            json!({"accounts": ["staff@example.test|pw"], "missing": 0}),
+        );
+
+        let (status, _) = call_internal(
+            &shop,
+            "/internal/payment-notice",
+            Some(API_TOKEN),
+            paid_order("paid"),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let posted = shop.api.notified.lock().unwrap().clone();
+        let text = posted.last().expect("a message")["text"]
+            .as_str()
+            .expect("text")
+            .to_owned();
+        assert!(text.contains("staff@example.test|pw"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn a_package_that_hands_out_accounts_is_ordered_ten_at_a_time_at_most() {
+        let shop = Shop::open().await;
+        shop.api.products.lock().unwrap().push(json!({
+            "available": 50, "category": null, "delivers_accounts": true, "detail": null,
+            "on_hand": 50, "reserved": 0, "hot": false, "listed": true,
+            "plan": "Auto", "price_vnd": 60_000, "provider_name": "ChatGPT",
+            "provider_slug": "chatgpt", "slug": "chatgpt-auto", "variant": null,
+            "warranty": "NW", "warranty_note_en": "n", "warranty_note_vi": "n"
+        }));
+
+        let prompt = shop
+            .update_json(callback_update("catalog:chatgpt-auto"))
+            .await;
+        assert!(
+            prompt["text"].as_str().unwrap().contains("Tối đa: 10"),
+            "{prompt}"
+        );
+
+        let refused = shop.update_json(message_update("11")).await;
+        assert!(
+            refused["text"]
+                .as_str()
+                .unwrap()
+                .contains("Gửi một số từ 1 đến 10."),
+            "{refused}"
+        );
+
+        let accepted = shop.update_json(message_update("10")).await;
+        assert_eq!(
+            accepted["reply_markup"]["inline_keyboard"][0][0]["callback_data"],
+            format!("pay:vnd:{REFERENCE}")
+        );
+    }
+
     struct Shop {
         api: FakeApi,
         state: AppState,
@@ -2525,6 +2861,16 @@ mod tests {
                 .expect("an order created through the API")
         }
 
+        /// Makes the API answer a delivery request with `body`, or with a failure.
+        fn hands_out(&self, status: StatusCode, body: Value) {
+            *self.api.delivery.lock().unwrap() = Some((status, body));
+        }
+
+        /// Makes the next SePay transfer arrive after the order had run out.
+        fn pays_too_late(&self, amount_vnd: i64) {
+            *self.api.late_transfer.lock().unwrap() = Some(amount_vnd);
+        }
+
         fn settle_order(&self) {
             let mut orders = self.api.orders.lock().unwrap();
             let order = orders.get_mut(REFERENCE).expect("an order");
@@ -2541,6 +2887,10 @@ mod tests {
         audience: Arc<Mutex<Vec<Value>>>,
         deleted: Arc<Mutex<Vec<Value>>>,
         notified: Arc<Mutex<Vec<Value>>>,
+        /// What the delivery route answers; nothing handed out unless a test says so.
+        delivery: Arc<Mutex<Option<(StatusCode, Value)>>>,
+        /// When set, the next transfer comes after the order ran out, for this amount.
+        late_transfer: Arc<Mutex<Option<i64>>>,
         orders: Arc<Mutex<HashMap<String, Value>>>,
         products: Arc<Mutex<Vec<Value>>>,
     }
@@ -2671,6 +3021,10 @@ mod tests {
                 "/internal/telegram/contacts/{telegram_user_id}/orders/{reference}/cancel",
                 post(cancel_order),
             )
+            .route(
+                "/internal/telegram/contacts/{telegram_user_id}/orders/{reference}/delivery",
+                get(order_delivery),
+            )
             .route("/internal/telegram/payments/sepay", post(record_payment))
             .route("/internal/telegram/audience", get(audience))
             .route(
@@ -2756,6 +3110,17 @@ mod tests {
         Ok(Json(order))
     }
 
+    async fn order_delivery(State(api): State<FakeApi>) -> (StatusCode, Json<Value>) {
+        let (status, body) = api
+            .delivery
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or((StatusCode::OK, json!({"accounts": [], "missing": 0})));
+
+        (status, Json(body))
+    }
+
     async fn get_order(
         State(api): State<FakeApi>,
         Path((_telegram_user_id, reference)): Path<(i64, String)>,
@@ -2793,6 +3158,13 @@ mod tests {
         let Some(order) = orders.get_mut(REFERENCE) else {
             return Json(json!({"duplicate": false, "order": Value::Null}));
         };
+        if let Some(amount_vnd) = *api.late_transfer.lock().unwrap() {
+            return Json(json!({
+                "duplicate": false,
+                "late": {"amount_vnd": amount_vnd, "order": order.clone()},
+                "order": Value::Null
+            }));
+        }
         order["status"] = json!("paid");
         order["paid_at"] = json!(Utc::now());
         Json(json!({"duplicate": false, "order": order.clone()}))

@@ -70,11 +70,12 @@ export const permissionLabels: Record<Permission, string> = {
   stock: "Thêm, sửa, xóa hàng và nhập kho",
   revenue: "Xem doanh thu",
   staff: "Quản lý nhân viên",
+  secrets: "Xem mật khẩu tài khoản trong kho",
 };
 
 /** What each role may open. A page without its permission shows no data. */
 export const rolePermissions: Record<Role, Permission[]> = {
-  owner: ["orders", "history", "stock", "revenue", "staff"],
+  owner: ["orders", "history", "stock", "revenue", "staff", "secrets"],
   manager: ["orders", "history", "stock", "revenue"],
   cashier: ["orders", "history"],
   "stock-keeper": ["stock"],

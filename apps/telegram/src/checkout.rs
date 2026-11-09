@@ -14,6 +14,15 @@ pub const ORDER_LIFETIME_MINUTES: i64 = 5;
 const SELECTION_LIFETIME_MINUTES: i64 = 30;
 const VIETNAM_UTC_OFFSET_SECONDS: i32 = 7 * 3_600;
 
+/// The accounts a paid order was handed, as the API gives them for its buyer. Not
+/// `Debug`: a derived `Debug` would print the accounts wherever it is logged.
+#[derive(Deserialize)]
+pub struct Delivery {
+    pub accounts: Vec<String>,
+    /// Ordered but not given, because none were left.
+    pub missing: i64,
+}
+
 /// An order as `apps/api` owns it. The adapter never stores one; every payment
 /// screen reads the order back by its reference, so a redeploy cannot lose a
 /// buyer's checkout and a stale button cannot resurrect a settled one.

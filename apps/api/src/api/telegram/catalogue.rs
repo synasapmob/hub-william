@@ -22,6 +22,9 @@ pub struct TelegramProduct {
     pub available: i32,
     pub category: Option<String>,
     pub detail: Option<String>,
+    /// Hands the buyer an account when they have paid. Its count is the number
+    /// of accounts not yet sold, so it is never set by hand.
+    pub delivers_accounts: bool,
     pub hot: bool,
     pub listed: bool,
     /// The physical count the owner set, before reservations.
@@ -103,7 +106,7 @@ pub struct TelegramRestock {
     pub product: TelegramProduct,
 }
 
-pub(crate) const PRODUCT_COLUMNS: &str = "GREATEST(product.available - reserved.quantity, 0)::INT AS available, product.category, product.detail, product.hot, product.listed, product.available AS on_hand, product.plan, product.price_vnd, provider.name AS provider_name, provider.slug AS provider_slug, reserved.quantity::INT AS reserved, product.slug, product.variant, product.warranty, product.warranty_note_en, product.warranty_note_vi";
+pub(crate) const PRODUCT_COLUMNS: &str = "GREATEST(product.available - reserved.quantity, 0)::INT AS available, product.category, product.detail, product.delivers_accounts, product.hot, product.listed, product.available AS on_hand, product.plan, product.price_vnd, provider.name AS provider_name, provider.slug AS provider_slug, reserved.quantity::INT AS reserved, product.slug, product.variant, product.warranty, product.warranty_note_en, product.warranty_note_vi";
 
 /// Joined into every product read so `available` always means "sellable".
 pub(crate) const RESERVED_JOIN: &str =
@@ -162,6 +165,7 @@ pub async fn create_product(
             NewProduct {
                 available: payload.available,
                 category: payload.category,
+                delivers_accounts: false,
                 detail: payload.detail,
                 hot: false,
                 image_id: None,
@@ -183,6 +187,7 @@ pub async fn create_product(
 pub(crate) struct NewProduct {
     pub available: i32,
     pub category: Option<String>,
+    pub delivers_accounts: bool,
     pub detail: Option<String>,
     pub hot: bool,
     pub image_id: Option<Uuid>,
@@ -216,6 +221,11 @@ pub(crate) async fn insert_product(
     let (note_en, note_vi) = warranty_notes(warranty, product.warranty_note)?;
     let price_vnd = normalize_price(product.price_vnd)?;
     let available = normalize_stock(product.available)?;
+    if product.delivers_accounts && available != 0 {
+        return Err(ApiError::Validation(
+            "A package that hands out accounts starts with none: its count is the accounts loaded.",
+        ));
+    }
 
     let slug = slugify(&format!(
         "{provider_slug} {plan} {}",
@@ -235,10 +245,10 @@ pub(crate) async fn insert_product(
         "INSERT INTO telegram_products
             (id, provider_id, slug, plan, variant, detail, warranty,
              warranty_note_en, warranty_note_vi, price_vnd, available, category, position,
-             hot, listed, image_id)
+             hot, listed, image_id, delivers_accounts)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
                  (SELECT COALESCE(MAX(position), 0) + 1 FROM telegram_products WHERE provider_id = $2),
-                 $13, $14, $15)
+                 $13, $14, $15, $16)
          ON CONFLICT (slug) DO NOTHING
          RETURNING id",
     )
@@ -257,6 +267,7 @@ pub(crate) async fn insert_product(
     .bind(product.hot)
     .bind(product.listed)
     .bind(product.image_id)
+    .bind(product.delivers_accounts)
     .fetch_optional(&mut *database)
     .await
     .map_err(database_error)?;
@@ -315,15 +326,17 @@ pub async fn restock_product(
     let available_after = sqlx::query_scalar::<_, i32>(
         "UPDATE telegram_products
          SET available = available + $2, updated_at = NOW()
-         WHERE slug = $1
+         WHERE slug = $1 AND NOT delivers_accounts
          RETURNING available",
     )
     .bind(&slug)
     .bind(payload.added)
     .fetch_optional(&mut *database)
     .await
-    .map_err(database_error)?
-    .ok_or(ApiError::NotFound)?;
+    .map_err(database_error)?;
+    let Some(available_after) = available_after else {
+        return Err(refusal_to_count_by_hand(&mut database, &slug).await?);
+    };
 
     sqlx::query(
         "INSERT INTO telegram_restocks (id, product_id, added, available_after)
@@ -577,6 +590,28 @@ pub(crate) fn default_warranty_note_vi(warranty: &str) -> &'static str {
     }
 }
 
+/// Why a hand-set count was not applied: the package is not there, or it counts
+/// its own accounts and the count follows them.
+pub(crate) async fn refusal_to_count_by_hand(
+    database: &mut sqlx::PgConnection,
+    slug: &str,
+) -> Result<ApiError, ApiError> {
+    let delivers = sqlx::query_scalar::<_, bool>(
+        "SELECT delivers_accounts FROM telegram_products WHERE slug = $1",
+    )
+    .bind(slug)
+    .fetch_optional(database)
+    .await
+    .map_err(database_error)?;
+
+    Ok(match delivers {
+        None => ApiError::NotFound,
+        Some(_) => ApiError::Validation(
+            "That package hands out accounts, so its count follows the accounts loaded.",
+        ),
+    })
+}
+
 fn database_error(error: sqlx::Error) -> ApiError {
     crate::utils::database_error("telegram catalogue", error)
 }
@@ -640,6 +675,7 @@ mod tests {
         TelegramProduct {
             available: 1,
             category: None,
+            delivers_accounts: false,
             detail: None,
             hot: false,
             listed: true,

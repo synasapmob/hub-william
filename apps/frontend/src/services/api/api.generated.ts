@@ -452,6 +452,54 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/dashboard/telegram/accounts": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["search_accounts"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/dashboard/telegram/accounts/reveal": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["reveal_accounts"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/dashboard/telegram/accounts/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put: operations["update_account"];
+    post?: never;
+    delete: operations["delete_account"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/dashboard/telegram/announcements": {
     parameters: {
       query?: never;
@@ -543,6 +591,22 @@ export interface paths {
     put: operations["update_product"];
     post?: never;
     delete: operations["delete_product"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/dashboard/telegram/products/{slug}/accounts": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["list_accounts"];
+    put: operations["edit_accounts"];
+    post: operations["add_accounts"];
+    delete?: never;
     options?: never;
     head?: never;
     patch?: never;
@@ -1217,6 +1281,88 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    /** @description How many accounts there are in each standing, under the search. */
+    AccountCounts: {
+      /** Format: int64 */
+      all: number;
+      /** Format: int64 */
+      sold: number;
+      /** Format: int64 */
+      unsold: number;
+    };
+    AccountList: {
+      /** @description Newest first, at most 1,000. A collaborator sees the ones they loaded. */
+      accounts: components["schemas"]["StockAccount"][];
+    };
+    /** @description One page of accounts, and what the search finds in all. */
+    AccountPage: {
+      accounts: components["schemas"]["StockAccount"][];
+      /** @description How many accounts each standing has under the search, whichever is shown. */
+      counts: components["schemas"]["AccountCounts"];
+      /**
+       * Format: int64
+       * @description How many the standing and the search match, across every page.
+       */
+      total: number;
+    };
+    AccountRemoved: {
+      /**
+       * Format: int32
+       * @description The count of the package now.
+       */
+      available: number;
+    };
+    AccountUpdated: {
+      /**
+       * @description The account as a page lists it now: the email hidden but for its first
+       *     letter and its domain.
+       */
+      email_hint: string;
+    };
+    AccountsEdited: {
+      /**
+       * Format: int32
+       * @description Lines that were not among `ids`, put in stock.
+       */
+      added: number;
+      /**
+       * Format: int32
+       * @description The count of the package after the edit.
+       */
+      available: number;
+      /**
+       * Format: int32
+       * @description Accounts whose line is not what it was.
+       */
+      changed: number;
+      /**
+       * Format: int32
+       * @description Lines left out because the package already holds exactly that account.
+       */
+      duplicates: number;
+      /**
+       * Format: int32
+       * @description Accounts taken out of stock because their line is gone from the block.
+       */
+      removed: number;
+    };
+    AccountsLoaded: {
+      /**
+       * Format: int32
+       * @description Accounts put in stock.
+       */
+      added: number;
+      /**
+       * Format: int32
+       * @description The count of the package now: the accounts not yet sold.
+       */
+      available: number;
+      /**
+       * Format: int32
+       * @description Lines left out because the package already holds exactly that account.
+       */
+      duplicates: number;
+    };
     AddStaff: {
       /** @description `owner`, `manager`, `cashier` or `stock-keeper`. */
       role: components["schemas"]["Role"];
@@ -1426,9 +1572,15 @@ export interface components {
     CreateProduct: {
       /**
        * Format: int32
-       * @description The count to start from, 0 to 1,000,000.
+       * @description The count to start from, 0 to 1,000,000. Always 0 for a package that
+       *     hands out accounts.
        */
       available: number;
+      /**
+       * @description Hands the buyer an account when they have paid, from accounts loaded
+       *     with `POST .../accounts`. Fixed once the package is made.
+       */
+      delivers_accounts?: boolean;
       hot: boolean;
       /** Format: uuid */
       image_id?: string | null;
@@ -1542,6 +1694,11 @@ export interface components {
        * @description What a buyer may still order: `on_hand` less `reserved`.
        */
       available: number;
+      /**
+       * @description Hands the buyer an account when they have paid. Its count is the number
+       *     of accounts not yet sold, so it cannot be changed by hand.
+       */
+      delivers_accounts: boolean;
       hot: boolean;
       /**
        * Format: uuid
@@ -1679,6 +1836,18 @@ export interface components {
     DecideAgentPoolJoinRequest: {
       status: components["schemas"]["AgentPoolRequestStatus"];
     };
+    /** @description Accounts the owner opened, and the block they left them as. Not `Debug`. */
+    EditAccounts: {
+      /**
+       * @description One account per line, `email|password`, as the owner left the block; blank
+       *     lines are skipped. Empty takes every account in `ids` out of stock.
+       */
+      accounts: string;
+      /** @description Report what would change and change nothing. */
+      dry_run?: boolean;
+      /** @description The accounts the block was made from, all unsold and all of this package. */
+      ids: string[];
+    };
     ErrorResponse: {
       code: string;
       message: string;
@@ -1766,6 +1935,17 @@ export interface components {
     };
     InviteOrganizationMember: {
       username: string;
+    };
+    /**
+     * @description A block of accounts to load. It is not `Debug` on purpose: a derived
+     *     `Debug` would print the accounts wherever the request is logged.
+     */
+    LoadAccounts: {
+      /**
+       * @description One account per line, `email|password`: at most 1,000 lines of at most 300
+       *     characters. Blank lines are skipped and the spaces around the bar are dropped.
+       */
+      accounts: string;
     };
     LoginRequest: {
       password: string;
@@ -2007,7 +2187,8 @@ export interface components {
      * @description What a page or an endpoint asks of a role.
      * @enum {string}
      */
-    Permission: "orders" | "history" | "stock" | "revenue" | "staff";
+    Permission:
+      "orders" | "history" | "stock" | "revenue" | "staff" | "secrets";
     /** @enum {string} */
     Platform: "x" | "tiktok" | "facebook";
     PlaygroundAttachment:
@@ -2111,6 +2292,26 @@ export interface components {
       title: string;
       variants: components["schemas"]["VideoVariant"][];
       videoUrl: string;
+    };
+    /**
+     * @description The owner's password, to show the owner is who they say, and the accounts to
+     *     open. Not `Debug`, for the same reason as an account.
+     */
+    RevealAccounts: {
+      /** @description At least one and at most 1,000; each is opened once, in this order. */
+      ids: string[];
+      password: string;
+    };
+    /** @description One account, in the clear. */
+    RevealedAccount: {
+      /** @description `email|password`. */
+      account: string;
+      /** Format: uuid */
+      id: string;
+    };
+    /** @description The accounts asked for, in the clear. Not `Debug`. */
+    RevealedAccounts: {
+      accounts: components["schemas"]["RevealedAccount"][];
     };
     RevenueDay: {
       /** Format: date */
@@ -2268,6 +2469,25 @@ export interface components {
     StartAgentConnectionRequest: {
       provider: components["schemas"]["AgentProvider"];
     };
+    /**
+     * @description One account as a page lists it. The email is hidden but for its first letter
+     *     and its domain, and the password is not here at all.
+     */
+    StockAccount: {
+      email_hint: string;
+      /** Format: uuid */
+      id: string;
+      /** Format: date-time */
+      loaded_at: string;
+      loaded_by?: string | null;
+      /** @description The order it was handed to, once it has been. */
+      order_reference?: string | null;
+      /** @description The package it belongs to, by its slug and by its name. */
+      product_slug: string;
+      product_title: string;
+      /** Format: date-time */
+      sold_at?: string | null;
+    };
     StockChange: {
       /**
        * Format: int32
@@ -2311,6 +2531,13 @@ export interface components {
       rate?: string;
       text: string;
       voice?: string;
+    };
+    /** @description A new email and/or password for an account. Not `Debug`, like an account. */
+    UpdateAccount: {
+      /** @description A new email. Left out or blank keeps the one it has. */
+      email?: string | null;
+      /** @description A new password. Left out or blank keeps the one it has. */
+      password?: string | null;
     };
     UpdateListing: {
       /** Format: int32 */
@@ -3886,6 +4113,285 @@ export interface operations {
       };
     };
   };
+  search_accounts: {
+    parameters: {
+      query?: {
+        /** @description Only the accounts of this package, by its slug. */
+        product?: string | null;
+        /**
+         * @description An email in full, an order reference, or part of a package's name or of a
+         *     loader's username.
+         */
+        q?: string | null;
+        /** @description Counted from 1. */
+        page?: number | null;
+        /** @description 1 to 100; 20 when left out. */
+        page_size?: number | null;
+        /** @description Only `unsold` or only `sold`; both when left out. */
+        status?: string | null;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description A page of accounts across packages, each with its email hidden and no password, and how many each standing has */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountPage"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not manage stock */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The package named does not hand out accounts */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description A page, a size or a status that is not valid */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The service has no STOCK_ENCRYPTION_KEY */
+      501: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  reveal_accounts: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["RevealAccounts"];
+      };
+    };
+    responses: {
+      /** @description The accounts, opened. Each look is recorded, and the answer is not to be cached */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RevealedAccounts"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Only the owner may look at an account */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description One of the accounts is not there */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description That is not the owner's password, or no account or too many were named */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Too many tries; each needs the password */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The service has no STOCK_ENCRYPTION_KEY */
+      501: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  update_account: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The account */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["UpdateAccount"];
+      };
+    };
+    responses: {
+      /** @description The account is changed and sealed again */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountUpdated"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not manage stock */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description No such account, it is sold, or it is not this role's to change */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Nothing to change, a value that is not valid, or an account the package already has */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The service has no STOCK_ENCRYPTION_KEY */
+      501: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  delete_account: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The account */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The account is out of stock */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountRemoved"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not manage stock */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description No such account, it is sold, or it is not this role's to change */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
   announce: {
     parameters: {
       query?: never;
@@ -4342,6 +4848,209 @@ export interface operations {
       };
       /** @description Buyers have orders open for it */
       422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  list_accounts: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The product */
+        slug: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The accounts in stock and sold, each with its email hidden and no password */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountList"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not manage stock */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description No such package, or it does not hand out accounts */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The service has no STOCK_ENCRYPTION_KEY */
+      501: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  edit_accounts: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The product */
+        slug: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["EditAccounts"];
+      };
+    };
+    responses: {
+      /** @description What the edit did, or with dry_run what it would do */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountsEdited"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Only the owner may edit accounts as a block */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description No such product */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description A line is not an email and a password, too many or no accounts were named, or some were sold or removed meanwhile */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The service has no STOCK_ENCRYPTION_KEY */
+      501: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  add_accounts: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The product */
+        slug: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["LoadAccounts"];
+      };
+    };
+    responses: {
+      /** @description The accounts are in stock, encrypted; this never returns them */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountsLoaded"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not manage stock */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description No such product */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description A line is not an email and a password, there are too many, or the package does not hand out accounts */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The service has no STOCK_ENCRYPTION_KEY */
+      501: {
         headers: {
           [name: string]: unknown;
         };

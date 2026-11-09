@@ -16,7 +16,10 @@ use crate::{
     core::{AppConfig, AppState},
 };
 
+mod accounts;
 mod announcements;
+mod delivery;
+mod late_transfer;
 mod orders;
 mod revenue;
 mod sales;
@@ -196,7 +199,7 @@ async fn an_owner_is_a_row_in_the_database_with_the_role_owner(pool: PgPool) {
     assert_eq!(session["user"]["username"], owner.username);
     assert_eq!(
         session["permissions"],
-        json!(["orders", "history", "stock", "revenue", "staff"])
+        json!(["orders", "history", "stock", "revenue", "staff", "secrets"])
     );
 }
 

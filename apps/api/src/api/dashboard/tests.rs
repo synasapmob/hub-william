@@ -44,11 +44,11 @@ async fn status(method: &str, uri: &str, body: Body) -> StatusCode {
 
 #[test]
 fn each_role_holds_the_permissions_the_dashboard_shows_it() {
-    use Permission::{History, Orders, Revenue, Staff, Stock};
+    use Permission::{History, Orders, Revenue, Secrets, Staff, Stock};
 
     assert_eq!(
         Role::Owner.permissions(),
-        &[Orders, History, Stock, Revenue, Staff]
+        &[Orders, History, Stock, Revenue, Staff, Secrets]
     );
     assert_eq!(
         Role::Manager.permissions(),
@@ -67,6 +67,10 @@ fn roles_and_permissions_are_written_the_way_the_dashboard_reads_them() {
     );
     assert_eq!(serde_json::to_value(Permission::Orders).unwrap(), "orders");
     assert_eq!(serde_json::to_value(Permission::Staff).unwrap(), "staff");
+    assert_eq!(
+        serde_json::to_value(Permission::Secrets).unwrap(),
+        "secrets"
+    );
 }
 
 #[test]

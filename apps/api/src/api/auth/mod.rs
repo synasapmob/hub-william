@@ -560,7 +560,7 @@ fn normalize_recovery_email(email: Option<String>) -> Result<Option<String>, Api
     }
 }
 
-fn hash_password(password: &str) -> Result<String, ApiError> {
+pub(crate) fn hash_password(password: &str) -> Result<String, ApiError> {
     let salt = SaltString::generate(&mut OsRng);
     Argon2::default()
         .hash_password(password.as_bytes(), &salt)
@@ -568,7 +568,7 @@ fn hash_password(password: &str) -> Result<String, ApiError> {
         .map_err(|_| ApiError::Internal)
 }
 
-fn verify_password(password: &str, password_hash: &str) -> Result<(), ApiError> {
+pub(crate) fn verify_password(password: &str, password_hash: &str) -> Result<(), ApiError> {
     let password_hash = PasswordHash::new(password_hash).map_err(|_| ApiError::Internal)?;
     Argon2::default()
         .verify_password(password.as_bytes(), &password_hash)

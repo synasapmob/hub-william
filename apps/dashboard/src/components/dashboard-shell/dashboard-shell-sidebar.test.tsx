@@ -18,6 +18,7 @@ describe("DashboardShellSidebar", () => {
     expect(shown("owner")).toEqual(
       expect.arrayContaining([
         "Inventory",
+        "Accounts",
         "Orders",
         "Sales history",
         "Revenue",
@@ -52,7 +53,7 @@ describe("DashboardShellSidebar", () => {
     expect(names).not.toContain("Inventory");
   });
 
-  it("gives a stock keeper the stock page alone, and no empty group", () => {
+  it("gives a stock keeper the two stock pages alone, and no empty group", () => {
     renderPage(<DashboardShellSidebar />, "stock-keeper");
 
     const groups = screen.getAllByRole("navigation");
@@ -62,7 +63,7 @@ describe("DashboardShellSidebar", () => {
       within(groups[0])
         .getAllByRole("link")
         .map((link) => link.textContent),
-    ).toEqual(["Inventory"]);
+    ).toEqual(["Inventory", "Accounts"]);
   });
 
   it("shows who is signed in and their role", () => {

@@ -121,11 +121,22 @@ transaction to the private API, which:
   total the transfer covers;
 - marks that order `paid`.
 
-The adapter then messages the buyer. `Kiểm tra thanh toán` reads the same
+The adapter then messages the buyer, with the accounts in the message for a
+package that hands them out. When none were left for the order, the message says
+how many are missing and tells the buyer to write to the owner with the order's
+reference; refunds are settled between the two. A package with no accounts loaded
+(its stock is a count set by hand) has nothing to put in the message, so the
+message tells the buyer to write to the owner with the order's reference to
+receive the account. The owner is not told of the payment, so the buyer's message
+is what starts the handover. `Kiểm tra thanh toán` reads the same
 record, so it reports a real result rather than a guess. An incoming transfer
 that matches nothing is still stored for a human to reconcile, and an order
 that expires is void: a buyer has five minutes to pay, and a transfer the bank
-made after that is stored for a human to reconcile but does not settle it.
+made after that is stored for a human to reconcile but does not settle it. When
+such a transfer names the expired order, the buyer is messaged all the same: the
+money arrived, the order did not complete, and they are to write to the owner with
+the order's reference, who gives them the goods or the money back. The owner is
+not told; the buyer's message starts it.
 
 Point SePay's webhook at `https://<public-host>/sepay` and set the same API key
 on both sides.
