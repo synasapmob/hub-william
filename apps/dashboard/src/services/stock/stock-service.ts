@@ -13,6 +13,12 @@ export interface StockInput {
   warranty: Warranty;
   /** What a buyer reads about the warranty; null asks for the standard note. */
   warranty_note: string | null;
+  /**
+   * Hands the buyer an account when they have paid. Turning it on for a package
+   * makes its count the accounts loaded (none, at first); turning it off needs
+   * none left unsold.
+   */
+  delivers_accounts: boolean;
   price_vnd: number;
   hot: boolean;
   listed: boolean;
@@ -31,8 +37,6 @@ export interface Announced {
 export interface NewStock extends StockInput {
   /** The count to start from; always 0 for a package that hands out accounts. */
   stock: number;
-  /** Fixed once the package is made. */
-  delivers_accounts: boolean;
 }
 
 /** What loading accounts did. Never the accounts themselves. */
@@ -126,6 +130,7 @@ function productFromApi(product: ApiProduct): TelegramProduct {
 
 function fieldsOf(input: StockInput) {
   return {
+    delivers_accounts: input.delivers_accounts,
     hot: input.hot,
     image_id: imageIdOf(input.image_url),
     listed: input.listed,
@@ -166,11 +171,7 @@ class StockService {
       const { data, error, response } = await apiClient.POST(
         "/dashboard/telegram/products",
         {
-          body: {
-            ...fieldsOf(input),
-            available: input.stock,
-            delivers_accounts: input.delivers_accounts,
-          },
+          body: { ...fieldsOf(input), available: input.stock },
         },
       );
 

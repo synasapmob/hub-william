@@ -16,7 +16,10 @@ use rand::RngCore;
 use sha2::Sha256;
 use uuid::Uuid;
 
-use crate::core::{ApiError, AppState};
+use crate::{
+    api::telegram::catalogue::has_open_orders,
+    core::{ApiError, AppState},
+};
 
 pub(crate) const MAXIMUM_ACCOUNTS_PER_LOAD: usize = 1000;
 /// A package that hands out accounts sells at most this many in one order, so the
@@ -264,6 +267,91 @@ pub(crate) async fn load_accounts(
         available,
         duplicates,
     })
+}
+
+/// Makes a package hand out accounts, or stop. It runs inside the transaction that
+/// edits the package, so a refusal undoes the whole edit.
+///
+/// Turning it on makes the count the number of accounts not sold, which for a
+/// package that never held any is 0: the count typed in by hand is gone, and the
+/// package is sold out until accounts are loaded. It is refused while buyers have
+/// orders open, since what they are handed is decided when they pay. Turning it
+/// off is refused while the package still holds accounts not sold, so none is left
+/// behind that nobody can load, list or sell; the accounts already sold stay as the
+/// record of what was handed out, and the count is set to 0, the number of accounts
+/// not sold.
+pub(crate) async fn set_delivers_accounts(
+    database: &mut sqlx::PgConnection,
+    slug: &str,
+    delivers: bool,
+    changed_by: Uuid,
+) -> Result<(), ApiError> {
+    let (product_id, current, count_now) = sqlx::query_as::<_, (Uuid, bool, i32)>(
+        "SELECT id, delivers_accounts, available FROM telegram_products
+         WHERE slug = $1 FOR UPDATE",
+    )
+    .bind(slug)
+    .fetch_optional(&mut *database)
+    .await
+    .map_err(database_error)?
+    .ok_or(ApiError::NotFound)?;
+    if current == delivers {
+        return Ok(());
+    }
+
+    let unsold = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM telegram_stock_accounts
+         WHERE product_id = $1 AND order_reference IS NULL",
+    )
+    .bind(product_id)
+    .fetch_one(&mut *database)
+    .await
+    .map_err(database_error)? as i32;
+
+    if delivers {
+        if has_open_orders(&mut *database, slug).await? {
+            return Err(ApiError::Validation(
+                "Buyers have orders open for this package. Try again once they have paid or run out.",
+            ));
+        }
+        sqlx::query(
+            "UPDATE telegram_products
+             SET delivers_accounts = TRUE, available = $2, updated_at = NOW()
+             WHERE id = $1",
+        )
+        .bind(product_id)
+        .bind(unsold)
+        .execute(&mut *database)
+        .await
+        .map_err(database_error)?;
+        if unsold != count_now {
+            record_change(database, product_id, unsold - count_now, unsold, changed_by).await?;
+        }
+
+        return Ok(());
+    }
+
+    if unsold > 0 {
+        return Err(ApiError::Validation(
+            "This package still holds accounts that are not sold. Take them out first, then turn this off.",
+        ));
+    }
+    // The count is the number of accounts not sold, which is none: it is set so,
+    // so a count that had drifted does not outlive the accounts it described.
+    sqlx::query(
+        "UPDATE telegram_products
+         SET delivers_accounts = FALSE, available = 0, updated_at = NOW()
+         WHERE id = $1",
+    )
+    .bind(product_id)
+    .execute(&mut *database)
+    .await
+    .map_err(database_error)?;
+    if count_now != 0 {
+        record_change(database, product_id, -count_now, 0, changed_by).await?;
+    }
+
+    Ok(())
 }
 
 /// Seals one line and puts it in stock. False when the package already holds that

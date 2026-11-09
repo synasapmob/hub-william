@@ -2556,7 +2556,7 @@
             }
           },
           "422": {
-            "description": "A field is out of range",
+            "description": "A field is out of range, buyers have orders open while the package is made to hand out accounts, or accounts not sold remain while it is made to stop",
             "content": {
               "application/json": {
                 "schema": {
@@ -5614,7 +5614,7 @@
           },
           "delivers_accounts": {
             "type": "boolean",
-            "description": "Hands the buyer an account when they have paid, from accounts loaded\nwith `POST .../accounts`. Fixed once the package is made."
+            "description": "Hands the buyer an account when they have paid, from accounts loaded\nwith `POST .../accounts`. It can be changed later with `PUT .../{slug}`."
           },
           "hot": {
             "type": "boolean"
@@ -5645,7 +5645,7 @@
           },
           "warranty_note": {
             "type": ["string", "null"],
-            "description": "The warranty note a buyer reads, up to 200 characters. Blank or absent\nuses the standard note for the warranty code."
+            "description": "The warranty note a buyer reads, up to 200 characters (line breaks count),\nkept as typed: line breaks, blank lines and spacing survive. Blank or absent\nuses the standard note for the warranty code."
           }
         }
       },
@@ -7843,7 +7843,7 @@
       },
       "UpdateProduct": {
         "type": "object",
-        "description": "Everything about a product that can be edited. The slug and the count are not\nin it: the slug is the product's identity, and the count has its own change.",
+        "description": "Everything about a product that can be edited. The slug and the count are not\nin it: the slug is the product's identity, and the count has its own change\n(a package that hands out accounts counts its accounts instead).",
         "required": [
           "hot",
           "listed",
@@ -7853,6 +7853,10 @@
           "warranty"
         ],
         "properties": {
+          "delivers_accounts": {
+            "type": ["boolean", "null"],
+            "description": "Makes the package hand out accounts, or stop. Absent leaves it as it is.\nTurning it on makes the count the number of accounts not sold (0 for a\npackage that never held any), so the count typed in by hand is gone; it is\nrefused while buyers have orders open. Turning it off is refused while the\npackage still holds accounts not sold."
+          },
           "hot": {
             "type": "boolean"
           },
@@ -7882,7 +7886,7 @@
           },
           "warranty_note": {
             "type": ["string", "null"],
-            "description": "The warranty note a buyer reads, up to 200 characters. Blank uses the\nstandard note for the warranty code. Absent leaves the note as it is,\nunless the warranty code changes, which resets it to the standard one."
+            "description": "The warranty note a buyer reads, up to 200 characters (line breaks count),\nkept as typed: line breaks, blank lines and spacing survive. Blank uses the\nstandard note for the warranty code. Absent leaves the note as it is,\nunless the warranty code changes, which resets it to the standard one."
           }
         }
       },

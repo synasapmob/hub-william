@@ -20,13 +20,14 @@ use crate::{
             AccountPage, AccountSearch, Actor, StockAccount,
             delete_account as delete_stock_account, edit_accounts as edit_stock_accounts,
             load_accounts, parse_accounts, reveal_accounts as reveal_stock_accounts,
-            search_accounts as search_stock_accounts, update_account as update_stock_account,
+            search_accounts as search_stock_accounts, set_delivers_accounts,
+            update_account as update_stock_account,
         },
         catalogue::{
             MAXIMUM_RESTOCK, MAXIMUM_STOCK, NewProduct, PRODUCT_COLUMNS, RESERVED_JOIN,
             TelegramProduct, default_warranty_note_en, default_warranty_note_vi, ensure_provider,
-            insert_product, normalize_price, normalize_slug, normalize_text, normalize_warranty,
-            refusal_to_count_by_hand, slugify, warranty_notes,
+            has_open_orders, insert_product, normalize_price, normalize_slug, normalize_text,
+            normalize_warranty, refusal_to_count_by_hand, slugify, warranty_notes,
         },
     },
     core::{ApiError, AppState},
@@ -112,7 +113,7 @@ pub struct CreateProduct {
     /// hands out accounts.
     pub available: i32,
     /// Hands the buyer an account when they have paid, from accounts loaded
-    /// with `POST .../accounts`. Fixed once the package is made.
+    /// with `POST .../accounts`. It can be changed later with `PUT .../{slug}`.
     #[serde(default)]
     pub delivers_accounts: bool,
     pub hot: bool,
@@ -124,15 +125,23 @@ pub struct CreateProduct {
     pub variant: Option<String>,
     /// `WF`, `W7D` or `NW`.
     pub warranty: String,
-    /// The warranty note a buyer reads, up to 200 characters. Blank or absent
+    /// The warranty note a buyer reads, up to 200 characters (line breaks count),
+    /// kept as typed: line breaks, blank lines and spacing survive. Blank or absent
     /// uses the standard note for the warranty code.
     pub warranty_note: Option<String>,
 }
 
 /// Everything about a product that can be edited. The slug and the count are not
-/// in it: the slug is the product's identity, and the count has its own change.
+/// in it: the slug is the product's identity, and the count has its own change
+/// (a package that hands out accounts counts its accounts instead).
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateProduct {
+    /// Makes the package hand out accounts, or stop. Absent leaves it as it is.
+    /// Turning it on makes the count the number of accounts not sold (0 for a
+    /// package that never held any), so the count typed in by hand is gone; it is
+    /// refused while buyers have orders open. Turning it off is refused while the
+    /// package still holds accounts not sold.
+    pub delivers_accounts: Option<bool>,
     pub hot: bool,
     pub image_id: Option<Uuid>,
     pub listed: bool,
@@ -142,7 +151,8 @@ pub struct UpdateProduct {
     pub variant: Option<String>,
     /// `WF`, `W7D` or `NW`.
     pub warranty: String,
-    /// The warranty note a buyer reads, up to 200 characters. Blank uses the
+    /// The warranty note a buyer reads, up to 200 characters (line breaks count),
+    /// kept as typed: line breaks, blank lines and spacing survive. Blank uses the
     /// standard note for the warranty code. Absent leaves the note as it is,
     /// unless the warranty code changes, which resets it to the standard one.
     pub warranty_note: Option<String>,
@@ -277,7 +287,7 @@ pub async fn create_product(
         (status = 401, description = "Hub login required", body = crate::core::ErrorResponse),
         (status = 403, description = "The role may not manage stock", body = crate::core::ErrorResponse),
         (status = 404, description = "No such product", body = crate::core::ErrorResponse),
-        (status = 422, description = "A field is out of range", body = crate::core::ErrorResponse)
+        (status = 422, description = "A field is out of range, buyers have orders open while the package is made to hand out accounts, or accounts not sold remain while it is made to stop", body = crate::core::ErrorResponse)
     ),
     tag = "dashboard"
 )]
@@ -287,7 +297,7 @@ pub async fn update_product(
     Path(slug): Path<String>,
     Json(body): Json<UpdateProduct>,
 ) -> Result<Json<DashboardProduct>, ApiError> {
-    authorize(&state, &jar, Permission::Stock).await?;
+    let user = authorize(&state, &jar, Permission::Stock).await?;
     let slug = normalize_slug(&slug)?;
 
     let provider_name = normalize_text(body.provider, 64)
@@ -350,6 +360,10 @@ pub async fn update_product(
 
     if updated.is_none() {
         return Err(ApiError::NotFound);
+    }
+    // In the same transaction, so a refusal undoes the rest of the edit too.
+    if let Some(delivers) = body.delivers_accounts {
+        set_delivers_accounts(&mut database, &slug, delivers, user.id).await?;
     }
     database.commit().await.map_err(database_error)?;
 
@@ -883,18 +897,7 @@ pub async fn delete_product(
     .map_err(database_error)?
     .ok_or(ApiError::NotFound)?;
 
-    let open_orders = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS (
-             SELECT 1 FROM telegram_orders
-             WHERE item_id = $1 AND status = 'awaiting_payment' AND expires_at > NOW()
-         )",
-    )
-    .bind(&slug)
-    .fetch_one(&mut *database)
-    .await
-    .map_err(database_error)?;
-
-    if open_orders {
+    if has_open_orders(&mut database, &slug).await? {
         return Err(ApiError::Validation(
             "Buyers have orders open for this product. Hide it instead, then remove it once they are settled.",
         ));

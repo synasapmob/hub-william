@@ -11,13 +11,15 @@ interface SaveStock {
 /**
  * Puts what the form produced on the server. The API keeps the edit of a package
  * and the change of its count apart, so an edit that moves the count is two
- * calls: the fields first, then the difference in stock.
+ * calls: the fields first, then the difference in stock. Making a package hand out
+ * accounts, or stop, is one of the fields, and the server sets the count with it.
  */
 export async function saveStock({
   previous,
   saved,
 }: SaveStock): Promise<TelegramProduct> {
   const fields = {
+    delivers_accounts: saved.delivers_accounts,
     hot: saved.hot,
     image_url: saved.image_url,
     listed: saved.listed,
@@ -30,13 +32,14 @@ export async function saveStock({
   };
 
   if (previous === null)
-    return stockService.create({
-      ...fields,
-      delivers_accounts: saved.delivers_accounts,
-      stock: saved.on_hand,
-    });
+    return stockService.create({ ...fields, stock: saved.on_hand });
 
   const edited = await stockService.update(previous.slug, fields);
+
+  // A package that hands out accounts counts them: the server has set the count
+  // if the package has just become one, and there is no count to move.
+  if (saved.delivers_accounts) return edited;
+
   const delta = saved.on_hand - previous.on_hand;
 
   return delta === 0 ? edited : stockService.changeStock(previous.slug, delta);

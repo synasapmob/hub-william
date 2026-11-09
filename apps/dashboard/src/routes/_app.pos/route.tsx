@@ -20,9 +20,10 @@ import {
   serviceStockService,
   type ServiceListingChange,
 } from "@/services/service-stock/service-stock-service";
-import { loadedText } from "@/services/stock/stock-labels";
+import { editedText, loadedText } from "@/services/stock/stock-labels";
 import {
   stockService,
+  type AccountsEdited,
   type AccountsLoaded,
   type Announced,
 } from "@/services/stock/stock-service";
@@ -218,7 +219,7 @@ export default function PosRoute() {
             onDelete={() =>
               dialog.item && setDialog({ kind: "delete", item: dialog.item })
             }
-            onSave={async (saved, { accounts, message }) => {
+            onSave={async (saved, { accounts, block, message }) => {
               const title = `${dialog.item ? "Đã lưu" : "Đã thêm"} ${stockItemTitle(saved)}`;
 
               let stocked;
@@ -243,6 +244,7 @@ export default function PosRoute() {
               // A message about new stock that did not arrive would be false, so
               // none is sent then.
               let loaded: AccountsLoaded | null = null;
+              let edited: AccountsEdited | null = null;
 
               if (accounts !== "") {
                 try {
@@ -260,10 +262,32 @@ export default function PosRoute() {
                 }
               }
 
-              // The count on the page is the one before the accounts went in.
-              if (loaded) void refresh();
+              // The accounts the owner opened and edited as a block go in the same way.
+              if (block) {
+                try {
+                  edited = await stockService.editAccounts(stocked.slug, {
+                    accounts: block.text,
+                    dryRun: false,
+                    ids: block.ids,
+                  });
+                } catch (error) {
+                  void refresh();
+                  toast.warning(title, {
+                    description: `Chưa lưu được thay đổi của tài khoản: ${messageOf(error) ?? "máy chủ không trả lời."} Gói đã được lưu; mở lại gói để sửa tài khoản.`,
+                  });
 
-              const loadedNote = loaded ? loadedText(loaded) : "";
+                  return;
+                }
+              }
+
+              // The count on the page is the one before the accounts went in.
+              if (loaded || edited) void refresh();
+
+              const loadedNote = loaded
+                ? loadedText(loaded)
+                : edited
+                  ? editedText(edited)
+                  : "";
 
               if (message === "") {
                 if (loadedNote === "") toast.success(title);

@@ -52,6 +52,7 @@ const PRODUCT: TelegramProduct = {
 };
 
 const INPUT: StockInput = {
+  delivers_accounts: false,
   hot: true,
   image_url: imageUrl(IMAGE_ID),
   listed: true,
@@ -183,13 +184,7 @@ describe("stockService.create", () => {
   it("sends the fields, the first count and the picture's id", async () => {
     const spy = answer(json(201, API_PRODUCT));
 
-    expect(
-      await stockService.create({
-        ...INPUT,
-        delivers_accounts: false,
-        stock: 12,
-      }),
-    ).toEqual(PRODUCT);
+    expect(await stockService.create({ ...INPUT, stock: 12 })).toEqual(PRODUCT);
 
     const request = await sent(spy);
 
@@ -218,7 +213,6 @@ describe("stockService.create", () => {
 
     await stockService.create({
       ...INPUT,
-      delivers_accounts: false,
       stock: 1,
       warranty_note: "Không bảo hành đổi trả",
     });
@@ -233,7 +227,6 @@ describe("stockService.create", () => {
 
     await stockService.create({
       ...INPUT,
-      delivers_accounts: false,
       image_url: "blob:somewhere",
       stock: 1,
     });
@@ -250,7 +243,7 @@ describe("stockService.create", () => {
     );
 
     await expect(
-      stockService.create({ ...INPUT, delivers_accounts: false, stock: 1 }),
+      stockService.create({ ...INPUT, stock: 1 }),
     ).rejects.toMatchObject({
       code: "already_exists",
       message: "That product already exists.",
@@ -598,6 +591,7 @@ describe("stockService.update", () => {
       path: "/dashboard/telegram/products/claude-pro-1-thang",
     });
     expect(JSON.parse(request.body as string)).toEqual({
+      delivers_accounts: false,
       hot: true,
       image_id: IMAGE_ID,
       listed: true,
@@ -609,6 +603,37 @@ describe("stockService.update", () => {
       // No note of the shop's own asks the server for the standard one.
       warranty_note: "",
     });
+  });
+});
+
+describe("stockService.update, making a package hand out accounts", () => {
+  it("sends the flag with the other fields, and answers the count the server set", async () => {
+    const spy = answer(
+      json(200, { ...API_PRODUCT, delivers_accounts: true, on_hand: 0 }),
+    );
+
+    const converted = await stockService.update("claude-pro-1-thang", {
+      ...INPUT,
+      delivers_accounts: true,
+    });
+
+    expect(JSON.parse((await sent(spy)).body as string).delivers_accounts).toBe(
+      true,
+    );
+    expect(converted).toMatchObject({ delivers_accounts: true, on_hand: 0 });
+  });
+
+  it("raises the server's words when it will not", async () => {
+    answer(
+      json(422, {
+        code: "validation_error",
+        message: "This package still holds accounts that are not sold.",
+      }),
+    );
+
+    await expect(
+      stockService.update("claude-pro-1-thang", INPUT),
+    ).rejects.toMatchObject({ code: "validation_error", status: 422 });
   });
 });
 
