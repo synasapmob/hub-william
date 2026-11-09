@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
+import { AccountsChangeConfirm } from "@/components/account-editor-dialog";
+import { useDashboardSession } from "@/components/dashboard-shell/dashboard-session-context";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -30,6 +33,10 @@ import {
   warrantyLabels,
 } from "@/services/sales/sales-labels";
 import type { TelegramProduct, Warranty } from "@/services/sales/sales-types";
+import {
+  stockService,
+  type AccountsEdited,
+} from "@/services/stock/stock-service";
 import { checkAccountLines } from "@/utils/utils.account-lines";
 import { stockItemTitle } from "@/utils/utils.format";
 import slugify from "@/utils/utils.slug";
@@ -40,6 +47,9 @@ import {
   parsePackageName,
 } from "./package-name";
 import StockAccounts from "./stock-accounts";
+import StockAccountsEditor, {
+  type OpenedAccounts,
+} from "./stock-accounts-editor";
 import StockAdjuster from "./stock-adjuster";
 
 // Limits `apps/api` enforces on a product.
@@ -71,6 +81,8 @@ interface Draft {
   deliversAccounts: boolean;
   /** Accounts to load on save, one `email|mật khẩu` per line. Never kept anywhere else. */
   accounts: string;
+  /** The owner's block of the accounts not sold, as it is being edited. Empty until they are opened. */
+  block: string;
 }
 
 function draftOf(item: TelegramProduct | null, provider: string): Draft {
@@ -86,6 +98,7 @@ function draftOf(item: TelegramProduct | null, provider: string): Draft {
     message: "",
     deliversAccounts: item?.delivers_accounts ?? false,
     accounts: "",
+    block: "",
   };
 }
 
@@ -120,10 +133,15 @@ interface StockFormDialogProps {
   /**
    * `message` is what the bot sends to Telegram on save; empty sends nothing.
    * `accounts` is what is loaded into stock on save; empty loads nothing.
+   * `block` is the owner's edit of the accounts they opened, null if none.
    */
   onSave: (
     item: TelegramProduct,
-    change: { accounts: string; message: string },
+    change: {
+      accounts: string;
+      block: { ids: string[]; text: string } | null;
+      message: string;
+    },
   ) => Promise<void>;
 }
 
@@ -137,8 +155,12 @@ export default function StockFormDialog({
   providers,
   takenSlugs,
 }: StockFormDialogProps) {
+  const session = useDashboardSession();
   const [draft, setDraft] = useState(() => draftOf(item, provider));
   const [saving, setSaving] = useState(false);
+  // The accounts the owner opened to edit as a block, and what saving it would do.
+  const [opened, setOpened] = useState<OpenedAccounts | null>(null);
+  const [change, setChange] = useState<AccountsEdited | null>(null);
 
   const editing = item !== null;
   // A name left as it opened keeps the plan and variant it came with, since a
@@ -158,13 +180,18 @@ export default function StockFormDialog({
     ? (item?.on_hand ?? 0)
     : (item?.on_hand ?? 0) + adjust;
   const accounts = checkAccountLines(draft.accounts);
+  const block = checkAccountLines(draft.block);
+  const blockChanged = opened !== null && draft.block !== opened.original;
   // Accounts not sold have to be dealt with before a package stops handing them
   // out, so the switch holds until none is left.
   const holdsAccounts = !!item?.delivers_accounts && item.on_hand > 0;
   const message = draft.message.trim();
   const messageValid = message.length <= MAX_MESSAGE;
   const warrantyNote = draft.warrantyNote.trim();
-  const warrantyNoteValid = warrantyNote.length <= MAX_WARRANTY_NOTE;
+  // In characters as the server counts them, line breaks included, so an emoji is
+  // one and not the two JavaScript's length makes of it.
+  const warrantyNoteLength = [...warrantyNote].length;
+  const warrantyNoteValid = warrantyNoteLength <= MAX_WARRANTY_NOTE;
   const slugTaken = !editing && takenSlugs.includes(slug);
   // The agents Hub William supports, chosen from and never typed, so a provider
   // cannot be misspelt into a card of its own. A provider the shop already has
@@ -196,6 +223,7 @@ export default function StockFormDialog({
       adjust <= (editing ? MAX_RESTOCK : MAX_INITIAL_STOCK));
   const valid =
     accounts.problem === null &&
+    block.problem === null &&
     messageValid &&
     warrantyNoteValid &&
     draft.provider.trim() !== "" &&
@@ -205,6 +233,25 @@ export default function StockFormDialog({
     !slugTaken &&
     priceValid &&
     stockValid;
+
+  const product: TelegramProduct = {
+    type: "telegram",
+    slug,
+    provider: draft.provider.trim(),
+    plan,
+    variant,
+    warranty: draft.warranty,
+    warranty_note: warrantyNote || null,
+    delivers_accounts: delivers,
+    price_vnd: price,
+    on_hand: onHand,
+    reserved: item?.reserved ?? 0,
+    hot: draft.hot,
+    listed: draft.listed,
+    // No picture is chosen here: the provider's own icon is shown, so a package
+    // keeps the address it had and a new one has none.
+    image_url: item?.image_url ?? "",
+  };
 
   function set<Key extends keyof Draft>(key: Key, value: Draft[Key]) {
     setDraft((current) => ({ ...current, [key]: value }));
@@ -217,11 +264,38 @@ export default function StockFormDialog({
 
     try {
       await onSave(saved, {
-        accounts: delivers ? draft.accounts.trim() : "",
+        accounts: delivers && opened === null ? draft.accounts.trim() : "",
+        block:
+          opened && blockChanged
+            ? { ids: opened.ids, text: draft.block }
+            : null,
         message,
       });
     } catch {
       // Reported by the page.
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // What editing the opened accounts would change, asked for before anything is written.
+  async function check() {
+    if (!item || !opened) return;
+
+    setSaving(true);
+
+    try {
+      setChange(
+        await stockService.editAccounts(item.slug, {
+          accounts: draft.block,
+          dryRun: true,
+          ids: opened.ids,
+        }),
+      );
+    } catch (error) {
+      toast.error("Không kiểm tra được thay đổi của tài khoản", {
+        description: error instanceof Error ? error.message : undefined,
+      });
     } finally {
       setSaving(false);
     }
@@ -319,7 +393,7 @@ export default function StockFormDialog({
                     Ghi chú bảo hành (tùy chọn)
                   </Label>
 
-                  {warrantyNote.length > 0 && (
+                  {warrantyNoteLength > 0 && (
                     <span
                       className={
                         warrantyNoteValid
@@ -327,7 +401,7 @@ export default function StockFormDialog({
                           : "text-xs text-destructive tabular-nums"
                       }
                     >
-                      {warrantyNote.length}/{MAX_WARRANTY_NOTE}
+                      {warrantyNoteLength}/{MAX_WARRANTY_NOTE}
                     </span>
                   )}
                 </Flex>
@@ -336,7 +410,7 @@ export default function StockFormDialog({
                   aria-invalid={!warrantyNoteValid}
                   id="stock-warranty-note"
                   placeholder="Ví dụ: Bảo hành login check 1 tiếng (sau 1 tiếng kể từ khi mua không bảo hành mọi trường hợp)"
-                  rows={2}
+                  rows={3}
                   value={draft.warrantyNote}
                   onChange={(event) => set("warrantyNote", event.target.value)}
                 />
@@ -349,7 +423,7 @@ export default function StockFormDialog({
                   }
                 >
                   {warrantyNoteValid
-                    ? "Khách đọc dòng này khi chọn gói trong bot. Để trống thì dùng ghi chú chuẩn của loại bảo hành đã chọn."
+                    ? "Khách đọc đúng như bạn gõ khi chọn gói trong bot: xuống dòng, dòng trống và dấu cách đều được giữ nguyên. Để trống thì dùng ghi chú chuẩn của loại bảo hành đã chọn."
                     : `Ghi chú bảo hành dài tối đa ${MAX_WARRANTY_NOTE} ký tự.`}
                 </p>
               </div>
@@ -375,55 +449,72 @@ export default function StockFormDialog({
 
           {delivers ? (
             <div className="space-y-4">
-              {item?.delivers_accounts && <StockAccounts item={item} />}
+              {item?.delivers_accounts &&
+                (session.can("secrets") ? (
+                  <StockAccountsEditor
+                    item={item}
+                    lines={block}
+                    opened={opened}
+                    text={draft.block}
+                    onOpen={(next) => {
+                      setOpened(next);
+                      set("block", next?.original ?? "");
+                    }}
+                    onTextChange={(next) => set("block", next)}
+                  />
+                ) : (
+                  <StockAccounts item={item} />
+                ))}
 
-              <div className="space-y-1.5">
-                <Flex className="items-baseline justify-between gap-2">
-                  <Label htmlFor="stock-accounts">
-                    {item?.delivers_accounts
-                      ? "Nạp thêm tài khoản"
-                      : "Nạp tài khoản"}{" "}
-                    (tùy chọn)
-                  </Label>
+              {opened === null && (
+                <div className="space-y-1.5">
+                  <Flex className="items-baseline justify-between gap-2">
+                    <Label htmlFor="stock-accounts">
+                      {item?.delivers_accounts
+                        ? "Nạp thêm tài khoản"
+                        : "Nạp tài khoản"}{" "}
+                      (tùy chọn)
+                    </Label>
 
-                  {accounts.count > 0 && (
-                    <span className="text-xs text-muted-foreground tabular-nums">
-                      {accounts.count} tài khoản
-                    </span>
-                  )}
-                </Flex>
+                    {accounts.count > 0 && (
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        {accounts.count} tài khoản
+                      </span>
+                    )}
+                  </Flex>
 
-                <Textarea
-                  aria-invalid={accounts.problem !== null}
-                  autoCapitalize="off"
-                  autoComplete="off"
-                  autoCorrect="off"
-                  className="font-mono"
-                  id="stock-accounts"
-                  placeholder={
-                    "email1@example.com|mat-khau-1\nemail2@example.com|mat-khau-2"
-                  }
-                  rows={5}
-                  spellCheck={false}
-                  value={draft.accounts}
-                  onChange={(event) => set("accounts", event.target.value)}
-                />
+                  <Textarea
+                    aria-invalid={accounts.problem !== null}
+                    autoCapitalize="off"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    className="font-mono"
+                    id="stock-accounts"
+                    placeholder={
+                      "email1@example.com|mat-khau-1\nemail2@example.com|mat-khau-2"
+                    }
+                    rows={5}
+                    spellCheck={false}
+                    value={draft.accounts}
+                    onChange={(event) => set("accounts", event.target.value)}
+                  />
 
-                <p
-                  className={
-                    accounts.problem === null
-                      ? "text-xs text-muted-foreground"
-                      : "text-xs text-destructive"
-                  }
-                >
-                  {accounts.problem ??
-                    `${
-                      item?.delivers_accounts
-                        ? `Trong kho ${item.on_hand} tài khoản chưa bán. `
-                        : "Tồn kho là số tài khoản đã nạp. "
-                    }Mỗi dòng một tài khoản, dạng email|mật khẩu. Một dòng là một tài khoản, kể cả khi email giống nhau. Tài khoản được mã hóa khi lưu; danh sách chỉ hiện email đã che, chủ shop xem và sửa được bằng nút Xem / Sửa.`}
-                </p>
-              </div>
+                  <p
+                    className={
+                      accounts.problem === null
+                        ? "text-xs text-muted-foreground"
+                        : "text-xs text-destructive"
+                    }
+                  >
+                    {accounts.problem ??
+                      `${
+                        item?.delivers_accounts
+                          ? `Trong kho ${item.on_hand} tài khoản chưa bán. `
+                          : "Tồn kho là số tài khoản đã nạp. "
+                      }Mỗi dòng một tài khoản, dạng email|mật khẩu. Một dòng là một tài khoản, kể cả khi email giống nhau. Tài khoản được mã hóa khi lưu.`}
+                  </p>
+                </div>
+              )}
             </div>
           ) : (
             <StockAdjuster
@@ -471,8 +562,8 @@ export default function StockFormDialog({
 
           {holdsAccounts && (
             <p className="text-xs text-muted-foreground">
-              Còn {item.on_hand} tài khoản chưa bán. Xóa hết (nút Xem / sửa cả
-              gói, để trống rồi lưu) trước khi tắt giao tự động.
+              Còn {item.on_hand} tài khoản chưa bán. Xóa hết các dòng trong danh
+              sách tài khoản rồi lưu, sau đó mới tắt giao tự động.
             </p>
           )}
 
@@ -550,31 +641,26 @@ export default function StockFormDialog({
 
           <Button
             disabled={!valid || saving}
-            onClick={() =>
-              void submit({
-                type: "telegram",
-                slug,
-                provider: draft.provider.trim(),
-                plan,
-                variant,
-                warranty: draft.warranty,
-                warranty_note: warrantyNote || null,
-                delivers_accounts: delivers,
-                price_vnd: price,
-                on_hand: onHand,
-                reserved: item?.reserved ?? 0,
-                hot: draft.hot,
-                listed: draft.listed,
-                // No picture is chosen here: the provider's own icon is shown, so a
-                // package keeps the address it had and a new one has none.
-                image_url: item?.image_url ?? "",
-              })
-            }
+            onClick={() => void (blockChanged ? check() : submit(product))}
           >
             {editing ? "Lưu" : "Thêm"}
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      {change && (
+        <AccountsChangeConfirm
+          error={null}
+          pending={saving}
+          plan={change}
+          productTitle={stockItemTitle(product)}
+          onBack={() => setChange(null)}
+          onConfirm={() => {
+            setChange(null);
+            void submit(product);
+          }}
+        />
+      )}
     </Dialog>
   );
 }

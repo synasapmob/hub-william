@@ -538,9 +538,21 @@ pub(crate) fn normalize_text(value: String, maximum_characters: usize) -> Option
 /// quantity prompt, so it is refused rather than quietly cut short.
 pub(crate) const MAXIMUM_WARRANTY_NOTE_CHARACTERS: usize = 200;
 
-/// What the shop wrote, tidied; `None` when it wrote nothing.
+/// What the shop wrote, as it wrote it; `None` when it wrote nothing. Line breaks,
+/// blank lines and the spaces between words are kept, since the buyer is shown
+/// the note as typed. Only what cannot be seen is tidied: a Windows or old-Mac
+/// line break becomes `\n`, the control characters that would show as boxes are
+/// dropped (a tab stays), and the blank space before the first and after the last
+/// character is trimmed. Tidied twice, it comes out the same, so a form that sends
+/// back the note it was given changes nothing.
 pub(crate) fn normalize_warranty_note(value: String) -> Result<Option<String>, ApiError> {
-    let note = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    let note = value
+        .replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .chars()
+        .filter(|character| !character.is_control() || matches!(character, '\n' | '\t'))
+        .collect::<String>();
+    let note = note.trim();
 
     if note.chars().count() > MAXIMUM_WARRANTY_NOTE_CHARACTERS {
         return Err(ApiError::Validation(
@@ -548,7 +560,7 @@ pub(crate) fn normalize_warranty_note(value: String) -> Result<Option<String>, A
         ));
     }
 
-    Ok((!note.is_empty()).then_some(note))
+    Ok((!note.is_empty()).then(|| note.to_owned()))
 }
 
 /// The note to store in English and in Vietnamese. A note the shop wrote is
@@ -639,8 +651,59 @@ fn database_error(error: sqlx::Error) -> ApiError {
 mod tests {
     use super::{
         TelegramProduct, group_by_provider, normalize_price, normalize_slug, normalize_stock,
-        normalize_warranty, slugify,
+        normalize_warranty, normalize_warranty_note, slugify,
     };
+
+    fn note(value: &str) -> Option<String> {
+        normalize_warranty_note(value.to_owned()).unwrap()
+    }
+
+    #[test]
+    fn a_warranty_note_keeps_its_line_breaks_blank_lines_and_spacing() {
+        let written = "Bảo hành 30 ngày\n\n  - Đổi tài khoản khác\n- Không hoàn tiền   sau 7 ngày\n\n\nLiên hệ shop";
+
+        assert_eq!(note(written).as_deref(), Some(written));
+    }
+
+    #[test]
+    fn a_warranty_note_is_only_trimmed_where_it_begins_and_ends() {
+        assert_eq!(
+            note("\n  Bảo hành đầy đủ\n\nĐổi trong 7 ngày \n\n").as_deref(),
+            Some("Bảo hành đầy đủ\n\nĐổi trong 7 ngày")
+        );
+        assert_eq!(note(" \n \t \n"), None);
+        assert_eq!(note(""), None);
+    }
+
+    #[test]
+    fn a_warranty_note_takes_every_kind_of_line_break_as_one() {
+        assert_eq!(
+            note("một\r\nhai\rba\n\r\nbốn").as_deref(),
+            Some("một\nhai\nba\n\nbốn")
+        );
+    }
+
+    #[test]
+    fn a_warranty_note_loses_only_what_cannot_be_seen() {
+        // A bell, a null and an escape would show as boxes; a tab is kept.
+        assert_eq!(note("a\u{7}b\u{0}c\u{1b}d\te").as_deref(), Some("abcd\te"));
+    }
+
+    #[test]
+    fn a_warranty_note_tidied_twice_comes_out_the_same() {
+        let once = note("  một\r\n\r\n  hai   ba \u{7}\n").unwrap();
+
+        assert_eq!(note(&once).as_deref(), Some(once.as_str()));
+    }
+
+    #[test]
+    fn a_warranty_note_is_counted_in_characters_with_its_line_breaks() {
+        let line = format!("{}\n", "ă".repeat(99));
+
+        // 99 + 1 + 99 + 1 + 1 = 201 once the last letter is added.
+        assert!(normalize_warranty_note(format!("{line}{line}x")).is_err());
+        assert!(normalize_warranty_note(format!("{line}{line}")).is_ok());
+    }
 
     #[test]
     fn a_slug_folds_accents_and_collapses_separators() {

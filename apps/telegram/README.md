@@ -21,7 +21,9 @@ Warranty codes are stable and customer-facing: `WF` is a full warranty, `W7D`
 is seven days, `NW` is no warranty beyond a one-hour login check. A package carries exactly one of them — a plan
 sold under two warranties is two catalogue entries. Each code has a standard warranty note in the
 quantity prompt; the dashboard's stock form can replace it with the shop's own words (up to 200
-characters), which are shown to readers of both languages.
+characters), which are shown to readers of both languages exactly as typed: line breaks, blank
+lines and spacing are kept (only the ends are trimmed), and the message is sent as plain text so
+nothing in it is read as formatting.
 
 ## Checkout
 

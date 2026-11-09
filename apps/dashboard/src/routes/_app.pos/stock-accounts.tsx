@@ -2,8 +2,6 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
-import AccountEditorDialog from "@/components/account-editor-dialog";
-import { useDashboardSession } from "@/components/dashboard-shell/dashboard-session-context";
 import { Button } from "@/components/ui/button";
 import Flex from "@/components/ui/flex";
 import type { TelegramProduct } from "@/services/sales/sales-types";
@@ -27,16 +25,14 @@ function standing(account: StockAccount) {
 }
 
 /**
- * The accounts in stock for a package: each with its email hidden, whether it is
- * sold, who loaded it, a button to take an unsold one out and, for the owner, one
- * to look at it. A collaborator's list is only what they loaded.
+ * The accounts in stock for a package, for those who may not open them: each with
+ * its email hidden, whether it is sold, who loaded it, and a button to take an
+ * unsold one out. A collaborator's list is only what they loaded. The owner sees
+ * `StockAccountsEditor` instead.
  */
 export default function StockAccounts({ item }: StockAccountsProps) {
-  const session = useDashboardSession();
   const queryClient = useQueryClient();
   const [confirming, setConfirming] = useState<string | null>(null);
-  // The accounts being opened: one of them, or every one not sold.
-  const [opening, setOpening] = useState<StockAccount[] | null>(null);
 
   const accounts = useQuery({
     queryFn: () => stockService.accounts(item.slug),
@@ -86,17 +82,6 @@ export default function StockAccounts({ item }: StockAccountsProps) {
         </span>
       </Flex>
 
-      {session.can("secrets") && unsold.length > 0 && (
-        <Button
-          size="sm"
-          type="button"
-          variant="outline"
-          onClick={() => setOpening(unsold)}
-        >
-          Xem / sửa cả gói ({unsold.length})
-        </Button>
-      )}
-
       {rows.length > 0 ? (
         <ul className="max-h-56 divide-y overflow-y-auto rounded-md border">
           {rows.map((account) => (
@@ -110,18 +95,6 @@ export default function StockAccounts({ item }: StockAccountsProps) {
                   {standing(account)}
                 </p>
               </div>
-
-              {session.can("secrets") && (
-                <Button
-                  aria-label={`${account.order_reference ? "Xem" : "Xem / sửa"} tài khoản ${account.email_hint}`}
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                  onClick={() => setOpening([account])}
-                >
-                  {account.order_reference ? "Xem" : "Xem / Sửa"}
-                </Button>
-              )}
 
               {!account.order_reference &&
                 (confirming === account.id ? (
@@ -158,13 +131,6 @@ export default function StockAccounts({ item }: StockAccountsProps) {
         </ul>
       ) : (
         <p className="text-xs text-muted-foreground">Chưa có tài khoản nào.</p>
-      )}
-
-      {opening && (
-        <AccountEditorDialog
-          accounts={opening}
-          onClose={() => setOpening(null)}
-        />
       )}
     </div>
   );
