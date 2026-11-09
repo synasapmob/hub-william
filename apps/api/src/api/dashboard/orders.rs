@@ -14,7 +14,7 @@ use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use crate::{
-    api::telegram::{ORDER_COLUMNS, TelegramOrder},
+    api::telegram::{ORDER_COLUMNS, TelegramOrder, accounts::use_up_stock},
     core::{ApiError, AppState},
 };
 
@@ -132,7 +132,10 @@ fn search_pattern(query: Option<String>) -> Option<String> {
     })
 }
 
-fn page_bounds(page: Option<i64>, page_size: Option<i64>) -> Result<(i64, i64), ApiError> {
+pub(super) fn page_bounds(
+    page: Option<i64>,
+    page_size: Option<i64>,
+) -> Result<(i64, i64), ApiError> {
     let page = page.unwrap_or(1);
     let page_size = page_size.unwrap_or(DEFAULT_PAGE_SIZE);
 
@@ -329,18 +332,15 @@ pub async fn pay_order(
         });
     };
 
-    // A paid order stops holding stock and starts using it up, as when SePay
-    // settles one. `GREATEST` covers a count lowered while the order was open.
-    sqlx::query(
-        "UPDATE telegram_products
-         SET available = GREATEST(available - $2, 0), updated_at = NOW()
-         WHERE slug = $1",
+    // A paid order stops holding stock and starts using it up, and hands out its
+    // accounts, exactly as when SePay settles one.
+    use_up_stock(
+        &mut database,
+        &settled.item_id,
+        &settled.reference,
+        settled.quantity,
     )
-    .bind(&settled.item_id)
-    .bind(settled.quantity)
-    .execute(&mut *database)
-    .await
-    .map_err(database_error)?;
+    .await?;
 
     database.commit().await.map_err(database_error)?;
 

@@ -14,6 +14,10 @@ pub struct AppConfig {
     pub cookie_name_suffix: String,
     pub credential_encryption_key: [u8; 32],
     pub frontend_origin: HeaderValue,
+    /// Encrypts the accounts a Telegram package hands to a buyer. Separate from
+    /// the provider credential key so one leak does not open both. Unset, the
+    /// service runs and simply cannot load accounts.
+    pub stock_encryption_key: Option<[u8; 32]>,
     pub telegram_service_token: Option<Vec<u8>>,
     /// Where `apps/telegram` listens, so the dashboard can have the bot send a
     /// message. Unset, the dashboard can read and change the shop but not announce.
@@ -125,6 +129,23 @@ impl AppConfig {
                 )
             })?;
 
+        // A key that is set but wrong is refused at start, not ignored: running
+        // without the encryption the operator thinks is on is the worse mistake.
+        let stock_encryption_key = non_empty_env("STOCK_ENCRYPTION_KEY")
+            .map(|value| {
+                URL_SAFE_NO_PAD
+                    .decode(value)
+                    .ok()
+                    .and_then(|bytes| <[u8; 32]>::try_from(bytes).ok())
+                    .ok_or_else(|| {
+                        ConfigError(
+                            "STOCK_ENCRYPTION_KEY must be a base64url-encoded 32-byte key"
+                                .to_owned(),
+                        )
+                    })
+            })
+            .transpose()?;
+
         let stripe_secret_key = non_empty_env("STRIPE_SECRET_KEY");
         let stripe_webhook_secret = non_empty_env("STRIPE_WEBHOOK_SECRET");
         if stripe_secret_key.is_some() != stripe_webhook_secret.is_some() {
@@ -138,6 +159,7 @@ impl AppConfig {
             cookie_secure,
             cookie_name_suffix,
             credential_encryption_key,
+            stock_encryption_key,
             frontend_origin,
             telegram_service_token: env::var("TELEGRAM_SERVICE_TOKEN")
                 .ok()
@@ -224,6 +246,7 @@ impl Default for AppConfig {
             cookie_secure: false,
             cookie_name_suffix: String::new(),
             credential_encryption_key: [7; 32],
+            stock_encryption_key: Some([9; 32]),
             frontend_origin: HeaderValue::from_static("http://localhost:5173"),
             telegram_service_token: None,
             telegram_adapter_url: None,

@@ -29,6 +29,8 @@ pub enum Permission {
     Stock,
     Revenue,
     Staff,
+    /// Looking at the password of an account in stock. Only the owner.
+    Secrets,
 }
 
 impl Role {
@@ -42,6 +44,7 @@ impl Role {
                 Permission::Stock,
                 Permission::Revenue,
                 Permission::Staff,
+                Permission::Secrets,
             ],
             Self::Manager => &[
                 Permission::Orders,

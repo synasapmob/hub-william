@@ -5,27 +5,37 @@
 
 use axum::{
     Json,
-    extract::{Path, State},
-    http::StatusCode,
+    extract::{Path, Query, State},
+    http::{StatusCode, header},
 };
 use axum_extra::extract::CookieJar;
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use crate::{
-    api::telegram::catalogue::{
-        MAXIMUM_RESTOCK, MAXIMUM_STOCK, NewProduct, PRODUCT_COLUMNS, RESERVED_JOIN,
-        TelegramProduct, default_warranty_note_en, default_warranty_note_vi, ensure_provider,
-        insert_product, normalize_price, normalize_slug, normalize_text, normalize_warranty,
-        slugify, warranty_notes,
+    api::auth::verify_password,
+    api::telegram::{
+        accounts::{
+            AccountPage, AccountSearch, Actor, StockAccount,
+            delete_account as delete_stock_account, edit_accounts as edit_stock_accounts,
+            load_accounts, parse_accounts, reveal_accounts as reveal_stock_accounts,
+            search_accounts as search_stock_accounts, update_account as update_stock_account,
+        },
+        catalogue::{
+            MAXIMUM_RESTOCK, MAXIMUM_STOCK, NewProduct, PRODUCT_COLUMNS, RESERVED_JOIN,
+            TelegramProduct, default_warranty_note_en, default_warranty_note_vi, ensure_provider,
+            insert_product, normalize_price, normalize_slug, normalize_text, normalize_warranty,
+            refusal_to_count_by_hand, slugify, warranty_notes,
+        },
     },
     core::{ApiError, AppState},
 };
 
 use super::{
-    access::{Permission, authorize},
+    access::{DashboardUser, Permission, Role, authorize},
     database_error,
+    orders::page_bounds,
 };
 
 /// A product as the dashboard shows it: the catalogue's fields that a page uses,
@@ -34,6 +44,9 @@ use super::{
 pub struct DashboardProduct {
     /// What a buyer may still order: `on_hand` less `reserved`.
     pub available: i32,
+    /// Hands the buyer an account when they have paid. Its count is the number
+    /// of accounts not yet sold, so it cannot be changed by hand.
+    pub delivers_accounts: bool,
     pub hot: bool,
     /// The picture, served by `GET /dashboard/images/{id}`.
     pub image_id: Option<Uuid>,
@@ -75,6 +88,7 @@ impl From<ProductRow> for DashboardProduct {
 
         Self {
             available: product.available,
+            delivers_accounts: product.delivers_accounts,
             hot: product.hot,
             image_id,
             listed: product.listed,
@@ -94,8 +108,13 @@ impl From<ProductRow> for DashboardProduct {
 /// What a person types into the form; the slug is made from it, once.
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateProduct {
-    /// The count to start from, 0 to 1,000,000.
+    /// The count to start from, 0 to 1,000,000. Always 0 for a package that
+    /// hands out accounts.
     pub available: i32,
+    /// Hands the buyer an account when they have paid, from accounts loaded
+    /// with `POST .../accounts`. Fixed once the package is made.
+    #[serde(default)]
+    pub delivers_accounts: bool,
     pub hot: bool,
     pub image_id: Option<Uuid>,
     pub listed: bool,
@@ -223,6 +242,7 @@ pub async fn create_product(
         NewProduct {
             available: body.available,
             category: None,
+            delivers_accounts: body.delivers_accounts,
             detail: None,
             hot: body.hot,
             image_id: body.image_id,
@@ -371,7 +391,7 @@ pub async fn change_stock(
     let after = sqlx::query_scalar::<_, i32>(
         "UPDATE telegram_products
          SET available = available + $2, updated_at = NOW()
-         WHERE slug = $1 AND available + $2 >= 0
+         WHERE slug = $1 AND available + $2 >= 0 AND NOT delivers_accounts
          RETURNING available",
     )
     .bind(&slug)
@@ -381,18 +401,15 @@ pub async fn change_stock(
     .map_err(database_error)?;
 
     let Some(after) = after else {
-        let exists = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS (SELECT 1 FROM telegram_products WHERE slug = $1)",
-        )
-        .bind(&slug)
-        .fetch_one(&mut *database)
-        .await
-        .map_err(database_error)?;
+        let refusal = refusal_to_count_by_hand(&mut database, &slug).await?;
 
-        return Err(if exists {
-            ApiError::Validation("That takes out more units than there are in stock.")
-        } else {
-            ApiError::NotFound
+        return Err(match refusal {
+            ApiError::NotFound => ApiError::NotFound,
+            // It is there and counts by hand, so the guard was what stopped it.
+            _ if !delivers_accounts(&mut database, &slug).await? => {
+                ApiError::Validation("That takes out more units than there are in stock.")
+            }
+            other => other,
         });
     };
 
@@ -411,6 +428,426 @@ pub async fn change_stock(
 
     database.commit().await.map_err(database_error)?;
     Ok(Json(load(&state, &slug).await?))
+}
+
+async fn delivers_accounts(
+    database: &mut sqlx::PgConnection,
+    slug: &str,
+) -> Result<bool, ApiError> {
+    sqlx::query_scalar::<_, bool>("SELECT delivers_accounts FROM telegram_products WHERE slug = $1")
+        .bind(slug)
+        .fetch_one(database)
+        .await
+        .map_err(database_error)
+}
+
+/// A block of accounts to load. It is not `Debug` on purpose: a derived
+/// `Debug` would print the accounts wherever the request is logged.
+#[derive(Deserialize, ToSchema)]
+pub struct LoadAccounts {
+    /// One account per line, `email|password`: at most 1,000 lines of at most 300
+    /// characters. Blank lines are skipped and the spaces around the bar are dropped.
+    pub accounts: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AccountsLoaded {
+    /// Accounts put in stock.
+    pub added: i32,
+    /// The count of the package now: the accounts not yet sold.
+    pub available: i32,
+    /// Lines left out because the package already holds exactly that account.
+    pub duplicates: i32,
+}
+
+#[utoipa::path(
+    post,
+    path = "/dashboard/telegram/products/{slug}/accounts",
+    params(("slug" = String, Path, description = "The product")),
+    request_body = LoadAccounts,
+    responses(
+        (status = 200, description = "The accounts are in stock, encrypted; this never returns them", body = AccountsLoaded),
+        (status = 401, description = "Hub login required", body = crate::core::ErrorResponse),
+        (status = 403, description = "The role may not manage stock", body = crate::core::ErrorResponse),
+        (status = 404, description = "No such product", body = crate::core::ErrorResponse),
+        (status = 422, description = "A line is not an email and a password, there are too many, or the package does not hand out accounts", body = crate::core::ErrorResponse),
+        (status = 501, description = "The service has no STOCK_ENCRYPTION_KEY", body = crate::core::ErrorResponse)
+    ),
+    tag = "dashboard"
+)]
+pub async fn add_accounts(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path(slug): Path<String>,
+    Json(body): Json<LoadAccounts>,
+) -> Result<Json<AccountsLoaded>, ApiError> {
+    let user = authorize(&state, &jar, Permission::Stock).await?;
+    let slug = normalize_slug(&slug)?;
+    let lines = parse_accounts(&body.accounts)?;
+    let loaded = load_accounts(&state, &slug, &lines, &actor_of(&user)).await?;
+
+    Ok(Json(AccountsLoaded {
+        added: loaded.added,
+        available: loaded.available,
+        duplicates: loaded.duplicates,
+    }))
+}
+
+/// Owners and managers may change any account in stock; a collaborator who only
+/// loads stock, only the ones they loaded.
+fn actor_of(user: &DashboardUser) -> Actor {
+    Actor {
+        id: user.id,
+        manages_all: matches!(user.role, Role::Owner | Role::Manager),
+    }
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct AccountList {
+    /// Newest first, at most 1,000. A collaborator sees the ones they loaded.
+    pub accounts: Vec<StockAccount>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/dashboard/telegram/products/{slug}/accounts",
+    params(("slug" = String, Path, description = "The product")),
+    responses(
+        (status = 200, description = "The accounts in stock and sold, each with its email hidden and no password", body = AccountList),
+        (status = 401, description = "Hub login required", body = crate::core::ErrorResponse),
+        (status = 403, description = "The role may not manage stock", body = crate::core::ErrorResponse),
+        (status = 404, description = "No such package, or it does not hand out accounts", body = crate::core::ErrorResponse),
+        (status = 501, description = "The service has no STOCK_ENCRYPTION_KEY", body = crate::core::ErrorResponse)
+    ),
+    tag = "dashboard"
+)]
+pub async fn list_accounts(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path(slug): Path<String>,
+) -> Result<Json<AccountList>, ApiError> {
+    let user = authorize(&state, &jar, Permission::Stock).await?;
+    let slug = normalize_slug(&slug)?;
+
+    let page = search_stock_accounts(
+        &state,
+        &AccountSearch {
+            limit: 1000,
+            offset: 0,
+            product: Some(&slug),
+            query: None,
+            sold: None,
+        },
+        &actor_of(&user),
+    )
+    .await?;
+
+    Ok(Json(AccountList {
+        accounts: page.accounts,
+    }))
+}
+
+#[derive(Deserialize, IntoParams)]
+pub struct AccountsQuery {
+    /// Only the accounts of this package, by its slug.
+    pub product: Option<String>,
+    /// An email in full, an order reference, or part of a package's name or of a
+    /// loader's username.
+    pub q: Option<String>,
+    /// Counted from 1.
+    pub page: Option<i64>,
+    /// 1 to 100; 20 when left out.
+    pub page_size: Option<i64>,
+    /// Only `unsold` or only `sold`; both when left out.
+    pub status: Option<String>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/dashboard/telegram/accounts",
+    params(AccountsQuery),
+    responses(
+        (status = 200, description = "A page of accounts across packages, each with its email hidden and no password, and how many each standing has", body = AccountPage),
+        (status = 401, description = "Hub login required", body = crate::core::ErrorResponse),
+        (status = 403, description = "The role may not manage stock", body = crate::core::ErrorResponse),
+        (status = 404, description = "The package named does not hand out accounts", body = crate::core::ErrorResponse),
+        (status = 422, description = "A page, a size or a status that is not valid", body = crate::core::ErrorResponse),
+        (status = 501, description = "The service has no STOCK_ENCRYPTION_KEY", body = crate::core::ErrorResponse)
+    ),
+    tag = "dashboard"
+)]
+pub async fn search_accounts(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Query(query): Query<AccountsQuery>,
+) -> Result<Json<AccountPage>, ApiError> {
+    let user = authorize(&state, &jar, Permission::Stock).await?;
+
+    let sold = match query.status.as_deref() {
+        None | Some("") | Some("all") => None,
+        Some("unsold") => Some(false),
+        Some("sold") => Some(true),
+        Some(_) => {
+            return Err(ApiError::Validation("An account status is unsold or sold."));
+        }
+    };
+    let (limit, offset) = page_bounds(query.page, query.page_size)?;
+    let product = query
+        .product
+        .as_deref()
+        .filter(|slug| !slug.is_empty())
+        .map(normalize_slug)
+        .transpose()?;
+    let text = query
+        .q
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty());
+
+    Ok(Json(
+        search_stock_accounts(
+            &state,
+            &AccountSearch {
+                limit,
+                offset,
+                product: product.as_deref(),
+                query: text,
+                sold,
+            },
+            &actor_of(&user),
+        )
+        .await?,
+    ))
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AccountRemoved {
+    /// The count of the package now.
+    pub available: i32,
+}
+
+#[utoipa::path(
+    delete,
+    path = "/dashboard/telegram/accounts/{id}",
+    params(("id" = Uuid, Path, description = "The account")),
+    responses(
+        (status = 200, description = "The account is out of stock", body = AccountRemoved),
+        (status = 401, description = "Hub login required", body = crate::core::ErrorResponse),
+        (status = 403, description = "The role may not manage stock", body = crate::core::ErrorResponse),
+        (status = 404, description = "No such account, it is sold, or it is not this role's to change", body = crate::core::ErrorResponse)
+    ),
+    tag = "dashboard"
+)]
+pub async fn delete_account(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path(id): Path<Uuid>,
+) -> Result<Json<AccountRemoved>, ApiError> {
+    let user = authorize(&state, &jar, Permission::Stock).await?;
+
+    Ok(Json(AccountRemoved {
+        available: delete_stock_account(&state, id, &actor_of(&user)).await?,
+    }))
+}
+
+/// A new email and/or password for an account. Not `Debug`, like an account.
+#[derive(Deserialize, ToSchema)]
+pub struct UpdateAccount {
+    /// A new email. Left out or blank keeps the one it has.
+    pub email: Option<String>,
+    /// A new password. Left out or blank keeps the one it has.
+    pub password: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AccountUpdated {
+    /// The account as a page lists it now: the email hidden but for its first
+    /// letter and its domain.
+    pub email_hint: String,
+}
+
+#[utoipa::path(
+    put,
+    path = "/dashboard/telegram/accounts/{id}",
+    params(("id" = Uuid, Path, description = "The account")),
+    request_body = UpdateAccount,
+    responses(
+        (status = 200, description = "The account is changed and sealed again", body = AccountUpdated),
+        (status = 401, description = "Hub login required", body = crate::core::ErrorResponse),
+        (status = 403, description = "The role may not manage stock", body = crate::core::ErrorResponse),
+        (status = 404, description = "No such account, it is sold, or it is not this role's to change", body = crate::core::ErrorResponse),
+        (status = 422, description = "Nothing to change, a value that is not valid, or an account the package already has", body = crate::core::ErrorResponse),
+        (status = 501, description = "The service has no STOCK_ENCRYPTION_KEY", body = crate::core::ErrorResponse)
+    ),
+    tag = "dashboard"
+)]
+pub async fn update_account(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path(id): Path<Uuid>,
+    Json(body): Json<UpdateAccount>,
+) -> Result<Json<AccountUpdated>, ApiError> {
+    let user = authorize(&state, &jar, Permission::Stock).await?;
+
+    Ok(Json(AccountUpdated {
+        email_hint: update_stock_account(
+            &state,
+            id,
+            &actor_of(&user),
+            body.email.as_deref(),
+            body.password.as_deref(),
+        )
+        .await?,
+    }))
+}
+
+/// The owner's password, to show the owner is who they say, and the accounts to
+/// open. Not `Debug`, for the same reason as an account.
+#[derive(Deserialize, ToSchema)]
+pub struct RevealAccounts {
+    /// At least one and at most 1,000; each is opened once, in this order.
+    pub ids: Vec<Uuid>,
+    pub password: String,
+}
+
+/// One account, in the clear.
+#[derive(Serialize, ToSchema)]
+pub struct RevealedAccount {
+    /// `email|password`.
+    pub account: String,
+    pub id: Uuid,
+}
+
+/// The accounts asked for, in the clear. Not `Debug`.
+#[derive(Serialize, ToSchema)]
+pub struct RevealedAccounts {
+    pub accounts: Vec<RevealedAccount>,
+}
+
+#[utoipa::path(
+    post,
+    path = "/dashboard/telegram/accounts/reveal",
+    request_body = RevealAccounts,
+    responses(
+        (status = 200, description = "The accounts, opened. Each look is recorded, and the answer is not to be cached", body = RevealedAccounts),
+        (status = 401, description = "Hub login required", body = crate::core::ErrorResponse),
+        (status = 403, description = "Only the owner may look at an account", body = crate::core::ErrorResponse),
+        (status = 404, description = "One of the accounts is not there", body = crate::core::ErrorResponse),
+        (status = 422, description = "That is not the owner's password, or no account or too many were named", body = crate::core::ErrorResponse),
+        (status = 429, description = "Too many tries; each needs the password", body = crate::core::ErrorResponse),
+        (status = 501, description = "The service has no STOCK_ENCRYPTION_KEY", body = crate::core::ErrorResponse)
+    ),
+    tag = "dashboard"
+)]
+pub async fn reveal_accounts(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Json(body): Json<RevealAccounts>,
+) -> Result<
+    (
+        [(header::HeaderName, &'static str); 1],
+        Json<RevealedAccounts>,
+    ),
+    ApiError,
+> {
+    let user = authorize(&state, &jar, Permission::Secrets).await?;
+
+    let password_hash =
+        sqlx::query_scalar::<_, String>("SELECT password_hash FROM users WHERE id = $1")
+            .bind(user.id)
+            .fetch_one(&state.pool)
+            .await
+            .map_err(database_error)?;
+    // A wrong password is a 422, not the 401 the login answers with: the page
+    // reads a 401 as a lost session and signs the owner out.
+    verify_password(&body.password, &password_hash).map_err(|error| match error {
+        ApiError::InvalidCredentials => ApiError::Validation("That password is not right."),
+        other => other,
+    })?;
+
+    let accounts = reveal_stock_accounts(&state, &body.ids, user.id)
+        .await?
+        .into_iter()
+        .map(|(id, account)| RevealedAccount { account, id })
+        .collect();
+
+    Ok((
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(RevealedAccounts { accounts }),
+    ))
+}
+
+/// Accounts the owner opened, and the block they left them as. Not `Debug`.
+#[derive(Deserialize, ToSchema)]
+pub struct EditAccounts {
+    /// One account per line, `email|password`, as the owner left the block; blank
+    /// lines are skipped. Empty takes every account in `ids` out of stock.
+    pub accounts: String,
+    /// Report what would change and change nothing.
+    #[serde(default)]
+    pub dry_run: bool,
+    /// The accounts the block was made from, all unsold and all of this package.
+    pub ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AccountsEdited {
+    /// Lines that were not among `ids`, put in stock.
+    pub added: i32,
+    /// The count of the package after the edit.
+    pub available: i32,
+    /// Accounts whose line is not what it was.
+    pub changed: i32,
+    /// Lines left out because the package already holds exactly that account.
+    pub duplicates: i32,
+    /// Accounts taken out of stock because their line is gone from the block.
+    pub removed: i32,
+}
+
+#[utoipa::path(
+    put,
+    path = "/dashboard/telegram/products/{slug}/accounts",
+    params(("slug" = String, Path, description = "The product")),
+    request_body = EditAccounts,
+    responses(
+        (status = 200, description = "What the edit did, or with dry_run what it would do", body = AccountsEdited),
+        (status = 401, description = "Hub login required", body = crate::core::ErrorResponse),
+        (status = 403, description = "Only the owner may edit accounts as a block", body = crate::core::ErrorResponse),
+        (status = 404, description = "No such product", body = crate::core::ErrorResponse),
+        (status = 422, description = "A line is not an email and a password, too many or no accounts were named, or some were sold or removed meanwhile", body = crate::core::ErrorResponse),
+        (status = 501, description = "The service has no STOCK_ENCRYPTION_KEY", body = crate::core::ErrorResponse)
+    ),
+    tag = "dashboard"
+)]
+pub async fn edit_accounts(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path(slug): Path<String>,
+    Json(body): Json<EditAccounts>,
+) -> Result<Json<AccountsEdited>, ApiError> {
+    let user = authorize(&state, &jar, Permission::Secrets).await?;
+    let slug = normalize_slug(&slug)?;
+    let lines = match body.accounts.trim() {
+        "" => Vec::new(),
+        _ => parse_accounts(&body.accounts)?,
+    };
+    let edited = edit_stock_accounts(
+        &state,
+        &slug,
+        &body.ids,
+        &lines,
+        &actor_of(&user),
+        !body.dry_run,
+    )
+    .await?;
+
+    Ok(Json(AccountsEdited {
+        added: edited.added,
+        available: edited.available,
+        changed: edited.changed,
+        duplicates: edited.duplicates,
+        removed: edited.removed,
+    }))
 }
 
 #[utoipa::path(

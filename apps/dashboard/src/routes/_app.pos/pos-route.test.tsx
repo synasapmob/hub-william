@@ -1,4 +1,10 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { toast } from "sonner";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ServiceError } from "@/services/api/api-client";
 import type { Role } from "@/services/sales/sales-types";
 import {
+  FAKE_OWNER_PASSWORD,
   fakeStockService,
   fakeStockServiceProducts,
   resetFakeStock,
@@ -478,6 +485,7 @@ describe("PosRoute, adding", () => {
       }),
     ).toBeInTheDocument();
     expect(create).toHaveBeenCalledWith({
+      delivers_accounts: false,
       hot: false,
       image_url: "",
       listed: true,
@@ -498,8 +506,7 @@ describe("PosRoute, adding", () => {
     const user = await openAdd();
 
     await chooseProvider(user, "Grok");
-    await user.type(screen.getByLabelText("Tên gói"), "Heavy");
-    await user.type(screen.getByLabelText("Biến thể (tùy chọn)"), "Gia đình");
+    await user.type(screen.getByLabelText("Tên gói"), "Heavy (Gia đình)");
     await user.type(screen.getByLabelText("Giá (₫)"), "100000");
     await user.click(screen.getByRole("combobox", { name: "Bảo hành" }));
     await user.click(screen.getByRole("option", { name: "Bảo hành 7 ngày" }));
@@ -512,6 +519,7 @@ describe("PosRoute, adding", () => {
       expect.objectContaining({
         hot: true,
         listed: false,
+        plan: "Heavy",
         variant: "Gia đình",
         warranty: "W7D",
         warranty_note: null,
@@ -645,6 +653,120 @@ describe("PosRoute, adding", () => {
     },
   );
 
+  describe("accounts handed out automatically", () => {
+    const accountsField = () =>
+      screen.getByLabelText("Nạp tài khoản (tùy chọn)");
+    const switchOn = (user: User) =>
+      user.click(
+        screen.getByRole("switch", { name: "Giao tài khoản tự động" }),
+      );
+
+    it("swaps the stock stepper for a box for the accounts when switched on", async () => {
+      const user = await openAdd();
+
+      expect(screen.getByText("Tồn kho ban đầu")).toBeInTheDocument();
+      expect(screen.queryByLabelText(/Nạp tài khoản/)).not.toBeInTheDocument();
+
+      await switchOn(user);
+
+      expect(screen.queryByText("Tồn kho ban đầu")).not.toBeInTheDocument();
+      expect(accountsField()).toHaveValue("");
+    });
+
+    it("makes the package with none and loads the accounts after it is saved", async () => {
+      const create = vi.spyOn(fakeStockService, "create");
+      const load = vi.spyOn(fakeStockService, "loadAccounts");
+      const user = await openAdd();
+
+      await fillPackage(user);
+      await switchOn(user);
+      await user.click(accountsField());
+      await user.paste("one@example.test|first\n\n two@example.test | second ");
+      expect(screen.getByText("2 tài khoản")).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Thêm" }));
+
+      await waitFor(() =>
+        expect(load).toHaveBeenCalledWith(
+          "claude-pro-2-thang",
+          "one@example.test|first\n\n two@example.test | second",
+        ),
+      );
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({ delivers_accounts: true, stock: 0 }),
+      );
+      await waitFor(() =>
+        expect(toast.success).toHaveBeenCalledWith(
+          "Đã thêm Claude Pro 2 tháng",
+          { description: "Trong kho còn 2 tài khoản." },
+        ),
+      );
+      // The accounts are not kept: the box is gone with the form.
+      expect(screen.queryByLabelText(/Nạp tài khoản/)).not.toBeInTheDocument();
+    });
+
+    it("loads nothing when no account was typed", async () => {
+      const load = vi.spyOn(fakeStockService, "loadAccounts");
+      const user = await openAdd();
+
+      await fillPackage(user);
+      await switchOn(user);
+      await user.click(screen.getByRole("button", { name: "Thêm" }));
+
+      await waitFor(() => expect(toast.success).toHaveBeenCalled());
+      expect(load).not.toHaveBeenCalled();
+    });
+
+    it("names the line that is wrong without quoting it, and will not save", async () => {
+      const create = vi.spyOn(fakeStockService, "create");
+      const user = await openAdd();
+
+      await fillPackage(user);
+      await switchOn(user);
+      await user.click(accountsField());
+      await user.paste("good@example.test|fine\nsecret-line-without-a-bar");
+
+      expect(
+        screen.getByText("Dòng 2 không đúng dạng email|mật khẩu."),
+      ).toBeInTheDocument();
+      // The message names the line and says nothing of what it holds.
+      expect(screen.getByText(/^Dòng 2/).textContent).not.toContain(
+        "secret-line",
+      );
+      expect(screen.getByRole("button", { name: "Thêm" })).toBeDisabled();
+      expect(create).not.toHaveBeenCalled();
+    });
+
+    it("says so and sends no restock message when the accounts did not go in", async () => {
+      vi.spyOn(fakeStockService, "loadAccounts").mockRejectedValueOnce(
+        new ServiceError("Loading accounts needs a key.", 501, "not_available"),
+      );
+      const announce = vi.spyOn(fakeStockService, "announce");
+      const user = await openAdd();
+
+      await fillPackage(user);
+      await switchOn(user);
+      await user.click(accountsField());
+      await user.paste("one@example.test|first");
+      await user.type(
+        screen.getByLabelText("Tin nhắn Telegram (tùy chọn)"),
+        "Hàng mới về",
+      );
+      await user.click(screen.getByRole("button", { name: "Thêm" }));
+
+      await waitFor(() =>
+        expect(toast.warning).toHaveBeenCalledWith(
+          "Đã thêm Claude Pro 2 tháng",
+          {
+            description: expect.stringContaining(
+              "Chưa nạp được tài khoản: Loading accounts needs a key.",
+            ),
+          },
+        ),
+      );
+      expect(announce).not.toHaveBeenCalled();
+    });
+  });
+
   describe("the warranty note", () => {
     const noteField = () =>
       screen.getByLabelText("Ghi chú bảo hành (tùy chọn)");
@@ -775,6 +897,7 @@ describe("PosRoute, adding", () => {
             variant: null,
             warranty: "WF",
             warranty_note: null,
+            delivers_accounts: false,
           });
       }),
     );
@@ -1037,6 +1160,65 @@ describe("PosRoute, editing", () => {
     });
   });
 
+  describe("accounts handed out automatically", () => {
+    it("shows on the list which packages hand them out", async () => {
+      await setup();
+
+      expect(row(/Claude Max 5x/)).toHaveTextContent("Giao tự động");
+      expect(row(/Claude Pro 1 tháng/)).not.toHaveTextContent("Giao tự động");
+    });
+
+    it("has no switch to flip and no stepper, and says how many are left", async () => {
+      await openEdit(/Claude Max 5x/);
+
+      expect(
+        screen.queryByRole("switch", { name: "Giao tài khoản tự động" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByText("Thêm hoặc bớt tồn kho"),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByLabelText("Nạp thêm tài khoản (tùy chọn)"),
+      ).toHaveValue("");
+      expect(
+        screen.getByText(/Trong kho 4 tài khoản chưa bán/),
+      ).toBeInTheDocument();
+    });
+
+    it("loads more accounts and leaves the count to them", async () => {
+      const load = vi.spyOn(fakeStockService, "loadAccounts");
+      const change = vi.spyOn(fakeStockService, "changeStock");
+      const user = await openEdit(/Claude Max 5x/);
+
+      await user.click(screen.getByLabelText("Nạp thêm tài khoản (tùy chọn)"));
+      await user.paste("one@example.test|first\ntwo@example.test|second");
+      await user.click(screen.getByRole("button", { name: "Lưu" }));
+
+      await waitFor(() =>
+        expect(load).toHaveBeenCalledWith(
+          "claude-max-5x-1-thang",
+          "one@example.test|first\ntwo@example.test|second",
+        ),
+      );
+      expect(change).not.toHaveBeenCalled();
+      await waitFor(() =>
+        expect(row(/Claude Max 5x/)).toHaveTextContent("Còn 2"),
+      );
+    });
+
+    it("is not offered on a package that does not hand out accounts", async () => {
+      await openEdit(/Claude Pro 1 tháng/);
+
+      expect(
+        screen.queryByRole("switch", { name: "Giao tài khoản tự động" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByLabelText(/Nạp thêm tài khoản/),
+      ).not.toBeInTheDocument();
+      expect(screen.getByText("Thêm hoặc bớt tồn kho")).toBeInTheDocument();
+    });
+  });
+
   describe("the warranty note", () => {
     const noteField = () =>
       screen.getByLabelText("Ghi chú bảo hành (tùy chọn)");
@@ -1284,6 +1466,174 @@ describe("PosRoute, the image", () => {
         }),
       ),
     );
+  });
+});
+
+describe("PosRoute, the accounts in stock", () => {
+  /** Opens the edit form of the package that hands out accounts, as `role`. */
+  async function openAccounts(role: Role = "owner") {
+    const user = userEvent.setup();
+
+    renderPage(<PosRoute />, role);
+    await user.click(
+      await screen.findByRole("button", { name: /Claude Max 5x/ }),
+    );
+    await screen.findByText("Tài khoản trong kho");
+
+    return user;
+  }
+
+  it("lists them with the email hidden, whether each is sold and who loaded it, and never a password", async () => {
+    await openAccounts();
+
+    expect(screen.getByText("o***@example.com")).toBeInTheDocument();
+    expect(screen.getByText("Chưa bán · nạp bởi minhanh")).toBeInTheDocument();
+    expect(
+      screen.getByText("Đã bán · đơn ABC123DEF456 · nạp bởi ducthinh"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("1 chưa bán · 1 đã bán")).toBeInTheDocument();
+    expect(screen.queryByText(/right-secret/)).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("already-sent");
+  });
+
+  it("is not shown for a package that does not hand them out", async () => {
+    const user = userEvent.setup();
+
+    renderPage(<PosRoute />);
+    await user.click(
+      await screen.findByRole("button", { name: /Claude Pro 1 tháng/ }),
+    );
+
+    expect(screen.queryByText("Tài khoản trong kho")).not.toBeInTheDocument();
+  });
+
+  it("lets the owner open one with their password, and says when it is wrong", async () => {
+    const reveal = vi.spyOn(fakeStockService, "revealAccounts");
+    const user = await openAccounts();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Xem / sửa tài khoản o***@example.com",
+      }),
+    );
+    await user.type(screen.getByLabelText("Mật khẩu của bạn"), "not-it");
+    await user.click(screen.getByRole("button", { name: "Mở" }));
+
+    expect(await screen.findByText("Mật khẩu không đúng.")).toBeInTheDocument();
+    expect(screen.queryByText(/right-secret/)).not.toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText("Mật khẩu của bạn"));
+    await user.type(
+      screen.getByLabelText("Mật khẩu của bạn"),
+      FAKE_OWNER_PASSWORD,
+    );
+    await user.click(screen.getByRole("button", { name: "Mở" }));
+
+    expect(await screen.findByLabelText("Tài khoản")).toHaveValue(
+      "owner@example.com|right-secret",
+    );
+    expect(reveal).toHaveBeenLastCalledWith(
+      ["account-unsold"],
+      FAKE_OWNER_PASSWORD,
+    );
+
+    // Closing drops it: nothing of the account stays on the page.
+    await user.click(screen.getByRole("button", { name: "Hủy" }));
+
+    expect(document.body.textContent).not.toContain("right-secret");
+    expect(
+      screen.getByRole("button", {
+        name: "Xem / sửa tài khoản o***@example.com",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("opens every account not sold of the package at once, to edit as a block", async () => {
+    const user = await openAccounts();
+
+    await user.click(
+      screen.getByRole("button", { name: "Xem / sửa cả gói (1)" }),
+    );
+    await user.type(
+      screen.getByLabelText("Mật khẩu của bạn"),
+      FAKE_OWNER_PASSWORD,
+    );
+    await user.click(screen.getByRole("button", { name: "Mở" }));
+
+    // The sold one is not in the block.
+    expect(await screen.findByLabelText("Tài khoản")).toHaveValue(
+      "owner@example.com|right-secret",
+    );
+  });
+
+  it("closes the account and forgets it when it is left alone", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+      renderPage(<PosRoute />);
+      await user.click(
+        await screen.findByRole("button", { name: /Claude Max 5x/ }),
+      );
+      await user.click(
+        await screen.findByRole("button", {
+          name: "Xem / sửa tài khoản o***@example.com",
+        }),
+      );
+      await user.type(
+        screen.getByLabelText("Mật khẩu của bạn"),
+        FAKE_OWNER_PASSWORD,
+      );
+      await user.click(screen.getByRole("button", { name: "Mở" }));
+      expect(await screen.findByLabelText("Tài khoản")).toHaveValue(
+        "owner@example.com|right-secret",
+      );
+
+      await act(() => vi.advanceTimersByTimeAsync(5 * 60_000 + 1_000));
+
+      expect(document.body.textContent).not.toContain("right-secret");
+      expect(
+        screen.queryByLabelText("Mật khẩu của bạn"),
+      ).not.toBeInTheDocument();
+      expect(toast).toHaveBeenCalledWith("Đã đóng vì lâu không thao tác.");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["manager", "stock-keeper"] as const)(
+    "offers a %s no way to look at one",
+    async (role: Role) => {
+      await openAccounts(role);
+
+      expect(screen.getByText("o***@example.com")).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /^Xem( \/ sửa)? tài khoản/ }),
+      ).not.toBeInTheDocument();
+    },
+  );
+
+  it("takes an unsold one out after a second press, and offers no way to take a sold one out", async () => {
+    const user = await openAccounts();
+
+    expect(
+      screen.queryByRole("button", { name: "Xóa tài khoản b***@example.com" }),
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "Xóa tài khoản o***@example.com" }),
+    );
+    // One press only asks.
+    expect(screen.getByText("o***@example.com")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Xóa thật" }));
+
+    await waitFor(() =>
+      expect(screen.queryByText("o***@example.com")).not.toBeInTheDocument(),
+    );
+    expect(toast.success).toHaveBeenCalledWith("Đã xóa tài khoản", {
+      description: "Trong kho còn 3 tài khoản.",
+    });
   });
 });
 
