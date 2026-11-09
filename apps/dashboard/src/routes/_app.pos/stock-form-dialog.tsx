@@ -33,6 +33,11 @@ import type { TelegramProduct, Warranty } from "@/services/sales/sales-types";
 import { stockItemTitle } from "@/utils/utils.format";
 import slugify from "@/utils/utils.slug";
 
+import {
+  checkPackageName,
+  composePackageName,
+  parsePackageName,
+} from "./package-name";
 import StockAdjuster from "./stock-adjuster";
 
 // Limits `apps/api` enforces on a product.
@@ -48,8 +53,8 @@ const MAX_WARRANTY_NOTE = 200;
 
 interface Draft {
   provider: string;
-  plan: string;
-  variant: string;
+  /** The plan and, in brackets at the end, the variant: `Plus 1 tháng (Gia đình)`. */
+  name: string;
   warranty: Warranty;
   /** What a buyer reads about the warranty; the standard note when empty. */
   warrantyNote: string;
@@ -65,8 +70,7 @@ interface Draft {
 function draftOf(item: TelegramProduct | null, provider: string): Draft {
   return {
     provider: item?.provider ?? provider,
-    plan: item?.plan ?? "",
-    variant: item?.variant ?? "",
+    name: item ? composePackageName(item) : "",
     warranty: item?.warranty ?? "WF",
     warrantyNote: item?.warranty_note ?? "",
     price: item ? String(item.price_vnd) : "",
@@ -123,9 +127,14 @@ export default function StockFormDialog({
   const [saving, setSaving] = useState(false);
 
   const editing = item !== null;
-  const slug = item
-    ? item.slug
-    : slugify(draft.provider, draft.plan, draft.variant);
+  // A name left as it opened keeps the plan and variant it came with, since a
+  // plan that itself ends in brackets would otherwise be read as a variant.
+  const { plan, variant } =
+    item && draft.name === composePackageName(item)
+      ? item
+      : parsePackageName(draft.name);
+  const nameProblem = checkPackageName({ plan, variant });
+  const slug = item ? item.slug : slugify(draft.provider, plan, variant);
   const adjust = Number(draft.adjust);
   const price = Number(draft.price);
   const onHand = (item?.on_hand ?? 0) + adjust;
@@ -165,7 +174,8 @@ export default function StockFormDialog({
     messageValid &&
     warrantyNoteValid &&
     draft.provider.trim() !== "" &&
-    draft.plan.trim() !== "" &&
+    plan !== "" &&
+    nameProblem === null &&
     slug !== "" &&
     !slugTaken &&
     priceValid &&
@@ -232,28 +242,6 @@ export default function StockFormDialog({
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="stock-plan">Tên gói</Label>
-
-                <Input
-                  id="stock-plan"
-                  placeholder="Plus 1 tháng"
-                  value={draft.plan}
-                  onChange={(event) => set("plan", event.target.value)}
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="stock-variant">Biến thể (tùy chọn)</Label>
-
-                <Input
-                  id="stock-variant"
-                  placeholder="Gia đình"
-                  value={draft.variant}
-                  onChange={(event) => set("variant", event.target.value)}
-                />
-              </div>
-
-              <div className="space-y-1.5">
                 <Label htmlFor="stock-warranty">Bảo hành</Label>
 
                 <Select
@@ -272,6 +260,29 @@ export default function StockFormDialog({
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="col-span-2 space-y-1.5">
+                <Label htmlFor="stock-plan">Tên gói</Label>
+
+                <Input
+                  aria-invalid={nameProblem !== null}
+                  id="stock-plan"
+                  placeholder="AI Pro, Argon 4 + YTB premium (Personal)"
+                  value={draft.name}
+                  onChange={(event) => set("name", event.target.value)}
+                />
+
+                <p
+                  className={
+                    nameProblem === null
+                      ? "text-xs text-muted-foreground"
+                      : "text-xs text-destructive"
+                  }
+                >
+                  {nameProblem ??
+                    "Ghi tên gói, biến thể (nếu có) để trong ngoặc ở cuối, ví dụ (Personal). Bảo hành chọn ở ô bên trên."}
+                </p>
               </div>
 
               <div className="col-span-2 space-y-1.5">
@@ -429,8 +440,8 @@ export default function StockFormDialog({
                 type: "telegram",
                 slug,
                 provider: draft.provider.trim(),
-                plan: draft.plan.trim(),
-                variant: draft.variant.trim() || null,
+                plan,
+                variant,
                 warranty: draft.warranty,
                 warranty_note: warrantyNote || null,
                 price_vnd: price,

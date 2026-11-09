@@ -498,8 +498,7 @@ describe("PosRoute, adding", () => {
     const user = await openAdd();
 
     await chooseProvider(user, "Grok");
-    await user.type(screen.getByLabelText("Tên gói"), "Heavy");
-    await user.type(screen.getByLabelText("Biến thể (tùy chọn)"), "Gia đình");
+    await user.type(screen.getByLabelText("Tên gói"), "Heavy (Gia đình)");
     await user.type(screen.getByLabelText("Giá (₫)"), "100000");
     await user.click(screen.getByRole("combobox", { name: "Bảo hành" }));
     await user.click(screen.getByRole("option", { name: "Bảo hành 7 ngày" }));
@@ -512,6 +511,7 @@ describe("PosRoute, adding", () => {
       expect.objectContaining({
         hot: true,
         listed: false,
+        plan: "Heavy",
         variant: "Gia đình",
         warranty: "W7D",
         warranty_note: null,
