@@ -17,11 +17,17 @@ pub struct Provider {
     pub slug: String,
 }
 
+/// How many accounts one order may take; `apps/api` enforces the same number.
+pub const MAXIMUM_ACCOUNTS_PER_ORDER: i64 = 10;
+
 #[derive(Clone, Debug, Deserialize)]
 pub struct Product {
     /// What a buyer may still order, after stock held by open orders.
     pub available: i64,
     pub category: Option<String>,
+    /// Hands the buyer an account when they have paid.
+    #[serde(default)]
+    pub delivers_accounts: bool,
     pub detail: Option<String>,
     pub hot: bool,
     pub listed: bool,
@@ -86,6 +92,17 @@ impl Product {
 
     pub fn is_available(&self) -> bool {
         self.available > 0
+    }
+
+    /// The most a buyer may order at once. A package that hands out accounts
+    /// sells a few at a time, so the accounts of one order always fit in the one
+    /// message that carries them; the API holds the same limit.
+    pub fn order_limit(&self) -> i64 {
+        if self.delivers_accounts {
+            self.available.min(MAXIMUM_ACCOUNTS_PER_ORDER)
+        } else {
+            self.available
+        }
     }
 }
 
@@ -180,6 +197,20 @@ mod tests {
     }
 
     #[test]
+    fn a_package_that_hands_out_accounts_is_ordered_ten_at_a_time_at_most() {
+        let mut accounts = product("claude-pro", false);
+        accounts.delivers_accounts = true;
+
+        assert_eq!(accounts.available, 53);
+        assert_eq!(accounts.order_limit(), 10);
+        // Fewer left than the limit: what is left.
+        accounts.available = 4;
+        assert_eq!(accounts.order_limit(), 4);
+        // An ordinary package is not capped.
+        assert_eq!(product("claude-pro", false).order_limit(), 53);
+    }
+
+    #[test]
     fn a_product_without_stock_is_not_available() {
         let sold_out = Product {
             available: 0,
@@ -194,6 +225,7 @@ mod tests {
         Product {
             available: 53,
             category: Some("AI Tools".to_owned()),
+            delivers_accounts: false,
             detail: Some("1M".to_owned()),
             hot,
             listed: true,

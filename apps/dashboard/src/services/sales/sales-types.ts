@@ -28,6 +28,11 @@ export interface TelegramProduct {
   warranty: Warranty;
   /** The shop's own warranty note; null when the standard note for the warranty applies. */
   warranty_note: string | null;
+  /**
+   * Hands the buyer an account when they have paid. Its count is the accounts not
+   * yet sold, so it is not set by hand, and the flag is fixed when it is made.
+   */
+  delivers_accounts: boolean;
   price_vnd: number;
   /** The count the seller set. */
   on_hand: number;
@@ -137,7 +142,8 @@ export interface SaleOrder {
 
 export type Role = "owner" | "manager" | "cashier" | "stock-keeper";
 
-export type Permission = "orders" | "history" | "stock" | "revenue" | "staff";
+export type Permission =
+  "orders" | "history" | "stock" | "revenue" | "staff" | "secrets";
 
 export interface StaffMember {
   id: string;

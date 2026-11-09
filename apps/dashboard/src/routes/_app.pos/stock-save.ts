@@ -30,7 +30,11 @@ export async function saveStock({
   };
 
   if (previous === null)
-    return stockService.create({ ...fields, stock: saved.on_hand });
+    return stockService.create({
+      ...fields,
+      delivers_accounts: saved.delivers_accounts,
+      stock: saved.on_hand,
+    });
 
   const edited = await stockService.update(previous.slug, fields);
   const delta = saved.on_hand - previous.on_hand;

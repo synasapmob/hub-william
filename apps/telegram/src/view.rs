@@ -1,6 +1,6 @@
 use crate::{
     catalog::{Catalogue, Product, Provider, format_amount},
-    checkout::{Order, OrderStatus, format_expiry, memo, qr_image_url, usdt_amount},
+    checkout::{Delivery, Order, OrderStatus, format_expiry, memo, qr_image_url, usdt_amount},
     config::AppConfig,
     language::{Language, Localized},
     telegram::{
@@ -63,7 +63,7 @@ pub fn quantity_prompt(chat_id: i64, language: Language, product: &Product) -> S
 }
 
 pub fn quantity_error(chat_id: i64, language: Language, product: &Product) -> SendMessage {
-    let available = product.available;
+    let available = product.order_limit();
     if !product.is_available() {
         return SendMessage::new(
             chat_id,
@@ -204,25 +204,92 @@ pub fn usdt_transfer(
     SendMessage::new(chat_id, text).with_keyboard(watch_keyboard(language, &order.reference))
 }
 
-/// Reports the order as the API currently holds it, so a settled transfer shows
-/// as settled and an unsettled one is not dressed up as anything else.
-pub fn order_status(chat_id: i64, language: Language, order: &Order, support: &str) -> SendMessage {
-    let expiry = format_expiry(order.expires_at);
+/// What a paid order says. Without a delivery, or for a package that hands out
+/// nothing, the buyer is told to write to the owner with the order's reference,
+/// and the owner hands the account over: the owner is not told of the payment,
+/// so it is the buyer's message that starts it. With a delivery, the accounts are
+/// in the message, and an order that got fewer than it asked for says how many it
+/// is missing and who to write to, with the order's reference, because it is the
+/// owner and the buyer who settle that between them.
+fn paid_text(
+    language: Language,
+    order: &Order,
+    support: &str,
+    delivery: Option<&Delivery>,
+) -> String {
     let reference = &order.reference;
     let title = &order.item_title;
     let quantity = order.quantity;
     let total = format_amount(order.total_vnd);
+    let head = match language {
+        Language::English => format!(
+            "✅ Payment received for order {reference}.\n\n{title}\nQuantity: {quantity}\nTotal: {total}₫"
+        ),
+        Language::Vietnamese => format!(
+            "✅ Đã nhận thanh toán cho đơn {reference}.\n\n{title}\nSố lượng: {quantity}\nTổng: {total}₫"
+        ),
+    };
+
+    let Some(delivery) = delivery.filter(|d| !d.accounts.is_empty() || d.missing > 0) else {
+        return match language {
+            Language::English => format!(
+                "{head}\n\n📩 To receive your account, write to {support} with order {reference} and they will hand it over."
+            ),
+            Language::Vietnamese => format!(
+                "{head}\n\n📩 Để nhận tài khoản, nhắn {support} kèm mã đơn {reference}, chủ shop sẽ bàn giao cho bạn."
+            ),
+        };
+    };
+
+    let accounts = match delivery.accounts.as_slice() {
+        [] => String::new(),
+        [only] => only.clone(),
+        many => many
+            .iter()
+            .enumerate()
+            .map(|(index, account)| format!("{}. {account}", index + 1))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    };
+    let missing = delivery.missing;
+
+    match (language, accounts.is_empty()) {
+        (Language::English, false) if missing == 0 => format!(
+            "{head}\n\n🔑 Your account:\n{accounts}\n\nPlease change the password as soon as you have it."
+        ),
+        (Language::English, false) => format!(
+            "{head}\n\n🔑 Your account:\n{accounts}\n\n⚠️ {missing} more could not be given because they ran out. Write to {support} with order {reference} and they will sort it out."
+        ),
+        (Language::English, true) => format!(
+            "{head}\n\n⚠️ The accounts ran out, so none could be given. Write to {support} with order {reference} and they will sort it out."
+        ),
+        (Language::Vietnamese, false) if missing == 0 => format!(
+            "{head}\n\n🔑 Tài khoản của bạn:\n{accounts}\n\nHãy đổi mật khẩu ngay sau khi nhận."
+        ),
+        (Language::Vietnamese, false) => format!(
+            "{head}\n\n🔑 Tài khoản của bạn:\n{accounts}\n\n⚠️ Còn thiếu {missing} tài khoản vì đã hết hàng. Nhắn {support} kèm mã đơn {reference} để được xử lý."
+        ),
+        (Language::Vietnamese, true) => format!(
+            "{head}\n\n⚠️ Tài khoản đã hết nên chưa giao được. Nhắn {support} kèm mã đơn {reference} để được xử lý."
+        ),
+    }
+}
+
+/// Reports the order as the API currently holds it, so a settled transfer shows
+/// as settled and an unsettled one is not dressed up as anything else.
+pub fn order_status(
+    chat_id: i64,
+    language: Language,
+    order: &Order,
+    support: &str,
+    delivery: Option<&Delivery>,
+) -> SendMessage {
+    let expiry = format_expiry(order.expires_at);
+    let reference = &order.reference;
 
     let (text, keyboard) = match order.status() {
         OrderStatus::Paid => (
-            match language {
-                Language::English => format!(
-                    "✅ Payment received for order {reference}.\n\n{title}\nQuantity: {quantity}\nTotal: {total}₫\n\n{support} will hand the account over shortly."
-                ),
-                Language::Vietnamese => format!(
-                    "✅ Đã nhận thanh toán cho đơn {reference}.\n\n{title}\nSố lượng: {quantity}\nTổng: {total}₫\n\n{support} sẽ bàn giao tài khoản ngay."
-                ),
-            },
+            paid_text(language, order, support, delivery),
             back_keyboard(language),
         ),
         OrderStatus::Cancelled => (
@@ -270,8 +337,37 @@ pub fn payment_received(
     language: Language,
     order: &Order,
     support: &str,
+    delivery: Option<&Delivery>,
 ) -> SendMessage {
-    order_status(chat_id, language, order, support)
+    order_status(chat_id, language, order, support, delivery)
+}
+
+/// Sent unprompted when money arrives for an order that had already run out. The
+/// order is not paid and nothing is handed out, so the buyer is told to write to
+/// the owner with the order's reference, who gives them the goods or the money
+/// back. It does not say which: that is the owner's to decide.
+pub fn late_payment(
+    chat_id: i64,
+    language: Language,
+    order: &Order,
+    amount_vnd: i64,
+    support: &str,
+) -> SendMessage {
+    let reference = &order.reference;
+    let title = &order.item_title;
+    let quantity = order.quantity;
+    let amount = format_amount(amount_vnd);
+
+    let text = match language {
+        Language::English => format!(
+            "⚠️ We received {amount}₫ from you, but order {reference} had already expired, so it was not completed.\n\n{title}\nQuantity: {quantity}\n\n📩 Write to {support} with order {reference} and they will give you the goods or your money back."
+        ),
+        Language::Vietnamese => format!(
+            "⚠️ Đã nhận {amount}₫ từ bạn, nhưng đơn {reference} đã hết hạn nên chưa hoàn tất.\n\n{title}\nSố lượng: {quantity}\n\n📩 Nhắn {support} kèm mã đơn {reference}, chủ shop sẽ giao hàng hoặc hoàn tiền cho bạn."
+        ),
+    };
+
+    SendMessage::new(chat_id, text).with_keyboard(back_keyboard(language))
 }
 
 pub fn payment_cancelled(chat_id: i64, language: Language, reference: &str) -> SendMessage {
@@ -427,7 +523,7 @@ fn provider_text(language: Language, provider: &Provider) -> String {
 }
 
 fn quantity_prompt_text(language: Language, product: &Product) -> String {
-    let available = product.available;
+    let available = product.order_limit();
     let price = format_amount(product.price_vnd);
     let title = product.headline();
     let tiers = format!("• 1+: {price}₫");
@@ -944,8 +1040,71 @@ mod tests {
 
     fn text_of(language: Language, order: &Order) -> String {
         let message: Value =
-            serde_json::to_value(order_status(123, language, order, "@shop_owner")).unwrap();
+            serde_json::to_value(order_status(123, language, order, "@shop_owner", None)).unwrap();
         message["text"].as_str().unwrap().to_owned()
+    }
+
+    #[test]
+    fn a_paid_order_with_nothing_handed_out_sends_the_buyer_to_the_owner_with_its_reference() {
+        let paid = order("paid", 0);
+
+        let english = text_of(Language::English, &paid);
+        assert!(
+            english.ends_with(&format!(
+                "write to @shop_owner with order {} and they will hand it over.",
+                paid.reference
+            )),
+            "{english}"
+        );
+
+        let vietnamese = text_of(Language::Vietnamese, &paid);
+        assert!(
+            vietnamese.ends_with(&format!(
+                "nhắn @shop_owner kèm mã đơn {}, chủ shop sẽ bàn giao cho bạn.",
+                paid.reference
+            )),
+            "{vietnamese}"
+        );
+    }
+
+    #[test]
+    fn late_money_is_not_called_a_payment_and_says_who_to_write_to_in_both_languages() {
+        let expired = order("awaiting_payment", -1);
+        let text = |language| {
+            let message: Value = serde_json::to_value(super::late_payment(
+                123,
+                language,
+                &expired,
+                1_350_000,
+                "@shop_owner",
+            ))
+            .unwrap();
+
+            message["text"].as_str().unwrap().to_owned()
+        };
+
+        let english = text(Language::English);
+        assert!(english.contains("We received 1,350,000₫"), "{english}");
+        assert!(english.contains("had already expired"), "{english}");
+        assert!(
+            english.contains(&format!(
+                "Write to @shop_owner with order {}",
+                expired.reference
+            )),
+            "{english}"
+        );
+        assert!(!english.contains("Payment received"), "{english}");
+
+        let vietnamese = text(Language::Vietnamese);
+        assert!(vietnamese.contains("Đã nhận 1,350,000₫"), "{vietnamese}");
+        assert!(
+            vietnamese.contains(&format!(
+                "Nhắn @shop_owner kèm mã đơn {}",
+                expired.reference
+            )),
+            "{vietnamese}"
+        );
+        assert!(!vietnamese.contains("Đã nhận thanh toán"), "{vietnamese}");
     }
 
     #[test]

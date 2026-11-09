@@ -20,7 +20,12 @@ import {
   serviceStockService,
   type ServiceListingChange,
 } from "@/services/service-stock/service-stock-service";
-import { stockService, type Announced } from "@/services/stock/stock-service";
+import { loadedText } from "@/services/stock/stock-labels";
+import {
+  stockService,
+  type AccountsLoaded,
+  type Announced,
+} from "@/services/stock/stock-service";
 import { formatUsd, stockItemTitle } from "@/utils/utils.format";
 
 import AddStockKindDialog from "./add-stock-kind-dialog";
@@ -213,7 +218,7 @@ export default function PosRoute() {
             onDelete={() =>
               dialog.item && setDialog({ kind: "delete", item: dialog.item })
             }
-            onSave={async (saved, { message }) => {
+            onSave={async (saved, { accounts, message }) => {
               const title = `${dialog.item ? "Đã lưu" : "Đã thêm"} ${stockItemTitle(saved)}`;
 
               let stocked;
@@ -234,8 +239,35 @@ export default function PosRoute() {
 
               setDialog(null);
 
+              // The package is saved either way; only the accounts may not go in.
+              // A message about new stock that did not arrive would be false, so
+              // none is sent then.
+              let loaded: AccountsLoaded | null = null;
+
+              if (accounts !== "") {
+                try {
+                  loaded = await stockService.loadAccounts(
+                    stocked.slug,
+                    accounts,
+                  );
+                } catch (error) {
+                  void refresh();
+                  toast.warning(title, {
+                    description: `Chưa nạp được tài khoản: ${messageOf(error) ?? "máy chủ không trả lời."} Gói đã được lưu; mở lại gói để nạp.`,
+                  });
+
+                  return;
+                }
+              }
+
+              // The count on the page is the one before the accounts went in.
+              if (loaded) void refresh();
+
+              const loadedNote = loaded ? loadedText(loaded) : "";
+
               if (message === "") {
-                toast.success(title);
+                if (loadedNote === "") toast.success(title);
+                else toast.success(title, { description: loadedNote });
 
                 return;
               }
@@ -247,7 +279,11 @@ export default function PosRoute() {
                   stocked.slug,
                 );
 
-                toast.success(title, { description: announcedText(announced) });
+                toast.success(title, {
+                  description: [loadedNote, announcedText(announced)]
+                    .filter(Boolean)
+                    .join(" "),
+                });
               } catch (error) {
                 toast.warning(title, {
                   description: `Tin nhắn Telegram chưa được gửi: ${messageOf(error) ?? "bot không trả lời."}`,

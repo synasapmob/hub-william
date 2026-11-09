@@ -1718,6 +1718,359 @@
         }
       }
     },
+    "/dashboard/telegram/accounts": {
+      "get": {
+        "tags": ["dashboard"],
+        "operationId": "search_accounts",
+        "parameters": [
+          {
+            "name": "product",
+            "in": "query",
+            "description": "Only the accounts of this package, by its slug.",
+            "required": false,
+            "schema": {
+              "type": ["string", "null"]
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "An email in full, an order reference, or part of a package's name or of a\nloader's username.",
+            "required": false,
+            "schema": {
+              "type": ["string", "null"]
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Counted from 1.",
+            "required": false,
+            "schema": {
+              "type": ["integer", "null"],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "description": "1 to 100; 20 when left out.",
+            "required": false,
+            "schema": {
+              "type": ["integer", "null"],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Only `unsold` or only `sold`; both when left out.",
+            "required": false,
+            "schema": {
+              "type": ["string", "null"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of accounts across packages, each with its email hidden and no password, and how many each standing has",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not manage stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The package named does not hand out accounts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A page, a size or a status that is not valid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "The service has no STOCK_ENCRYPTION_KEY",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/telegram/accounts/reveal": {
+      "post": {
+        "tags": ["dashboard"],
+        "operationId": "reveal_accounts",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevealAccounts"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The accounts, opened. Each look is recorded, and the answer is not to be cached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevealedAccounts"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the owner may look at an account",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "One of the accounts is not there",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "That is not the owner's password, or no account or too many were named",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many tries; each needs the password",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "The service has no STOCK_ENCRYPTION_KEY",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/telegram/accounts/{id}": {
+      "put": {
+        "tags": ["dashboard"],
+        "operationId": "update_account",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The account",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAccount"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The account is changed and sealed again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountUpdated"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not manage stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such account, it is sold, or it is not this role's to change",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Nothing to change, a value that is not valid, or an account the package already has",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "The service has no STOCK_ENCRYPTION_KEY",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": ["dashboard"],
+        "operationId": "delete_account",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The account",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The account is out of stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountRemoved"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not manage stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such account, it is sold, or it is not this role's to change",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboard/telegram/announcements": {
       "post": {
         "tags": ["dashboard"],
@@ -2264,6 +2617,249 @@
           },
           "422": {
             "description": "Buyers have orders open for it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/telegram/products/{slug}/accounts": {
+      "get": {
+        "tags": ["dashboard"],
+        "operationId": "list_accounts",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "The product",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The accounts in stock and sold, each with its email hidden and no password",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not manage stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such package, or it does not hand out accounts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "The service has no STOCK_ENCRYPTION_KEY",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": ["dashboard"],
+        "operationId": "edit_accounts",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "The product",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditAccounts"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "What the edit did, or with dry_run what it would do",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountsEdited"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the owner may edit accounts as a block",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such product",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A line is not an email and a password, too many or no accounts were named, or some were sold or removed meanwhile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "The service has no STOCK_ENCRYPTION_KEY",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["dashboard"],
+        "operationId": "add_accounts",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "description": "The product",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoadAccounts"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The accounts are in stock, encrypted; this never returns them",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountsLoaded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not manage stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such product",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A line is not an email and a password, there are too many, or the package does not hand out accounts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "The service has no STOCK_ENCRYPTION_KEY",
             "content": {
               "application/json": {
                 "schema": {
@@ -4338,6 +4934,133 @@
   },
   "components": {
     "schemas": {
+      "AccountCounts": {
+        "type": "object",
+        "description": "How many accounts there are in each standing, under the search.",
+        "required": ["all", "sold", "unsold"],
+        "properties": {
+          "all": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sold": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "unsold": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "AccountList": {
+        "type": "object",
+        "required": ["accounts"],
+        "properties": {
+          "accounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StockAccount"
+            },
+            "description": "Newest first, at most 1,000. A collaborator sees the ones they loaded."
+          }
+        }
+      },
+      "AccountPage": {
+        "type": "object",
+        "description": "One page of accounts, and what the search finds in all.",
+        "required": ["accounts", "counts", "total"],
+        "properties": {
+          "accounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StockAccount"
+            }
+          },
+          "counts": {
+            "$ref": "#/components/schemas/AccountCounts",
+            "description": "How many accounts each standing has under the search, whichever is shown."
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How many the standing and the search match, across every page."
+          }
+        }
+      },
+      "AccountRemoved": {
+        "type": "object",
+        "required": ["available"],
+        "properties": {
+          "available": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The count of the package now."
+          }
+        }
+      },
+      "AccountUpdated": {
+        "type": "object",
+        "required": ["email_hint"],
+        "properties": {
+          "email_hint": {
+            "type": "string",
+            "description": "The account as a page lists it now: the email hidden but for its first\nletter and its domain."
+          }
+        }
+      },
+      "AccountsEdited": {
+        "type": "object",
+        "required": ["added", "available", "changed", "duplicates", "removed"],
+        "properties": {
+          "added": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Lines that were not among `ids`, put in stock."
+          },
+          "available": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The count of the package after the edit."
+          },
+          "changed": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Accounts whose line is not what it was."
+          },
+          "duplicates": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Lines left out because the package already holds exactly that account."
+          },
+          "removed": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Accounts taken out of stock because their line is gone from the block."
+          }
+        }
+      },
+      "AccountsLoaded": {
+        "type": "object",
+        "required": ["added", "available", "duplicates"],
+        "properties": {
+          "added": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Accounts put in stock."
+          },
+          "available": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The count of the package now: the accounts not yet sold."
+          },
+          "duplicates": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Lines left out because the package already holds exactly that account."
+          }
+        }
+      },
       "AddStaff": {
         "type": "object",
         "required": ["username", "role"],
@@ -4887,7 +5610,11 @@
           "available": {
             "type": "integer",
             "format": "int32",
-            "description": "The count to start from, 0 to 1,000,000."
+            "description": "The count to start from, 0 to 1,000,000. Always 0 for a package that\nhands out accounts."
+          },
+          "delivers_accounts": {
+            "type": "boolean",
+            "description": "Hands the buyer an account when they have paid, from accounts loaded\nwith `POST .../accounts`. Fixed once the package is made."
           },
           "hot": {
             "type": "boolean"
@@ -5124,6 +5851,7 @@
         "description": "A product as the dashboard shows it: the catalogue's fields that a page uses,\nwith the count split three ways.",
         "required": [
           "available",
+          "delivers_accounts",
           "hot",
           "listed",
           "on_hand",
@@ -5139,6 +5867,10 @@
             "type": "integer",
             "format": "int32",
             "description": "What a buyer may still order: `on_hand` less `reserved`."
+          },
+          "delivers_accounts": {
+            "type": "boolean",
+            "description": "Hands the buyer an account when they have paid. Its count is the number\nof accounts not yet sold, so it cannot be changed by hand."
           },
           "hot": {
             "type": "boolean"
@@ -5415,6 +6147,29 @@
           }
         }
       },
+      "EditAccounts": {
+        "type": "object",
+        "description": "Accounts the owner opened, and the block they left them as. Not `Debug`.",
+        "required": ["accounts", "ids"],
+        "properties": {
+          "accounts": {
+            "type": "string",
+            "description": "One account per line, `email|password`, as the owner left the block; blank\nlines are skipped. Empty takes every account in `ids` out of stock."
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Report what would change and change nothing."
+          },
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The accounts the block was made from, all unsold and all of this package."
+          }
+        }
+      },
       "ErrorResponse": {
         "type": "object",
         "required": ["code", "message"],
@@ -5622,6 +6377,17 @@
         "properties": {
           "username": {
             "type": "string"
+          }
+        }
+      },
+      "LoadAccounts": {
+        "type": "object",
+        "description": "A block of accounts to load. It is not `Debug` on purpose: a derived\n`Debug` would print the accounts wherever the request is logged.",
+        "required": ["accounts"],
+        "properties": {
+          "accounts": {
+            "type": "string",
+            "description": "One account per line, `email|password`: at most 1,000 lines of at most 300\ncharacters. Blank lines are skipped and the spaces around the bar are dropped."
           }
         }
       },
@@ -6230,7 +6996,7 @@
       "Permission": {
         "type": "string",
         "description": "What a page or an endpoint asks of a role.",
-        "enum": ["orders", "history", "stock", "revenue", "staff"]
+        "enum": ["orders", "history", "stock", "revenue", "staff", "secrets"]
       },
       "Platform": {
         "type": "string",
@@ -6531,6 +7297,52 @@
           },
           "videoUrl": {
             "type": "string"
+          }
+        }
+      },
+      "RevealAccounts": {
+        "type": "object",
+        "description": "The owner's password, to show the owner is who they say, and the accounts to\nopen. Not `Debug`, for the same reason as an account.",
+        "required": ["ids", "password"],
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "At least one and at most 1,000; each is opened once, in this order."
+          },
+          "password": {
+            "type": "string"
+          }
+        }
+      },
+      "RevealedAccount": {
+        "type": "object",
+        "description": "One account, in the clear.",
+        "required": ["account", "id"],
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "`email|password`."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "RevealedAccounts": {
+        "type": "object",
+        "description": "The accounts asked for, in the clear. Not `Debug`.",
+        "required": ["accounts"],
+        "properties": {
+          "accounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RevealedAccount"
+            }
           }
         }
       },
@@ -6858,6 +7670,48 @@
           }
         }
       },
+      "StockAccount": {
+        "type": "object",
+        "description": "One account as a page lists it. The email is hidden but for its first letter\nand its domain, and the password is not here at all.",
+        "required": [
+          "email_hint",
+          "id",
+          "loaded_at",
+          "product_slug",
+          "product_title"
+        ],
+        "properties": {
+          "email_hint": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "loaded_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "loaded_by": {
+            "type": ["string", "null"]
+          },
+          "order_reference": {
+            "type": ["string", "null"],
+            "description": "The order it was handed to, once it has been."
+          },
+          "product_slug": {
+            "type": "string",
+            "description": "The package it belongs to, by its slug and by its name."
+          },
+          "product_title": {
+            "type": "string"
+          },
+          "sold_at": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          }
+        }
+      },
       "StockChange": {
         "type": "object",
         "required": ["delta"],
@@ -6949,6 +7803,20 @@
           },
           "voice": {
             "type": "string"
+          }
+        }
+      },
+      "UpdateAccount": {
+        "type": "object",
+        "description": "A new email and/or password for an account. Not `Debug`, like an account.",
+        "properties": {
+          "email": {
+            "type": ["string", "null"],
+            "description": "A new email. Left out or blank keeps the one it has."
+          },
+          "password": {
+            "type": ["string", "null"],
+            "description": "A new password. Left out or blank keeps the one it has."
           }
         }
       },

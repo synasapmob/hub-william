@@ -13,6 +13,7 @@ use crate::{
     core::{ApiError, AppState},
 };
 
+pub(crate) mod accounts;
 pub(crate) mod catalogue;
 mod routes;
 pub(crate) use routes::routes;
@@ -229,7 +230,18 @@ pub struct SepayResult {
     /// True when this SePay transaction was already recorded, so the caller
     /// must not notify the buyer a second time.
     pub duplicate: bool,
+    /// Set when the transfer named an order that had already run out. Nothing is
+    /// settled: the money is recorded for the owner, and the buyer is to be told
+    /// to write to the owner, who gives them the goods or the money back.
+    pub late: Option<LateTransfer>,
     pub order: Option<TelegramOrder>,
+}
+
+/// Money that arrived after the order it was meant for had run out.
+#[derive(Debug, Serialize)]
+pub struct LateTransfer {
+    pub amount_vnd: i64,
+    pub order: TelegramOrder,
 }
 
 pub(crate) const ORDER_COLUMNS: &str = "chat_id, expires_at, item_id, item_title, paid_at, quantity, reference, status, telegram_user_id, total_vnd, unit_price_vnd";
@@ -264,6 +276,11 @@ pub async fn create_order(
     if payload.quantity > product.available {
         return Err(ApiError::Validation(
             "That quantity is more than the stock on hand.",
+        ));
+    }
+    if product.delivers_accounts && payload.quantity > accounts::MAXIMUM_ACCOUNTS_PER_ORDER {
+        return Err(ApiError::Validation(
+            "A package that hands out accounts sells at most 10 in one order.",
         ));
     }
 
@@ -374,6 +391,22 @@ pub async fn cancel_order(
     Ok(Json(order))
 }
 
+/// What a paid order was handed, for its buyer. The accounts come back to the one
+/// contact whose order it is and to nobody else, and again on every ask, so a
+/// buyer whose message did not arrive can have them sent once more.
+pub async fn order_delivery(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((telegram_user_id, reference)): Path<(i64, String)>,
+) -> Result<Json<accounts::Delivery>, ApiError> {
+    authorize_telegram_service(&state, &headers)?;
+
+    Ok(Json(
+        accounts::delivery_for_order(&state, telegram_user_id, &normalize_reference(&reference)?)
+            .await?,
+    ))
+}
+
 pub async fn record_sepay_payment(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -419,6 +452,7 @@ pub async fn record_sepay_payment(
         database.commit().await.map_err(database_error)?;
         return Ok(Json(SepayResult {
             duplicate: true,
+            late: None,
             order: None,
         }));
     };
@@ -426,15 +460,30 @@ pub async fn record_sepay_payment(
     // Only money arriving can settle an order, only a transfer that covers the
     // full total, and only one made before the order ran out; anything else is
     // recorded and left for a human.
-    let order = if transaction.transfer_type.eq_ignore_ascii_case("in") {
+    let paid_by = transferred_at.unwrap_or_else(Utc::now);
+    let content = searchable_content(&transaction);
+    let money_in = transaction.transfer_type.eq_ignore_ascii_case("in");
+    let order = if money_in {
         settle_order(
             &mut database,
             payment_id,
-            &searchable_content(&transaction),
+            &content,
             transaction.transfer_amount,
-            transferred_at,
+            Some(paid_by),
         )
         .await?
+    } else {
+        None
+    };
+    // Money that names an order which had already run out settles nothing, so
+    // the buyer would hear nothing either. Say who it was for.
+    let late = if money_in && order.is_none() {
+        find_expired_order(&mut database, &content, paid_by)
+            .await?
+            .map(|order| LateTransfer {
+                amount_vnd: transaction.transfer_amount,
+                order,
+            })
     } else {
         None
     };
@@ -442,8 +491,30 @@ pub async fn record_sepay_payment(
     database.commit().await.map_err(database_error)?;
     Ok(Json(SepayResult {
         duplicate: false,
+        late,
         order,
     }))
+}
+
+/// The order a transfer names, when it had run out before the money moved.
+async fn find_expired_order(
+    database: &mut sqlx::PgConnection,
+    content: &str,
+    paid_by: DateTime<Utc>,
+) -> Result<Option<TelegramOrder>, ApiError> {
+    sqlx::query_as::<_, TelegramOrder>(&format!(
+        "SELECT {ORDER_COLUMNS} FROM telegram_orders
+         WHERE status = 'awaiting_payment'
+           AND POSITION(reference IN $1) > 0
+           AND expires_at <= $2
+         ORDER BY created_at DESC
+         LIMIT 1"
+    ))
+    .bind(content)
+    .bind(paid_by)
+    .fetch_optional(database)
+    .await
+    .map_err(database_error)
 }
 
 async fn settle_order(
@@ -492,20 +563,11 @@ async fn settle_order(
     .await
     .map_err(database_error)?;
 
-    // A paid order stops reserving stock and starts consuming it, so the count
-    // on hand comes down for good. `GREATEST` guards the case where the owner
-    // lowered the count while the order was open.
+    // A paid order stops reserving stock and starts consuming it, and a package
+    // that hands out accounts hands them to the order here, in the same
+    // transaction as the payment.
     if let Some(order) = order.as_ref() {
-        sqlx::query(
-            "UPDATE telegram_products
-             SET available = GREATEST(available - $2, 0), updated_at = NOW()
-             WHERE slug = $1",
-        )
-        .bind(&order.item_id)
-        .bind(order.quantity)
-        .execute(&mut *database)
-        .await
-        .map_err(database_error)?;
+        accounts::use_up_stock(database, &order.item_id, &order.reference, order.quantity).await?;
     }
 
     Ok(order)
