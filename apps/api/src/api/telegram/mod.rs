@@ -9,7 +9,10 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
-    api::telegram::catalogue::{load_product, normalize_slug},
+    api::{
+        access::{Permission, identify},
+        telegram::catalogue::{load_product, normalize_slug},
+    },
     core::{ApiError, AppState},
 };
 
@@ -18,7 +21,6 @@ pub(crate) mod catalogue;
 mod routes;
 pub(crate) use routes::routes;
 
-const TELEGRAM_SERVICE_TOKEN_HEADER: &str = "x-hub-william-telegram-token";
 const ORDER_REFERENCE_ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 const ORDER_REFERENCE_LENGTH: usize = 12;
 const ORDER_REFERENCE_ATTEMPTS: usize = 8;
@@ -638,23 +640,15 @@ fn truncate(value: &str, maximum_characters: usize) -> String {
     value.trim().chars().take(maximum_characters).collect()
 }
 
+/// Every `/internal/telegram/*` route is the bot's alone. Whatever is wrong with the
+/// key, the answer is the same `403`, so a probe learns nothing about which part failed.
 pub(crate) fn authorize_telegram_service(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<(), ApiError> {
-    let configured = state
-        .config
-        .telegram_service_token
-        .as_deref()
-        .ok_or(ApiError::Forbidden)?;
-    let provided = headers
-        .get(TELEGRAM_SERVICE_TOKEN_HEADER)
-        .map(axum::http::HeaderValue::as_bytes)
-        .unwrap_or_default();
-
-    secrets_match(configured, provided)
-        .then_some(())
-        .ok_or(ApiError::Forbidden)
+    identify(&state.config, headers)
+        .ok_or(ApiError::Forbidden)?
+        .require(Permission::Internal)
 }
 
 fn normalize_contact(
@@ -691,19 +685,6 @@ fn normalize_language(value: String) -> Result<String, ApiError> {
             "Telegram language must be either en or vi.",
         )),
     }
-}
-
-fn secrets_match(expected: &[u8], received: &[u8]) -> bool {
-    let mut difference = expected.len() ^ received.len();
-    let length = expected.len().max(received.len());
-
-    for index in 0..length {
-        let expected_byte = expected.get(index).copied().unwrap_or(0);
-        let received_byte = received.get(index).copied().unwrap_or(0);
-        difference |= usize::from(expected_byte ^ received_byte);
-    }
-
-    difference == 0
 }
 
 fn database_error(error: sqlx::Error) -> ApiError {

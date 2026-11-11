@@ -8,8 +8,8 @@ use utoipa_swagger_ui::SwaggerUi;
 use crate::core::{AppState, cors};
 
 use super::{
-    ApiDoc, agent, auth, dashboard, gateway, health, organizations, playground, reel, service,
-    telegram, tts,
+    ApiDoc, agent, auth, dashboard, gateway, health, organizations, partner, playground, reel,
+    service, telegram, tts,
 };
 
 pub fn app(state: AppState) -> Router {
@@ -27,6 +27,7 @@ pub fn app(state: AppState) -> Router {
         .merge(reel::routes(&state))
         .merge(auth::routes(&state))
         .merge(telegram::routes())
+        .merge(partner::routes(&state))
         .merge(organizations::routes(&state))
         .merge(agent::routes(&state))
         .merge(gateway::routes(&state))

@@ -2,7 +2,7 @@ use chrono::{TimeZone, Utc};
 
 use super::{
     ORDER_REFERENCE_LENGTH, ObserveTelegramContact, SepayTransaction, normalize_contact,
-    normalize_language, normalize_reference, order_reference, searchable_content, secrets_match,
+    normalize_language, normalize_reference, order_reference, searchable_content,
     sepay_transferred_at,
 };
 
@@ -20,13 +20,6 @@ fn contact_normalization_limits_public_metadata() {
     assert_eq!(contact.username.as_deref(), Some("hub_william"));
     assert_eq!(contact.first_name, "William");
     assert_eq!(contact.last_name.as_deref(), Some("Hub"));
-}
-
-#[test]
-fn service_tokens_require_an_exact_match() {
-    assert!(secrets_match(b"shared-secret", b"shared-secret"));
-    assert!(!secrets_match(b"shared-secret", b"shared-secrex"));
-    assert!(!secrets_match(b"shared-secret", b"shared-secret-more"));
 }
 
 #[test]

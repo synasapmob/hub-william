@@ -18,6 +18,11 @@ pub struct AppConfig {
     /// the provider credential key so one leak does not open both. Unset, the
     /// service runs and simply cannot load accounts.
     pub stock_encryption_key: Option<[u8; 32]>,
+    /// The keys callers present, from `SHOP_KEYS`. What each name may do is decided
+    /// in `api::access`, not here.
+    pub shop_keys: Vec<ShopKey>,
+    /// The former way to give the Telegram bot its key. It still counts as the key
+    /// named `telegram` while `SHOP_KEYS` has no such entry.
     pub telegram_service_token: Option<Vec<u8>>,
     /// Where `apps/telegram` listens, so the dashboard can have the bot send a
     /// message. Unset, the dashboard can read and change the shop but not announce.
@@ -61,6 +66,68 @@ pub struct AppConfig {
     pub claude_models_url: String,
 }
 
+/// The name the Telegram bot's key is issued under.
+pub const TELEGRAM_KEY_NAME: &str = "telegram";
+
+/// Short enough to guess is short enough to be someone else's key.
+const MINIMUM_SHOP_KEY_LENGTH: usize = 32;
+
+/// A key issued to one caller. It has no `Debug` so it cannot reach a log.
+#[derive(Clone)]
+pub struct ShopKey {
+    pub name: String,
+    pub key: Vec<u8>,
+}
+
+/// Reads `name:key,name:key`. An entry that cannot be used is left out and
+/// described in the second value, never with its key: one bad entry costs that
+/// caller its access, not the whole API its start, because the gateway runs in the
+/// same process.
+fn parse_shop_keys(raw: &str) -> (Vec<ShopKey>, Vec<String>) {
+    let mut keys: Vec<ShopKey> = Vec::new();
+    let mut problems = Vec::new();
+
+    for (index, entry) in raw.split(',').enumerate() {
+        let entry = entry.trim();
+        if entry.is_empty() {
+            continue;
+        }
+        let position = index + 1;
+        let Some((name, key)) = entry.split_once(':') else {
+            problems.push(format!("entry {position} is not name:key"));
+            continue;
+        };
+        let (name, key) = (name.trim(), key.trim());
+
+        if name.is_empty()
+            || !name.bytes().all(|byte| {
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
+            })
+        {
+            problems.push(format!(
+                "entry {position} has a name that is not lowercase letters, digits, _ or -"
+            ));
+        } else if key.len() < MINIMUM_SHOP_KEY_LENGTH
+            || !key.bytes().all(|byte| byte.is_ascii_graphic())
+        {
+            problems.push(format!(
+                "the key of {name} is not at least {MINIMUM_SHOP_KEY_LENGTH} visible characters"
+            ));
+        } else if keys.iter().any(|issued| issued.name == name) {
+            problems.push(format!("{name} appears more than once"));
+        } else if keys.iter().any(|issued| issued.key == key.as_bytes()) {
+            problems.push(format!("the key of {name} is the key of another entry"));
+        } else {
+            keys.push(ShopKey {
+                name: name.to_owned(),
+                key: key.as_bytes().to_vec(),
+            });
+        }
+    }
+
+    (keys, problems)
+}
+
 #[derive(Debug)]
 pub struct ConfigError(String);
 
@@ -81,6 +148,32 @@ fn non_empty_env(name: &str) -> Option<String> {
 }
 
 impl AppConfig {
+    /// Every key a caller can present, with the name it was issued under.
+    pub(crate) fn issued_keys(&self) -> impl Iterator<Item = (&str, &[u8])> {
+        let former_telegram_key = self
+            .telegram_service_token
+            .as_deref()
+            .filter(|_| {
+                !self
+                    .shop_keys
+                    .iter()
+                    .any(|shop| shop.name == TELEGRAM_KEY_NAME)
+            })
+            .map(|token| (TELEGRAM_KEY_NAME, token));
+
+        self.shop_keys
+            .iter()
+            .map(|shop| (shop.name.as_str(), shop.key.as_slice()))
+            .chain(former_telegram_key)
+    }
+
+    /// The key the bot holds, which the API also presents when it calls the bot.
+    pub(crate) fn telegram_key(&self) -> Option<&[u8]> {
+        self.issued_keys()
+            .find(|(name, _)| *name == TELEGRAM_KEY_NAME)
+            .map(|(_, key)| key)
+    }
+
     pub fn from_env() -> Result<Self, ConfigError> {
         let frontend_origin =
             env::var("FRONTEND_ORIGIN").unwrap_or_else(|_| "http://localhost:5173".to_owned());
@@ -146,6 +239,12 @@ impl AppConfig {
             })
             .transpose()?;
 
+        let (shop_keys, shop_key_problems) =
+            parse_shop_keys(&non_empty_env("SHOP_KEYS").unwrap_or_default());
+        for problem in shop_key_problems {
+            eprintln!("SHOP_KEYS: {problem}; that entry is ignored");
+        }
+
         let stripe_secret_key = non_empty_env("STRIPE_SECRET_KEY");
         let stripe_webhook_secret = non_empty_env("STRIPE_WEBHOOK_SECRET");
         if stripe_secret_key.is_some() != stripe_webhook_secret.is_some() {
@@ -161,6 +260,7 @@ impl AppConfig {
             credential_encryption_key,
             stock_encryption_key,
             frontend_origin,
+            shop_keys,
             telegram_service_token: env::var("TELEGRAM_SERVICE_TOKEN")
                 .ok()
                 .filter(|token| !token.trim().is_empty())
@@ -248,6 +348,7 @@ impl Default for AppConfig {
             credential_encryption_key: [7; 32],
             stock_encryption_key: Some([9; 32]),
             frontend_origin: HeaderValue::from_static("http://localhost:5173"),
+            shop_keys: Vec::new(),
             telegram_service_token: None,
             telegram_adapter_url: None,
             trust_proxy_headers: false,
@@ -279,5 +380,79 @@ impl Default for AppConfig {
             chatgpt_codex_models_url: "https://chatgpt.com/backend-api/codex/models".to_owned(),
             claude_models_url: "https://api.anthropic.com/v1/models?limit=1000".to_owned(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AppConfig, ShopKey, TELEGRAM_KEY_NAME, parse_shop_keys};
+
+    const KEY_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const KEY_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    fn names(keys: &[ShopKey]) -> Vec<&str> {
+        keys.iter().map(|shop| shop.name.as_str()).collect()
+    }
+
+    #[test]
+    fn shop_keys_are_read_as_name_and_key_pairs() {
+        let (keys, problems) = parse_shop_keys(&format!(" telegram:{KEY_A} , shop_1:{KEY_B},, "));
+
+        assert!(problems.is_empty());
+        assert_eq!(names(&keys), ["telegram", "shop_1"]);
+        assert_eq!(keys[1].key, KEY_B.as_bytes());
+    }
+
+    #[test]
+    fn an_unset_list_issues_nothing_and_says_nothing() {
+        let (keys, problems) = parse_shop_keys("");
+
+        assert!(keys.is_empty());
+        assert!(problems.is_empty());
+    }
+
+    #[test]
+    fn a_bad_entry_is_left_out_and_the_good_ones_stay() {
+        let (keys, problems) =
+            parse_shop_keys(&format!("no-colon,Shop_1:{KEY_A},short:abc,shop_2:{KEY_B}"));
+
+        assert_eq!(names(&keys), ["shop_2"]);
+        assert_eq!(problems.len(), 3);
+    }
+
+    #[test]
+    fn a_repeated_name_or_key_keeps_only_the_first() {
+        let (keys, problems) =
+            parse_shop_keys(&format!("shop_1:{KEY_A},shop_1:{KEY_B},shop_2:{KEY_A}"));
+
+        assert_eq!(names(&keys), ["shop_1"]);
+        assert_eq!(problems.len(), 2);
+    }
+
+    #[test]
+    fn a_problem_never_repeats_the_key() {
+        let (_, problems) = parse_shop_keys(&format!("shop_1:{KEY_A},shop_1:{KEY_B},short:abc"));
+
+        assert!(
+            problems
+                .iter()
+                .all(|problem| !problem.contains(KEY_A) && !problem.contains(KEY_B))
+        );
+    }
+
+    #[test]
+    fn the_former_telegram_token_counts_until_shop_keys_names_telegram() {
+        let former = AppConfig {
+            telegram_service_token: Some(b"former-token".to_vec()),
+            ..AppConfig::default()
+        };
+        assert_eq!(former.telegram_key(), Some(&b"former-token"[..]));
+
+        let named = AppConfig {
+            shop_keys: parse_shop_keys(&format!("{TELEGRAM_KEY_NAME}:{KEY_A}")).0,
+            ..former
+        };
+        assert_eq!(named.telegram_key(), Some(KEY_A.as_bytes()));
+        assert_eq!(named.issued_keys().count(), 1);
     }
 }
