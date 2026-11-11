@@ -139,7 +139,8 @@ receive the account. The owner is not told of the payment, so the buyer's messag
 is what starts the handover. `Kiểm tra thanh toán` reads the same
 record, so it reports a real result rather than a guess. An incoming transfer
 that matches nothing is still stored for a human to reconcile, and an order
-that expires is void: a buyer has five minutes to pay, and a transfer the bank
+that expires is void: a buyer has five minutes to pay and holds one open order at a
+time (starting another package cancels the open one at once), and a transfer the bank
 made after that is stored for a human to reconcile but does not settle it. When
 such a transfer names the expired order, the buyer is messaged all the same: the
 money arrived, the order did not complete, and they are to write to the owner with
