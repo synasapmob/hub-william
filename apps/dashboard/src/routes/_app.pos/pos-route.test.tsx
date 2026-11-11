@@ -170,7 +170,7 @@ describe("PosRoute, the list", () => {
 
     await user.click(editButton(/Claude Pro 1 tháng/));
 
-    expect(dialog()).toHaveTextContent("Sửa Claude Pro 1 tháng");
+    expect(dialog()).toHaveTextContent("Sửa Pro 1 tháng");
   });
 
   it("lists every package of a provider, however many", async () => {
@@ -499,7 +499,7 @@ describe("PosRoute, adding", () => {
       warranty_note: null,
     });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(toast.success).toHaveBeenCalledWith("Đã thêm Claude Pro 2 tháng");
+    expect(toast.success).toHaveBeenCalledWith("Đã thêm Pro 2 tháng");
   });
 
   it("sends the variant, the warranty and the flags that were chosen", async () => {
@@ -541,7 +541,7 @@ describe("PosRoute, adding", () => {
     await user.click(screen.getByRole("button", { name: "Thêm" }));
 
     await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(1));
-    expect(toast.success).toHaveBeenCalledWith("Đã thêm Claude Pro 2 tháng");
+    expect(toast.success).toHaveBeenCalledWith("Đã thêm Pro 2 tháng");
     expect(toast.warning).not.toHaveBeenCalled();
     expect(announce).not.toHaveBeenCalled();
   });
@@ -575,7 +575,7 @@ describe("PosRoute, adding", () => {
     await user.click(screen.getByRole("button", { name: "Thêm" }));
 
     await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith("Đã thêm Claude Pro 2 tháng", {
+      expect(toast.success).toHaveBeenCalledWith("Đã thêm Pro 2 tháng", {
         description:
           "Bot đã đăng lên kênh và đang gửi cho 12 người đã bấm Start.",
       }),
@@ -612,12 +612,9 @@ describe("PosRoute, adding", () => {
       await user.click(screen.getByRole("button", { name: "Thêm" }));
 
       await waitFor(() =>
-        expect(toast.success).toHaveBeenCalledWith(
-          "Đã thêm Claude Pro 2 tháng",
-          {
-            description: text,
-          },
-        ),
+        expect(toast.success).toHaveBeenCalledWith("Đã thêm Pro 2 tháng", {
+          description: text,
+        }),
       );
     },
   );
@@ -641,10 +638,9 @@ describe("PosRoute, adding", () => {
       await user.click(screen.getByRole("button", { name: "Thêm" }));
 
       await waitFor(() =>
-        expect(toast.warning).toHaveBeenCalledWith(
-          "Đã thêm Claude Pro 2 tháng",
-          { description: `Tin nhắn Telegram chưa được gửi: ${message}` },
-        ),
+        expect(toast.warning).toHaveBeenCalledWith("Đã thêm Pro 2 tháng", {
+          description: `Tin nhắn Telegram chưa được gửi: ${message}`,
+        }),
       );
       // It must not claim a message went out.
       expect(toast.success).not.toHaveBeenCalled();
@@ -696,10 +692,9 @@ describe("PosRoute, adding", () => {
         expect.objectContaining({ delivers_accounts: true, stock: 0 }),
       );
       await waitFor(() =>
-        expect(toast.success).toHaveBeenCalledWith(
-          "Đã thêm Claude Pro 2 tháng",
-          { description: "Trong kho còn 2 tài khoản." },
-        ),
+        expect(toast.success).toHaveBeenCalledWith("Đã thêm Pro 2 tháng", {
+          description: "Trong kho còn 2 tài khoản.",
+        }),
       );
       // The accounts are not kept: the box is gone with the form.
       expect(screen.queryByLabelText(/Nạp tài khoản/)).not.toBeInTheDocument();
@@ -755,22 +750,18 @@ describe("PosRoute, adding", () => {
       await user.click(screen.getByRole("button", { name: "Thêm" }));
 
       await waitFor(() =>
-        expect(toast.warning).toHaveBeenCalledWith(
-          "Đã thêm Claude Pro 2 tháng",
-          {
-            description: expect.stringContaining(
-              "Chưa nạp được tài khoản: Loading accounts needs a key.",
-            ),
-          },
-        ),
+        expect(toast.warning).toHaveBeenCalledWith("Đã thêm Pro 2 tháng", {
+          description: expect.stringContaining(
+            "Chưa nạp được tài khoản: Loading accounts needs a key.",
+          ),
+        }),
       );
       expect(announce).not.toHaveBeenCalled();
     });
   });
 
-  describe("the warranty note", () => {
-    const noteField = () =>
-      screen.getByLabelText("Ghi chú bảo hành (tùy chọn)");
+  describe("the package note", () => {
+    const noteField = () => screen.getByLabelText("Ghi chú gói (tùy chọn)");
 
     it("is saved with the new package, as written", async () => {
       const create = vi.spyOn(fakeStockService, "create");
@@ -824,7 +815,7 @@ describe("PosRoute, adding", () => {
       expect(screen.getByRole("button", { name: "Thêm" })).toBeEnabled();
     });
 
-    it("asks for the standard note when it is left empty", async () => {
+    it("sends no note when it is left empty", async () => {
       const create = vi.spyOn(fakeStockService, "create");
       const user = await openAdd();
 
@@ -848,7 +839,7 @@ describe("PosRoute, adding", () => {
 
       expect(screen.getByText("201/200")).toBeInTheDocument();
       expect(
-        screen.getByText("Ghi chú bảo hành dài tối đa 200 ký tự."),
+        screen.getByText("Ghi chú gói dài tối đa 200 ký tự."),
       ).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Thêm" })).toBeDisabled();
       expect(create).not.toHaveBeenCalled();
@@ -951,18 +942,134 @@ describe("PosRoute, adding", () => {
     expect(create).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["1000000001", "-1", "abc"])(
-    "refuses the price %s",
-    async (price) => {
-      const user = await openAdd();
+  it.each(["1000000001", "abc"])("refuses the price %s", async (price) => {
+    const user = await openAdd();
 
-      await chooseProvider(user, "Grok");
-      await user.type(screen.getByLabelText("Tên gói"), "Heavy");
-      await user.type(screen.getByLabelText("Giá (₫)"), price);
+    await chooseProvider(user, "Grok");
+    await user.type(screen.getByLabelText("Tên gói"), "Heavy");
+    await user.type(screen.getByLabelText("Giá (₫)"), price);
 
-      expect(screen.getByRole("button", { name: "Thêm" })).toBeDisabled();
-    },
-  );
+    expect(screen.getByRole("button", { name: "Thêm" })).toBeDisabled();
+  });
+
+  it("says nothing under the name or the note until there is something wrong with them", async () => {
+    const user = await openAdd();
+
+    expect(
+      screen.queryByText(/Khách thấy đúng tên này/),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Khách đọc/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Ghi tên gói/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("Ghi chú gói (tùy chọn)"));
+    await user.paste("a".repeat(201));
+
+    expect(
+      screen.getByText("Ghi chú gói dài tối đa 200 ký tự."),
+    ).toBeInTheDocument();
+  });
+
+  it("puts the price and the starting stock on one row, and the price alone on it for accounts", async () => {
+    const user = await openAdd();
+    const cellOf = (field: HTMLElement) =>
+      field.closest("div.space-y-1\\.5") as HTMLElement;
+    const price = cellOf(screen.getByLabelText("Giá (₫)"));
+    const stock = cellOf(screen.getByLabelText("Tồn kho ban đầu"));
+
+    expect(price.parentElement).toBe(stock.parentElement);
+    expect(price).not.toHaveClass("col-span-2");
+
+    // A package that hands out accounts has no stock to start from: the price
+    // takes the whole row.
+    await user.click(
+      screen.getByRole("switch", { name: "Giao tài khoản tự động" }),
+    );
+
+    expect(screen.queryByLabelText("Tồn kho ban đầu")).not.toBeInTheDocument();
+    expect(cellOf(screen.getByLabelText("Giá (₫)"))).toHaveClass("col-span-2");
+  });
+
+  it("does not let a textarea be dragged to another size", async () => {
+    const user = await openAdd();
+
+    await user.click(
+      screen.getByRole("switch", { name: "Giao tài khoản tự động" }),
+    );
+
+    const areas = screen
+      .getAllByRole("textbox")
+      .filter((field) => field.tagName === "TEXTAREA");
+
+    // The note, the accounts to load and the message for Telegram.
+    expect(areas.length).toBeGreaterThanOrEqual(3);
+
+    for (const area of areas) expect(area).toHaveClass("resize-none");
+  });
+
+  it("shows the price grouped by thousands as it is typed, and sends the number", async () => {
+    const create = vi.spyOn(fakeStockService, "create");
+    const user = await openAdd();
+    const price = screen.getByLabelText("Giá (₫)");
+
+    await chooseProvider(user, "Grok");
+    await user.type(screen.getByLabelText("Tên gói"), "Heavy");
+    await user.type(price, "140000");
+
+    expect(price).toHaveValue("140.000");
+
+    await user.clear(price);
+    await user.type(price, "1250000");
+
+    expect(price).toHaveValue("1.250.000");
+
+    await user.click(screen.getByRole("button", { name: "Thêm" }));
+
+    await waitFor(() =>
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({ price_vnd: 1_250_000 }),
+      ),
+    );
+  });
+
+  it("takes only digits into the price: a pasted amount, a minus sign, a currency sign", async () => {
+    const user = await openAdd();
+    const price = screen.getByLabelText("Giá (₫)");
+
+    await user.click(price);
+    await user.paste("140,000 ₫");
+    expect(price).toHaveValue("140.000");
+
+    await user.clear(price);
+    await user.type(price, "-5x0");
+    expect(price).toHaveValue("50");
+
+    // Leading zeros are not kept.
+    await user.clear(price);
+    await user.type(price, "007");
+    expect(price).toHaveValue("7");
+  });
+
+  it("keeps the caret where it was while the dots move, when a digit goes in the middle", async () => {
+    const user = await openAdd();
+    const price = screen.getByLabelText<HTMLInputElement>("Giá (₫)");
+
+    await user.type(price, "100000");
+    expect(price).toHaveValue("100.000");
+
+    // After the 1, a 5 goes in: 1500.000 is shown as 1.500.000, and the caret stays
+    // after the 5 instead of being thrown to the end.
+    price.setSelectionRange(1, 1);
+    await user.keyboard("5");
+
+    expect(price).toHaveValue("1.500.000");
+    expect(price.selectionStart).toBe(3);
+
+    // The next one typed goes right after it, and the dots move again.
+    await user.keyboard("7");
+
+    expect(price).toHaveValue("15.700.000");
+    expect(price.selectionStart).toBe(4);
+  });
 
   it("refuses a starting stock above 1,000,000 or below zero", async () => {
     const user = await openAdd();
@@ -1014,12 +1121,12 @@ describe("PosRoute, editing", () => {
   it("opens a card with the form already filled in", async () => {
     await openEdit(/Claude Pro 1 tháng/);
 
-    expect(dialog()).toHaveTextContent("Sửa Claude Pro 1 tháng");
+    expect(dialog()).toHaveTextContent("Sửa Pro 1 tháng");
     expect(
       screen.getByRole("combobox", { name: "Nhà cung cấp" }),
     ).toHaveTextContent("Claude");
     expect(screen.getByLabelText("Tên gói")).toHaveValue("Pro 1 tháng");
-    expect(screen.getByLabelText("Giá (₫)")).toHaveValue("459000");
+    expect(screen.getByLabelText("Giá (₫)")).toHaveValue("459.000");
     expect(screen.getByRole("switch", { name: "Đang bán" })).toBeChecked();
     expect(screen.getByRole("switch", { name: "Hot" })).toBeChecked();
     expect(
@@ -1049,7 +1156,7 @@ describe("PosRoute, editing", () => {
       expect(update.mock.invocationCallOrder[0]).toBeLessThan(
         changeStock.mock.invocationCallOrder[0],
       );
-      expect(toast.success).toHaveBeenCalledWith("Đã lưu Claude Pro 1 tháng");
+      expect(toast.success).toHaveBeenCalledWith("Đã lưu Pro 1 tháng");
     });
 
     it("takes stock away", async () => {
@@ -1337,10 +1444,9 @@ describe("PosRoute, editing", () => {
         load.mock.invocationCallOrder[0],
       );
       await waitFor(() =>
-        expect(toast.success).toHaveBeenCalledWith(
-          "Đã lưu Claude Pro 1 tháng",
-          { description: "Trong kho còn 2 tài khoản." },
-        ),
+        expect(toast.success).toHaveBeenCalledWith("Đã lưu Pro 1 tháng", {
+          description: "Trong kho còn 2 tài khoản.",
+        }),
       );
     });
 
@@ -1415,11 +1521,10 @@ describe("PosRoute, editing", () => {
     });
   });
 
-  describe("the warranty note", () => {
-    const noteField = () =>
-      screen.getByLabelText("Ghi chú bảo hành (tùy chọn)");
+  describe("the package note", () => {
+    const noteField = () => screen.getByLabelText("Ghi chú gói (tùy chọn)");
 
-    it("is empty on a package that carries the standard note", async () => {
+    it("is empty on a package that has no note", async () => {
       await openEdit(/Claude Pro 1 tháng/);
 
       expect(noteField()).toHaveValue("");
@@ -1485,7 +1590,7 @@ describe("PosRoute, editing", () => {
       );
     });
 
-    it("asks for the standard note back when it is cleared", async () => {
+    it("sends no note when it is cleared", async () => {
       const update = vi.spyOn(fakeStockService, "update");
       const user = await openEdit(/Gemini Advanced/);
 
@@ -1527,10 +1632,9 @@ describe("PosRoute, editing", () => {
         ),
       );
       await waitFor(() =>
-        expect(toast.success).toHaveBeenCalledWith(
-          "Đã lưu Claude Pro 1 tháng",
-          { description: expect.stringContaining("Bot đã đăng lên kênh") },
-        ),
+        expect(toast.success).toHaveBeenCalledWith("Đã lưu Pro 1 tháng", {
+          description: expect.stringContaining("Bot đã đăng lên kênh"),
+        }),
       );
     });
 
@@ -1570,7 +1674,7 @@ describe("PosRoute, editing", () => {
 
       await user.click(screen.getByRole("button", { name: "Xóa hàng" }));
 
-      expect(dialog()).toHaveTextContent("Xóa Claude Pro 1 tháng?");
+      expect(dialog()).toHaveTextContent("Xóa Pro 1 tháng?");
 
       await user.click(within(dialog()).getByRole("button", { name: "Xóa" }));
 
@@ -1580,7 +1684,7 @@ describe("PosRoute, editing", () => {
         ).not.toBeInTheDocument(),
       );
       expect(remove).toHaveBeenCalledWith("claude-pro-1-thang");
-      expect(toast).toHaveBeenCalledWith("Đã xóa Claude Pro 1 tháng");
+      expect(toast).toHaveBeenCalledWith("Đã xóa Pro 1 tháng");
     });
 
     it("keeps the package, and asks nothing, when the owner backs out", async () => {
@@ -1652,7 +1756,7 @@ describe("PosRoute, the image", () => {
 
     await user.click(editButton(/Claude Pro 1 tháng/));
 
-    expect(dialog()).toHaveTextContent("Sửa Claude Pro 1 tháng");
+    expect(dialog()).toHaveTextContent("Sửa Pro 1 tháng");
     expect(
       within(dialog()).queryByRole("img", { name: "Ảnh hàng" }),
     ).not.toBeInTheDocument();
@@ -1789,7 +1893,7 @@ describe("PosRoute, the accounts in stock", () => {
 
     await waitFor(() => expect(update).toHaveBeenCalled());
     expect(edit).not.toHaveBeenCalled();
-    expect(toast.success).toHaveBeenCalledWith("Đã lưu Claude Max 5x 1 tháng");
+    expect(toast.success).toHaveBeenCalledWith("Đã lưu Max 5x 1 tháng");
   });
 
   it("says what a changed block would do before it does anything, then saves the package and the accounts", async () => {
@@ -1832,12 +1936,9 @@ describe("PosRoute, the accounts in stock", () => {
       edit.mock.invocationCallOrder[1],
     );
     await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith(
-        "Đã lưu Claude Max 5x 1 tháng",
-        {
-          description: "Đổi 1, thêm 1. Trong kho còn 5 tài khoản.",
-        },
-      ),
+      expect(toast.success).toHaveBeenCalledWith("Đã lưu Max 5x 1 tháng", {
+        description: "Đổi 1, thêm 1. Trong kho còn 5 tài khoản.",
+      }),
     );
     // Nothing of the accounts stays on the page.
     expect(document.body.textContent).not.toContain("new-secret");
@@ -1878,12 +1979,9 @@ describe("PosRoute, the accounts in stock", () => {
     await user.click(screen.getByRole("button", { name: "Lưu thay đổi" }));
 
     await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith(
-        "Đã lưu Claude Max 5x 1 tháng",
-        {
-          description: "Xóa 1. Trong kho còn 3 tài khoản.",
-        },
-      ),
+      expect(toast.success).toHaveBeenCalledWith("Đã lưu Max 5x 1 tháng", {
+        description: "Xóa 1. Trong kho còn 3 tài khoản.",
+      }),
     );
   });
 
@@ -1918,14 +2016,11 @@ describe("PosRoute, the accounts in stock", () => {
 
     // The package is saved either way; the accounts are said not to be.
     await waitFor(() =>
-      expect(toast.warning).toHaveBeenCalledWith(
-        "Đã lưu Claude Max 5x 1 tháng",
-        {
-          description: expect.stringContaining(
-            "Chưa lưu được thay đổi của tài khoản",
-          ),
-        },
-      ),
+      expect(toast.warning).toHaveBeenCalledWith("Đã lưu Max 5x 1 tháng", {
+        description: expect.stringContaining(
+          "Chưa lưu được thay đổi của tài khoản",
+        ),
+      }),
     );
   });
 

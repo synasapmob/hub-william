@@ -67,7 +67,7 @@ describe("AccountsRoute", () => {
     const sold = within(dataRows()[1]);
 
     expect(unsold.getByText("o***@example.com")).toBeInTheDocument();
-    expect(unsold.getByText("Claude Max 5x 1 tháng")).toBeInTheDocument();
+    expect(unsold.getByText("Max 5x 1 tháng")).toBeInTheDocument();
     expect(unsold.getByText("Chưa bán")).toBeInTheDocument();
     expect(unsold.getByText("minhanh")).toBeInTheDocument();
     expect(sold.getByText("Đã bán")).toBeInTheDocument();
@@ -125,9 +125,7 @@ describe("AccountsRoute", () => {
     await user.click(screen.getByRole("combobox", { name: "Lọc theo gói" }));
     // Only a package that hands out accounts is offered.
     expect(screen.getAllByRole("option")).toHaveLength(2);
-    await user.click(
-      screen.getByRole("option", { name: "Claude Max 5x 1 tháng" }),
-    );
+    await user.click(screen.getByRole("option", { name: "Max 5x 1 tháng" }));
 
     await waitFor(() =>
       expect(search).toHaveBeenLastCalledWith(
@@ -141,7 +139,7 @@ describe("AccountsRoute", () => {
 
     await user.click(
       screen.getByRole("button", {
-        name: "Xem tài khoản b***@example.com của Claude Max 5x 1 tháng",
+        name: "Xem tài khoản b***@example.com của Max 5x 1 tháng",
       }),
     );
     await user.type(
@@ -165,7 +163,7 @@ describe("AccountsRoute", () => {
 
     await user.click(
       screen.getByRole("button", {
-        name: "Xem / sửa tài khoản o***@example.com của Claude Max 5x 1 tháng",
+        name: "Xem / sửa tài khoản o***@example.com của Max 5x 1 tháng",
       }),
     );
     await user.type(
@@ -216,9 +214,7 @@ describe("AccountsRoute", () => {
     ).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("combobox", { name: "Lọc theo gói" }));
-    await user.click(
-      screen.getByRole("option", { name: "Claude Max 5x 1 tháng" }),
-    );
+    await user.click(screen.getByRole("option", { name: "Max 5x 1 tháng" }));
     await user.click(
       await screen.findByRole("button", { name: "Xem / sửa cả gói" }),
     );
@@ -252,7 +248,7 @@ describe("AccountsRoute", () => {
 
     await user.click(
       screen.getByRole("button", {
-        name: "Xóa tài khoản o***@example.com của Claude Max 5x 1 tháng",
+        name: "Xóa tài khoản o***@example.com của Max 5x 1 tháng",
       }),
     );
     // Asked first, not done.
@@ -283,9 +279,7 @@ describe("AccountsRoute", () => {
     expect(submit).toBeDisabled();
 
     await user.click(dialog.getByRole("combobox", { name: "Gói" }));
-    await user.click(
-      screen.getByRole("option", { name: "Claude Max 5x 1 tháng" }),
-    );
+    await user.click(screen.getByRole("option", { name: "Max 5x 1 tháng" }));
     await user.click(dialog.getByLabelText("Tài khoản"));
     await user.paste("new.one@example.com|pw-1\nowner@example.com|pw-other\n");
 
@@ -313,16 +307,14 @@ describe("AccountsRoute", () => {
     const user = await setup();
 
     await user.click(screen.getByRole("combobox", { name: "Lọc theo gói" }));
-    await user.click(
-      screen.getByRole("option", { name: "Claude Max 5x 1 tháng" }),
-    );
+    await user.click(screen.getByRole("option", { name: "Max 5x 1 tháng" }));
     await user.click(screen.getByRole("button", { name: "Thêm tài khoản" }));
 
     expect(
       within(screen.getByRole("dialog")).getByRole("combobox", {
         name: "Gói",
       }),
-    ).toHaveTextContent("Claude Max 5x 1 tháng");
+    ).toHaveTextContent("Max 5x 1 tháng");
   });
 
   it("names the line that is wrong, without quoting it, and loads nothing", async () => {
@@ -334,9 +326,7 @@ describe("AccountsRoute", () => {
     const dialog = within(screen.getByRole("dialog"));
 
     await user.click(dialog.getByRole("combobox", { name: "Gói" }));
-    await user.click(
-      screen.getByRole("option", { name: "Claude Max 5x 1 tháng" }),
-    );
+    await user.click(screen.getByRole("option", { name: "Max 5x 1 tháng" }));
     await user.click(dialog.getByLabelText("Tài khoản"));
     await user.paste("good@example.com|ok\nno-bar-here-secret");
 
@@ -362,9 +352,7 @@ describe("AccountsRoute", () => {
     const dialog = within(screen.getByRole("dialog"));
 
     await user.click(dialog.getByRole("combobox", { name: "Gói" }));
-    await user.click(
-      screen.getByRole("option", { name: "Claude Max 5x 1 tháng" }),
-    );
+    await user.click(screen.getByRole("option", { name: "Max 5x 1 tháng" }));
     await user.click(dialog.getByLabelText("Tài khoản"));
     await user.paste("a@example.com|b");
     await user.click(dialog.getByRole("button", { name: "Nạp tài khoản" }));
@@ -406,7 +394,7 @@ describe("AccountsRoute", () => {
 
     await user.click(
       screen.getByRole("button", {
-        name: "Sửa tài khoản o***@example.com của Claude Max 5x 1 tháng",
+        name: "Sửa tài khoản o***@example.com của Max 5x 1 tháng",
       }),
     );
 
@@ -436,7 +424,7 @@ describe("AccountsRoute", () => {
 
     await user.click(
       screen.getByRole("button", {
-        name: "Sửa tài khoản o***@example.com của Claude Max 5x 1 tháng",
+        name: "Sửa tài khoản o***@example.com của Max 5x 1 tháng",
       }),
     );
     await user.type(screen.getByLabelText("Email mới"), "renamed@example.com");
@@ -452,7 +440,7 @@ describe("AccountsRoute", () => {
 
     await user.click(
       screen.getByRole("button", {
-        name: "Sửa tài khoản o***@example.com của Claude Max 5x 1 tháng",
+        name: "Sửa tài khoản o***@example.com của Max 5x 1 tháng",
       }),
     );
     await user.type(screen.getByLabelText("Email mới"), "a|b@example.com");
@@ -475,7 +463,7 @@ describe("AccountsRoute", () => {
 
     await user.click(
       screen.getByRole("button", {
-        name: "Sửa tài khoản o***@example.com của Claude Max 5x 1 tháng",
+        name: "Sửa tài khoản o***@example.com của Max 5x 1 tháng",
       }),
     );
     await user.type(screen.getByLabelText("Email mới"), "taken@example.com");
@@ -500,7 +488,7 @@ describe("AccountsRoute", () => {
 
     await user.click(
       screen.getByRole("button", {
-        name: "Sửa tài khoản o***@example.com của Claude Max 5x 1 tháng",
+        name: "Sửa tài khoản o***@example.com của Max 5x 1 tháng",
       }),
     );
     await user.type(screen.getByLabelText("Mật khẩu mới"), "x-new");
@@ -532,7 +520,7 @@ describe("AccountsRoute", () => {
       ).toBeInTheDocument();
       expect(
         screen.getByRole("button", {
-          name: "Sửa tài khoản o***@example.com của Claude Max 5x 1 tháng",
+          name: "Sửa tài khoản o***@example.com của Max 5x 1 tháng",
         }),
       ).toBeInTheDocument();
     },

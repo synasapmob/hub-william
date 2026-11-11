@@ -971,10 +971,7 @@ async fn the_overview_lists_every_package_and_counts_each_standing(pool: PgPool)
     assert_eq!(status, StatusCode::OK);
     assert_eq!(all["counts"], json!({ "all": 5, "sold": 1, "unsold": 4 }));
     assert_eq!(all["total"], 5);
-    assert_eq!(
-        titles(&all),
-        ["Acme Plus", "Acme Plus", "Acme Pro", "Acme Pro", "Acme Pro"]
-    );
+    assert_eq!(titles(&all), ["Plus", "Plus", "Pro", "Pro", "Pro"]);
     assert!(
         all["accounts"]
             .as_array()
@@ -999,7 +996,7 @@ async fn the_overview_lists_every_package_and_counts_each_standing(pool: PgPool)
     // A package narrows both.
     let (_, plus) = overview(&state, cookie, "?product=acme-plus").await;
     assert_eq!(plus["counts"], json!({ "all": 2, "sold": 0, "unsold": 2 }));
-    assert_eq!(titles(&plus), ["Acme Plus", "Acme Plus"]);
+    assert_eq!(titles(&plus), ["Plus", "Plus"]);
 
     assert_eq!(
         overview(&state, cookie, "?status=nonsense").await.0,

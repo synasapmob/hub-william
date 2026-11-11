@@ -139,6 +139,31 @@ export function shopDay(iso: string) {
   }).format(new Date(iso));
 }
 
+/** The digits of what was typed, which is all an amount of đồng is made of. */
+export function digitsOf(text: string) {
+  return text.replace(/\D/g, "");
+}
+
+/** `140000` as `140.000`: digits grouped in threes with a dot, as an amount is read. */
+export function groupDigits(digits: string) {
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+
+/** Where the caret goes in `text` to sit after its `count`-th digit. */
+export function caretAfterDigits(text: string, count: number) {
+  if (count <= 0) return 0;
+
+  let seen = 0;
+
+  for (let index = 0; index < text.length; index += 1) {
+    if (/\d/.test(text[index])) seen += 1;
+
+    if (seen === count) return index + 1;
+  }
+
+  return text.length;
+}
+
 /** 12 phút, 5 giờ, 2 ngày: the largest unit that is at least one. */
 export function formatDuration(minutes: number) {
   if (minutes >= 1_440) return `${Math.floor(minutes / 1_440)} ngày`;
@@ -148,9 +173,13 @@ export function formatDuration(minutes: number) {
   return `${minutes} phút`;
 }
 
-/** `ChatGPT Plus 1 tháng (Quốc tế)`: what a customer calls the package. */
+/**
+ * `Plus 1 tháng (Quốc tế)`: what a customer calls the package, which is the name
+ * the shop wrote with its variant in brackets. The provider groups packages and
+ * is not put in front, so a shop that wants its brand in the name writes it there.
+ */
 export function productTitle(product: TelegramProduct) {
-  return `${product.provider} ${product.plan}${product.variant ? ` (${product.variant})` : ""}`;
+  return `${product.plan}${product.variant ? ` (${product.variant})` : ""}`;
 }
 
 /** Units a customer can still buy: what is on hand less what orders hold. */
@@ -158,7 +187,7 @@ export function availableStock(product: TelegramProduct) {
   return Math.max(product.on_hand - product.reserved, 0);
 }
 
-/** What a package is called to the person, with its provider. */
+/** What a package is called to the person. */
 export function stockItemTitle(item: TelegramProduct) {
   return productTitle(item);
 }

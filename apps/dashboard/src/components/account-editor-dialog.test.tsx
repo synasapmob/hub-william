@@ -79,7 +79,7 @@ describe("AccountEditorDialog", () => {
     renderPage(<AccountEditorDialog accounts={accounts} onClose={vi.fn()} />);
 
     expect(
-      screen.getByText("Xem / sửa 4 tài khoản của Claude Max 5x 1 tháng"),
+      screen.getByText("Xem / sửa 4 tài khoản của Max 5x 1 tháng"),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Mở" })).toBeDisabled();
 

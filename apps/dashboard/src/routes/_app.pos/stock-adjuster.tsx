@@ -12,14 +12,11 @@ interface StockAdjusterProps {
   /** The signed amount to add, as typed. */
   value: string;
   invalid: boolean;
-  /** What the amount comes to, or why it is refused. */
-  hint: string;
   onChange: (value: string) => void;
 }
 
 /** Add to or take from a stock count: a stepper around a number typed freely. */
 export default function StockAdjuster({
-  hint,
   invalid,
   label,
   onChange,
@@ -31,7 +28,7 @@ export default function StockAdjuster({
     onChange(String((Number.isFinite(amount) ? amount : 0) + delta));
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1.5">
       <Label htmlFor="stock-adjust">{label}</Label>
 
       <Flex className="flex-wrap items-center gap-2">
@@ -64,14 +61,6 @@ export default function StockAdjuster({
 
         <span className="text-sm text-muted-foreground">{unit}</span>
       </Flex>
-
-      <p
-        className={
-          invalid ? "text-xs text-destructive" : "text-xs text-muted-foreground"
-        }
-      >
-        {hint}
-      </p>
     </div>
   );
 }

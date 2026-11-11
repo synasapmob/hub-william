@@ -98,9 +98,9 @@ describe("duration", () => {
 
 describe("stock", () => {
   it("names a package like a customer would", () => {
-    expect(productTitle(product)).toBe("Claude Pro 1 tháng");
+    expect(productTitle(product)).toBe("Pro 1 tháng");
     expect(productTitle({ ...product, variant: "Gia đình" })).toBe(
-      "Claude Pro 1 tháng (Gia đình)",
+      "Pro 1 tháng (Gia đình)",
     );
   });
 

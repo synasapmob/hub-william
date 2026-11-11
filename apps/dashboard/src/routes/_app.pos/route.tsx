@@ -130,7 +130,8 @@ export default function PosRoute() {
   const visible = items.filter(
     (item) =>
       type !== "hub-william" &&
-      stockItemTitle(item).toLowerCase().includes(needle),
+      // The provider is not in the name, but a search for it still finds its packages.
+      `${item.provider} ${stockItemTitle(item)}`.toLowerCase().includes(needle),
   );
   const visibleListings = (listings.data ?? []).filter((listing) =>
     listingSearchText(listing).includes(needle),

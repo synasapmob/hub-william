@@ -523,13 +523,12 @@ pub(crate) async fn search_accounts(
         Option<String>,
         String,
         String,
-        String,
         Option<String>,
     );
     let rows = sqlx::query_as::<_, Row>(&format!(
         "SELECT account.id, account.nonce, account.ciphertext, account.order_reference,
                 account.sold_at, account.created_at, loader.username,
-                product.slug, provider.name, product.plan, product.variant
+                product.slug, product.plan, product.variant
          {SEARCHED}
            AND ($6::boolean IS NULL OR (account.order_reference IS NOT NULL) = $6)
          ORDER BY account.created_at DESC, account.id
@@ -573,13 +572,12 @@ pub(crate) async fn search_accounts(
                 loaded_at,
                 loaded_by,
                 slug,
-                provider,
                 plan,
                 variant,
             )| {
                 let product_title = match variant {
-                    Some(variant) => format!("{provider} {plan} ({variant})"),
-                    None => format!("{provider} {plan}"),
+                    Some(variant) => format!("{plan} ({variant})"),
+                    None => plan,
                 };
 
                 Ok(StockAccount {

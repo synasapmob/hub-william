@@ -514,3 +514,45 @@ async fn an_order_for_a_package_that_hands_out_accounts_is_capped_at_ten(pool: P
     assert_eq!(order(11).await, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(order(10).await, StatusCode::OK);
 }
+
+#[sqlx::test]
+async fn an_order_is_titled_as_the_package_is_called_without_the_provider_in_front(pool: PgPool) {
+    let (state, owner) = owner_and_state(pool.clone()).await;
+    let cookie = Some(owner.cookie.as_str());
+    // The package is made as the shop writes it: its name with the variant in
+    // brackets, under a provider that only groups it.
+    let mut product = super::new_product("Gemini AI PRO your mail");
+    product["variant"] = json!("Personal");
+    let (status, created) = call(
+        &state,
+        "POST",
+        "/dashboard/telegram/products",
+        cookie,
+        Some(product),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let slug = created["slug"].as_str().unwrap().to_owned();
+    sqlx::query("INSERT INTO telegram_contacts (telegram_user_id, chat_id, first_name) VALUES (3001, 3001, 'Buyer')")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/internal/telegram/contacts/3001/orders")
+        .header("content-type", "application/json")
+        .header("x-hub-william-telegram-token", "test-service-token")
+        .body(Body::from(
+            json!({ "chat_id": 3001, "product": slug, "quantity": 1, "lifetime_minutes": 5 })
+                .to_string(),
+        ))
+        .unwrap();
+    let response = app(state.clone()).oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let order: Value = serde_json::from_slice(&bytes).unwrap();
+
+    // Not "Acme Gemini AI PRO your mail (Personal)": the provider is not put in front.
+    assert_eq!(order["item_title"], "Gemini AI PRO your mail (Personal)");
+}
