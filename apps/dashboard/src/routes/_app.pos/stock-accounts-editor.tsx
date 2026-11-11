@@ -171,28 +171,24 @@ export default function StockAccountsEditor({
 
       {unsold.length > 0 ? (
         <>
-          <Flex className="items-end gap-2">
-            <div className="flex-1 space-y-1.5">
-              <Label htmlFor="stock-accounts-password">
-                Mật khẩu của bạn, để hiện danh sách
-              </Label>
+          <Flex className="items-center gap-2">
+            <Input
+              aria-invalid={reveal.isError}
+              aria-label="Mật khẩu của bạn"
+              autoComplete="off"
+              className="flex-1"
+              placeholder="Mật khẩu của bạn"
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
 
-              <Input
-                aria-invalid={reveal.isError}
-                autoComplete="off"
-                id="stock-accounts-password"
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter") return;
+                event.preventDefault();
 
-                  event.preventDefault();
-
-                  if (password !== "" && !reveal.isPending) reveal.mutate();
-                }}
-              />
-            </div>
+                if (password !== "" && !reveal.isPending) reveal.mutate();
+              }}
+            />
 
             <Button
               disabled={password === "" || reveal.isPending}
@@ -208,10 +204,6 @@ export default function StockAccountsEditor({
               {problemOf(reveal.error)}
             </p>
           )}
-
-          <p className="text-xs text-muted-foreground">
-            Mỗi lần hiện đều được ghi lại.
-          </p>
         </>
       ) : (
         <p className="text-xs text-muted-foreground">
