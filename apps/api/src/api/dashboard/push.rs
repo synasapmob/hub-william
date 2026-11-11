@@ -39,8 +39,7 @@ pub(crate) async fn call_adapter<Body: Serialize>(
         .ok_or(ApiError::NotAvailable(NOT_CONNECTED))?;
     let token = state
         .config
-        .telegram_service_token
-        .as_deref()
+        .telegram_key()
         .ok_or(ApiError::NotAvailable(NOT_CONNECTED))?;
     let endpoint = url.join(path).map_err(|_| ApiError::Internal)?;
 

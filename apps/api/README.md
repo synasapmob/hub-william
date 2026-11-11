@@ -169,8 +169,12 @@ src/
 - `/internal/telegram/*`: contacts and their language preference, orders, SePay
   bank transactions, the audience list and blocking, and the product catalogue
   with product creation, adjustment and restocking. Reachable only over Railway
-  private networking and only with `TELEGRAM_SERVICE_TOKEN`; never exposed
-  through the frontend proxy. Not part of the OpenAPI document.
+  private networking and only with the `telegram` key (`SHOP_KEYS`); never exposed through the
+  frontend proxy. Not part of the OpenAPI document.
+- `GET /partner/products`: a read-only product list for the shops that sell for
+  us. Called with a key issued in `SHOP_KEYS` as `Authorization: Bearer <key>`,
+  limited per key, and kept for 30 seconds; see
+  [partner API](../../docs/architecture/partner.md).
 
 A Telegram order is created with a unique reference and settles when a SePay
 transfer arrives whose note contains that reference and whose amount covers the

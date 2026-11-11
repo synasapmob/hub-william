@@ -1582,13 +1582,10 @@ mod tests {
         );
         assert_eq!(
             keyboard[0][0]["text"],
-            "🔥 Claude MAX X20 (Personal) · 1M (WF) --- 135,000đ (còn 53)"
+            "🔥 MAX X20 (Personal) · 1M · (WF) · 135,000đ (còn 53)"
         );
         assert_eq!(keyboard[0][0]["callback_data"], "catalog:claude-max-x20");
-        assert_eq!(
-            keyboard[1][0]["text"],
-            "Claude MAX X5 (W7D) --- 79,000đ (còn 27)"
-        );
+        assert_eq!(keyboard[1][0]["text"], "MAX X5 · (W7D) · 79,000đ (còn 27)");
         assert_eq!(keyboard[2][0]["callback_data"], "menu");
     }
 
@@ -1600,7 +1597,7 @@ mod tests {
 
         assert_eq!(
             row["text"],
-            "Grok SuperGrok (Personal) (NW) --- 259,000đ (hết hàng)"
+            "SuperGrok (Personal) · (NW) · 259,000đ (hết hàng)"
         );
         assert_eq!(row["style"], "danger");
         assert!(row["callback_data"].is_null());
@@ -1695,7 +1692,7 @@ mod tests {
         assert_eq!(refreshed["method"], "editMessageText");
         assert_eq!(
             row["text"],
-            "Grok SuperGrok (Personal) (NW) --- 259,000đ (hết hàng)"
+            "SuperGrok (Personal) · (NW) · 259,000đ (hết hàng)"
         );
         assert_eq!(row["style"], "danger");
     }
@@ -1748,7 +1745,7 @@ mod tests {
 
         assert_eq!(
             response["text"],
-            "🔥 Claude MAX X20 (Personal) · 1M\n\n🔢 Nhập số lượng muốn mua\n\nTối đa: 53\nGửi một số, ví dụ: 1\n\n💵 Giá hiện tại: 135,000₫\n\n💰 Bảng giá:\n• 1+: 135,000₫\n\nActive trực tiếp trên tài khoản chính chủ của bạn."
+            "🔥 MAX X20 (Personal) · 1M\n\n🔢 Nhập số lượng muốn mua\n\nTối đa: 53\nGửi một số, ví dụ: 1\n\n💵 Giá hiện tại: 135,000₫\n\n💰 Bảng giá:\n• 1+: 135,000₫\n\nActive trực tiếp trên tài khoản chính chủ của bạn."
         );
         assert_eq!(
             response["reply_markup"]["inline_keyboard"][0][0]["callback_data"],
@@ -1766,7 +1763,7 @@ mod tests {
 
         assert_eq!(
             response["text"],
-            "🧾 Đơn hàng\nClaude MAX X20 (Personal) · 1M\nSố lượng: 2 × 135,000₫\nTổng: 270,000₫\n\nPhương thức thanh toán:"
+            "🧾 Đơn hàng\nMAX X20 (Personal) · 1M\nSố lượng: 2 × 135,000₫\nTổng: 270,000₫\n\nPhương thức thanh toán:"
         );
         assert_eq!(keyboard[0][0]["text"], "💳 Chuyển Qua VND");
         assert_eq!(
@@ -1960,7 +1957,7 @@ mod tests {
         let response = shop.update_json(owner_message("7")).await;
         let text = response["text"].as_str().expect("the product panel");
 
-        assert!(text.starts_with("🛠 Claude MAX X20 (Personal) · 1M"));
+        assert!(text.starts_with("🛠 MAX X20 (Personal) · 1M"));
         assert!(text.contains("📦 Tồn kho: 60"));
 
         let posted = shop.api.notified.lock().unwrap().clone();
@@ -1968,7 +1965,7 @@ mod tests {
         assert_eq!(announcement["chat_id"], "@hubwilliam");
         assert_eq!(
             announcement["text"],
-            "🔥 Claude có hàng mới\n🛍️ Claude MAX X20 (Personal) · 1M (WF)\n📁 Danh mục: AI Tools\n💰 Giá: 135,000₫\n📦 Tồn kho: 60 · vừa nhập 7\n\n👇 Bấm nút bên dưới để mua ngay:"
+            "🔥 Claude có hàng mới\n🛍️ MAX X20 (Personal) · 1M (WF)\n📁 Danh mục: AI Tools\n💰 Giá: 135,000₫\n📦 Tồn kho: 60 · vừa nhập 7\n\n👇 Bấm nút bên dưới để mua ngay:"
         );
         assert_eq!(
             announcement["reply_markup"]["inline_keyboard"][0][0]["url"],
@@ -1986,7 +1983,7 @@ mod tests {
         let response = shop.update_json(callback_update("provider:claude")).await;
         assert_eq!(
             response["reply_markup"]["inline_keyboard"][0][0]["text"],
-            "🔥 Claude MAX X20 (Personal) · 1M (WF) --- 150,000đ (còn 53)"
+            "🔥 MAX X20 (Personal) · 1M · (WF) · 150,000đ (còn 53)"
         );
     }
 
@@ -2011,7 +2008,7 @@ mod tests {
             owner["text"]
                 .as_str()
                 .expect("a stock room")
-                .contains("🙈 Claude MAX X5")
+                .contains("🙈 MAX X5")
         );
     }
 
@@ -2027,7 +2024,7 @@ mod tests {
             .await;
 
         let text = response["text"].as_str().expect("the new product panel");
-        assert!(text.starts_with("🛠 Capcut Pro 30D"));
+        assert!(text.starts_with("🛠 Pro 30D"));
         assert!(text.contains("💰 Giá: 50,000₫"));
         assert!(text.contains("📦 Tồn kho: 7"));
     }
@@ -2050,7 +2047,7 @@ mod tests {
         assert_eq!(announcement["chat_id"], "@hubwilliam");
         assert_eq!(
             announcement["text"],
-            "🔥 Capcut có hàng mới\n🛍️ Capcut Pro 30D (W7D)\n💰 Giá: 50,000₫\n📦 Tồn kho: 7 · vừa nhập 7\n\n👇 Bấm nút bên dưới để mua ngay:"
+            "🔥 Capcut có hàng mới\n🛍️ Pro 30D (W7D)\n💰 Giá: 50,000₫\n📦 Tồn kho: 7 · vừa nhập 7\n\n👇 Bấm nút bên dưới để mua ngay:"
         );
         assert_eq!(
             announcement["reply_markup"]["inline_keyboard"][0][0]["url"],
@@ -2401,7 +2398,7 @@ mod tests {
             response["text"]
                 .as_str()
                 .expect("a quantity prompt")
-                .starts_with("🔥 Claude MAX X20 (Personal) · 1M\n\n🔢")
+                .starts_with("🔥 MAX X20 (Personal) · 1M\n\n🔢")
         );
     }
 
@@ -2426,7 +2423,7 @@ mod tests {
         assert_eq!(
             response["text"],
             format!(
-                "🧾 Đơn hàng gần nhất của bạn\n\n⏳ {REFERENCE} — Claude MAX X20 (Personal) · 1M × 2 — 270,000₫"
+                "🧾 Đơn hàng gần nhất của bạn\n\n⏳ {REFERENCE} — MAX X20 (Personal) · 1M × 2 — 270,000₫"
             )
         );
     }
@@ -3060,11 +3057,8 @@ mod tests {
     }
 
     fn title_of(product: &Value) -> String {
-        let mut title = format!(
-            "{} {}",
-            product["provider_name"].as_str().unwrap_or_default(),
-            product["plan"].as_str().unwrap_or_default()
-        );
+        // As the API titles an order: the plan, with no provider in front.
+        let mut title = product["plan"].as_str().unwrap_or_default().to_owned();
         if let Some(variant) = product["variant"].as_str() {
             title.push_str(&format!(" ({variant})"));
         }

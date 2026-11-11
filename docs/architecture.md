@@ -67,6 +67,7 @@ projects, and `pnpm-workspace.yaml` lists `apps/frontend` and `apps/dashboard`.
 | [Tools](./architecture/tools.md)                           | Tool catalogue, contribution policy, installers, reel, memory tool.                          |
 | [Service](./architecture/service.md)                       | The rented-agent product: wallet, credit, ledger, pricing, and what is not built yet.        |
 | [Telegram](./architecture/telegram.md)                     | The shop adapter and its payment settlement.                                                 |
+| [Partner API](./architecture/partner.md)                   | Keys for callers, what each may do, and the read-only product list for shops.                |
 | [Dashboard](./architecture/dashboard.md)                   | The sales dashboard: pages, roles, stock, tickets and the API it calls.                      |
 | [Deployment](./architecture/deployment.md)                 | Environments, CI, nginx, configuration, local development.                                   |
 | [Decisions](./decisions/README.md)                         | The few records that explain a constraint the code cannot show.                              |

@@ -28,7 +28,7 @@ The adapter has no database. It calls `apps/api` for everything it stores, so a 
 
 ### Webhook authentication
 
-- `POST /internal/*` compares the `x-hub-william-telegram-token` header with `TELEGRAM_SERVICE_TOKEN`, the secret the adapter already uses to call the API, in constant time. A wrong or missing header returns `403`. `apps/api` reaches the adapter at `TELEGRAM_ADAPTER_URL`; without it the dashboard reports that it is not connected to the bot.
+- `POST /internal/*` compares the `x-hub-william-telegram-token` header with the key issued to `telegram`, in constant time. That key is the `telegram` entry of `SHOP_KEYS` on the API, and the adapter's `TELEGRAM_SERVICE_TOKEN`. A wrong or missing header returns `403`. `apps/api` reaches the adapter at `TELEGRAM_ADAPTER_URL`; without it the dashboard reports that it is not connected to the bot.
 
 - `POST /webhook` compares the `X-Telegram-Bot-Api-Secret-Token` header with `TELEGRAM_WEBHOOK_SECRET` in constant time (`secrets_match`). A wrong or missing header returns `403`. The `Json<Update>` extractor parses the body before the handler compares the secret, so a malformed body is rejected by the extractor first.
 - `POST /sepay` reads `Authorization: Apikey <key>` and compares it with `SEPAY_API_KEY` in constant time. When `SEPAY_API_KEY` is unset the route returns `403` for every call; a wrong key returns `401`.
@@ -75,7 +75,7 @@ Owner expectations are re-checked when the answering message arrives, not only w
 
 - **Owner check.** `Owner::includes` accepts the one username (case-insensitive, `@` stripped) set in `TELEGRAM_USERNAME_OWNER`, which defaults to `synasapmob`, and the check runs on every owner button and every owner prompt reply. The same username is the handle buyers are told to contact. Why one username and no numeric id: a username belongs to one account at a time, so losing the account is the only way to lose the shop's owner, and that is the operator's own risk.
 - **New product template.** Lines of `key: value`. Keys match loosely (accents and case ignored) in Vietnamese or English: provider (`nhà cung cấp`/`provider`), plan (`tên`/`plan`), warranty (`bảo hành`/`warranty`), price (`giá`/`price`) are required; stock (`tồn`/`stock`), category (`danh mục`/`category`), detail (`chi tiết`/`detail`) and variant (`biến thể`/`variant`) are optional. Numbers tolerate space, `.`, `,` and `_` separators.
-- **Warranty codes.** `WF` (full), `W7D` (seven days), `NW` (no warranty beyond a one-hour login check). A package carries exactly one; a plan sold under two warranties is two products. Each code has a standard note shown in the quantity prompt; the dashboard form can replace it with the shop's own words (up to 200 characters, line breaks counted), stored for both languages. The note is kept as it was typed: line breaks, blank lines and the spacing between words survive, and only the blank space before the first and after the last character is trimmed, Windows line breaks become `\n` and invisible control characters are dropped. Tidying it twice changes nothing, so a form that sends back the note it was given leaves the stored one alone. The bot sends the prompt as plain text, with no `parse_mode`, so the note reaches the buyer as written.
+- **Warranty codes.** `WF` (full), `W7D` (seven days), `NW` (no warranty). A package carries exactly one; a plan sold under two warranties is two products. The code is shown in brackets on the package's row in the package list, with a legend on the provider screen. It is not tied to any sentence: what else a buyer should know about a package goes in its **package note**, which the dashboard form writes (up to 200 characters, line breaks counted) and the bot shows at the end of the quantity prompt, the screen a buyer reaches by tapping the package. A package without a note shows none. The note is kept as it was typed: line breaks, blank lines and the spacing between words survive, and only the blank space before the first and after the last character is trimmed, Windows line breaks become `\n` and invisible control characters are dropped. Tidying it twice changes nothing, so a form that sends back the note it was given leaves the stored one alone. The bot sends the prompt as plain text, with no `parse_mode`, so the note reaches the buyer as written. The stored fields keep the names `warranty_note_en` and `warranty_note_vi` (and the API field `warranty_note`) that they were made with, when the note was a warranty note: they hold the same text for both languages. Notes written before the standard sentences were dropped keep whatever text they hold, and the form shows it so it can be cleared.
 
 ## Catalogue and stock
 
@@ -142,7 +142,7 @@ Adding stock, or creating a product that already has stock, announces it:
 
 All routes live in `apps/api/src/api/telegram/routes.rs`, are not in the published OpenAPI document, and are blocked at the public edge (`/api/internal` and `/api/internal/*` return `404`, see [deployment](./deployment.md#edge-nginx)).
 
-Each handler calls `authorize_telegram_service`: the `x-hub-william-telegram-token` request header must equal `TELEGRAM_SERVICE_TOKEN` (constant-time comparison). When `TELEGRAM_SERVICE_TOKEN` is unset or blank every route returns `403`, so the API fails closed. The adapter has the same variable and sends its value.
+Each handler calls `authorize_telegram_service`: the key in the `x-hub-william-telegram-token` request header (or `Authorization: Bearer`) must be one issued to a name that holds the `Internal` permission, which only `telegram` does ([partner API](./partner.md)). The comparison is constant-time. With no key issued every route returns `403`, so the API fails closed. The adapter sends its `TELEGRAM_SERVICE_TOKEN`, and the API presents the same key when it calls the adapter.
 
 | Method and path                                                    | Purpose                                                  |
 | ------------------------------------------------------------------ | -------------------------------------------------------- |
@@ -180,7 +180,7 @@ Adapter variables (`apps/telegram/src/config.rs`, `apps/telegram/.env.example`).
 
 With a method unconfigured, its button tells the buyer the method is not configured instead of showing invented details. The adapter's outbound HTTP client has a 5 s connect timeout, a 10 s total timeout, ignores proxy variables and binds an IPv4 local address.
 
-`apps/api` and `apps/telegram` both take `TELEGRAM_SERVICE_TOKEN`, and it must be the same value on both; see [deployment](./deployment.md#api-runtime). Operational setup (Railway variables, registering the webhook) is in `apps/telegram/README.md`.
+The adapter takes `TELEGRAM_SERVICE_TOKEN`. On the API the same value is the `telegram` entry of `SHOP_KEYS`; the API no longer reads `TELEGRAM_SERVICE_TOKEN`. See [deployment](./deployment.md#api-runtime). Operational setup (Railway variables, registering the webhook) is in `apps/telegram/README.md`.
 
 ## Not implemented
 

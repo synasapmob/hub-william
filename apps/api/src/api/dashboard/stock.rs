@@ -25,9 +25,9 @@ use crate::{
         },
         catalogue::{
             MAXIMUM_RESTOCK, MAXIMUM_STOCK, NewProduct, PRODUCT_COLUMNS, RESERVED_JOIN,
-            TelegramProduct, default_warranty_note_en, default_warranty_note_vi, ensure_provider,
-            has_open_orders, insert_product, normalize_price, normalize_slug, normalize_text,
-            normalize_warranty, refusal_to_count_by_hand, slugify, warranty_notes,
+            TelegramProduct, ensure_provider, has_open_orders, insert_product, normalize_price,
+            normalize_slug, normalize_text, normalize_warranty, notes, refusal_to_count_by_hand,
+            slugify,
         },
     },
     core::{ApiError, AppState},
@@ -84,8 +84,6 @@ struct ProductRow {
 impl From<ProductRow> for DashboardProduct {
     fn from(row: ProductRow) -> Self {
         let ProductRow { product, image_id } = row;
-        let written = product.warranty_note_vi != default_warranty_note_vi(&product.warranty)
-            || product.warranty_note_en != default_warranty_note_en(&product.warranty);
 
         Self {
             available: product.available,
@@ -101,7 +99,9 @@ impl From<ProductRow> for DashboardProduct {
             slug: product.slug,
             variant: product.variant,
             warranty: product.warranty,
-            warranty_note: written.then_some(product.warranty_note_vi),
+            // What the form shows is what the buyer is shown: nothing when blank.
+            warranty_note: (!product.warranty_note_vi.is_empty())
+                .then_some(product.warranty_note_vi),
         }
     }
 }
@@ -125,9 +125,11 @@ pub struct CreateProduct {
     pub variant: Option<String>,
     /// `WF`, `W7D` or `NW`.
     pub warranty: String,
-    /// The warranty note a buyer reads, up to 200 characters (line breaks count),
-    /// kept as typed: line breaks, blank lines and spacing survive. Blank or absent
-    /// uses the standard note for the warranty code.
+    /// The package note: what a buyer reads when they open the package in the bot,
+    /// up to 200 characters (line breaks count), kept as typed: line breaks, blank
+    /// lines and spacing survive. Blank or absent means no note, and the bot shows
+    /// none. (The field keeps the name it was made with, when it was a warranty
+    /// note; the warranty itself is said by `warranty`.)
     pub warranty_note: Option<String>,
 }
 
@@ -151,10 +153,11 @@ pub struct UpdateProduct {
     pub variant: Option<String>,
     /// `WF`, `W7D` or `NW`.
     pub warranty: String,
-    /// The warranty note a buyer reads, up to 200 characters (line breaks count),
-    /// kept as typed: line breaks, blank lines and spacing survive. Blank uses the
-    /// standard note for the warranty code. Absent leaves the note as it is,
-    /// unless the warranty code changes, which resets it to the standard one.
+    /// The package note: what a buyer reads when they open the package in the bot,
+    /// up to 200 characters (line breaks count), kept as typed: line breaks, blank
+    /// lines and spacing survive. Blank clears it. Absent leaves the note as it
+    /// is, whatever else changes. (The field keeps the name it was made with, when
+    /// it was a warranty note; the warranty itself is said by `warranty`.)
     pub warranty_note: Option<String>,
 }
 
@@ -309,29 +312,27 @@ pub async fn update_product(
         normalize_text(body.plan, 64).ok_or(ApiError::Validation("A product needs a plan."))?;
     let variant = body.variant.and_then(|value| normalize_text(value, 32));
     let warranty = normalize_warranty(&body.warranty)?;
-    // A note that is absent leaves the stored one alone (unless the warranty
-    // changes). One that is sent is written, and a blank one asks for the
-    // standard note back.
+    // A note that is absent leaves the stored one alone. One that is sent is
+    // written, and a blank one clears it.
     let leave_note = body.warranty_note.is_none();
-    let (note_en, note_vi) = warranty_notes(warranty, body.warranty_note)?;
+    let (note_en, note_vi) = notes(body.warranty_note)?;
     let price_vnd = normalize_price(body.price_vnd)?;
     ensure_image(&state, body.image_id).await?;
 
     let mut database = state.pool.begin().await.map_err(database_error)?;
     let provider_id = ensure_provider(&mut database, &provider_name, &provider_slug).await?;
 
-    // The stored notes stay when the warranty is unchanged and the note is
-    // absent or is the Vietnamese note already stored. The second case is a form
-    // that sends back what it was given, which must not overwrite an English
-    // note the form never showed.
+    // The stored notes stay when the note is absent or is the Vietnamese note
+    // already stored. The second case is a form that sends back what it was given,
+    // which must not overwrite an English note the form never showed.
     let updated = sqlx::query_scalar::<_, Uuid>(
         "UPDATE telegram_products
          SET provider_id = $2,
              plan = $3,
              variant = $4,
-             warranty_note_en = CASE WHEN warranty = $5 AND ($12 OR $7 = warranty_note_vi)
+             warranty_note_en = CASE WHEN $12 OR $7 = warranty_note_vi
                                      THEN warranty_note_en ELSE $6 END,
-             warranty_note_vi = CASE WHEN warranty = $5 AND ($12 OR $7 = warranty_note_vi)
+             warranty_note_vi = CASE WHEN $12 OR $7 = warranty_note_vi
                                      THEN warranty_note_vi ELSE $7 END,
              warranty = $5,
              price_vnd = $8,

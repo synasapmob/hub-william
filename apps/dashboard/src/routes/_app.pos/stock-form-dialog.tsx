@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState, type ChangeEvent } from "react";
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { tv } from "tailwind-variants";
 
 import { AccountsChangeConfirm } from "@/components/account-editor-dialog";
 import { useDashboardSession } from "@/components/dashboard-shell/dashboard-session-context";
@@ -38,7 +39,12 @@ import {
   type AccountsEdited,
 } from "@/services/stock/stock-service";
 import { checkAccountLines } from "@/utils/utils.account-lines";
-import { stockItemTitle } from "@/utils/utils.format";
+import {
+  caretAfterDigits,
+  digitsOf,
+  groupDigits,
+  stockItemTitle,
+} from "@/utils/utils.format";
 import slugify from "@/utils/utils.slug";
 
 import {
@@ -52,6 +58,12 @@ import StockAccountsEditor, {
 } from "./stock-accounts-editor";
 import StockAdjuster from "./stock-adjuster";
 
+// A cell of the form's grid: half a row, or all of it.
+const cell = tv({
+  base: "space-y-1.5",
+  variants: { full: { true: "col-span-2" } },
+});
+
 // Limits `apps/api` enforces on a product.
 const MAX_PRICE_VND = 1_000_000_000;
 const MAX_INITIAL_STOCK = 1_000_000;
@@ -60,16 +72,16 @@ const MAX_RESTOCK = 100_000;
 // Telegram refuses a message longer than this.
 const MAX_MESSAGE = 4096;
 
-// The longest warranty note `apps/api` stores.
-const MAX_WARRANTY_NOTE = 200;
+// The longest package note `apps/api` stores.
+const MAX_NOTE = 200;
 
 interface Draft {
   provider: string;
   /** The plan and, in brackets at the end, the variant: `Plus 1 tháng (Gia đình)`. */
   name: string;
   warranty: Warranty;
-  /** What a buyer reads about the warranty; the standard note when empty. */
-  warrantyNote: string;
+  /** What a buyer reads when they open the package; nothing is shown when empty. */
+  note: string;
   price: string;
   /** Units to add (or, negative, take). */
   adjust: string;
@@ -90,7 +102,7 @@ function draftOf(item: TelegramProduct | null, provider: string): Draft {
     provider: item?.provider ?? provider,
     name: item ? composePackageName(item) : "",
     warranty: item?.warranty ?? "WF",
-    warrantyNote: item?.warranty_note ?? "",
+    note: item?.warranty_note ?? "",
     price: item ? String(item.price_vnd) : "",
     adjust: "0",
     hot: item?.hot ?? false,
@@ -161,6 +173,10 @@ export default function StockFormDialog({
   // The accounts the owner opened to edit as a block, and what saving it would do.
   const [opened, setOpened] = useState<OpenedAccounts | null>(null);
   const [change, setChange] = useState<AccountsEdited | null>(null);
+  // The price is typed as digits and shown grouped (`140000` as `140.000`), so the
+  // caret is put back after the same digit it was after, as the dots move.
+  const priceField = useRef<HTMLInputElement>(null);
+  const priceCaret = useRef<number | null>(null);
 
   const editing = item !== null;
   // A name left as it opened keeps the plan and variant it came with, since a
@@ -187,11 +203,11 @@ export default function StockFormDialog({
   const holdsAccounts = !!item?.delivers_accounts && item.on_hand > 0;
   const message = draft.message.trim();
   const messageValid = message.length <= MAX_MESSAGE;
-  const warrantyNote = draft.warrantyNote.trim();
+  const note = draft.note.trim();
   // In characters as the server counts them, line breaks included, so an emoji is
   // one and not the two JavaScript's length makes of it.
-  const warrantyNoteLength = [...warrantyNote].length;
-  const warrantyNoteValid = warrantyNoteLength <= MAX_WARRANTY_NOTE;
+  const noteLength = [...note].length;
+  const noteValid = noteLength <= MAX_NOTE;
   const slugTaken = !editing && takenSlugs.includes(slug);
   // The agents Hub William supports, chosen from and never typed, so a provider
   // cannot be misspelt into a card of its own. A provider the shop already has
@@ -225,7 +241,7 @@ export default function StockFormDialog({
     accounts.problem === null &&
     block.problem === null &&
     messageValid &&
-    warrantyNoteValid &&
+    noteValid &&
     draft.provider.trim() !== "" &&
     plan !== "" &&
     nameProblem === null &&
@@ -241,7 +257,7 @@ export default function StockFormDialog({
     plan,
     variant,
     warranty: draft.warranty,
-    warranty_note: warrantyNote || null,
+    warranty_note: note || null,
     delivers_accounts: delivers,
     price_vnd: price,
     on_hand: onHand,
@@ -256,6 +272,27 @@ export default function StockFormDialog({
   function set<Key extends keyof Draft>(key: Key, value: Draft[Key]) {
     setDraft((current) => ({ ...current, [key]: value }));
   }
+
+  function changePrice(event: ChangeEvent<HTMLInputElement>) {
+    const typed = event.target.value;
+    const caret = event.target.selectionStart ?? typed.length;
+    const digits = digitsOf(typed).replace(/^0+(?=\d)/, "");
+
+    priceCaret.current = Math.min(
+      digitsOf(typed.slice(0, caret)).length,
+      digits.length,
+    );
+    set("price", digits);
+  }
+
+  useLayoutEffect(() => {
+    if (priceCaret.current === null || !priceField.current) return;
+
+    const at = caretAfterDigits(groupDigits(draft.price), priceCaret.current);
+
+    priceField.current.setSelectionRange(at, at);
+    priceCaret.current = null;
+  }, [draft.price]);
 
   // The form stays open, and can be fixed and sent again, when the save fails;
   // the page has already said what went wrong.
@@ -370,76 +407,86 @@ export default function StockFormDialog({
                 <Input
                   aria-invalid={nameProblem !== null}
                   id="stock-plan"
-                  placeholder="AI Pro, Argon 4 + YTB premium (Personal)"
+                  placeholder="Gemini AI PRO your mail"
                   value={draft.name}
                   onChange={(event) => set("name", event.target.value)}
                 />
 
-                <p
-                  className={
-                    nameProblem === null
-                      ? "text-xs text-muted-foreground"
-                      : "text-xs text-destructive"
-                  }
-                >
-                  {nameProblem ??
-                    "Ghi tên gói, biến thể (nếu có) để trong ngoặc ở cuối, ví dụ (Personal). Bảo hành chọn ở ô bên trên."}
-                </p>
+                {nameProblem && (
+                  <p className="text-xs text-destructive">{nameProblem}</p>
+                )}
               </div>
 
               <div className="col-span-2 space-y-1.5">
                 <Flex className="items-baseline justify-between gap-2">
-                  <Label htmlFor="stock-warranty-note">
-                    Ghi chú bảo hành (tùy chọn)
-                  </Label>
+                  <Label htmlFor="stock-note">Ghi chú gói (tùy chọn)</Label>
 
-                  {warrantyNoteLength > 0 && (
+                  {noteLength > 0 && (
                     <span
                       className={
-                        warrantyNoteValid
+                        noteValid
                           ? "text-xs text-muted-foreground tabular-nums"
                           : "text-xs text-destructive tabular-nums"
                       }
                     >
-                      {warrantyNoteLength}/{MAX_WARRANTY_NOTE}
+                      {noteLength}/{MAX_NOTE}
                     </span>
                   )}
                 </Flex>
 
                 <Textarea
-                  aria-invalid={!warrantyNoteValid}
-                  id="stock-warranty-note"
-                  placeholder="Ví dụ: Bảo hành login check 1 tiếng (sau 1 tiếng kể từ khi mua không bảo hành mọi trường hợp)"
+                  aria-invalid={!noteValid}
+                  id="stock-note"
+                  placeholder="Ví dụ: Giao tài khoản trong 5 phút sau khi thanh toán. Đăng nhập bằng email được gửi, không đổi mật khẩu."
                   rows={3}
-                  value={draft.warrantyNote}
-                  onChange={(event) => set("warrantyNote", event.target.value)}
+                  value={draft.note}
+                  onChange={(event) => set("note", event.target.value)}
                 />
 
-                <p
-                  className={
-                    warrantyNoteValid
-                      ? "text-xs text-muted-foreground"
-                      : "text-xs text-destructive"
-                  }
-                >
-                  {warrantyNoteValid
-                    ? "Khách đọc đúng như bạn gõ khi chọn gói trong bot: xuống dòng, dòng trống và dấu cách đều được giữ nguyên. Để trống thì dùng ghi chú chuẩn của loại bảo hành đã chọn."
-                    : `Ghi chú bảo hành dài tối đa ${MAX_WARRANTY_NOTE} ký tự.`}
-                </p>
+                {!noteValid && (
+                  <p className="text-xs text-destructive">
+                    Ghi chú gói dài tối đa {MAX_NOTE} ký tự.
+                  </p>
+                )}
               </div>
 
-              <div className="col-span-2 space-y-1.5">
+              <div className={cell({ full: delivers })}>
                 <Label htmlFor="stock-price">Giá (₫)</Label>
 
                 <Input
                   aria-invalid={draft.price !== "" && !priceValid}
                   id="stock-price"
                   inputMode="numeric"
-                  placeholder="189000"
-                  value={draft.price}
-                  onChange={(event) => set("price", event.target.value)}
+                  placeholder="189.000"
+                  ref={priceField}
+                  value={groupDigits(draft.price)}
+                  onChange={changePrice}
                 />
               </div>
+
+              {!delivers && (
+                <>
+                  <StockAdjuster
+                    invalid={!stockValid}
+                    label={
+                      editing ? "Thêm hoặc bớt tồn kho" : "Tồn kho ban đầu"
+                    }
+                    unit="gói"
+                    value={draft.adjust}
+                    onChange={(next) => set("adjust", next)}
+                  />
+
+                  <p
+                    className={
+                      stockValid
+                        ? "col-span-2 text-xs text-muted-foreground"
+                        : "col-span-2 text-xs text-destructive"
+                    }
+                  >
+                    {stockHint({ item, result: onHand, valid: stockValid })}
+                  </p>
+                </>
+              )}
             </div>
 
             {slugTaken && (
@@ -447,7 +494,7 @@ export default function StockFormDialog({
             )}
           </>
 
-          {delivers ? (
+          {delivers && (
             <div className="space-y-4">
               {item?.delivers_accounts &&
                 (session.can("secrets") ? (
@@ -516,15 +563,6 @@ export default function StockFormDialog({
                 </div>
               )}
             </div>
-          ) : (
-            <StockAdjuster
-              hint={stockHint({ item, result: onHand, valid: stockValid })}
-              invalid={!stockValid}
-              label={editing ? "Thêm hoặc bớt tồn kho" : "Tồn kho ban đầu"}
-              unit="gói"
-              value={draft.adjust}
-              onChange={(next) => set("adjust", next)}
-            />
           )}
 
           <Flex className="flex-wrap gap-x-6 gap-y-3">

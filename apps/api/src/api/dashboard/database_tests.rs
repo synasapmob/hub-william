@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::{
     api::app,
-    core::{AppConfig, AppState},
+    core::{AppConfig, AppState, ShopKey, TELEGRAM_KEY_NAME},
 };
 
 mod accounts;
@@ -38,7 +38,10 @@ fn state_with_bot(pool: PgPool, adapter: Option<&reqwest::Url>) -> AppState {
     AppState {
         config: AppConfig {
             telegram_adapter_url: adapter.cloned(),
-            telegram_service_token: Some(b"test-service-token".to_vec()),
+            shop_keys: vec![ShopKey {
+                name: TELEGRAM_KEY_NAME.to_owned(),
+                key: b"test-service-token".to_vec(),
+            }],
             ..AppConfig::default()
         },
         http: reqwest::Client::new(),
@@ -444,14 +447,11 @@ async fn a_product_is_made_listed_edited_and_removed(pool: PgPool) {
     assert_eq!(edited["warranty"], "WF");
     assert_eq!(edited["on_hand"], 10);
 
-    // A changed warranty brings the default note for it; the bot reads both.
-    let note: String = sqlx::query_scalar(
-        "SELECT warranty_note_en FROM telegram_products WHERE slug = 'acme-pro-1-thang'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert!(note.contains("full warranty"), "{note}");
+    // A changed warranty does not touch the package note, which is not about it.
+    assert_eq!(
+        notes_of(&pool, "acme-pro-1-thang").await,
+        (String::new(), String::new())
+    );
 
     let (status, _) = call(
         &state,
@@ -534,7 +534,7 @@ fn edit_with_note(product: &Value, note: Value) -> Value {
 }
 
 #[sqlx::test]
-async fn a_warranty_note_the_shop_writes_is_stored_in_both_languages_and_listed(pool: PgPool) {
+async fn a_package_note_the_shop_writes_is_stored_in_both_languages_and_listed(pool: PgPool) {
     let (state, owner) = owner_and_state(pool.clone()).await;
     let cookie = Some(owner.cookie.as_str());
 
@@ -560,8 +560,7 @@ async fn a_warranty_note_the_shop_writes_is_stored_in_both_languages_and_listed(
         (as_stored.to_owned(), as_stored.to_owned())
     );
 
-    // Without a note the standard one applies, and the dashboard is told there
-    // is nothing of the shop's own to show.
+    // Without a note there is none, and the dashboard is told so.
     let (status, plain) = call(
         &state,
         "POST",
@@ -572,9 +571,10 @@ async fn a_warranty_note_the_shop_writes_is_stored_in_both_languages_and_listed(
     .await;
     assert_eq!(status, StatusCode::CREATED);
     assert!(plain["warranty_note"].is_null());
-    let (en, vi) = notes_of(&pool, "acme-plus").await;
-    assert!(en.contains("login check"), "{en}");
-    assert!(vi.contains("login check"), "{vi}");
+    assert_eq!(
+        notes_of(&pool, "acme-plus").await,
+        (String::new(), String::new())
+    );
 
     let (_, listing) = call(&state, "GET", "/dashboard/telegram/products", cookie, None).await;
     assert_eq!(product_in(&listing, "acme-pro")["warranty_note"], as_stored);
@@ -643,7 +643,7 @@ async fn a_multi_line_note_sent_back_by_the_form_is_left_as_it_is_and_an_edit_of
 }
 
 #[sqlx::test]
-async fn an_edit_can_write_a_warranty_note_and_a_blank_one_brings_the_standard_back(pool: PgPool) {
+async fn an_edit_can_write_a_package_note_and_a_blank_one_clears_it(pool: PgPool) {
     let (state, owner) = owner_and_state(pool.clone()).await;
     let cookie = Some(owner.cookie.as_str());
     let (_, created) = call(
@@ -680,9 +680,10 @@ async fn an_edit_can_write_a_warranty_note_and_a_blank_one_brings_the_standard_b
     .await;
     assert_eq!(status, StatusCode::OK);
     assert!(reset["warranty_note"].is_null());
-    let (en, vi) = notes_of(&pool, "acme-pro").await;
-    assert!(en.contains("login check"), "{en}");
-    assert!(vi.contains("login check"), "{vi}");
+    assert_eq!(
+        notes_of(&pool, "acme-pro").await,
+        (String::new(), String::new())
+    );
 }
 
 #[sqlx::test]
@@ -747,7 +748,7 @@ async fn a_form_that_sends_back_the_note_it_was_given_keeps_the_english_one(pool
 }
 
 #[sqlx::test]
-async fn changing_the_warranty_keeps_a_note_sent_with_it_and_resets_one_that_is_absent(
+async fn changing_the_warranty_leaves_the_package_note_alone_whether_or_not_it_is_sent(
     pool: PgPool,
 ) {
     let (state, owner) = owner_and_state(pool.clone()).await;
@@ -780,8 +781,7 @@ async fn changing_the_warranty_keeps_a_note_sent_with_it_and_resets_one_that_is_
         )
     );
 
-    // No note sent: the old one belonged to the old warranty, so the standard
-    // note for the new one takes its place.
+    // No note sent: the note is not about the warranty, so it stays.
     let mut without_note = edit_of(&created);
     without_note["warranty"] = json!("WF");
     let (status, _) = call(
@@ -793,8 +793,13 @@ async fn changing_the_warranty_keeps_a_note_sent_with_it_and_resets_one_that_is_
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    let (en, _) = notes_of(&pool, "acme-pro").await;
-    assert!(en.contains("full warranty"), "{en}");
+    assert_eq!(
+        notes_of(&pool, "acme-pro").await,
+        (
+            "Đổi trả trong 3 ngày".to_owned(),
+            "Đổi trả trong 3 ngày".to_owned()
+        )
+    );
 }
 
 #[sqlx::test]

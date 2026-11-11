@@ -75,7 +75,9 @@ export default function StockRow({ item, onEdit }: StockRowProps) {
       </span>
 
       <Button
-        aria-label={`Sửa ${stockItemTitle(item)}`}
+        // With its provider, so two packages the shop gave the same name under
+        // different providers are still two buttons that can be told apart.
+        aria-label={`Sửa ${item.provider} ${stockItemTitle(item)}`}
         size="icon-sm"
         variant="ghost"
         onClick={onEdit}

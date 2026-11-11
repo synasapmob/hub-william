@@ -1005,6 +1005,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/partner/products": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List the products on sale
+     * @description Send the key issued to you as `Authorization: Bearer <key>`.
+     */
+    get: operations["list_partner_products"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/playground/chat": {
     parameters: {
       query?: never;
@@ -1593,9 +1613,11 @@ export interface components {
       /** @description `WF`, `W7D` or `NW`. */
       warranty: string;
       /**
-       * @description The warranty note a buyer reads, up to 200 characters (line breaks count),
-       *     kept as typed: line breaks, blank lines and spacing survive. Blank or absent
-       *     uses the standard note for the warranty code.
+       * @description The package note: what a buyer reads when they open the package in the bot,
+       *     up to 200 characters (line breaks count), kept as typed: line breaks, blank
+       *     lines and spacing survive. Blank or absent means no note, and the bot shows
+       *     none. (The field keeps the name it was made with, when it was a warranty
+       *     note; the warranty itself is said by `warranty`.)
        */
       warranty_note?: string | null;
     };
@@ -2174,6 +2196,32 @@ export interface components {
     OwnedTickets: {
       tickets: components["schemas"]["OwnedTicket"][];
     };
+    PartnerCatalogue: {
+      /** @description Only providers with something on sale. */
+      providers: components["schemas"]["PartnerProvider"][];
+    };
+    PartnerProduct: {
+      category?: string | null;
+      detail?: string | null;
+      /** @description Stays the same while the product exists, so a shop can match it across reads. */
+      id: string;
+      /** @description Whether at least one can be ordered now. The count is not shared. */
+      in_stock: boolean;
+      plan: string;
+      /**
+       * Format: int64
+       * @description The price of one, in Vietnamese dong.
+       */
+      price_vnd: number;
+      variant?: string | null;
+      /** @description `WF` full warranty, `W7D` seven days, `NW` none beyond a one-hour login check. */
+      warranty: string;
+    };
+    PartnerProvider: {
+      name: string;
+      products: components["schemas"]["PartnerProduct"][];
+      slug: string;
+    };
     PayOrder: {
       /** @description How the money reached the shop. */
       payment_method: components["schemas"]["PaymentMethod"];
@@ -2575,10 +2623,11 @@ export interface components {
       /** @description `WF`, `W7D` or `NW`. */
       warranty: string;
       /**
-       * @description The warranty note a buyer reads, up to 200 characters (line breaks count),
-       *     kept as typed: line breaks, blank lines and spacing survive. Blank uses the
-       *     standard note for the warranty code. Absent leaves the note as it is,
-       *     unless the warranty code changes, which resets it to the standard one.
+       * @description The package note: what a buyer reads when they open the package in the bot,
+       *     up to 200 characters (line breaks count), kept as typed: line breaks, blank
+       *     lines and spacing survive. Blank clears it. Absent leaves the note as it
+       *     is, whatever else changes. (The field keeps the name it was made with, when
+       *     it was a warranty note; the warranty itself is said by `warranty`.)
        */
       warranty_note?: string | null;
     };
@@ -5940,6 +5989,53 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["OrganizationUsage"];
+        };
+      };
+    };
+  };
+  list_partner_products: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The products on sale, grouped by provider. Keep the answer for the time `Cache-Control` gives; asking more often gets the same list */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PartnerCatalogue"];
+        };
+      };
+      /** @description No key, or a key that was not issued */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The key may not read products */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Too many requests; `Retry-After` says when to try again */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
         };
       };
     };

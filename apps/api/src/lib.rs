@@ -15,4 +15,4 @@ pub use crate::api::{
     refresh_nightly_provider_credentials, refresh_stored_connection_metadata,
     stop_credential_sweeps, wait_for_credential_refreshes,
 };
-pub use crate::core::{AppConfig, AppState, gateway_http_client};
+pub use crate::core::{AppConfig, AppState, ShopKey, gateway_http_client};

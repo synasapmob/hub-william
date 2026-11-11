@@ -18,12 +18,18 @@ packages. `/start` creates or updates a Telegram contact record; it does **not**
 create, link, or authenticate a Hub William browser account.
 
 Warranty codes are stable and customer-facing: `WF` is a full warranty, `W7D`
-is seven days, `NW` is no warranty beyond a one-hour login check. A package carries exactly one of them — a plan
-sold under two warranties is two catalogue entries. Each code has a standard warranty note in the
-quantity prompt; the dashboard's stock form can replace it with the shop's own words (up to 200
-characters), which are shown to readers of both languages exactly as typed: line breaks, blank
-lines and spacing are kept (only the ends are trimmed), and the message is sent as plain text so
-nothing in it is read as formatting.
+is seven days, `NW` is no warranty. A package carries exactly one of them, shown in brackets on its
+row in the package list (`Gemini AI PRO your mail · (NW) · 70,000đ (1 left)`), and a plan sold under
+two warranties is two catalogue entries. The code says nothing more: what else a buyer should know
+about a package goes in its **package note**, a field of the dashboard's stock form (up to 200
+characters). It is shown at the end of the quantity prompt, the screen a buyer reaches by tapping
+the package, to readers of both languages exactly as typed: line breaks, blank lines and spacing are
+kept (only the ends are trimmed), and the message is sent as plain text so nothing in it is read as
+formatting. A package without a note shows none.
+
+A package is called what the shop called it. The provider only groups packages into a card and a
+provider screen; it is not put in front of the name, so a shop that wants its brand in the name
+writes it there (`Gemini AI PRO your mail`). Orders record the same name.
 
 ## Checkout
 
@@ -164,8 +170,8 @@ Set these service variables:
 
 - `HUB_API_INTERNAL_URL`: the private API origin, for example
   `http://backend.railway.internal:8080`.
-- `TELEGRAM_SERVICE_TOKEN`: a long random secret, the same value as
-  `TELEGRAM_SERVICE_TOKEN` on `apps/api`. The adapter's former name for it,
+- `TELEGRAM_SERVICE_TOKEN`: a long random secret, the same value as the
+  `telegram` key in `SHOP_KEYS` on `apps/api`. The adapter's former name for it,
   `HUB_API_SERVICE_TOKEN`, is still read while this one is not set, so an existing
   deployment keeps working; rename the variable when convenient.
 - `TELEGRAM_WEBHOOK_SECRET`: a different random token of 1–256 letters,
@@ -199,8 +205,8 @@ Set these service variables:
 To change the receiving account, change `TELEGRAM_PAYMENT_QR_URL`. Nothing needs
 rebuilding.
 
-`apps/api` takes the variable of the same name: set `TELEGRAM_SERVICE_TOKEN` there
-to the **same** value. The API remains private; this second secret ensures
+`apps/api` takes it as the `telegram` entry of `SHOP_KEYS`: set it there to the
+**same** value. The API remains private; this second secret ensures
 that another service on the private network cannot write Telegram contacts.
 
 After Railway gives `telegram` a public HTTPS URL, configure Telegram from a
