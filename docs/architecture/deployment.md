@@ -35,6 +35,12 @@ Telegram / SePay ─HTTPS─► telegram ──private──► api (/internal/t
 
 ## Branches and environments
 
+> **Paused.** GitHub Actions is locked by an account billing issue, so every run failed before its first step. The jobs of all three workflows are switched off with `false` (each file says so), so they still trigger but their runs are skipped instead of failing. To restore, revert the pull request that paused them. The rest of this page describes the workflows as they run when restored. Until then:
+>
+> - **Deploy by hand**, per service, from a clean export of the branch so only committed files are uploaded: `git archive origin/dev | tar -x -C "$(mktemp -d)"`, then in that directory `railway up --project <RAILWAY_PROJECT_ID> --environment staging --service <service> --detach --json`, and watch `railway deployment list`. Always pass `--environment`: a developer's Railway link may point at production. A merge into `dev` or `main` deploys nothing by itself.
+> - **Run the checks locally** (the list is in [CONTRIBUTING](../../.github/CONTRIBUTING.md)), since no pull request is checked.
+> - **Community pull requests are not scope-checked** by `contribution-policy` and need a careful manual review.
+
 `.github/workflows/railway-deploy.yml` runs on every push to `main` or `dev` and on `workflow_dispatch`.
 
 | Branch | Railway and GitHub environment | Services deployed, in order                |
@@ -53,7 +59,7 @@ Railway is the only deployment target. No workflow publishes to GitHub Pages or 
 
 ### Branch protection
 
-Read from the GitHub API (it is repository settings, not repository content): `main` and `dev` are protected identically. Required status checks are `checks` and `contribution-policy`, with branches required to be up to date; a pull request is required, with zero required approvals; the rules apply to administrators; conversation resolution is required; force pushes and deletions are blocked.
+Read from the GitHub API (it is repository settings, not repository content): `main` and `dev` are protected identically. No status check is required while the workflows are paused (when they are restored, require `checks` and `contribution-policy` again, with branches up to date); a pull request is required, with zero required approvals; the rules apply to administrators; conversation resolution is required; force pushes and deletions are blocked.
 
 ## Continuous integration
 

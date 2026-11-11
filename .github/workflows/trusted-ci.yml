@@ -17,10 +17,15 @@ concurrency:
 jobs:
   checks:
     name: checks
+    # PAUSED: GitHub Actions is locked by an account billing issue, so every run failed
+    # before its first step. The job below is switched off with `false` so runs are
+    # skipped instead of failing. Revert the pull request that paused it when billing is
+    # fixed; see docs/architecture/deployment.md.
     if: >-
+      false && (
       github.event_name == 'workflow_dispatch' ||
       (github.event.pull_request.user.login == github.repository_owner &&
-       github.event.pull_request.head.repo.full_name == github.repository)
+       github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: ubuntu-latest
 
     steps:
