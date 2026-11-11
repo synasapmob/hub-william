@@ -107,6 +107,37 @@ fn reference(body: &Value) -> String {
         .to_owned()
 }
 
+/// A SePay webhook for a transfer in, whose note names `reference`.
+async fn transfer(router: &Router, id: i64, amount: i64, reference: &str) -> Value {
+    let response = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/internal/telegram/payments/sepay")
+                .header("content-type", "application/json")
+                .header("x-hub-william-telegram-token", "test-service-token")
+                .body(Body::from(
+                    json!({
+                        "id": id,
+                        "gateway": "TEST",
+                        "transferAmount": amount,
+                        "transferType": "in",
+                        "content": format!("MOT NGAY VUI VE {reference}"),
+                    })
+                    .to_string(),
+                ))
+                .expect("request should build"),
+        )
+        .await
+        .expect("router should respond");
+    let bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body should read");
+
+    serde_json::from_slice(&bytes).expect("the answer should be JSON")
+}
+
 async fn status_of(pool: &PgPool, reference: &str) -> String {
     sqlx::query_scalar("SELECT status FROM telegram_orders WHERE reference = $1")
         .bind(reference)
@@ -281,4 +312,48 @@ async fn two_requests_at_once_leave_exactly_one_open_order(pool: PgPool) {
     assert_eq!(first.0, StatusCode::OK);
     assert_eq!(second.0, StatusCode::OK);
     assert_eq!(open_orders(&pool, 1009).await, 1);
+}
+
+#[sqlx::test]
+async fn the_order_that_replaced_it_still_settles(pool: PgPool) {
+    let state = state(pool.clone());
+    let first_package = product(&state, "Plan One", 5).await;
+    let second_package = product(&state, "Plan Two", 5).await;
+    buyer(&pool, 1011).await;
+    let router = app(state);
+    order(&router, 1011, &first_package, 1).await;
+    let (_, second) = order(&router, 1011, &second_package, 1).await;
+
+    let answer = transfer(&router, 9002, 50_000, &reference(&second)).await;
+
+    assert_eq!(answer["order"]["reference"], reference(&second));
+    assert_eq!(answer["order"]["status"], "paid");
+    assert!(answer["late"].is_null());
+}
+
+/// The cost of cancelling at once, pinned so it is a choice and not a surprise:
+/// money that still names the cancelled order settles nothing and the buyer is not
+/// told (as for any cancelled order, see `late_transfer`). It is stored for the
+/// owner to reconcile.
+#[sqlx::test]
+async fn money_for_the_order_it_replaced_is_kept_for_the_owner(pool: PgPool) {
+    let state = state(pool.clone());
+    let first_package = product(&state, "Plan One", 5).await;
+    let second_package = product(&state, "Plan Two", 5).await;
+    buyer(&pool, 1012).await;
+    let router = app(state);
+    let (_, first) = order(&router, 1012, &first_package, 1).await;
+    order(&router, 1012, &second_package, 1).await;
+
+    let answer = transfer(&router, 9003, 50_000, &reference(&first)).await;
+
+    assert!(answer["order"].is_null());
+    assert!(answer["late"].is_null());
+    assert_eq!(status_of(&pool, &reference(&first)).await, "cancelled");
+    let unmatched: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM telegram_payments WHERE order_id IS NULL")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(unmatched, 1, "the money is recorded, not lost");
 }
