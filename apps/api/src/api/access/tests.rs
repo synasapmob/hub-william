@@ -93,18 +93,18 @@ fn an_unknown_key_identifies_nobody() {
 }
 
 #[test]
-fn the_former_telegram_token_still_identifies_the_bot() {
+fn with_no_telegram_key_issued_nothing_opens_the_bots_routes() {
     let config = AppConfig {
-        telegram_service_token: Some(b"former-token".to_vec()),
+        shop_keys: vec![ShopKey {
+            name: "shopwatcher.org".to_owned(),
+            key: SHOP_KEY.to_vec(),
+        }],
         ..AppConfig::default()
     };
 
-    let caller = identify(
-        &config,
-        &headers("x-hub-william-telegram-token", b"former-token"),
-    );
+    let shop = identify(&config, &headers("x-hub-william-telegram-token", SHOP_KEY));
 
-    assert!(caller.unwrap().can(Permission::Internal));
+    assert!(!shop.unwrap().can(Permission::Internal));
 }
 
 #[test]

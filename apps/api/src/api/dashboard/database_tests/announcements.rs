@@ -8,7 +8,6 @@ use super::{
     account, call, state, state_with_bot,
     support::{FakeBot, announced},
 };
-use crate::core::ShopKey;
 
 #[sqlx::test]
 async fn the_bot_is_asked_to_send_the_text_and_its_answer_comes_back(pool: PgPool) {
@@ -38,34 +37,6 @@ async fn the_bot_is_asked_to_send_the_text_and_its_answer_comes_back(pool: PgPoo
     assert_eq!(
         sent,
         &json!({ "text": "Nhập thêm 20 Claude Pro\nCòn 20 suất" })
-    );
-}
-
-#[sqlx::test]
-async fn the_bot_is_called_with_the_telegram_key_issued_in_shop_keys(pool: PgPool) {
-    let (bot, url) =
-        FakeBot::start(StatusCode::OK, json!({ "channel": true, "audience": 1 })).await;
-    let owner = account(&pool, Some(("owner", true))).await;
-    let mut state = state_with_bot(pool, Some(&url));
-    // The former variable is still set, and the issued key wins over it.
-    state.config.shop_keys = vec![ShopKey {
-        name: "telegram".to_owned(),
-        key: b"key-issued-in-shop-keys".to_vec(),
-    }];
-
-    let (status, _) = call(
-        &state,
-        "POST",
-        "/dashboard/telegram/announcements",
-        Some(&owner.cookie),
-        Some(announced("Hello")),
-    )
-    .await;
-
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(
-        bot.received()[0].1.as_deref(),
-        Some("key-issued-in-shop-keys")
     );
 }
 

@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::{
     api::app,
-    core::{AppConfig, AppState},
+    core::{AppConfig, AppState, ShopKey, TELEGRAM_KEY_NAME},
 };
 
 mod accounts;
@@ -38,7 +38,10 @@ fn state_with_bot(pool: PgPool, adapter: Option<&reqwest::Url>) -> AppState {
     AppState {
         config: AppConfig {
             telegram_adapter_url: adapter.cloned(),
-            telegram_service_token: Some(b"test-service-token".to_vec()),
+            shop_keys: vec![ShopKey {
+                name: TELEGRAM_KEY_NAME.to_owned(),
+                key: b"test-service-token".to_vec(),
+            }],
             ..AppConfig::default()
         },
         http: reqwest::Client::new(),

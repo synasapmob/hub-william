@@ -171,7 +171,7 @@ Set these service variables:
 - `HUB_API_INTERNAL_URL`: the private API origin, for example
   `http://backend.railway.internal:8080`.
 - `TELEGRAM_SERVICE_TOKEN`: a long random secret, the same value as the
-  `telegram` key in `SHOP_KEYS` on `apps/api` (or `TELEGRAM_SERVICE_TOKEN` there). The adapter's former name for it,
+  `telegram` key in `SHOP_KEYS` on `apps/api`. The adapter's former name for it,
   `HUB_API_SERVICE_TOKEN`, is still read while this one is not set, so an existing
   deployment keeps working; rename the variable when convenient.
 - `TELEGRAM_WEBHOOK_SECRET`: a different random token of 1–256 letters,
@@ -205,8 +205,8 @@ Set these service variables:
 To change the receiving account, change `TELEGRAM_PAYMENT_QR_URL`. Nothing needs
 rebuilding.
 
-`apps/api` takes it as the `telegram` entry of `SHOP_KEYS` (or, as before, as
-`TELEGRAM_SERVICE_TOKEN`): set it there to the **same** value. The API remains private; this second secret ensures
+`apps/api` takes it as the `telegram` entry of `SHOP_KEYS`: set it there to the
+**same** value. The API remains private; this second secret ensures
 that another service on the private network cannot write Telegram contacts.
 
 After Railway gives `telegram` a public HTTPS URL, configure Telegram from a
