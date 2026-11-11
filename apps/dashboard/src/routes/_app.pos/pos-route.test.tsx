@@ -1729,6 +1729,18 @@ describe("PosRoute, the accounts in stock", () => {
 
     expect(screen.getByText("1 chưa bán · 1 đã bán")).toBeInTheDocument();
     expect(passwordField()).toBeInTheDocument();
+    // Nothing but the field and its button: no label above it, no note below.
+    expect(screen.queryByText(/để hiện danh sách/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Mỗi lần hiện đều được ghi lại."),
+    ).not.toBeInTheDocument();
+    expect(passwordField().parentElement).toBe(
+      screen.getByRole("button", { name: "Hiện" }).parentElement,
+    );
+    // The title and the count share the row above it.
+    expect(screen.getByText("Tài khoản trong kho").parentElement).toBe(
+      screen.getByText("1 chưa bán · 1 đã bán").parentElement,
+    );
     // No list of hidden emails, no buttons for one account at a time.
     expect(screen.queryByText("o***@example.com")).not.toBeInTheDocument();
     expect(
