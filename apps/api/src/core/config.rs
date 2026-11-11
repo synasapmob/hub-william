@@ -21,9 +21,6 @@ pub struct AppConfig {
     /// The keys callers present, from `SHOP_KEYS`. What each name may do is decided
     /// in `api::access`, not here.
     pub shop_keys: Vec<ShopKey>,
-    /// The former way to give the Telegram bot its key. It still counts as the key
-    /// named `telegram` while `SHOP_KEYS` has no such entry.
-    pub telegram_service_token: Option<Vec<u8>>,
     /// Where `apps/telegram` listens, so the dashboard can have the bot send a
     /// message. Unset, the dashboard can read and change the shop but not announce.
     pub telegram_adapter_url: Option<reqwest::Url>,
@@ -152,21 +149,9 @@ fn non_empty_env(name: &str) -> Option<String> {
 impl AppConfig {
     /// Every key a caller can present, with the name it was issued under.
     pub(crate) fn issued_keys(&self) -> impl Iterator<Item = (&str, &[u8])> {
-        let former_telegram_key = self
-            .telegram_service_token
-            .as_deref()
-            .filter(|_| {
-                !self
-                    .shop_keys
-                    .iter()
-                    .any(|shop| shop.name == TELEGRAM_KEY_NAME)
-            })
-            .map(|token| (TELEGRAM_KEY_NAME, token));
-
         self.shop_keys
             .iter()
             .map(|shop| (shop.name.as_str(), shop.key.as_slice()))
-            .chain(former_telegram_key)
     }
 
     /// The key the bot holds, which the API also presents when it calls the bot.
@@ -246,6 +231,13 @@ impl AppConfig {
         for problem in shop_key_problems {
             eprintln!("SHOP_KEYS: {problem}; that entry is ignored");
         }
+        // The bot's key used to be set here. It is no longer read, so a deploy that
+        // still relies on it would have the bot answered with 403.
+        if non_empty_env("TELEGRAM_SERVICE_TOKEN").is_some() {
+            eprintln!(
+                "TELEGRAM_SERVICE_TOKEN is no longer read; give the bot's key to SHOP_KEYS as telegram:<key> and remove the variable"
+            );
+        }
 
         let stripe_secret_key = non_empty_env("STRIPE_SECRET_KEY");
         let stripe_webhook_secret = non_empty_env("STRIPE_WEBHOOK_SECRET");
@@ -263,10 +255,6 @@ impl AppConfig {
             stock_encryption_key,
             frontend_origin,
             shop_keys,
-            telegram_service_token: env::var("TELEGRAM_SERVICE_TOKEN")
-                .ok()
-                .filter(|token| !token.trim().is_empty())
-                .map(String::into_bytes),
             telegram_adapter_url: env::var("TELEGRAM_ADAPTER_URL")
                 .ok()
                 .filter(|url| !url.trim().is_empty())
@@ -351,7 +339,6 @@ impl Default for AppConfig {
             stock_encryption_key: Some([9; 32]),
             frontend_origin: HeaderValue::from_static("http://localhost:5173"),
             shop_keys: Vec::new(),
-            telegram_service_token: None,
             telegram_adapter_url: None,
             trust_proxy_headers: false,
             service_test_top_up: false,
@@ -451,18 +438,17 @@ mod tests {
     }
 
     #[test]
-    fn the_former_telegram_token_counts_until_shop_keys_names_telegram() {
-        let former = AppConfig {
-            telegram_service_token: Some(b"former-token".to_vec()),
+    fn the_telegram_key_is_the_entry_named_telegram() {
+        let config = AppConfig {
+            shop_keys: parse_shop_keys(&format!(
+                "{TELEGRAM_KEY_NAME}:{KEY_A},shopwatcher.org:{KEY_B}"
+            ))
+            .0,
             ..AppConfig::default()
         };
-        assert_eq!(former.telegram_key(), Some(&b"former-token"[..]));
 
-        let named = AppConfig {
-            shop_keys: parse_shop_keys(&format!("{TELEGRAM_KEY_NAME}:{KEY_A}")).0,
-            ..former
-        };
-        assert_eq!(named.telegram_key(), Some(KEY_A.as_bytes()));
-        assert_eq!(named.issued_keys().count(), 1);
+        assert_eq!(config.telegram_key(), Some(KEY_A.as_bytes()));
+        assert_eq!(config.issued_keys().count(), 2);
+        assert_eq!(AppConfig::default().telegram_key(), None);
     }
 }

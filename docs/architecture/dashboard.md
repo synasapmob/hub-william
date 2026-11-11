@@ -88,7 +88,7 @@ The form has an optional "Tin nhắn Telegram" box, for a new item and for an ed
 
 The toast says only what the bot reported: that it posted to the channel and is sending to N chats (they go one by one, at a pace Telegram allows, so N is how many it has started on), that there is no channel, or that there is nobody to send to. If the bot is not connected (`501`) or did not answer (`502`), the package is still saved and the toast says the message was not sent and why; it never claims a message went out. The page keeps no log of announcements.
 
-`apps/telegram` holds the bot token and `apps/api` does not. So the API asks the adapter over HTTP, with the same shared secret the adapter uses to call the API (`TELEGRAM_SERVICE_TOKEN`, the same variable on both sides): `POST /internal/announce` for a message to the channel and the audience, and `POST /internal/payment-notice` to tell one buyer their order is paid. The API knows where the adapter is from `TELEGRAM_ADAPTER_URL`; without it the dashboard answers `501`.
+`apps/telegram` holds the bot token and `apps/api` does not. So the API asks the adapter over HTTP, with the same shared secret the adapter uses to call the API (the bot's key: the `telegram` entry of `SHOP_KEYS` on the API, the adapter's `TELEGRAM_SERVICE_TOKEN`): `POST /internal/announce` for a message to the channel and the audience, and `POST /internal/payment-notice` to tell one buyer their order is paid. The API knows where the adapter is from `TELEGRAM_ADAPTER_URL`; without it the dashboard answers `501`.
 
 ## Lists
 
@@ -169,7 +169,7 @@ pnpm api:dev
 VITE_API_BASE_URL=http://localhost:8080 pnpm dashboard:dev
 ```
 
-To have the bot send messages and tell buyers their order is paid, run `apps/telegram` as well and give the API its address and the shared secret (`TELEGRAM_ADAPTER_URL`, and the same `TELEGRAM_SERVICE_TOKEN` as the adapter's). Without them everything else works and a message is reported as not sent.
+To have the bot send messages and tell buyers their order is paid, run `apps/telegram` as well and give the API its address and the shared secret (`TELEGRAM_ADAPTER_URL`, and the adapter's key as the `telegram` entry of `SHOP_KEYS`). Without them everything else works and a message is reported as not sent.
 
 Create the account first: Register on the dashboard's sign-in screen, on the storefront, or with `POST /auth/register`. They are all the same account. Open `http://localhost:5174`, not `127.0.0.1:5174`: the session cookie is `SameSite=Lax`, which only sends it to the API when both are on the same site. Both local origins are already in the API's CORS list while `COOKIE_SECURE` is off.
 

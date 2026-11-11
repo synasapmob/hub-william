@@ -28,7 +28,7 @@ The adapter has no database. It calls `apps/api` for everything it stores, so a 
 
 ### Webhook authentication
 
-- `POST /internal/*` compares the `x-hub-william-telegram-token` header with the key issued to `telegram`, in constant time. That key is the `telegram` entry of `SHOP_KEYS` on the API, or `TELEGRAM_SERVICE_TOKEN` while `SHOP_KEYS` has none, and it is the adapter's `TELEGRAM_SERVICE_TOKEN`. A wrong or missing header returns `403`. `apps/api` reaches the adapter at `TELEGRAM_ADAPTER_URL`; without it the dashboard reports that it is not connected to the bot.
+- `POST /internal/*` compares the `x-hub-william-telegram-token` header with the key issued to `telegram`, in constant time. That key is the `telegram` entry of `SHOP_KEYS` on the API, and the adapter's `TELEGRAM_SERVICE_TOKEN`. A wrong or missing header returns `403`. `apps/api` reaches the adapter at `TELEGRAM_ADAPTER_URL`; without it the dashboard reports that it is not connected to the bot.
 
 - `POST /webhook` compares the `X-Telegram-Bot-Api-Secret-Token` header with `TELEGRAM_WEBHOOK_SECRET` in constant time (`secrets_match`). A wrong or missing header returns `403`. The `Json<Update>` extractor parses the body before the handler compares the secret, so a malformed body is rejected by the extractor first.
 - `POST /sepay` reads `Authorization: Apikey <key>` and compares it with `SEPAY_API_KEY` in constant time. When `SEPAY_API_KEY` is unset the route returns `403` for every call; a wrong key returns `401`.
@@ -180,7 +180,7 @@ Adapter variables (`apps/telegram/src/config.rs`, `apps/telegram/.env.example`).
 
 With a method unconfigured, its button tells the buyer the method is not configured instead of showing invented details. The adapter's outbound HTTP client has a 5 s connect timeout, a 10 s total timeout, ignores proxy variables and binds an IPv4 local address.
 
-The adapter takes `TELEGRAM_SERVICE_TOKEN`. On the API the same value is the `telegram` entry of `SHOP_KEYS`, or `TELEGRAM_SERVICE_TOKEN` itself until `SHOP_KEYS` has one; see [deployment](./deployment.md#api-runtime). Operational setup (Railway variables, registering the webhook) is in `apps/telegram/README.md`.
+The adapter takes `TELEGRAM_SERVICE_TOKEN`. On the API the same value is the `telegram` entry of `SHOP_KEYS`; the API no longer reads `TELEGRAM_SERVICE_TOKEN`. See [deployment](./deployment.md#api-runtime). Operational setup (Railway variables, registering the webhook) is in `apps/telegram/README.md`.
 
 ## Not implemented
 
