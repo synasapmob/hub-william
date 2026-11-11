@@ -527,15 +527,19 @@ fn quantity_prompt_text(language: Language, product: &Product) -> String {
     let price = format_amount(product.price_vnd);
     let title = product.headline();
     let tiers = format!("• 1+: {price}₫");
+    // The shop's note for the package, after a blank line; a package without one
+    // ends at its price list.
+    let note = match product.note(language) {
+        "" => String::new(),
+        note => format!("\n\n{note}"),
+    };
 
     match language {
         Language::English => format!(
-            "{title}\n\n🔢 Enter the quantity you want\n\nMaximum: {available}\nSend a number, for example: 1\n\n💵 Current price: {price}₫\n\n💰 Price list:\n{tiers}\n\n{note}",
-            note = product.warranty_note(Language::English),
+            "{title}\n\n🔢 Enter the quantity you want\n\nMaximum: {available}\nSend a number, for example: 1\n\n💵 Current price: {price}₫\n\n💰 Price list:\n{tiers}{note}",
         ),
         Language::Vietnamese => format!(
-            "{title}\n\n🔢 Nhập số lượng muốn mua\n\nTối đa: {available}\nGửi một số, ví dụ: 1\n\n💵 Giá hiện tại: {price}₫\n\n💰 Bảng giá:\n{tiers}\n\n{note}",
-            note = product.warranty_note(Language::Vietnamese),
+            "{title}\n\n🔢 Nhập số lượng muốn mua\n\nTối đa: {available}\nGửi một số, ví dụ: 1\n\n💵 Giá hiện tại: {price}₫\n\n💰 Bảng giá:\n{tiers}{note}",
         ),
     }
 }
@@ -605,7 +609,7 @@ fn provider_keyboard(language: Language, provider: &Provider) -> InlineKeyboardM
 
 fn catalogue_button(language: Language, product: &Product) -> InlineKeyboardButton {
     let text = format!(
-        "{} ({}) --- {}đ ({})",
+        "{} · ({}) · {}đ ({})",
         product.headline(),
         product.warranty,
         format_amount(product.price_vnd),
@@ -994,7 +998,7 @@ mod tests {
     use chrono::{TimeDelta, Utc};
     use serde_json::{Value, json};
 
-    use super::{order_status, quantity_prompt};
+    use super::{catalogue_button, order_status, quantity_prompt};
     use crate::{catalog::Product, checkout::Order, language::Language};
 
     fn order(status: &str, expires_in_minutes: i64) -> Order {
@@ -1045,7 +1049,7 @@ mod tests {
     }
 
     #[test]
-    fn a_warranty_note_reaches_the_buyer_with_its_line_breaks_and_blank_lines_as_written() {
+    fn a_package_note_reaches_the_buyer_with_its_line_breaks_and_blank_lines_as_written() {
         let note = "Bảo hành 30 ngày\n\n  - Đổi tài khoản khác\n- Không hoàn tiền   sau 7 ngày\n\nLiên hệ shop";
         let mut product = package("claude-pro");
         product.warranty_note_en = note.to_owned();
@@ -1062,6 +1066,46 @@ mod tests {
             // eat the characters it takes for formatting.
             assert!(message.get("parse_mode").is_none(), "{message}");
         }
+    }
+
+    #[test]
+    fn a_package_without_a_note_ends_at_its_price_list_with_nothing_after_it() {
+        let mut product = package("claude-pro");
+        product.warranty_note_en = String::new();
+        product.warranty_note_vi = String::new();
+
+        for language in [Language::English, Language::Vietnamese] {
+            let message: Value =
+                serde_json::to_value(quantity_prompt(123, language, &product)).unwrap();
+            let text = message["text"].as_str().unwrap();
+
+            assert!(text.ends_with("• 1+: 100,000₫"), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn a_package_row_reads_name_warranty_price_and_stock_apart_by_dots() {
+        // The shop wrote the whole name, brand included; nothing is put in front of it.
+        let mut product = package("gemini-ai-pro");
+        product.provider_name = "Gemini".to_owned();
+        product.plan = "Gemini AI PRO your mail".to_owned();
+        product.warranty = "NW".to_owned();
+        product.price_vnd = 70_000;
+        product.available = 1;
+        let text = |language| {
+            let button: Value = serde_json::to_value(catalogue_button(language, &product)).unwrap();
+
+            button["text"].as_str().unwrap().to_owned()
+        };
+
+        assert_eq!(
+            text(Language::English),
+            "Gemini AI PRO your mail · (NW) · 70,000đ (1 left)"
+        );
+        assert_eq!(
+            text(Language::Vietnamese),
+            "Gemini AI PRO your mail · (NW) · 70,000đ (còn 1)"
+        );
     }
 
     #[test]

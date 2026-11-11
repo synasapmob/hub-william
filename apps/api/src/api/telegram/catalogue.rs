@@ -43,9 +43,11 @@ pub struct TelegramProduct {
 
 impl TelegramProduct {
     /// The name every screen and every order record uses, assembled from the
-    /// parts a product is actually stored as.
+    /// parts a product is actually stored as. It is the plan as the shop wrote it,
+    /// with its variant in brackets: the provider groups packages and is not put in
+    /// front of the name, so a package is called what the shop called it.
     pub fn title(&self) -> String {
-        let mut title = format!("{} {}", self.provider_name, self.plan);
+        let mut title = self.plan.clone();
         if let Some(variant) = self.variant.as_deref() {
             title.push_str(" (");
             title.push_str(variant);
@@ -197,8 +199,8 @@ pub(crate) struct NewProduct {
     pub provider: String,
     pub variant: Option<String>,
     pub warranty: String,
-    /// What the shop says about the warranty, in its own words. Blank or absent
-    /// means the standard note for the warranty code.
+    /// The package note the buyer reads when they open the package, as the shop
+    /// wrote it. Blank or absent means none.
     pub warranty_note: Option<String>,
 }
 
@@ -218,7 +220,7 @@ pub(crate) async fn insert_product(
     let detail = product.detail.and_then(|value| normalize_text(value, 32));
     let category = product.category.and_then(|value| normalize_text(value, 64));
     let warranty = normalize_warranty(&product.warranty)?;
-    let (note_en, note_vi) = warranty_notes(warranty, product.warranty_note)?;
+    let (note_en, note_vi) = notes(product.warranty_note)?;
     let price_vnd = normalize_price(product.price_vnd)?;
     let available = normalize_stock(product.available)?;
     if product.delivers_accounts && available != 0 {
@@ -534,9 +536,9 @@ pub(crate) fn normalize_text(value: String, maximum_characters: usize) -> Option
     (!value.is_empty()).then(|| value.chars().take(maximum_characters).collect())
 }
 
-/// The longest warranty note a shop may write. It is read by the buyer in the
-/// quantity prompt, so it is refused rather than quietly cut short.
-pub(crate) const MAXIMUM_WARRANTY_NOTE_CHARACTERS: usize = 200;
+/// The longest package note a shop may write. It is read by the buyer when they
+/// open the package in the bot, so it is refused rather than quietly cut short.
+pub(crate) const MAXIMUM_NOTE_CHARACTERS: usize = 200;
 
 /// What the shop wrote, as it wrote it; `None` when it wrote nothing. Line breaks,
 /// blank lines and the spaces between words are kept, since the buyer is shown
@@ -545,7 +547,7 @@ pub(crate) const MAXIMUM_WARRANTY_NOTE_CHARACTERS: usize = 200;
 /// dropped (a tab stays), and the blank space before the first and after the last
 /// character is trimmed. Tidied twice, it comes out the same, so a form that sends
 /// back the note it was given changes nothing.
-pub(crate) fn normalize_warranty_note(value: String) -> Result<Option<String>, ApiError> {
+pub(crate) fn normalize_note(value: String) -> Result<Option<String>, ApiError> {
     let note = value
         .replace("\r\n", "\n")
         .replace('\r', "\n")
@@ -554,52 +556,27 @@ pub(crate) fn normalize_warranty_note(value: String) -> Result<Option<String>, A
         .collect::<String>();
     let note = note.trim();
 
-    if note.chars().count() > MAXIMUM_WARRANTY_NOTE_CHARACTERS {
+    if note.chars().count() > MAXIMUM_NOTE_CHARACTERS {
         return Err(ApiError::Validation(
-            "A warranty note is at most 200 characters.",
+            "A package note is at most 200 characters.",
         ));
     }
 
     Ok((!note.is_empty()).then(|| note.to_owned()))
 }
 
-/// The note to store in English and in Vietnamese. A note the shop wrote is
-/// stored in both: the shop writes in one language, and its own words are a
-/// better answer to a reader of the other than a standard note that may say
-/// something else. Without one, each language gets the standard note.
-pub(crate) fn warranty_notes(
-    warranty: &str,
-    written: Option<String>,
-) -> Result<(String, String), ApiError> {
-    Ok(
-        match written.map(normalize_warranty_note).transpose()?.flatten() {
-            Some(note) => (note.clone(), note),
-            None => (
-                default_warranty_note_en(warranty).to_owned(),
-                default_warranty_note_vi(warranty).to_owned(),
-            ),
-        },
-    )
-}
+/// The note to store in English and in Vietnamese: what the shop wrote, the same
+/// for a reader of either language, or nothing at all, which the bot shows as
+/// nothing. A package has no note of its own making: the warranty is said by its
+/// code, and the note is for whatever else the buyer should know.
+pub(crate) fn notes(written: Option<String>) -> Result<(String, String), ApiError> {
+    let note = written
+        .map(normalize_note)
+        .transpose()?
+        .flatten()
+        .unwrap_or_default();
 
-pub(crate) fn default_warranty_note_en(warranty: &str) -> &'static str {
-    match warranty {
-        "WF" => "Activated straight on your own account, with a full warranty for the whole term.",
-        "W7D" => "Warranty covers the first 7 days after purchase.",
-        _ => {
-            "Warranty is a login check within 1 hour (after that hour there is no warranty under any circumstance)."
-        }
-    }
-}
-
-pub(crate) fn default_warranty_note_vi(warranty: &str) -> &'static str {
-    match warranty {
-        "WF" => "Active trực tiếp trên tài khoản chính chủ của bạn, bảo hành đầy đủ trọn thời hạn.",
-        "W7D" => "Bảo hành trong 7 ngày kể từ khi mua.",
-        _ => {
-            "Bảo hành login check 1 tiếng (sau 1 tiếng kể từ khi mua không bảo hành mọi trường hợp)"
-        }
-    }
+    Ok((note.clone(), note))
 }
 
 /// Whether buyers have orders open for a package: awaiting payment and not yet
@@ -650,23 +627,23 @@ fn database_error(error: sqlx::Error) -> ApiError {
 #[cfg(test)]
 mod tests {
     use super::{
-        TelegramProduct, group_by_provider, normalize_price, normalize_slug, normalize_stock,
-        normalize_warranty, normalize_warranty_note, slugify,
+        TelegramProduct, group_by_provider, normalize_note, normalize_price, normalize_slug,
+        normalize_stock, normalize_warranty, slugify,
     };
 
     fn note(value: &str) -> Option<String> {
-        normalize_warranty_note(value.to_owned()).unwrap()
+        normalize_note(value.to_owned()).unwrap()
     }
 
     #[test]
-    fn a_warranty_note_keeps_its_line_breaks_blank_lines_and_spacing() {
+    fn a_package_note_keeps_its_line_breaks_blank_lines_and_spacing() {
         let written = "Bảo hành 30 ngày\n\n  - Đổi tài khoản khác\n- Không hoàn tiền   sau 7 ngày\n\n\nLiên hệ shop";
 
         assert_eq!(note(written).as_deref(), Some(written));
     }
 
     #[test]
-    fn a_warranty_note_is_only_trimmed_where_it_begins_and_ends() {
+    fn a_package_note_is_only_trimmed_where_it_begins_and_ends() {
         assert_eq!(
             note("\n  Bảo hành đầy đủ\n\nĐổi trong 7 ngày \n\n").as_deref(),
             Some("Bảo hành đầy đủ\n\nĐổi trong 7 ngày")
@@ -676,7 +653,7 @@ mod tests {
     }
 
     #[test]
-    fn a_warranty_note_takes_every_kind_of_line_break_as_one() {
+    fn a_package_note_takes_every_kind_of_line_break_as_one() {
         assert_eq!(
             note("một\r\nhai\rba\n\r\nbốn").as_deref(),
             Some("một\nhai\nba\n\nbốn")
@@ -684,25 +661,25 @@ mod tests {
     }
 
     #[test]
-    fn a_warranty_note_loses_only_what_cannot_be_seen() {
+    fn a_package_note_loses_only_what_cannot_be_seen() {
         // A bell, a null and an escape would show as boxes; a tab is kept.
         assert_eq!(note("a\u{7}b\u{0}c\u{1b}d\te").as_deref(), Some("abcd\te"));
     }
 
     #[test]
-    fn a_warranty_note_tidied_twice_comes_out_the_same() {
+    fn a_package_note_tidied_twice_comes_out_the_same() {
         let once = note("  một\r\n\r\n  hai   ba \u{7}\n").unwrap();
 
         assert_eq!(note(&once).as_deref(), Some(once.as_str()));
     }
 
     #[test]
-    fn a_warranty_note_is_counted_in_characters_with_its_line_breaks() {
+    fn a_package_note_is_counted_in_characters_with_its_line_breaks() {
         let line = format!("{}\n", "ă".repeat(99));
 
         // 99 + 1 + 99 + 1 + 1 = 201 once the last letter is added.
-        assert!(normalize_warranty_note(format!("{line}{line}x")).is_err());
-        assert!(normalize_warranty_note(format!("{line}{line}")).is_ok());
+        assert!(normalize_note(format!("{line}{line}x")).is_err());
+        assert!(normalize_note(format!("{line}{line}")).is_ok());
     }
 
     #[test]

@@ -58,9 +58,11 @@ impl Catalogue {
 }
 
 impl Product {
-    /// The plain name, which is what an order records.
+    /// The plain name, which is what an order records: the plan as the shop wrote
+    /// it, with its variant in brackets. The provider groups packages and is not put
+    /// in front of the name.
     pub fn title(&self) -> String {
-        let mut title = format!("{} {}", self.provider_name, self.plan);
+        let mut title = self.plan.clone();
         if let Some(variant) = self.variant.as_deref() {
             title.push_str(" (");
             title.push_str(variant);
@@ -83,7 +85,10 @@ impl Product {
         }
     }
 
-    pub fn warranty_note(&self, language: Language) -> &str {
+    /// The shop's note for the package, in the reader's language; empty when the
+    /// shop wrote none. (The fields keep the names they were made with, when the
+    /// note was a warranty note.)
+    pub fn note(&self, language: Language) -> &str {
         match language {
             Language::English => &self.warranty_note_en,
             Language::Vietnamese => &self.warranty_note_vi,
@@ -131,7 +136,7 @@ mod tests {
     fn a_title_only_renders_the_parts_a_product_actually_has() {
         assert_eq!(
             product("claude-max-x20", true).title(),
-            "Claude MAX X20 (Personal) · 1M"
+            "MAX X20 (Personal) · 1M"
         );
 
         let bare = Product {
@@ -140,32 +145,47 @@ mod tests {
             variant: None,
             ..product("claude-pro", false)
         };
-        assert_eq!(bare.title(), "Claude Pro");
+        assert_eq!(bare.title(), "Pro");
     }
 
     /// The flame is display only; an order has to record the plain title.
+    /// The provider only groups packages; a package is called what the shop called it.
+    #[test]
+    fn a_title_is_the_plan_as_written_with_no_provider_in_front() {
+        let named = Product {
+            plan: "Gemini AI PRO your mail".to_owned(),
+            provider_name: "Gemini".to_owned(),
+            variant: None,
+            detail: None,
+            ..product("gemini-ai-pro", false)
+        };
+
+        assert_eq!(named.title(), "Gemini AI PRO your mail");
+        assert_eq!(named.headline(), "Gemini AI PRO your mail");
+    }
+
     #[test]
     fn only_a_hot_product_is_marked() {
         assert_eq!(
             product("claude-max-x20", true).headline(),
-            "🔥 Claude MAX X20 (Personal) · 1M"
+            "🔥 MAX X20 (Personal) · 1M"
         );
         assert_eq!(
             product("claude-max-x20", false).headline(),
-            "Claude MAX X20 (Personal) · 1M"
+            "MAX X20 (Personal) · 1M"
         );
         assert_eq!(
             product("claude-max-x20", true).title(),
-            "Claude MAX X20 (Personal) · 1M"
+            "MAX X20 (Personal) · 1M"
         );
     }
 
     #[test]
-    fn a_warranty_note_follows_the_reader() {
+    fn a_package_note_follows_the_reader() {
         let product = product("claude-pro", false);
 
-        assert_eq!(product.warranty_note(Language::English), "note");
-        assert_eq!(product.warranty_note(Language::Vietnamese), "ghi chú");
+        assert_eq!(product.note(Language::English), "note");
+        assert_eq!(product.note(Language::Vietnamese), "ghi chú");
     }
 
     #[test]

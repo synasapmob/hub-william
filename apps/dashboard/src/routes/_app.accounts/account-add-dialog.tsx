@@ -25,6 +25,7 @@ import type { TelegramProduct } from "@/services/sales/sales-types";
 import { loadedText } from "@/services/stock/stock-labels";
 import { stockService } from "@/services/stock/stock-service";
 import { checkAccountLines } from "@/utils/utils.account-lines";
+import { productTitle } from "@/utils/utils.format";
 
 interface AccountAddDialogProps {
   /** The packages that hand out accounts. */
@@ -113,8 +114,7 @@ export default function AccountAddDialog({
               <SelectContent>
                 {packages.map((item) => (
                   <SelectItem key={item.slug} value={item.slug}>
-                    {item.provider} {item.plan}
-                    {item.variant && ` (${item.variant})`}
+                    {productTitle(item)}
                   </SelectItem>
                 ))}
               </SelectContent>

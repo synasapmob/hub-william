@@ -30,6 +30,7 @@ import {
   type StockAccount,
 } from "@/services/stock/stock-service";
 import useDebouncedValue from "@/utils/utils.debounced-value";
+import { productTitle } from "@/utils/utils.format";
 
 import AccountAddDialog from "./account-add-dialog";
 import AccountEditDialog from "./account-edit-dialog";
@@ -157,8 +158,7 @@ export default function AccountsRoute() {
 
               {delivering.map((item) => (
                 <SelectItem key={item.slug} value={item.slug}>
-                  {item.provider} {item.plan}
-                  {item.variant && ` (${item.variant})`}
+                  {productTitle(item)}
                 </SelectItem>
               ))}
             </SelectContent>
