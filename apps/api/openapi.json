@@ -4013,6 +4013,56 @@
         }
       }
     },
+    "/partner/products": {
+      "get": {
+        "tags": ["partner"],
+        "summary": "List the products on sale",
+        "description": "Send the key issued to you as `Authorization: Bearer <key>`.",
+        "operationId": "list_partner_products",
+        "responses": {
+          "200": {
+            "description": "The products on sale, grouped by provider. Keep the answer for the time `Cache-Control` gives; asking more often gets the same list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartnerCatalogue"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No key, or a key that was not issued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key may not read products",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests; `Retry-After` says when to try again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/playground/chat": {
       "post": {
         "tags": ["playground"],
@@ -6978,6 +7028,72 @@
           }
         }
       },
+      "PartnerCatalogue": {
+        "type": "object",
+        "required": ["providers"],
+        "properties": {
+          "providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PartnerProvider"
+            },
+            "description": "Only providers with something on sale."
+          }
+        }
+      },
+      "PartnerProduct": {
+        "type": "object",
+        "required": ["id", "plan", "warranty", "price_vnd", "in_stock"],
+        "properties": {
+          "category": {
+            "type": ["string", "null"]
+          },
+          "detail": {
+            "type": ["string", "null"]
+          },
+          "id": {
+            "type": "string",
+            "description": "Stays the same while the product exists, so a shop can match it across reads."
+          },
+          "in_stock": {
+            "type": "boolean",
+            "description": "Whether at least one can be ordered now. The count is not shared."
+          },
+          "plan": {
+            "type": "string"
+          },
+          "price_vnd": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The price of one, in Vietnamese dong."
+          },
+          "variant": {
+            "type": ["string", "null"]
+          },
+          "warranty": {
+            "type": "string",
+            "description": "`WF` full warranty, `W7D` seven days, `NW` none beyond a one-hour login check."
+          }
+        }
+      },
+      "PartnerProvider": {
+        "type": "object",
+        "required": ["name", "slug", "products"],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "products": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PartnerProduct"
+            }
+          },
+          "slug": {
+            "type": "string"
+          }
+        }
+      },
       "PayOrder": {
         "type": "object",
         "required": ["payment_method"],
@@ -7972,6 +8088,10 @@
     {
       "name": "organizations",
       "description": "Organization membership, shared agents, and recorded usage"
+    },
+    {
+      "name": "partner",
+      "description": "Read-only product list for shops that sell on our behalf, called with a key issued to the shop"
     },
     {
       "name": "gateway keys",

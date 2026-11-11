@@ -3,6 +3,7 @@
 //! (`routes()` and an `...Api` OpenAPI fragment); `router.rs` and `openapi.rs` are
 //! the only files that list features.
 
+mod access;
 mod agent;
 mod auth;
 mod dashboard;
@@ -11,6 +12,7 @@ mod health;
 mod limits;
 mod openapi;
 mod organizations;
+mod partner;
 mod playground;
 mod reel;
 mod router;

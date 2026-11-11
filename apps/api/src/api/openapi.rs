@@ -3,7 +3,7 @@ use utoipa::OpenApi;
 use crate::core::ErrorResponse;
 
 use super::{
-    agent, auth, dashboard, gateway, health, organizations, playground, reel, service, tts,
+    agent, auth, dashboard, gateway, health, organizations, partner, playground, reel, service, tts,
 };
 
 #[derive(OpenApi)]
@@ -27,6 +27,7 @@ impl OpenApi for ApiDoc {
             auth::AuthApi::openapi(),
             agent::AgentApi::openapi(),
             organizations::OrganizationsApi::openapi(),
+            partner::PartnerApi::openapi(),
             gateway::GatewayApi::openapi(),
             playground::PlaygroundApi::openapi(),
             service::ServiceApi::openapi(),

@@ -32,6 +32,8 @@ pub enum ApiError {
     InvalidCredentials,
     NotAvailable(&'static str),
     NotFound,
+    /// A request to a partner route without a key issued in `SHOP_KEYS`.
+    PartnerUnauthorized,
     Provider(String),
     RateLimited,
     /// Carries the whole seconds the caller should wait before retrying.
@@ -142,6 +144,14 @@ impl IntoResponse for ApiError {
                     },
                 )
             }
+            Self::PartnerUnauthorized => (
+                StatusCode::UNAUTHORIZED,
+                ErrorResponse {
+                    code: "invalid_partner_key".to_owned(),
+                    message: "Send the key issued to you as Authorization: Bearer <key>."
+                        .to_owned(),
+                },
+            ),
             Self::Unauthorized => (
                 StatusCode::UNAUTHORIZED,
                 ErrorResponse {

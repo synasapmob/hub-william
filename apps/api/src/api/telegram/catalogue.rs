@@ -392,7 +392,7 @@ pub async fn adjust_product(
     Ok(Json(load_product(&state, &slug).await?))
 }
 
-async fn fetch_products(
+pub(crate) async fn fetch_products(
     state: &AppState,
     listed_only: bool,
 ) -> Result<Vec<TelegramProduct>, ApiError> {
@@ -428,7 +428,7 @@ pub(crate) async fn load_product(
 
 /// The query already orders by provider then product, so grouping only has to
 /// watch for the slug changing.
-fn group_by_provider(products: Vec<TelegramProduct>) -> Vec<TelegramCatalogueProvider> {
+pub(crate) fn group_by_provider(products: Vec<TelegramProduct>) -> Vec<TelegramCatalogueProvider> {
     let mut providers: Vec<TelegramCatalogueProvider> = Vec::new();
 
     for product in products {
