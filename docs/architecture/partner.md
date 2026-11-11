@@ -4,7 +4,7 @@ Shops that sell on our behalf read the catalogue through `GET /partner/products`
 
 ## Keys and permissions
 
-`SHOP_KEYS` holds `name:key` pairs separated by commas, for example `telegram:<key>,shop_1:<key>`. The environment says who a key belongs to; the table `GRANTS` in `api/access/mod.rs` says what that name may do, so a permission is reviewed in a pull request. Handlers ask for a `Permission`, never for a name.
+`SHOP_KEYS` holds `name:key` pairs separated by commas, for example `telegram:<key>,shopwatcher.org:<key>`. The environment says who a key belongs to; the table `GRANTS` in `api/access/mod.rs` says what that name may do, so a permission is reviewed in a pull request. Handlers ask for a `Permission`, never for a name.
 
 | Permission     | Opens                              | Held by    |
 | -------------- | ---------------------------------- | ---------- |
@@ -12,11 +12,11 @@ Shops that sell on our behalf read the catalogue through `GET /partner/products`
 | `ProductsRead` | `GET /partner/products`            | shops      |
 
 - **A name with no line in the table may do nothing.** A key added to `SHOP_KEYS` before its line reaches the table opens nothing. A test pins that only `telegram` holds `Internal`, so a shop key never opens the bot's routes.
-- **Parsing.** A name is lowercase letters, digits, `_` or `-`. A key is at least 32 visible characters and unique. An entry that breaks a rule is skipped and named in the log without its key; it does not stop the API, because the gateway runs in the same process. `openssl rand -hex 32` makes a key.
+- **Parsing.** A name is lowercase letters, digits, `.`, `_` or `-`, so a partner can be named by its domain. A key is at least 32 visible characters and unique. An entry that breaks a rule is skipped and named in the log without its key; it does not stop the API, because the gateway runs in the same process. `openssl rand -hex 32` makes a key.
 - **Sending a key.** `Authorization: Bearer <key>`. The bot's `x-hub-william-telegram-token` header is read too, for every key. All keys are compared in constant time.
 - **The bot's key.** `TELEGRAM_SERVICE_TOKEN` still counts as the `telegram` key while `SHOP_KEYS` has no such entry, so moving to `SHOP_KEYS` needs no coordinated deploy. The API presents the same key when it calls the bot ([dashboard](./dashboard.md)).
 - **Add a shop.** Append `name:key` to `SHOP_KEYS` and add a line for the name to `GRANTS`. **Revoke** by removing the entry. A change to the variable takes effect when the API restarts.
-- **Names are public.** The repository is public, so the names in `GRANTS` are readable. Use neutral names such as `shop_1` and keep who they are outside the repository. Never commit a key.
+- **Names are public.** The repository is public, so the names in `GRANTS` are readable by anyone. Never commit a key.
 
 ## `GET /partner/products`
 

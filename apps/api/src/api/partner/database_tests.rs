@@ -21,7 +21,7 @@ fn state(pool: PgPool) -> AppState {
     AppState {
         config: AppConfig {
             shop_keys: vec![ShopKey {
-                name: "shop_1".to_owned(),
+                name: "shopwatcher.org".to_owned(),
                 key: SHOP_KEY.as_bytes().to_vec(),
             }],
             ..AppConfig::default()

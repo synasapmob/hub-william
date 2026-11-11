@@ -25,8 +25,7 @@ pub(crate) enum Permission {
 /// bot alone.
 const GRANTS: &[(&str, &[Permission])] = &[
     (TELEGRAM_KEY_NAME, &[Permission::Internal]),
-    ("shop_1", &[Permission::ProductsRead]),
-    ("shop_2", &[Permission::ProductsRead]),
+    ("shopwatcher.org", &[Permission::ProductsRead]),
 ];
 
 /// The header the Telegram bot has always sent its key in. Partners use

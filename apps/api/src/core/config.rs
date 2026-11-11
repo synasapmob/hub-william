@@ -101,11 +101,13 @@ fn parse_shop_keys(raw: &str) -> (Vec<ShopKey>, Vec<String>) {
 
         if name.is_empty()
             || !name.bytes().all(|byte| {
-                byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
+                byte.is_ascii_lowercase()
+                    || byte.is_ascii_digit()
+                    || matches!(byte, b'.' | b'_' | b'-')
             })
         {
             problems.push(format!(
-                "entry {position} has a name that is not lowercase letters, digits, _ or -"
+                "entry {position} has a name that is not lowercase letters, digits, . _ or -"
             ));
         } else if key.len() < MINIMUM_SHOP_KEY_LENGTH
             || !key.bytes().all(|byte| byte.is_ascii_graphic())
@@ -401,6 +403,14 @@ mod tests {
         assert!(problems.is_empty());
         assert_eq!(names(&keys), ["telegram", "shop_1"]);
         assert_eq!(keys[1].key, KEY_B.as_bytes());
+    }
+
+    #[test]
+    fn a_name_may_be_a_domain() {
+        let (keys, problems) = parse_shop_keys(&format!("shopwatcher.org:{KEY_A}"));
+
+        assert!(problems.is_empty());
+        assert_eq!(names(&keys), ["shopwatcher.org"]);
     }
 
     #[test]

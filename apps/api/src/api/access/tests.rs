@@ -14,7 +14,7 @@ fn config() -> AppConfig {
                 key: BOT_KEY.to_vec(),
             },
             ShopKey {
-                name: "shop_1".to_owned(),
+                name: "shopwatcher.org".to_owned(),
                 key: SHOP_KEY.to_vec(),
             },
             ShopKey {
@@ -74,7 +74,7 @@ fn a_key_identifies_the_name_it_was_issued_to() {
     let shop = identify(&config, &headers("x-hub-william-telegram-token", SHOP_KEY));
 
     assert_eq!(bot.unwrap().name(), "telegram");
-    assert_eq!(shop.unwrap().name(), "shop_1");
+    assert_eq!(shop.unwrap().name(), "shopwatcher.org");
 }
 
 #[test]
