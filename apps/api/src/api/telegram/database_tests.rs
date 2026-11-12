@@ -41,6 +41,7 @@ async fn product(state: &AppState, plan: &str, available: i32) -> String {
             category: None,
             delivers_accounts: false,
             detail: None,
+            guide: None,
             hot: false,
             image_id: None,
             listed: true,

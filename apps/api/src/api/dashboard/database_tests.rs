@@ -19,6 +19,7 @@ use crate::{
 mod accounts;
 mod announcements;
 mod delivery;
+mod guide;
 mod late_transfer;
 mod orders;
 mod revenue;
