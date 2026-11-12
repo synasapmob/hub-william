@@ -29,6 +29,10 @@ pub struct Product {
     #[serde(default)]
     pub delivers_accounts: bool,
     pub detail: Option<String>,
+    /// What the buyer is told about using the package once they have paid; blank
+    /// when the shop wrote nothing.
+    #[serde(default)]
+    pub guide: String,
     pub hot: bool,
     pub listed: bool,
     /// The physical count the owner set, before reservations.
@@ -247,6 +251,7 @@ mod tests {
             category: Some("AI Tools".to_owned()),
             delivers_accounts: false,
             detail: Some("1M".to_owned()),
+            guide: String::new(),
             hot,
             listed: true,
             on_hand: 53,

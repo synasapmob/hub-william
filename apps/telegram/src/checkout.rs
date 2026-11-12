@@ -30,6 +30,9 @@ pub struct Delivery {
 pub struct Order {
     pub chat_id: i64,
     pub expires_at: DateTime<Utc>,
+    /// The slug of the package, which is where its guide is read from.
+    #[serde(default)]
+    pub item_id: String,
     pub item_title: String,
     pub quantity: i64,
     pub reference: String,
@@ -271,6 +274,7 @@ mod tests {
         Order {
             chat_id: 123,
             expires_at: Utc::now() + TimeDelta::minutes(expires_in_minutes),
+            item_id: "claude-max-x20".to_owned(),
             item_title: "Claude MAX X20 (Personal) · 1M".to_owned(),
             quantity: 2,
             reference: "1GS0H75MMX9P".to_owned(),

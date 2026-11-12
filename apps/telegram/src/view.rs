@@ -211,7 +211,26 @@ pub fn usdt_transfer(
 /// in the message, and an order that got fewer than it asked for says how many it
 /// is missing and who to write to, with the order's reference, because it is the
 /// owner and the buyer who settle that between them.
+/// The receipt, with the shop's guide to using the package after it when there is one.
 fn paid_text(
+    language: Language,
+    order: &Order,
+    support: &str,
+    delivery: Option<&Delivery>,
+    guide: Option<&str>,
+) -> String {
+    let receipt = paid_receipt(language, order, support, delivery);
+
+    match (guide, language) {
+        (Some(guide), Language::English) => format!("{receipt}\n\n📖 How to use:\n{guide}"),
+        (Some(guide), Language::Vietnamese) => {
+            format!("{receipt}\n\n📖 Hướng dẫn sử dụng:\n{guide}")
+        }
+        (None, _) => receipt,
+    }
+}
+
+fn paid_receipt(
     language: Language,
     order: &Order,
     support: &str,
@@ -283,13 +302,14 @@ pub fn order_status(
     order: &Order,
     support: &str,
     delivery: Option<&Delivery>,
+    guide: Option<&str>,
 ) -> SendMessage {
     let expiry = format_expiry(order.expires_at);
     let reference = &order.reference;
 
     let (text, keyboard) = match order.status() {
         OrderStatus::Paid => (
-            paid_text(language, order, support, delivery),
+            paid_text(language, order, support, delivery, guide),
             back_keyboard(language),
         ),
         OrderStatus::Cancelled => (
@@ -338,8 +358,9 @@ pub fn payment_received(
     order: &Order,
     support: &str,
     delivery: Option<&Delivery>,
+    guide: Option<&str>,
 ) -> SendMessage {
-    order_status(chat_id, language, order, support, delivery)
+    order_status(chat_id, language, order, support, delivery, guide)
 }
 
 /// Sent unprompted when money arrives for an order that had already run out. The
@@ -999,7 +1020,11 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::{catalogue_button, order_status, quantity_prompt};
-    use crate::{catalog::Product, checkout::Order, language::Language};
+    use crate::{
+        catalog::Product,
+        checkout::{Delivery, Order},
+        language::Language,
+    };
 
     fn order(status: &str, expires_in_minutes: i64) -> Order {
         serde_json::from_value(json!({
@@ -1043,8 +1068,15 @@ mod tests {
     }
 
     fn text_of(language: Language, order: &Order) -> String {
-        let message: Value =
-            serde_json::to_value(order_status(123, language, order, "@shop_owner", None)).unwrap();
+        let message: Value = serde_json::to_value(order_status(
+            123,
+            language,
+            order,
+            "@shop_owner",
+            None,
+            None,
+        ))
+        .unwrap();
         message["text"].as_str().unwrap().to_owned()
     }
 
@@ -1129,6 +1161,70 @@ mod tests {
             )),
             "{vietnamese}"
         );
+    }
+
+    #[test]
+    fn a_guide_the_shop_wrote_follows_the_receipt_in_either_language() {
+        let paid = order("paid", 0);
+        let guide = Some("Đăng nhập bằng email được gửi.\nKhông đổi mật khẩu.");
+        let text = |language, guide| {
+            let message =
+                serde_json::to_value(order_status(1, language, &paid, "@shop_owner", None, guide))
+                    .unwrap();
+
+            message["text"].as_str().unwrap().to_owned()
+        };
+
+        let english = text(Language::English, guide);
+        assert!(
+            english
+                .ends_with("📖 How to use:\nĐăng nhập bằng email được gửi.\nKhông đổi mật khẩu."),
+            "{english}"
+        );
+        assert!(english.contains("and they will hand it over."), "{english}");
+
+        let vietnamese = text(Language::Vietnamese, guide);
+        assert!(
+            vietnamese.ends_with(
+                "📖 Hướng dẫn sử dụng:\nĐăng nhập bằng email được gửi.\nKhông đổi mật khẩu."
+            ),
+            "{vietnamese}"
+        );
+
+        // Nothing written, nothing added.
+        assert!(!text(Language::English, None).contains("How to use"));
+        assert!(!text(Language::Vietnamese, None).contains("Hướng dẫn"));
+    }
+
+    #[test]
+    fn the_guide_is_the_last_thing_a_buyer_reads_after_the_accounts_they_are_handed() {
+        let paid = order("paid", 0);
+        let delivery = Delivery {
+            accounts: vec!["one@example.test|first".to_owned()],
+            missing: 0,
+        };
+        let message = serde_json::to_value(order_status(
+            1,
+            Language::Vietnamese,
+            &paid,
+            "@shop_owner",
+            Some(&delivery),
+            Some("Đăng nhập bằng email được gửi.\nKhông đổi mật khẩu."),
+        ))
+        .unwrap();
+        let text = message["text"].as_str().unwrap();
+
+        println!("{text}");
+        let position = |part: &str| {
+            text.find(part)
+                .unwrap_or_else(|| panic!("{part} is missing"))
+        };
+
+        // Receipt, then the account, then the reminder to change the password, then the guide.
+        assert!(position("✅ Đã nhận thanh toán") < position("one@example.test|first"));
+        assert!(position("one@example.test|first") < position("Hãy đổi mật khẩu"));
+        assert!(position("Hãy đổi mật khẩu") < position("📖 Hướng dẫn sử dụng:"));
+        assert!(text.ends_with("Không đổi mật khẩu."), "{text}");
     }
 
     #[test]
