@@ -119,6 +119,8 @@ A package made with `delivers_accounts` hands the buyer an account when they hav
 
 Order `status` is `awaiting_payment`, `paid` or `cancelled` (a database `CHECK`), and `paid_at` is set exactly when the status is `paid`. Cancel moves only an `awaiting_payment` order to `cancelled` and stops later matching; a transfer that already arrived stays recorded. An order past `expires_at` keeps the status `awaiting_payment`: it stops reserving stock and a transfer can no longer settle it, though staff can still mark it paid by hand on the dashboard.
 
+**One open order per buyer.** `POST /internal/telegram/contacts/{id}/orders` first cancels the buyer's other `awaiting_payment` orders that are still inside their time, then reads the stock and makes the new order, all in one transaction under a per-buyer advisory lock. A buyer who opens a second package therefore loses the first one at once, and the stock it held is free for the new order. A refused request (sold out, bad quantity, unknown package) rolls the cancellation back. An order that has already run out is left alone for the owner. A transfer that names an order cancelled this way no longer settles it: the money is stored unmatched for the owner to reconcile, and the buyer is not messaged, as for any cancelled order (the `late` notice is for orders that ran out; `late_transfer` tests pin that an order the buyer stopped is not called late).
+
 ## SePay settlement
 
 1. SePay posts each bank transaction to `POST /sepay`. The adapter authenticates it and forwards the JSON to `POST /internal/telegram/payments/sepay`.

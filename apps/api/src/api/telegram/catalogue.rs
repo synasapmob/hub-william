@@ -413,6 +413,17 @@ pub(crate) async fn load_product(
     state: &AppState,
     slug: &str,
 ) -> Result<TelegramProduct, ApiError> {
+    let mut connection = state.pool.acquire().await.map_err(database_error)?;
+
+    load_product_on(&mut connection, slug).await
+}
+
+/// Reads a product on the given connection, so a caller inside a transaction sees
+/// its own uncommitted changes, such as an order it has just cancelled.
+pub(crate) async fn load_product_on(
+    connection: &mut sqlx::PgConnection,
+    slug: &str,
+) -> Result<TelegramProduct, ApiError> {
     sqlx::query_as::<_, TelegramProduct>(&format!(
         "SELECT {PRODUCT_COLUMNS}
          FROM telegram_products AS product
@@ -420,7 +431,7 @@ pub(crate) async fn load_product(
          WHERE product.slug = $1"
     ))
     .bind(slug)
-    .fetch_optional(&state.pool)
+    .fetch_optional(connection)
     .await
     .map_err(database_error)?
     .ok_or(ApiError::NotFound)
