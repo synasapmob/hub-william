@@ -118,6 +118,11 @@ async function setAdjust(user: User, label: string, value: string) {
   await user.type(screen.getByLabelText(label), value);
 }
 
+/** Turns on a part of the form, since each optional part starts off. */
+async function turnOn(user: User, name: string) {
+  await user.click(screen.getByRole("switch", { name }));
+}
+
 describe("PosRoute, the list", () => {
   it("shows one card for each provider, in the shop's order, with every package under it", async () => {
     const list = vi.spyOn(fakeStockService, "list");
@@ -497,6 +502,7 @@ describe("PosRoute, adding", () => {
       variant: null,
       warranty: "WF",
       warranty_note: null,
+      guide: null,
     });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(toast.success).toHaveBeenCalledWith("Đã thêm Pro 2 tháng");
@@ -531,9 +537,13 @@ describe("PosRoute, adding", () => {
   it("says nothing about Telegram when the message is left empty", async () => {
     const user = await openAdd();
 
-    expect(screen.getByLabelText("Tin nhắn Telegram (tùy chọn)")).toHaveValue(
-      "",
-    );
+    // Off, so there is nothing to type into and nothing to send.
+    expect(
+      screen.getByRole("switch", { name: "Tin nhắn Telegram" }),
+    ).not.toBeChecked();
+    expect(
+      screen.queryByLabelText("Nội dung tin nhắn Telegram"),
+    ).not.toBeInTheDocument();
 
     const announce = vi.spyOn(fakeStockService, "announce");
 
@@ -546,15 +556,24 @@ describe("PosRoute, adding", () => {
     expect(announce).not.toHaveBeenCalled();
   });
 
+  it("says nothing under the message box about what an empty one does", async () => {
+    const user = await openAdd();
+
+    await turnOn(user, "Tin nhắn Telegram");
+
+    expect(
+      screen.queryByText(/Để trống thì không gửi gì/),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Mua ngay/)).not.toBeInTheDocument();
+  });
+
   it("treats a message of only spaces as empty", async () => {
     const announce = vi.spyOn(fakeStockService, "announce");
     const user = await openAdd();
 
     await fillPackage(user);
-    await user.type(
-      screen.getByLabelText("Tin nhắn Telegram (tùy chọn)"),
-      "   ",
-    );
+    await turnOn(user, "Tin nhắn Telegram");
+    await user.type(screen.getByLabelText("Nội dung tin nhắn Telegram"), "   ");
     await user.click(screen.getByRole("button", { name: "Thêm" }));
 
     await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(1));
@@ -568,8 +587,9 @@ describe("PosRoute, adding", () => {
     const user = await openAdd();
 
     await fillPackage(user);
+    await turnOn(user, "Tin nhắn Telegram");
     await user.type(
-      screen.getByLabelText("Tin nhắn Telegram (tùy chọn)"),
+      screen.getByLabelText("Nội dung tin nhắn Telegram"),
       "Hàng mới về",
     );
     await user.click(screen.getByRole("button", { name: "Thêm" }));
@@ -605,8 +625,9 @@ describe("PosRoute, adding", () => {
       const user = await openAdd();
 
       await fillPackage(user);
+      await turnOn(user, "Tin nhắn Telegram");
       await user.type(
-        screen.getByLabelText("Tin nhắn Telegram (tùy chọn)"),
+        screen.getByLabelText("Nội dung tin nhắn Telegram"),
         "Hàng mới về",
       );
       await user.click(screen.getByRole("button", { name: "Thêm" }));
@@ -631,8 +652,9 @@ describe("PosRoute, adding", () => {
       const user = await openAdd();
 
       await fillPackage(user);
+      await turnOn(user, "Tin nhắn Telegram");
       await user.type(
-        screen.getByLabelText("Tin nhắn Telegram (tùy chọn)"),
+        screen.getByLabelText("Nội dung tin nhắn Telegram"),
         "Hàng mới về",
       );
       await user.click(screen.getByRole("button", { name: "Thêm" }));
@@ -743,8 +765,9 @@ describe("PosRoute, adding", () => {
       await switchOn(user);
       await user.click(accountsField());
       await user.paste("one@example.test|first");
+      await turnOn(user, "Tin nhắn Telegram");
       await user.type(
-        screen.getByLabelText("Tin nhắn Telegram (tùy chọn)"),
+        screen.getByLabelText("Nội dung tin nhắn Telegram"),
         "Hàng mới về",
       );
       await user.click(screen.getByRole("button", { name: "Thêm" }));
@@ -761,13 +784,14 @@ describe("PosRoute, adding", () => {
   });
 
   describe("the package note", () => {
-    const noteField = () => screen.getByLabelText("Ghi chú gói (tùy chọn)");
+    const noteField = () => screen.getByLabelText("Nội dung ghi chú gói");
 
     it("is saved with the new package, as written", async () => {
       const create = vi.spyOn(fakeStockService, "create");
       const user = await openAdd();
 
       await fillPackage(user);
+      await turnOn(user, "Ghi chú gói");
       await user.type(noteField(), "  Bảo hành login check 1 tiếng  ");
       await user.click(screen.getByRole("button", { name: "Thêm" }));
 
@@ -785,6 +809,7 @@ describe("PosRoute, adding", () => {
       const user = await openAdd();
 
       await fillPackage(user);
+      await turnOn(user, "Ghi chú gói");
       await user.click(noteField());
       await user.paste("\n Dòng một\n\n  Dòng ba   có dấu cách\n\n");
       await user.click(screen.getByRole("button", { name: "Thêm" }));
@@ -802,6 +827,7 @@ describe("PosRoute, adding", () => {
       const user = await openAdd();
 
       await fillPackage(user);
+      await turnOn(user, "Ghi chú gói");
       await user.click(noteField());
       await user.paste("ab\ncd");
 
@@ -834,12 +860,127 @@ describe("PosRoute, adding", () => {
       const user = await openAdd();
 
       await fillPackage(user);
+      await turnOn(user, "Ghi chú gói");
       await user.click(noteField());
       await user.paste("a".repeat(201));
 
       expect(screen.getByText("201/200")).toBeInTheDocument();
       expect(
         screen.getByText("Ghi chú gói dài tối đa 200 ký tự."),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Thêm" })).toBeDisabled();
+      expect(create).not.toHaveBeenCalled();
+    });
+  });
+
+  it("starts with every optional part turned off, and selling on", async () => {
+    await openAdd();
+
+    for (const name of [
+      "Ghi chú gói",
+      "Hướng dẫn gói",
+      "Giao tài khoản tự động",
+      "Tin nhắn Telegram",
+      "Hot",
+    ])
+      expect(screen.getByRole("switch", { name })).not.toBeChecked();
+
+    expect(screen.getByRole("switch", { name: "Đang bán" })).toBeChecked();
+    // Nothing of the closed parts is on the form.
+    expect(screen.queryByLabelText(/^Nội dung/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Nạp tài khoản/)).not.toBeInTheDocument();
+  });
+
+  it("says the stock in two badges, what is in stock and what has just been added", async () => {
+    const user = await openAdd();
+
+    expect(screen.getByText("Trong kho 0")).toBeInTheDocument();
+    expect(screen.getByText("Mới thêm 0")).toBeInTheDocument();
+
+    await setAdjust(user, "Tồn kho ban đầu", "7");
+
+    expect(screen.getByText("Trong kho 0")).toBeInTheDocument();
+    expect(screen.getByText("Mới thêm 7")).toBeInTheDocument();
+  });
+
+  it("puts the parts in the order of the form", async () => {
+    await openAdd();
+
+    const before = (first: HTMLElement, second: HTMLElement) =>
+      Boolean(
+        first.compareDocumentPosition(second) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+
+    const order = [
+      screen.getByText("Nhà cung cấp"),
+      screen.getByText("Tên gói"),
+      screen.getByText("Ghi chú gói"),
+      screen.getByText("Hướng dẫn gói"),
+      screen.getByText("Giao tài khoản tự động"),
+      screen.getByText("Tin nhắn Telegram"),
+      screen.getByText("Giá (₫)"),
+      screen.getByText("Trong kho 0"),
+      screen.getByText("Đang bán"),
+    ];
+
+    for (let index = 1; index < order.length; index += 1)
+      expect(before(order[index - 1], order[index])).toBe(true);
+  });
+
+  describe("the package guide", () => {
+    const guideField = () => screen.getByLabelText("Nội dung hướng dẫn gói");
+
+    it("is saved with the new package, as written", async () => {
+      const create = vi.spyOn(fakeStockService, "create");
+      const user = await openAdd();
+
+      await fillPackage(user);
+      await turnOn(user, "Hướng dẫn gói");
+      await user.type(guideField(), "  Đăng nhập bằng email được gửi.  ");
+      await user.click(screen.getByRole("button", { name: "Thêm" }));
+
+      await waitFor(() =>
+        expect(create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            guide: "Đăng nhập bằng email được gửi.",
+          }),
+        ),
+      );
+    });
+
+    it("sends nothing when the part is turned off again, whatever was typed", async () => {
+      const create = vi.spyOn(fakeStockService, "create");
+      const user = await openAdd();
+
+      await fillPackage(user);
+      await turnOn(user, "Hướng dẫn gói");
+      await user.type(guideField(), "Sẽ không được gửi");
+      await turnOn(user, "Hướng dẫn gói");
+      await user.click(screen.getByRole("button", { name: "Thêm" }));
+
+      await waitFor(() =>
+        expect(create).toHaveBeenCalledWith(
+          expect.objectContaining({ guide: null }),
+        ),
+      );
+    });
+
+    it("cannot be longer than 1,000 characters, and says so", async () => {
+      const create = vi.spyOn(fakeStockService, "create");
+      const user = await openAdd();
+
+      await fillPackage(user);
+      await turnOn(user, "Hướng dẫn gói");
+      fireEvent.change(guideField(), { target: { value: "a".repeat(1000) } });
+
+      expect(screen.getByText("1000/1000")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Thêm" })).toBeEnabled();
+
+      fireEvent.change(guideField(), { target: { value: "a".repeat(1001) } });
+
+      expect(
+        screen.getByText("Hướng dẫn gói dài tối đa 1000 ký tự."),
       ).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Thêm" })).toBeDisabled();
       expect(create).not.toHaveBeenCalled();
@@ -856,8 +997,9 @@ describe("PosRoute, adding", () => {
     const user = await openAdd();
 
     await fillPackage(user);
+    await turnOn(user, "Tin nhắn Telegram");
     await user.type(
-      screen.getByLabelText("Tin nhắn Telegram (tùy chọn)"),
+      screen.getByLabelText("Nội dung tin nhắn Telegram"),
       "Hàng mới về",
     );
     await user.click(screen.getByRole("button", { name: "Thêm" }));
@@ -924,6 +1066,7 @@ describe("PosRoute, adding", () => {
             variant: null,
             warranty: "WF",
             warranty_note: null,
+            guide: null,
             delivers_accounts: false,
           });
       }),
@@ -961,7 +1104,8 @@ describe("PosRoute, adding", () => {
     expect(screen.queryByText(/Khách đọc/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Ghi tên gói/)).not.toBeInTheDocument();
 
-    await user.click(screen.getByLabelText("Ghi chú gói (tùy chọn)"));
+    await turnOn(user, "Ghi chú gói");
+    await user.click(screen.getByLabelText("Nội dung ghi chú gói"));
     await user.paste("a".repeat(201));
 
     expect(
@@ -992,16 +1136,20 @@ describe("PosRoute, adding", () => {
   it("does not let a textarea be dragged to another size", async () => {
     const user = await openAdd();
 
-    await user.click(
-      screen.getByRole("switch", { name: "Giao tài khoản tự động" }),
-    );
+    for (const name of [
+      "Ghi chú gói",
+      "Hướng dẫn gói",
+      "Giao tài khoản tự động",
+      "Tin nhắn Telegram",
+    ])
+      await turnOn(user, name);
 
     const areas = screen
       .getAllByRole("textbox")
       .filter((field) => field.tagName === "TEXTAREA");
 
-    // The note, the accounts to load and the message for Telegram.
-    expect(areas.length).toBeGreaterThanOrEqual(3);
+    // The note, the guide, the accounts to load and the message for Telegram.
+    expect(areas.length).toBeGreaterThanOrEqual(4);
 
     for (const area of areas) expect(area).toHaveClass("resize-none");
   });
@@ -1108,6 +1256,7 @@ describe("PosRoute, editing", () => {
     variant: null,
     warranty: "WF",
     warranty_note: null,
+    guide: null,
   };
 
   it("starts on the first field", async () => {
@@ -1129,9 +1278,8 @@ describe("PosRoute, editing", () => {
     expect(screen.getByLabelText("Giá (₫)")).toHaveValue("459.000");
     expect(screen.getByRole("switch", { name: "Đang bán" })).toBeChecked();
     expect(screen.getByRole("switch", { name: "Hot" })).toBeChecked();
-    expect(
-      screen.getByText(/Trong kho 12, đang giữ chỗ 2/),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Trong kho 12 · giữ chỗ 2")).toBeInTheDocument();
+    expect(screen.getByText("Mới thêm 0")).toBeInTheDocument();
   });
 
   describe("stock", () => {
@@ -1142,9 +1290,7 @@ describe("PosRoute, editing", () => {
 
       await setAdjust(user, "Thêm hoặc bớt tồn kho", "10");
 
-      expect(
-        screen.getByText(/Sau khi lưu: 22 trong kho, bán được 20/),
-      ).toBeInTheDocument();
+      expect(screen.getByText("Mới thêm 10")).toBeInTheDocument();
 
       await user.click(screen.getByRole("button", { name: "Lưu" }));
 
@@ -1165,9 +1311,7 @@ describe("PosRoute, editing", () => {
 
       await setAdjust(user, "Thêm hoặc bớt tồn kho", "-5");
 
-      expect(
-        screen.getByText(/Sau khi lưu: 7 trong kho, bán được 5/),
-      ).toBeInTheDocument();
+      expect(screen.getByText("Bớt 5")).toBeInTheDocument();
 
       await user.click(screen.getByRole("button", { name: "Lưu" }));
 
@@ -1369,19 +1513,25 @@ describe("PosRoute, editing", () => {
       expect(screen.getByText("Thêm hoặc bớt tồn kho")).toBeInTheDocument();
     });
 
-    it("sits in one row with the switches for selling and for hot, in that order", async () => {
+    it("lists its switches in the order of the form, with selling and hot together on the last row", async () => {
       await openEdit(/Claude Pro 1 tháng/);
 
       expect(
         screen.getAllByRole("switch").map((control) => control.id),
-      ).toEqual(["stock-listed", "stock-hot", "stock-delivers"]);
+      ).toEqual([
+        "stock-note-on",
+        "stock-guide-on",
+        "stock-delivers",
+        "stock-message-on",
+        "stock-listed",
+        "stock-hot",
+      ]);
       expect(
         screen.getByRole("switch", { name: "Đang bán" }).closest("div")
           ?.parentElement,
       ).toBe(
-        screen
-          .getByRole("switch", { name: "Giao tài khoản tự động" })
-          .closest("div")?.parentElement,
+        screen.getByRole("switch", { name: "Hot" }).closest("div")
+          ?.parentElement,
       );
     });
 
@@ -1463,6 +1613,7 @@ describe("PosRoute, editing", () => {
         variant: null,
         warranty: "NW",
         warranty_note: null,
+        guide: null,
       });
 
       const slug = slugify("Claude", "Empty Pack", null);
@@ -1522,17 +1673,23 @@ describe("PosRoute, editing", () => {
   });
 
   describe("the package note", () => {
-    const noteField = () => screen.getByLabelText("Ghi chú gói (tùy chọn)");
+    const noteField = () => screen.getByLabelText("Nội dung ghi chú gói");
 
-    it("is empty on a package that has no note", async () => {
+    it("is off on a package that has no note, with no box to fill", async () => {
       await openEdit(/Claude Pro 1 tháng/);
 
-      expect(noteField()).toHaveValue("");
+      expect(
+        screen.getByRole("switch", { name: "Ghi chú gói" }),
+      ).not.toBeChecked();
+      expect(
+        screen.queryByLabelText("Nội dung ghi chú gói"),
+      ).not.toBeInTheDocument();
     });
 
-    it("shows the note a package carries", async () => {
+    it("shows the note a package carries, with the part already on", async () => {
       await openEdit(/Gemini Advanced/);
 
+      expect(screen.getByRole("switch", { name: "Ghi chú gói" })).toBeChecked();
       expect(noteField()).toHaveValue("Không bảo hành đổi trả");
     });
 
@@ -1553,6 +1710,7 @@ describe("PosRoute, editing", () => {
         variant: gemini.variant,
         warranty: gemini.warranty,
         warranty_note: written,
+        guide: null,
       });
       const update = vi.spyOn(fakeStockService, "update");
       const user = await openEdit(/Gemini Advanced/);
@@ -1590,6 +1748,21 @@ describe("PosRoute, editing", () => {
       );
     });
 
+    it("sends no note when the part is turned off, whatever it held", async () => {
+      const update = vi.spyOn(fakeStockService, "update");
+      const user = await openEdit(/Gemini Advanced/);
+
+      await turnOn(user, "Ghi chú gói");
+      await user.click(screen.getByRole("button", { name: "Lưu" }));
+
+      await waitFor(() =>
+        expect(update).toHaveBeenCalledWith(
+          "gemini-advanced-1-thang-gia-dinh",
+          expect.objectContaining({ warranty_note: null }),
+        ),
+      );
+    });
+
     it("sends no note when it is cleared", async () => {
       const update = vi.spyOn(fakeStockService, "update");
       const user = await openEdit(/Gemini Advanced/);
@@ -1606,14 +1779,101 @@ describe("PosRoute, editing", () => {
     });
   });
 
-  describe("the Telegram message", () => {
-    const field = () => screen.getByLabelText("Tin nhắn Telegram (tùy chọn)");
+  describe("the package guide", () => {
+    const guideField = () => screen.getByLabelText("Nội dung hướng dẫn gói");
 
-    it("starts empty on an item that is opened for editing", async () => {
+    async function giveGeminiAGuide(guide: string) {
+      const gemini = fakeStockServiceProducts().find(
+        (product) => product.provider === "Gemini",
+      )!;
+
+      await fakeStockService.update(gemini.slug, {
+        delivers_accounts: gemini.delivers_accounts,
+        hot: gemini.hot,
+        image_url: gemini.image_url,
+        listed: gemini.listed,
+        plan: gemini.plan,
+        price_vnd: gemini.price_vnd,
+        provider: gemini.provider,
+        variant: gemini.variant,
+        warranty: gemini.warranty,
+        warranty_note: gemini.warranty_note,
+        guide,
+      });
+
+      return gemini;
+    }
+
+    it("is off on a package that has none, with no box to fill", async () => {
       await openEdit(/Claude Pro 1 tháng/);
 
+      expect(
+        screen.getByRole("switch", { name: "Hướng dẫn gói" }),
+      ).not.toBeChecked();
+      expect(
+        screen.queryByLabelText("Nội dung hướng dẫn gói"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("shows the guide a package carries, with the part already on, and sends it back untouched", async () => {
+      const written = "Bước 1: đăng nhập.\n\n  Bước 2: không đổi mật khẩu.";
+      const gemini = await giveGeminiAGuide(written);
+      const update = vi.spyOn(fakeStockService, "update");
+      const user = await openEdit(/Gemini Advanced/);
+
+      expect(
+        screen.getByRole("switch", { name: "Hướng dẫn gói" }),
+      ).toBeChecked();
+      expect(guideField()).toHaveValue(written);
+
+      await user.clear(screen.getByLabelText("Giá (₫)"));
+      await user.type(screen.getByLabelText("Giá (₫)"), "99000");
+      await user.click(screen.getByRole("button", { name: "Lưu" }));
+
+      await waitFor(() =>
+        expect(update).toHaveBeenCalledWith(
+          gemini.slug,
+          expect.objectContaining({ guide: written }),
+        ),
+      );
+    });
+
+    it("is removed by turning the part off", async () => {
+      await giveGeminiAGuide("Đăng nhập bằng email được gửi.");
+      const update = vi.spyOn(fakeStockService, "update");
+      const user = await openEdit(/Gemini Advanced/);
+
+      await turnOn(user, "Hướng dẫn gói");
+      await user.click(screen.getByRole("button", { name: "Lưu" }));
+
+      await waitFor(() =>
+        expect(update).toHaveBeenCalledWith(
+          "gemini-advanced-1-thang-gia-dinh",
+          expect.objectContaining({ guide: null }),
+        ),
+      );
+    });
+  });
+
+  describe("the Telegram message", () => {
+    const field = () => screen.getByLabelText("Nội dung tin nhắn Telegram");
+
+    it("starts off on an item that is opened for editing, and says nothing under the box", async () => {
+      const user = await openEdit(/Claude Pro 1 tháng/);
+
+      expect(
+        screen.getByRole("switch", { name: "Tin nhắn Telegram" }),
+      ).not.toBeChecked();
+      expect(
+        screen.queryByLabelText("Nội dung tin nhắn Telegram"),
+      ).not.toBeInTheDocument();
+
+      await turnOn(user, "Tin nhắn Telegram");
+
       expect(field()).toHaveValue("");
-      expect(screen.getByText(/Để trống thì không gửi gì/)).toBeInTheDocument();
+      expect(
+        screen.queryByText(/Để trống thì không gửi gì/),
+      ).not.toBeInTheDocument();
     });
 
     it("is sent after an edit as well, with the text as written", async () => {
@@ -1622,6 +1882,7 @@ describe("PosRoute, editing", () => {
 
       await user.clear(screen.getByLabelText("Giá (₫)"));
       await user.type(screen.getByLabelText("Giá (₫)"), "399000");
+      await turnOn(user, "Tin nhắn Telegram");
       await user.type(field(), "Giảm giá Claude Pro còn 399.000 ₫");
       await user.click(screen.getByRole("button", { name: "Lưu" }));
 
@@ -1641,6 +1902,8 @@ describe("PosRoute, editing", () => {
     it("counts the characters once something is written", async () => {
       const user = await openEdit(/Claude Pro 1 tháng/);
 
+      await turnOn(user, "Tin nhắn Telegram");
+
       expect(screen.queryByText(/\/4096$/)).not.toBeInTheDocument();
 
       await user.type(field(), "Xin chào");
@@ -1651,6 +1914,7 @@ describe("PosRoute, editing", () => {
     it("allows 4,096 characters and refuses one more", async () => {
       const user = await openEdit(/Claude Pro 1 tháng/);
 
+      await turnOn(user, "Tin nhắn Telegram");
       fireEvent.change(field(), { target: { value: "a".repeat(4096) } });
 
       expect(screen.getByText("4096/4096")).toBeInTheDocument();
@@ -2063,6 +2327,7 @@ describe("PosRoute, the accounts in stock", () => {
       variant: null,
       warranty: "NW",
       warranty_note: null,
+      guide: null,
     });
     const user = userEvent.setup();
 

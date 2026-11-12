@@ -29,6 +29,11 @@ export interface TelegramProduct {
   /** The shop's own warranty note; null when the standard note for the warranty applies. */
   warranty_note: string | null;
   /**
+   * What the buyer is told about using the package once they have paid, as the
+   * shop wrote it; null when it wrote nothing.
+   */
+  guide: string | null;
+  /**
    * Hands the buyer an account when they have paid. Its count is the accounts not
    * yet sold, so it is not set by hand, and the flag is fixed when it is made.
    */
