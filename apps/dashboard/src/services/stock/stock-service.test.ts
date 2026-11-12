@@ -31,6 +31,7 @@ const API_PRODUCT = {
   variant: null,
   warranty: "WF",
   warranty_note: null,
+  guide: null,
   delivers_accounts: false,
 };
 
@@ -48,6 +49,7 @@ const PRODUCT: TelegramProduct = {
   variant: null,
   warranty: "WF",
   warranty_note: null,
+  guide: null,
   delivers_accounts: false,
 };
 
@@ -62,6 +64,7 @@ const INPUT: StockInput = {
   variant: null,
   warranty: "WF",
   warranty_note: null,
+  guide: null,
 };
 
 function answer(response: Response | Error) {
@@ -136,6 +139,29 @@ describe("stockService.list", () => {
     expect((await sent(spy)).credentials).toBe("include");
   });
 
+  it("answers the guide the shop wrote, and null when it wrote none", async () => {
+    answer(
+      json(200, {
+        products: [
+          { ...API_PRODUCT, guide: "Đăng nhập bằng email được gửi." },
+          { ...API_PRODUCT, slug: "plain", guide: null },
+          // A server that leaves the field out, as it does when there is no guide.
+          Object.fromEntries(
+            Object.entries(API_PRODUCT).filter(([key]) => key !== "guide"),
+          ),
+        ],
+      }),
+    );
+
+    const products = await stockService.list();
+
+    expect(products.map((product) => product.guide)).toEqual([
+      "Đăng nhập bằng email được gửi.",
+      null,
+      null,
+    ]);
+  });
+
   it("answers the shop's own warranty note, and null when the product has the standard one", async () => {
     answer(
       json(200, {
@@ -204,6 +230,8 @@ describe("stockService.create", () => {
       warranty: "WF",
       // No note of the shop's own asks the server for the standard one.
       warranty_note: "",
+      // No guide asks the server to clear it.
+      guide: "",
       delivers_accounts: false,
     });
   });
@@ -555,6 +583,27 @@ describe("stockService.create, for a package that hands out accounts", () => {
 });
 
 describe("stockService.update", () => {
+  it("sends the guide the shop wrote", async () => {
+    const spy = answer(json(200, API_PRODUCT));
+
+    await stockService.update("claude-pro-1-thang", {
+      ...INPUT,
+      guide: "Đăng nhập bằng email được gửi.",
+    });
+
+    expect(JSON.parse((await sent(spy)).body as string).guide).toBe(
+      "Đăng nhập bằng email được gửi.",
+    );
+  });
+
+  it("sends an empty guide to clear it", async () => {
+    const spy = answer(json(200, API_PRODUCT));
+
+    await stockService.update("claude-pro-1-thang", INPUT);
+
+    expect(JSON.parse((await sent(spy)).body as string).guide).toBe("");
+  });
+
   it("sends the warranty note the shop wrote", async () => {
     const spy = answer(json(200, API_PRODUCT));
 
@@ -602,6 +651,8 @@ describe("stockService.update", () => {
       warranty: "WF",
       // No note of the shop's own asks the server for the standard one.
       warranty_note: "",
+      // No guide asks the server to clear it.
+      guide: "",
     });
   });
 });

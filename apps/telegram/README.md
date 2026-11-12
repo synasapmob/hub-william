@@ -27,6 +27,14 @@ the package, to readers of both languages exactly as typed: line breaks, blank l
 kept (only the ends are trimmed), and the message is sent as plain text so nothing in it is read as
 formatting. A package without a note shows none.
 
+A package can also carry a **package guide**, written in the same stock form (up to 1,000 characters,
+kept as typed). It is not shown while a buyer browses: it is the last thing in the message a buyer
+gets once they have paid, under the receipt and, for a package that hands out accounts, under the
+accounts and the reminder to change the password, headed "Hướng dẫn sử dụng" ("How to use"). It
+goes out wherever that message does: when SePay settles the order, when staff mark it paid on the
+dashboard, and when the buyer presses the check button. A package without a guide adds nothing. If
+the package cannot be read at that moment the buyer still gets their receipt without it.
+
 A package is called what the shop called it. The provider only groups packages into a card and a
 provider screen; it is not put in front of the name, so a shop that wants its brand in the name
 writes it there (`Gemini AI PRO your mail`). Orders record the same name.

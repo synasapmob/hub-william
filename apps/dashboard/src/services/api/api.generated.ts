@@ -1601,6 +1601,11 @@ export interface components {
        *     with `POST .../accounts`. It can be changed later with `PUT .../{slug}`.
        */
       delivers_accounts?: boolean;
+      /**
+       * @description What the buyer is told about using the package once they have paid, up to
+       *     1,000 characters, kept as typed. Blank or absent means nothing is sent.
+       */
+      guide?: string | null;
       hot: boolean;
       /** Format: uuid */
       image_id?: string | null;
@@ -1722,6 +1727,11 @@ export interface components {
        *     of accounts not yet sold, so it cannot be changed by hand.
        */
       delivers_accounts: boolean;
+      /**
+       * @description What the buyer is told about using the package once they have paid, as the
+       *     shop wrote it. Absent when there is nothing to say.
+       */
+      guide?: string | null;
       hot: boolean;
       /**
        * Format: uuid
@@ -2611,6 +2621,11 @@ export interface components {
        *     package still holds accounts not sold.
        */
       delivers_accounts?: boolean | null;
+      /**
+       * @description What the buyer is told about using the package once they have paid, up to
+       *     1,000 characters, kept as typed. Blank clears it. Absent leaves it as it is.
+       */
+      guide?: string | null;
       hot: boolean;
       /** Format: uuid */
       image_id?: string | null;

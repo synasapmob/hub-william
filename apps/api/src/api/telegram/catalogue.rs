@@ -25,6 +25,9 @@ pub struct TelegramProduct {
     /// Hands the buyer an account when they have paid. Its count is the number
     /// of accounts not yet sold, so it is never set by hand.
     pub delivers_accounts: bool,
+    /// What the buyer is told about using the package once they have paid, as
+    /// the shop wrote it; blank when there is nothing to say.
+    pub guide: String,
     pub hot: bool,
     pub listed: bool,
     /// The physical count the owner set, before reservations.
@@ -108,7 +111,7 @@ pub struct TelegramRestock {
     pub product: TelegramProduct,
 }
 
-pub(crate) const PRODUCT_COLUMNS: &str = "GREATEST(product.available - reserved.quantity, 0)::INT AS available, product.category, product.detail, product.delivers_accounts, product.hot, product.listed, product.available AS on_hand, product.plan, product.price_vnd, provider.name AS provider_name, provider.slug AS provider_slug, reserved.quantity::INT AS reserved, product.slug, product.variant, product.warranty, product.warranty_note_en, product.warranty_note_vi";
+pub(crate) const PRODUCT_COLUMNS: &str = "GREATEST(product.available - reserved.quantity, 0)::INT AS available, product.category, product.detail, product.delivers_accounts, product.guide, product.hot, product.listed, product.available AS on_hand, product.plan, product.price_vnd, provider.name AS provider_name, provider.slug AS provider_slug, reserved.quantity::INT AS reserved, product.slug, product.variant, product.warranty, product.warranty_note_en, product.warranty_note_vi";
 
 /// Joined into every product read so `available` always means "sellable".
 pub(crate) const RESERVED_JOIN: &str =
@@ -169,6 +172,7 @@ pub async fn create_product(
                 category: payload.category,
                 delivers_accounts: false,
                 detail: payload.detail,
+                guide: None,
                 hot: false,
                 image_id: None,
                 listed: true,
@@ -191,6 +195,9 @@ pub(crate) struct NewProduct {
     pub category: Option<String>,
     pub delivers_accounts: bool,
     pub detail: Option<String>,
+    /// What the buyer is told about using the package once they have paid, as the
+    /// shop wrote it. Blank or absent means nothing is sent.
+    pub guide: Option<String>,
     pub hot: bool,
     pub image_id: Option<Uuid>,
     pub listed: bool,
@@ -221,6 +228,7 @@ pub(crate) async fn insert_product(
     let category = product.category.and_then(|value| normalize_text(value, 64));
     let warranty = normalize_warranty(&product.warranty)?;
     let (note_en, note_vi) = notes(product.warranty_note)?;
+    let guide = normalize_guide(product.guide)?;
     let price_vnd = normalize_price(product.price_vnd)?;
     let available = normalize_stock(product.available)?;
     if product.delivers_accounts && available != 0 {
@@ -247,10 +255,10 @@ pub(crate) async fn insert_product(
         "INSERT INTO telegram_products
             (id, provider_id, slug, plan, variant, detail, warranty,
              warranty_note_en, warranty_note_vi, price_vnd, available, category, position,
-             hot, listed, image_id, delivers_accounts)
+             hot, listed, image_id, delivers_accounts, guide)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
                  (SELECT COALESCE(MAX(position), 0) + 1 FROM telegram_products WHERE provider_id = $2),
-                 $13, $14, $15, $16)
+                 $13, $14, $15, $16, $17)
          ON CONFLICT (slug) DO NOTHING
          RETURNING id",
     )
@@ -270,6 +278,7 @@ pub(crate) async fn insert_product(
     .bind(product.listed)
     .bind(product.image_id)
     .bind(product.delivers_accounts)
+    .bind(&guide)
     .fetch_optional(&mut *database)
     .await
     .map_err(database_error)?;
@@ -559,13 +568,7 @@ pub(crate) const MAXIMUM_NOTE_CHARACTERS: usize = 200;
 /// character is trimmed. Tidied twice, it comes out the same, so a form that sends
 /// back the note it was given changes nothing.
 pub(crate) fn normalize_note(value: String) -> Result<Option<String>, ApiError> {
-    let note = value
-        .replace("\r\n", "\n")
-        .replace('\r', "\n")
-        .chars()
-        .filter(|character| !character.is_control() || matches!(character, '\n' | '\t'))
-        .collect::<String>();
-    let note = note.trim();
+    let note = tidy_written_text(value);
 
     if note.chars().count() > MAXIMUM_NOTE_CHARACTERS {
         return Err(ApiError::Validation(
@@ -573,7 +576,39 @@ pub(crate) fn normalize_note(value: String) -> Result<Option<String>, ApiError> 
         ));
     }
 
-    Ok((!note.is_empty()).then(|| note.to_owned()))
+    Ok((!note.is_empty()).then_some(note))
+}
+
+/// Text the shop typed, as it is stored: line endings made `\n`, control
+/// characters dropped (a tab stays), and the blank space before the first and
+/// after the last character trimmed. Tidied twice, it comes out the same.
+fn tidy_written_text(value: String) -> String {
+    value
+        .replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .chars()
+        .filter(|character| !character.is_control() || matches!(character, '\n' | '\t'))
+        .collect::<String>()
+        .trim()
+        .to_owned()
+}
+
+/// The longest package guide the shop can write, in characters. It is sent in the
+/// same message as the receipt and the accounts, which Telegram limits to 4,096.
+pub(crate) const MAXIMUM_GUIDE_CHARACTERS: usize = 1_000;
+
+/// What a buyer is told about using the package once they have paid, tidied the
+/// way a note is. Blank or absent is nothing, stored as an empty string.
+pub(crate) fn normalize_guide(written: Option<String>) -> Result<String, ApiError> {
+    let guide = written.map(tidy_written_text).unwrap_or_default();
+
+    if guide.chars().count() > MAXIMUM_GUIDE_CHARACTERS {
+        return Err(ApiError::Validation(
+            "A package guide is at most 1000 characters.",
+        ));
+    }
+
+    Ok(guide)
 }
 
 /// The note to store in English and in Vietnamese: what the shop wrote, the same
@@ -747,6 +782,7 @@ mod tests {
             category: None,
             delivers_accounts: false,
             detail: None,
+            guide: String::new(),
             hot: false,
             listed: true,
             on_hand: 1,

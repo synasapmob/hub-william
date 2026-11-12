@@ -5666,6 +5666,10 @@
             "type": "boolean",
             "description": "Hands the buyer an account when they have paid, from accounts loaded\nwith `POST .../accounts`. It can be changed later with `PUT .../{slug}`."
           },
+          "guide": {
+            "type": ["string", "null"],
+            "description": "What the buyer is told about using the package once they have paid, up to\n1,000 characters, kept as typed. Blank or absent means nothing is sent."
+          },
           "hot": {
             "type": "boolean"
           },
@@ -5921,6 +5925,10 @@
           "delivers_accounts": {
             "type": "boolean",
             "description": "Hands the buyer an account when they have paid. Its count is the number\nof accounts not yet sold, so it cannot be changed by hand."
+          },
+          "guide": {
+            "type": ["string", "null"],
+            "description": "What the buyer is told about using the package once they have paid, as the\nshop wrote it. Absent when there is nothing to say."
           },
           "hot": {
             "type": "boolean"
@@ -7972,6 +7980,10 @@
           "delivers_accounts": {
             "type": ["boolean", "null"],
             "description": "Makes the package hand out accounts, or stop. Absent leaves it as it is.\nTurning it on makes the count the number of accounts not sold (0 for a\npackage that never held any), so the count typed in by hand is gone; it is\nrefused while buyers have orders open. Turning it off is refused while the\npackage still holds accounts not sold."
+          },
+          "guide": {
+            "type": ["string", "null"],
+            "description": "What the buyer is told about using the package once they have paid, up to\n1,000 characters, kept as typed. Blank clears it. Absent leaves it as it is."
           },
           "hot": {
             "type": "boolean"

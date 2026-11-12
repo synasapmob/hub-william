@@ -161,9 +161,23 @@ async fn notify_paid(state: &AppState, order: &Order) -> Result<(), StatusCode> 
             fetch_delivery(state, order.telegram_user_id, &order.reference)
                 .await
                 .as_ref(),
+            fetch_guide(state, order).await.as_deref(),
         ),
     )
     .await
+}
+
+/// What the shop wrote about using the package, when it wrote anything. A buyer who
+/// has paid must get their receipt whether or not this can be read, so a package
+/// that cannot be loaded just has no guide here.
+async fn fetch_guide(state: &AppState, order: &Order) -> Option<String> {
+    if order.item_id.is_empty() {
+        return None;
+    }
+
+    let product = fetch_product(state, &order.item_id).await.ok()??;
+
+    Some(product.guide.trim().to_owned()).filter(|guide| !guide.is_empty())
 }
 
 /// Tells a buyer their money came too late for the order, and to write to the
@@ -1114,6 +1128,7 @@ async fn payment_outcome(
                     &order,
                     &state.config.owner.handle(),
                     delivery.as_ref(),
+                    fetch_guide(state, &order).await.as_deref(),
                 )
                 .into(),
             )
@@ -2461,6 +2476,48 @@ mod tests {
         assert_eq!(notified[0]["method"], "sendMessage");
         let text = notified[0]["text"].as_str().expect("a notification");
         assert!(text.starts_with(&format!("✅ Đã nhận thanh toán cho đơn {REFERENCE}.")));
+    }
+
+    #[tokio::test]
+    async fn the_receipt_carries_the_guide_the_shop_wrote_for_the_package() {
+        let shop = Shop::open().await;
+        shop.api
+            .products
+            .lock()
+            .unwrap()
+            .iter_mut()
+            .find(|product| product["slug"] == "claude-max-x20")
+            .expect("the package")["guide"] = json!("Đăng nhập bằng email được gửi.");
+        shop.update_json(callback_update("catalog:claude-max-x20"))
+            .await;
+        shop.update_json(message_update("2")).await;
+
+        assert_eq!(
+            shop.post_sepay(Some("Apikey sepay-secret")).await,
+            StatusCode::OK
+        );
+
+        let notified = shop.api.notified.lock().unwrap().clone();
+        let text = notified[0]["text"].as_str().expect("a notification");
+        assert!(text.starts_with(&format!("✅ Đã nhận thanh toán cho đơn {REFERENCE}.")));
+        assert!(
+            text.ends_with("📖 Hướng dẫn sử dụng:\nĐăng nhập bằng email được gửi."),
+            "{text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_package_with_no_guide_gets_the_receipt_as_before() {
+        let shop = Shop::open().await;
+        shop.update_json(callback_update("catalog:claude-max-x20"))
+            .await;
+        shop.update_json(message_update("2")).await;
+
+        shop.post_sepay(Some("Apikey sepay-secret")).await;
+
+        let notified = shop.api.notified.lock().unwrap().clone();
+        let text = notified[0]["text"].as_str().expect("a notification");
+        assert!(!text.contains("Hướng dẫn"), "{text}");
     }
 
     #[tokio::test]

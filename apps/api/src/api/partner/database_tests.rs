@@ -38,6 +38,7 @@ fn product(provider: &str, plan: &str, available: i32, listed: bool) -> NewProdu
         category: Some("AI Tools".to_owned()),
         delivers_accounts: false,
         detail: None,
+        guide: None,
         hot: true,
         image_id: None,
         listed,

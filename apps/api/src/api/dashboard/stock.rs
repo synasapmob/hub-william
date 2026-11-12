@@ -25,9 +25,9 @@ use crate::{
         },
         catalogue::{
             MAXIMUM_RESTOCK, MAXIMUM_STOCK, NewProduct, PRODUCT_COLUMNS, RESERVED_JOIN,
-            TelegramProduct, ensure_provider, has_open_orders, insert_product, normalize_price,
-            normalize_slug, normalize_text, normalize_warranty, notes, refusal_to_count_by_hand,
-            slugify,
+            TelegramProduct, ensure_provider, has_open_orders, insert_product, normalize_guide,
+            normalize_price, normalize_slug, normalize_text, normalize_warranty, notes,
+            refusal_to_count_by_hand, slugify,
         },
     },
     core::{ApiError, AppState},
@@ -67,6 +67,9 @@ pub struct DashboardProduct {
     /// The shop's own warranty note, in Vietnamese. Absent when the product
     /// carries the standard note for its warranty code.
     pub warranty_note: Option<String>,
+    /// What the buyer is told about using the package once they have paid, as the
+    /// shop wrote it. Absent when there is nothing to say.
+    pub guide: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -102,6 +105,7 @@ impl From<ProductRow> for DashboardProduct {
             // What the form shows is what the buyer is shown: nothing when blank.
             warranty_note: (!product.warranty_note_vi.is_empty())
                 .then_some(product.warranty_note_vi),
+            guide: (!product.guide.is_empty()).then_some(product.guide),
         }
     }
 }
@@ -131,6 +135,9 @@ pub struct CreateProduct {
     /// none. (The field keeps the name it was made with, when it was a warranty
     /// note; the warranty itself is said by `warranty`.)
     pub warranty_note: Option<String>,
+    /// What the buyer is told about using the package once they have paid, up to
+    /// 1,000 characters, kept as typed. Blank or absent means nothing is sent.
+    pub guide: Option<String>,
 }
 
 /// Everything about a product that can be edited. The slug and the count are not
@@ -159,6 +166,9 @@ pub struct UpdateProduct {
     /// is, whatever else changes. (The field keeps the name it was made with, when
     /// it was a warranty note; the warranty itself is said by `warranty`.)
     pub warranty_note: Option<String>,
+    /// What the buyer is told about using the package once they have paid, up to
+    /// 1,000 characters, kept as typed. Blank clears it. Absent leaves it as it is.
+    pub guide: Option<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -266,6 +276,7 @@ pub async fn create_product(
             variant: body.variant,
             warranty: body.warranty,
             warranty_note: body.warranty_note,
+            guide: body.guide,
         },
     )
     .await
@@ -316,6 +327,9 @@ pub async fn update_product(
     // written, and a blank one clears it.
     let leave_note = body.warranty_note.is_none();
     let (note_en, note_vi) = notes(body.warranty_note)?;
+    // The guide follows the same rule: absent leaves it, blank clears it.
+    let leave_guide = body.guide.is_none();
+    let guide = normalize_guide(body.guide)?;
     let price_vnd = normalize_price(body.price_vnd)?;
     ensure_image(&state, body.image_id).await?;
 
@@ -339,6 +353,7 @@ pub async fn update_product(
              hot = $9,
              listed = $10,
              image_id = $11,
+             guide = CASE WHEN $13 THEN guide ELSE $14 END,
              updated_at = NOW()
          WHERE slug = $1
          RETURNING id",
@@ -355,6 +370,8 @@ pub async fn update_product(
     .bind(body.listed)
     .bind(body.image_id)
     .bind(leave_note)
+    .bind(leave_guide)
+    .bind(&guide)
     .fetch_optional(&mut *database)
     .await
     .map_err(database_error)?;

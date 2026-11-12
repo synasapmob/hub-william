@@ -29,6 +29,7 @@ export async function saveStock({
     variant: saved.variant,
     warranty: saved.warranty,
     warranty_note: saved.warranty_note,
+    guide: saved.guide,
   };
 
   if (previous === null)
