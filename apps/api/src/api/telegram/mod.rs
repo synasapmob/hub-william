@@ -11,7 +11,7 @@ use uuid::Uuid;
 use crate::{
     api::{
         access::{Permission, identify},
-        telegram::catalogue::{load_product, normalize_slug},
+        telegram::catalogue::{load_product_on, normalize_slug},
     },
     core::{ApiError, AppState},
 };
@@ -271,7 +271,32 @@ pub async fn create_order(
         ));
     }
 
-    let product = load_product(&state, &normalize_slug(&payload.product)?).await?;
+    let slug = normalize_slug(&payload.product)?;
+
+    // A buyer holds one open order at a time. The same transaction cancels the
+    // earlier one and creates the new one, so a request that is refused below
+    // leaves the earlier order as it was. The per-buyer lock keeps two requests
+    // from the same buyer from each cancelling the other's new order.
+    let mut database = state.pool.begin().await.map_err(database_error)?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('telegram-order:' || $1::text, 0))")
+        .bind(telegram_user_id)
+        .execute(&mut *database)
+        .await
+        .map_err(database_error)?;
+    // Only an order still inside its time. One that has run out stays waiting for
+    // the owner, who can settle it by hand if its money turns up late.
+    sqlx::query(
+        "UPDATE telegram_orders
+         SET status = 'cancelled'
+         WHERE telegram_user_id = $1 AND status = 'awaiting_payment' AND expires_at > NOW()",
+    )
+    .bind(telegram_user_id)
+    .execute(&mut *database)
+    .await
+    .map_err(database_error)?;
+
+    // Read after the cancellation, so stock the earlier order held counts as free.
+    let product = load_product_on(&mut database, &slug).await?;
     if !product.listed {
         return Err(ApiError::NotFound);
     }
@@ -312,11 +337,13 @@ pub async fn create_order(
         .bind(unit_price_vnd)
         .bind(total_vnd)
         .bind(expires_at)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&mut *database)
         .await
         .map_err(database_error)?;
 
         if let Some(order) = inserted {
+            database.commit().await.map_err(database_error)?;
+
             return Ok(Json(order));
         }
     }
@@ -693,3 +720,6 @@ fn database_error(error: sqlx::Error) -> ApiError {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(test, feature = "database-tests"))]
+mod database_tests;
