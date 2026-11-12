@@ -28,6 +28,7 @@ const product: TelegramProduct = {
   variant: null,
   warranty: "WF",
   warranty_note: null,
+  guide: null,
   delivers_accounts: false,
   price_vnd: 459_000,
   on_hand: 12,

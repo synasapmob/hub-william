@@ -13,6 +13,8 @@ export interface StockInput {
   warranty: Warranty;
   /** What a buyer reads about the warranty; null asks for the standard note. */
   warranty_note: string | null;
+  /** What a buyer is told about using the package once they have paid; null for nothing. */
+  guide: string | null;
   /**
    * Hands the buyer an account when they have paid. Turning it on for a package
    * makes its count the accounts loaded (none, at first); turning it off needs
@@ -118,6 +120,7 @@ function productFromApi(product: ApiProduct): TelegramProduct {
     variant: product.variant ?? null,
     warranty: product.warranty as Warranty,
     warranty_note: product.warranty_note ?? null,
+    guide: product.guide ?? null,
     delivers_accounts: product.delivers_accounts,
     price_vnd: product.price_vnd,
     on_hand: product.on_hand,
@@ -141,6 +144,8 @@ function fieldsOf(input: StockInput) {
     warranty: input.warranty,
     // Blank asks the server for the standard note, which is what null means.
     warranty_note: input.warranty_note ?? "",
+    // Blank clears the guide, which is what null means.
+    guide: input.guide ?? "",
   };
 }
 

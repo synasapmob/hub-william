@@ -5,6 +5,7 @@ import { tv } from "tailwind-variants";
 
 import { AccountsChangeConfirm } from "@/components/account-editor-dialog";
 import { useDashboardSession } from "@/components/dashboard-shell/dashboard-session-context";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -57,6 +58,8 @@ import StockAccountsEditor, {
   type OpenedAccounts,
 } from "./stock-accounts-editor";
 import StockAdjuster from "./stock-adjuster";
+import StockTextField from "./stock-text-field";
+import StockToggleSection from "./stock-toggle-section";
 
 // A cell of the form's grid: half a row, or all of it.
 const cell = tv({
@@ -75,6 +78,9 @@ const MAX_MESSAGE = 4096;
 // The longest package note `apps/api` stores.
 const MAX_NOTE = 200;
 
+// The longest package guide `apps/api` stores.
+const MAX_GUIDE = 1_000;
+
 interface Draft {
   provider: string;
   /** The plan and, in brackets at the end, the variant: `Plus 1 tháng (Gia đình)`. */
@@ -82,6 +88,12 @@ interface Draft {
   warranty: Warranty;
   /** What a buyer reads when they open the package; nothing is shown when empty. */
   note: string;
+  /** Whether the package has a note. Off, it has none, whatever was typed. */
+  noteOn: boolean;
+  /** What a buyer is told about using the package once they have paid. */
+  guide: string;
+  /** Whether the package has a guide. Off, it has none, whatever was typed. */
+  guideOn: boolean;
   price: string;
   /** Units to add (or, negative, take). */
   adjust: string;
@@ -89,6 +101,8 @@ interface Draft {
   listed: boolean;
   /** What the bot sends to Telegram on save; nothing when empty. */
   message: string;
+  /** Whether the bot sends it. Off, nothing is sent, whatever was typed. */
+  messageOn: boolean;
   /** Hands the buyer an account when they have paid. */
   deliversAccounts: boolean;
   /** Accounts to load on save, one `email|mật khẩu` per line. Never kept anywhere else. */
@@ -103,32 +117,19 @@ function draftOf(item: TelegramProduct | null, provider: string): Draft {
     name: item ? composePackageName(item) : "",
     warranty: item?.warranty ?? "WF",
     note: item?.warranty_note ?? "",
+    noteOn: !!item?.warranty_note,
+    guide: item?.guide ?? "",
+    guideOn: !!item?.guide,
     price: item ? String(item.price_vnd) : "",
     adjust: "0",
     hot: item?.hot ?? false,
     listed: item?.listed ?? true,
     message: "",
+    messageOn: false,
     deliversAccounts: item?.delivers_accounts ?? false,
     accounts: "",
     block: "",
   };
-}
-
-interface StockHintInput {
-  item: TelegramProduct | null;
-  /** What the count comes to after the change. */
-  result: number;
-  valid: boolean;
-}
-
-// What the adjustment comes to, or why it is refused.
-function stockHint({ item, result, valid }: StockHintInput) {
-  if (!valid) return "Nhập một số nguyên; kho không thể xuống dưới 0.";
-
-  if (item)
-    return `Trong kho ${item.on_hand}, đang giữ chỗ ${item.reserved}. Sau khi lưu: ${result} trong kho, bán được ${Math.max(result - item.reserved, 0)}.`;
-
-  return `Sau khi tạo: ${result} trong kho.`;
 }
 
 interface StockFormDialogProps {
@@ -201,13 +202,18 @@ export default function StockFormDialog({
   // Accounts not sold have to be dealt with before a package stops handing them
   // out, so the switch holds until none is left.
   const holdsAccounts = !!item?.delivers_accounts && item.on_hand > 0;
-  const message = draft.message.trim();
+  // A part that is turned off counts as empty, so turning it off clears a note or a
+  // guide and sends no message, whatever was typed before.
+  const message = draft.messageOn ? draft.message.trim() : "";
   const messageValid = message.length <= MAX_MESSAGE;
-  const note = draft.note.trim();
+  const note = draft.noteOn ? draft.note.trim() : "";
   // In characters as the server counts them, line breaks included, so an emoji is
   // one and not the two JavaScript's length makes of it.
   const noteLength = [...note].length;
   const noteValid = noteLength <= MAX_NOTE;
+  const guide = draft.guideOn ? draft.guide.trim() : "";
+  const guideLength = [...guide].length;
+  const guideValid = guideLength <= MAX_GUIDE;
   const slugTaken = !editing && takenSlugs.includes(slug);
   // The agents Hub William supports, chosen from and never typed, so a provider
   // cannot be misspelt into a card of its own. A provider the shop already has
@@ -242,6 +248,7 @@ export default function StockFormDialog({
     block.problem === null &&
     messageValid &&
     noteValid &&
+    guideValid &&
     draft.provider.trim() !== "" &&
     plan !== "" &&
     nameProblem === null &&
@@ -258,6 +265,7 @@ export default function StockFormDialog({
     variant,
     warranty: draft.warranty,
     warranty_note: note || null,
+    guide: guide || null,
     delivers_accounts: delivers,
     price_vnd: price,
     on_hand: onHand,
@@ -367,134 +375,103 @@ export default function StockFormDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          <>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="stock-provider">Nhà cung cấp</Label>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="stock-provider">Nhà cung cấp</Label>
 
-                <ProviderSelect
-                  id="stock-provider"
-                  options={providerOptions}
-                  value={draft.provider}
-                  onChange={(next) => set("provider", next)}
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="stock-warranty">Bảo hành</Label>
-
-                <Select
-                  value={draft.warranty}
-                  onValueChange={(next) => set("warranty", next as Warranty)}
-                >
-                  <SelectTrigger className="w-full" id="stock-warranty">
-                    <SelectValue />
-                  </SelectTrigger>
-
-                  <SelectContent>
-                    {Object.entries(warrantyLabels).map(([value, label]) => (
-                      <SelectItem key={value} value={value}>
-                        {label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="col-span-2 space-y-1.5">
-                <Label htmlFor="stock-plan">Tên gói</Label>
-
-                <Input
-                  aria-invalid={nameProblem !== null}
-                  id="stock-plan"
-                  placeholder="Gemini AI PRO your mail"
-                  value={draft.name}
-                  onChange={(event) => set("name", event.target.value)}
-                />
-
-                {nameProblem && (
-                  <p className="text-xs text-destructive">{nameProblem}</p>
-                )}
-              </div>
-
-              <div className="col-span-2 space-y-1.5">
-                <Flex className="items-baseline justify-between gap-2">
-                  <Label htmlFor="stock-note">Ghi chú gói (tùy chọn)</Label>
-
-                  {noteLength > 0 && (
-                    <span
-                      className={
-                        noteValid
-                          ? "text-xs text-muted-foreground tabular-nums"
-                          : "text-xs text-destructive tabular-nums"
-                      }
-                    >
-                      {noteLength}/{MAX_NOTE}
-                    </span>
-                  )}
-                </Flex>
-
-                <Textarea
-                  aria-invalid={!noteValid}
-                  id="stock-note"
-                  placeholder="Ví dụ: Giao tài khoản trong 5 phút sau khi thanh toán. Đăng nhập bằng email được gửi, không đổi mật khẩu."
-                  rows={3}
-                  value={draft.note}
-                  onChange={(event) => set("note", event.target.value)}
-                />
-
-                {!noteValid && (
-                  <p className="text-xs text-destructive">
-                    Ghi chú gói dài tối đa {MAX_NOTE} ký tự.
-                  </p>
-                )}
-              </div>
-
-              <div className={cell({ full: delivers })}>
-                <Label htmlFor="stock-price">Giá (₫)</Label>
-
-                <Input
-                  aria-invalid={draft.price !== "" && !priceValid}
-                  id="stock-price"
-                  inputMode="numeric"
-                  placeholder="189.000"
-                  ref={priceField}
-                  value={groupDigits(draft.price)}
-                  onChange={changePrice}
-                />
-              </div>
-
-              {!delivers && (
-                <>
-                  <StockAdjuster
-                    invalid={!stockValid}
-                    label={
-                      editing ? "Thêm hoặc bớt tồn kho" : "Tồn kho ban đầu"
-                    }
-                    unit="gói"
-                    value={draft.adjust}
-                    onChange={(next) => set("adjust", next)}
-                  />
-
-                  <p
-                    className={
-                      stockValid
-                        ? "col-span-2 text-xs text-muted-foreground"
-                        : "col-span-2 text-xs text-destructive"
-                    }
-                  >
-                    {stockHint({ item, result: onHand, valid: stockValid })}
-                  </p>
-                </>
-              )}
+              <ProviderSelect
+                id="stock-provider"
+                options={providerOptions}
+                value={draft.provider}
+                onChange={(next) => set("provider", next)}
+              />
             </div>
 
-            {slugTaken && (
-              <p className="text-xs text-destructive">Đã có gói này rồi.</p>
-            )}
-          </>
+            <div className="space-y-1.5">
+              <Label htmlFor="stock-warranty">Bảo hành</Label>
 
-          {delivers && (
+              <Select
+                value={draft.warranty}
+                onValueChange={(next) => set("warranty", next as Warranty)}
+              >
+                <SelectTrigger className="w-full" id="stock-warranty">
+                  <SelectValue />
+                </SelectTrigger>
+
+                <SelectContent>
+                  {Object.entries(warrantyLabels).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="col-span-2 space-y-1.5">
+              <Label htmlFor="stock-plan">Tên gói</Label>
+
+              <Input
+                aria-invalid={nameProblem !== null}
+                id="stock-plan"
+                placeholder="Gemini AI PRO your mail"
+                value={draft.name}
+                onChange={(event) => set("name", event.target.value)}
+              />
+
+              {nameProblem && (
+                <p className="text-xs text-destructive">{nameProblem}</p>
+              )}
+            </div>
+          </div>
+
+          {slugTaken && (
+            <p className="text-xs text-destructive">Đã có gói này rồi.</p>
+          )}
+
+          <StockToggleSection
+            checked={draft.noteOn}
+            id="stock-note-on"
+            label="Ghi chú gói"
+            onCheckedChange={(next) => set("noteOn", next)}
+          >
+            <StockTextField
+              label="Nội dung ghi chú gói"
+              length={noteLength}
+              max={MAX_NOTE}
+              placeholder="Ví dụ: Giao tài khoản trong 5 phút sau khi thanh toán. Đăng nhập bằng email được gửi, không đổi mật khẩu."
+              problem={`Ghi chú gói dài tối đa ${MAX_NOTE} ký tự.`}
+              rows={3}
+              value={draft.note}
+              onChange={(next) => set("note", next)}
+            />
+          </StockToggleSection>
+
+          <StockToggleSection
+            checked={draft.guideOn}
+            id="stock-guide-on"
+            label="Hướng dẫn gói"
+            onCheckedChange={(next) => set("guideOn", next)}
+          >
+            <StockTextField
+              label="Nội dung hướng dẫn gói"
+              length={guideLength}
+              max={MAX_GUIDE}
+              placeholder="Ví dụ: Đăng nhập bằng email được gửi. Không đổi mật khẩu và không đăng xuất thiết bị khác. Cần hỗ trợ thì nhắn shop kèm mã đơn."
+              problem={`Hướng dẫn gói dài tối đa ${MAX_GUIDE} ký tự.`}
+              rows={4}
+              value={draft.guide}
+              onChange={(next) => set("guide", next)}
+            />
+          </StockToggleSection>
+
+          <StockToggleSection
+            checked={draft.deliversAccounts}
+            disabled={holdsAccounts}
+            id="stock-delivers"
+            label="Giao tài khoản tự động"
+            onCheckedChange={(next) => set("deliversAccounts", next)}
+          >
             <div className="space-y-4">
               {item?.delivers_accounts &&
                 (session.can("secrets") ? (
@@ -563,40 +540,7 @@ export default function StockFormDialog({
                 </div>
               )}
             </div>
-          )}
-
-          <Flex className="flex-wrap gap-x-6 gap-y-3">
-            <Flex className="items-center gap-2">
-              <Switch
-                checked={draft.listed}
-                id="stock-listed"
-                onCheckedChange={(next) => set("listed", next)}
-              />
-
-              <Label htmlFor="stock-listed">Đang bán</Label>
-            </Flex>
-
-            <Flex className="items-center gap-2">
-              <Switch
-                checked={draft.hot}
-                id="stock-hot"
-                onCheckedChange={(next) => set("hot", next)}
-              />
-
-              <Label htmlFor="stock-hot">Hot</Label>
-            </Flex>
-
-            <Flex className="items-center gap-2">
-              <Switch
-                checked={draft.deliversAccounts}
-                disabled={holdsAccounts}
-                id="stock-delivers"
-                onCheckedChange={(next) => set("deliversAccounts", next)}
-              />
-
-              <Label htmlFor="stock-delivers">Giao tài khoản tự động</Label>
-            </Flex>
-          </Flex>
+          </StockToggleSection>
 
           {holdsAccounts && (
             <p className="text-xs text-muted-foreground">
@@ -619,45 +563,91 @@ export default function StockFormDialog({
               giữ lại làm lịch sử.
             </p>
           )}
-        </div>
 
-        <div className="space-y-1.5">
-          <Flex className="items-baseline justify-between gap-2">
-            <Label htmlFor="stock-message">Tin nhắn Telegram (tùy chọn)</Label>
+          <StockToggleSection
+            checked={draft.messageOn}
+            id="stock-message-on"
+            label="Tin nhắn Telegram"
+            onCheckedChange={(next) => set("messageOn", next)}
+          >
+            <StockTextField
+              label="Nội dung tin nhắn Telegram"
+              length={message.length}
+              max={MAX_MESSAGE}
+              placeholder="Ví dụ: Nhập thêm 20 ChatGPT Plus 1 tháng, bảo hành full, chỉ 189.000 ₫"
+              problem={`Tin nhắn Telegram dài tối đa ${MAX_MESSAGE} ký tự.`}
+              rows={3}
+              value={draft.message}
+              onChange={(next) => set("message", next)}
+            />
+          </StockToggleSection>
 
-            {message.length > 0 && (
-              <span
-                className={
-                  messageValid
-                    ? "text-xs text-muted-foreground tabular-nums"
-                    : "text-xs text-destructive tabular-nums"
-                }
-              >
-                {message.length}/{MAX_MESSAGE}
-              </span>
+          <div className="grid grid-cols-2 gap-3">
+            <div className={cell({ full: delivers })}>
+              <Label htmlFor="stock-price">Giá (₫)</Label>
+
+              <Input
+                aria-invalid={draft.price !== "" && !priceValid}
+                id="stock-price"
+                inputMode="numeric"
+                placeholder="189.000"
+                ref={priceField}
+                value={groupDigits(draft.price)}
+                onChange={changePrice}
+              />
+            </div>
+
+            {!delivers && (
+              <StockAdjuster
+                invalid={!stockValid}
+                label={editing ? "Thêm hoặc bớt tồn kho" : "Tồn kho ban đầu"}
+                unit="gói"
+                value={draft.adjust}
+                onChange={(next) => set("adjust", next)}
+              />
+            )}
+          </div>
+
+          {!delivers && !stockValid && (
+            <p className="text-xs text-destructive">
+              Nhập một số nguyên; kho không thể xuống dưới 0.
+            </p>
+          )}
+
+          <Flex className="flex-wrap gap-2">
+            <Badge variant="secondary">
+              Trong kho {item?.on_hand ?? 0}
+              {item && item.reserved > 0 && ` · giữ chỗ ${item.reserved}`}
+            </Badge>
+
+            {!delivers && Number.isInteger(adjust) && (
+              <Badge variant="outline">
+                {adjust < 0 ? `Bớt ${-adjust}` : `Mới thêm ${adjust}`}
+              </Badge>
             )}
           </Flex>
 
-          <Textarea
-            aria-invalid={!messageValid}
-            id="stock-message"
-            placeholder="Ví dụ: Nhập thêm 20 ChatGPT Plus 1 tháng, bảo hành full, chỉ 189.000 ₫"
-            rows={3}
-            value={draft.message}
-            onChange={(event) => set("message", event.target.value)}
-          />
+          <Flex className="flex-wrap gap-x-6 gap-y-3">
+            <Flex className="items-center gap-2">
+              <Switch
+                checked={draft.listed}
+                id="stock-listed"
+                onCheckedChange={(next) => set("listed", next)}
+              />
 
-          <p
-            className={
-              messageValid
-                ? "text-xs text-muted-foreground"
-                : "text-xs text-destructive"
-            }
-          >
-            {messageValid
-              ? "Để trống thì không gửi gì. Có nội dung thì khi lưu, bot đăng đúng nội dung này lên kênh và gửi cho người đã bấm Start, kèm nút “Mua ngay” mở gói này."
-              : `Tin nhắn Telegram dài tối đa ${MAX_MESSAGE} ký tự.`}
-          </p>
+              <Label htmlFor="stock-listed">Đang bán</Label>
+            </Flex>
+
+            <Flex className="items-center gap-2">
+              <Switch
+                checked={draft.hot}
+                id="stock-hot"
+                onCheckedChange={(next) => set("hot", next)}
+              />
+
+              <Label htmlFor="stock-hot">Hot</Label>
+            </Flex>
+          </Flex>
         </div>
 
         <DialogFooter>
