@@ -21,6 +21,9 @@ pub struct AppConfig {
     /// The keys callers present, from `SHOP_KEYS`. What each name may do is decided
     /// in `api::access`, not here.
     pub shop_keys: Vec<ShopKey>,
+    /// The bucket the dashboard's icons are kept in, from the `R2_*` variables.
+    /// Unset or incomplete, the shop runs and simply cannot read or change icons.
+    pub icon_storage: Option<IconStorage>,
     /// Where `apps/telegram` listens, so the dashboard can have the bot send a
     /// message. Unset, the dashboard can read and change the shop but not announce.
     pub telegram_adapter_url: Option<reqwest::Url>,
@@ -125,6 +128,146 @@ fn parse_shop_keys(raw: &str) -> (Vec<ShopKey>, Vec<String>) {
     }
 
     (keys, problems)
+}
+
+/// A Cloudflare R2 bucket that holds the icons: the API writes to it through the
+/// S3 API, and browsers read it at its public address. It has no `Debug` so the
+/// secret cannot reach a log.
+#[derive(Clone)]
+pub struct IconStorage {
+    pub account_id: String,
+    pub access_key_id: String,
+    pub secret_access_key: String,
+    pub bucket: String,
+    /// Where the bucket is public, without a trailing slash. An icon is stored as
+    /// its name in the bucket and shown at this address, so a move to another domain
+    /// changes this one value and no row.
+    pub public_url: String,
+    /// Where the S3 API is: the account's R2 address unless `R2_ENDPOINT` says
+    /// otherwise, which only a local fake of the bucket does. No trailing slash.
+    pub endpoint: String,
+}
+
+/// The variables `IconStorage` is read from, in the order they are checked.
+const ICON_STORAGE_VARIABLES: [&str; 5] = [
+    "R2_ACCOUNT_ID",
+    "R2_ACCESS_KEY_ID",
+    "R2_SECRET_ACCESS_KEY",
+    "R2_BUCKET",
+    "R2_PUBLIC_URL",
+];
+
+/// An address a browser or the API may be sent to: `https`, or `http` for this
+/// machine alone, so a fake bucket can stand in locally. No login, query or fragment.
+fn is_plain_address(address: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(address) else {
+        return false;
+    };
+    let loopback = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
+
+    (url.scheme() == "https" || (url.scheme() == "http" && loopback))
+        && url.host_str().is_some()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.query().is_none()
+        && url.fragment().is_none()
+}
+
+/// Reads the `R2_*` variables through `lookup`. All five unset is a shop with no
+/// icon storage and says nothing; some set and some not, or a value that cannot be
+/// used, leaves the storage off and is described in the second value, never with a
+/// secret. It is not an error that stops the API: the gateway runs in the same
+/// process, and variables added one at a time to a platform that restarts on each
+/// would otherwise take it down halfway.
+fn parse_icon_storage(
+    lookup: impl Fn(&str) -> Option<String>,
+) -> (Option<IconStorage>, Vec<String>) {
+    let values = ICON_STORAGE_VARIABLES.map(&lookup);
+
+    if values.iter().all(Option::is_none) {
+        return (None, Vec::new());
+    }
+
+    let [
+        Some(account_id),
+        Some(access_key_id),
+        Some(secret_access_key),
+        Some(bucket),
+        Some(public_url),
+    ] = &values
+    else {
+        let missing: Vec<&str> = ICON_STORAGE_VARIABLES
+            .iter()
+            .zip(&values)
+            .filter(|(_, value)| value.is_none())
+            .map(|(name, _)| *name)
+            .collect();
+
+        return (
+            None,
+            vec![format!("{} must be set as well", missing.join(", "))],
+        );
+    };
+
+    // The account id is put in a host name, and the two keys in a signature, so
+    // each must be one run of visible characters.
+    let plain = |value: &str| value.bytes().all(|byte| byte.is_ascii_alphanumeric());
+    let visible = |value: &str| value.bytes().all(|byte| byte.is_ascii_graphic());
+    let mut problems = Vec::new();
+
+    if !plain(account_id) {
+        problems.push("R2_ACCOUNT_ID must be letters and digits only".to_owned());
+    }
+    if !visible(access_key_id) {
+        problems.push("R2_ACCESS_KEY_ID must be visible characters only".to_owned());
+    }
+    if !visible(secret_access_key) {
+        problems.push("R2_SECRET_ACCESS_KEY must be visible characters only".to_owned());
+    }
+    // How Cloudflare names a bucket: 3 to 63 lowercase letters, digits and hyphens,
+    // not starting or ending with a hyphen.
+    if !(3..=63).contains(&bucket.len())
+        || !bucket
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        || bucket.starts_with('-')
+        || bucket.ends_with('-')
+    {
+        problems.push("R2_BUCKET is not a bucket name".to_owned());
+    }
+    let public_url = public_url.trim_end_matches('/');
+    if !is_plain_address(public_url) {
+        problems.push("R2_PUBLIC_URL must be an https address with no query".to_owned());
+    }
+    // Not one of the five: only a fake bucket on this machine is reached elsewhere.
+    // The account's own address is built from an id already checked above.
+    let endpoint = match lookup("R2_ENDPOINT") {
+        Some(custom) => {
+            let custom = custom.trim_end_matches('/').to_owned();
+            if !is_plain_address(&custom) {
+                problems.push("R2_ENDPOINT must be an https address with no query".to_owned());
+            }
+
+            custom
+        }
+        None => format!("https://{account_id}.r2.cloudflarestorage.com"),
+    };
+
+    if !problems.is_empty() {
+        return (None, problems);
+    }
+
+    (
+        Some(IconStorage {
+            account_id: account_id.clone(),
+            access_key_id: access_key_id.clone(),
+            secret_access_key: secret_access_key.clone(),
+            bucket: bucket.clone(),
+            public_url: public_url.to_owned(),
+            endpoint,
+        }),
+        Vec::new(),
+    )
 }
 
 #[derive(Debug)]
@@ -239,6 +382,14 @@ impl AppConfig {
             );
         }
 
+        let (icon_storage, icon_storage_problems) = parse_icon_storage(non_empty_env);
+        for problem in &icon_storage_problems {
+            eprintln!("{problem}; icon storage is off");
+        }
+        if let Some(storage) = &icon_storage {
+            eprintln!("icon storage is on, in the bucket {}", storage.bucket);
+        }
+
         let stripe_secret_key = non_empty_env("STRIPE_SECRET_KEY");
         let stripe_webhook_secret = non_empty_env("STRIPE_WEBHOOK_SECRET");
         if stripe_secret_key.is_some() != stripe_webhook_secret.is_some() {
@@ -255,6 +406,7 @@ impl AppConfig {
             stock_encryption_key,
             frontend_origin,
             shop_keys,
+            icon_storage,
             telegram_adapter_url: env::var("TELEGRAM_ADAPTER_URL")
                 .ok()
                 .filter(|url| !url.trim().is_empty())
@@ -339,6 +491,7 @@ impl Default for AppConfig {
             stock_encryption_key: Some([9; 32]),
             frontend_origin: HeaderValue::from_static("http://localhost:5173"),
             shop_keys: Vec::new(),
+            icon_storage: None,
             telegram_adapter_url: None,
             trust_proxy_headers: false,
             service_test_top_up: false,
@@ -374,7 +527,7 @@ impl Default for AppConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppConfig, ShopKey, TELEGRAM_KEY_NAME, parse_shop_keys};
+    use super::{AppConfig, ShopKey, TELEGRAM_KEY_NAME, parse_icon_storage, parse_shop_keys};
 
     const KEY_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const KEY_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -450,5 +603,120 @@ mod tests {
         assert_eq!(config.telegram_key(), Some(KEY_A.as_bytes()));
         assert_eq!(config.issued_keys().count(), 2);
         assert_eq!(AppConfig::default().telegram_key(), None);
+    }
+
+    const SECRET: &str = "r2-secret-that-must-never-be-logged";
+
+    fn r2(overrides: &[(&str, Option<&str>)]) -> (Option<super::IconStorage>, Vec<String>) {
+        parse_icon_storage(|name| {
+            if let Some((_, value)) = overrides.iter().find(|(key, _)| *key == name) {
+                return value.map(str::to_owned);
+            }
+
+            Some(
+                match name {
+                    "R2_ACCOUNT_ID" => "0123abcd",
+                    "R2_ACCESS_KEY_ID" => "key-id-1",
+                    "R2_SECRET_ACCESS_KEY" => SECRET,
+                    "R2_BUCKET" => "hub-william-icons",
+                    "R2_PUBLIC_URL" => "https://pub-example.r2.dev/",
+                    _ => return None,
+                }
+                .to_owned(),
+            )
+        })
+    }
+
+    #[test]
+    fn icon_storage_is_read_from_the_five_variables() {
+        let (storage, problems) = r2(&[]);
+        let storage = storage.expect("complete settings are used");
+
+        assert!(problems.is_empty());
+        assert_eq!(storage.account_id, "0123abcd");
+        assert_eq!(storage.bucket, "hub-william-icons");
+        assert_eq!(storage.public_url, "https://pub-example.r2.dev");
+    }
+
+    #[test]
+    fn the_s3_address_is_the_accounts_unless_a_local_fake_is_named() {
+        let (storage, _) = r2(&[]);
+        assert_eq!(
+            storage.expect("complete").endpoint,
+            "https://0123abcd.r2.cloudflarestorage.com"
+        );
+
+        let (storage, problems) = r2(&[("R2_ENDPOINT", Some("http://127.0.0.1:9000/"))]);
+        assert!(problems.is_empty());
+        assert_eq!(storage.expect("complete").endpoint, "http://127.0.0.1:9000");
+
+        let (storage, problems) = r2(&[("R2_ENDPOINT", Some("http://example.com"))]);
+        assert!(storage.is_none());
+        assert_eq!(problems.len(), 1);
+    }
+
+    #[test]
+    fn plain_http_is_for_this_machine_only() {
+        assert!(
+            r2(&[("R2_PUBLIC_URL", Some("http://localhost:9000/bucket"))])
+                .0
+                .is_some()
+        );
+        assert!(
+            r2(&[("R2_PUBLIC_URL", Some("http://cdn.example.com"))])
+                .0
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn no_icon_storage_variables_means_no_storage_and_no_complaint() {
+        let (storage, problems) = parse_icon_storage(|_| None);
+
+        assert!(storage.is_none());
+        assert!(problems.is_empty());
+    }
+
+    #[test]
+    fn a_half_filled_icon_storage_is_off_and_names_what_is_missing() {
+        let (storage, problems) = r2(&[("R2_BUCKET", None), ("R2_PUBLIC_URL", None)]);
+
+        assert!(storage.is_none());
+        assert_eq!(problems, ["R2_BUCKET, R2_PUBLIC_URL must be set as well"]);
+    }
+
+    #[test]
+    fn a_value_that_cannot_be_used_turns_icon_storage_off() {
+        for (name, value) in [
+            ("R2_ACCOUNT_ID", "not an account"),
+            ("R2_ACCESS_KEY_ID", "has space"),
+            ("R2_BUCKET", "Upper"),
+            ("R2_BUCKET", "-leading"),
+            ("R2_BUCKET", "ab"),
+            ("R2_PUBLIC_URL", "http://pub-example.r2.dev"),
+            ("R2_PUBLIC_URL", "https://pub-example.r2.dev/?x=1"),
+            ("R2_PUBLIC_URL", "https://user:pass@pub-example.r2.dev"),
+            ("R2_PUBLIC_URL", "pub-example.r2.dev"),
+        ] {
+            let (storage, problems) = r2(&[(name, Some(value))]);
+
+            assert!(storage.is_none(), "{name}={value} was accepted");
+            assert_eq!(problems.len(), 1, "{name}={value}");
+        }
+    }
+
+    #[test]
+    fn an_icon_storage_problem_never_repeats_the_secret() {
+        let (_, problems) = r2(&[
+            ("R2_SECRET_ACCESS_KEY", Some("secret with spaces")),
+            ("R2_BUCKET", Some("Bad Bucket")),
+        ]);
+
+        assert!(!problems.is_empty());
+        assert!(
+            problems
+                .iter()
+                .all(|problem| !problem.contains("secret with spaces") && !problem.contains(SECRET))
+        );
     }
 }

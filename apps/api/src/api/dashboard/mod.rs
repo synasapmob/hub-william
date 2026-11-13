@@ -12,6 +12,7 @@ use crate::core::{ApiError, AppState};
 use access::{Permission, Role, staff_member};
 
 mod access;
+mod icons;
 mod images;
 mod orders;
 mod push;

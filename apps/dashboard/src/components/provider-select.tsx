@@ -1,8 +1,11 @@
+import { Plus } from "lucide-react";
+
 import ProviderIcon from "@/components/provider-icon";
 import {
   Select,
   SelectContent,
   SelectItem,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -20,6 +23,8 @@ interface ProviderSelectProps {
   id: string;
   value: string;
   options: ProviderOption[];
+  /** One more choice after the agents, with a plus beside it: to add one that is not in the list. */
+  extra?: { value: string; label: string };
   onChange: (value: string) => void;
   placeholder?: string;
   invalid?: boolean;
@@ -30,6 +35,7 @@ interface ProviderSelectProps {
 /** The agents Hub William supports, to pick one from: a fixed list, not typed. */
 export default function ProviderSelect({
   disabled,
+  extra,
   id,
   invalid,
   onChange,
@@ -48,16 +54,24 @@ export default function ProviderSelect({
           <SelectItem key={option.value} value={option.value}>
             {/* The icon is for the eye; the agent's name is what the option is called. */}
             <span aria-hidden={true} className="contents">
-              <ProviderIcon
-                label={option.label}
-                provider={option.icon}
-                size="sm"
-              />
+              <ProviderIcon provider={option.icon} size="sm" />
             </span>
 
             {option.label}
           </SelectItem>
         ))}
+
+        {extra && (
+          <>
+            <SelectSeparator />
+
+            <SelectItem value={extra.value}>
+              <Plus aria-hidden={true} className="size-4" />
+
+              {extra.label}
+            </SelectItem>
+          </>
+        )}
       </SelectContent>
     </Select>
   );

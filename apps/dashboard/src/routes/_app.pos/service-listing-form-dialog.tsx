@@ -18,9 +18,11 @@ import { agentConnectionService } from "@/services/agent-connection/agent-connec
 import { serviceProviderLabels } from "@/services/sales/sales-labels";
 import type {
   ServiceProvider,
+  StockType,
   VerifiedAccount,
 } from "@/services/sales/sales-types";
 
+import PlatformSelect from "./platform-select";
 import ServiceAccountConnect from "./service-account-connect";
 import {
   daysFromTyped,
@@ -43,6 +45,11 @@ export interface NewListing {
 interface ServiceListingFormDialogProps {
   /** The agent to start from, when added from its card. */
   provider: ServiceProvider | null;
+  /**
+   * Given when the form is opened from "Thêm hàng": it then starts with the choice of
+   * platform, and choosing Telegram swaps this form for the Telegram one.
+   */
+  onPlatform?: (type: StockType) => void;
   onClose: () => void;
   /** Rejects when it could not be put on sale; the page says why and the form stays. */
   onSave: (listing: NewListing) => Promise<void>;
@@ -55,6 +62,7 @@ interface ServiceListingFormDialogProps {
  */
 export default function ServiceListingFormDialog({
   onClose,
+  onPlatform,
   onSave,
   provider: start,
 }: ServiceListingFormDialogProps) {
@@ -105,6 +113,23 @@ export default function ServiceListingFormDialog({
         </DialogHeader>
 
         <div className="space-y-4">
+          {onPlatform && (
+            <div className="space-y-1.5">
+              <Label htmlFor="listing-platform">Platform</Label>
+
+              <PlatformSelect
+                disabled={saving}
+                id="listing-platform"
+                value="hub-william"
+                onChange={(type) => {
+                  // The account connected here is let go, as when the form is closed.
+                  release(connectionId);
+                  onPlatform(type);
+                }}
+              />
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <Label htmlFor="listing-provider">Nhà cung cấp</Label>
 

@@ -118,7 +118,13 @@ async function setup() {
 /** Opens the form that puts an account on sale, from the header's "Thêm hàng". */
 async function openAddFromHeader(user: User) {
   await user.click(screen.getByRole("button", { name: "Thêm hàng" }));
-  await user.click(screen.getByRole("button", { name: /^Hub William/ }));
+  await choosePlatform(user, "Hub William");
+}
+
+/** Chooses where the new item is sold, in the first field of the form that is open. */
+async function choosePlatform(user: User, name: "Telegram" | "Hub William") {
+  await user.click(screen.getByRole("combobox", { name: "Platform" }));
+  await user.click(screen.getByRole("option", { name }));
 }
 
 async function chooseProvider(user: User, name: string) {
@@ -469,22 +475,64 @@ describe("PosRoute, editing a ticket", () => {
 });
 
 describe("PosRoute, putting an account on sale", () => {
-  it("asks first whether it is a Telegram package or Hub William's, and opens Hub William's form", async () => {
+  it("opens on a Telegram package, with a platform to choose, and swaps to Hub William's form and back", async () => {
     const user = await setup();
 
     await user.click(screen.getByRole("button", { name: "Thêm hàng" }));
 
     expect(
-      within(dialog()).getByRole("button", { name: /^Telegram/ }),
-    ).toBeInTheDocument();
-    expect(dialog()).toHaveTextContent("không dùng chung số lượng");
+      within(dialog()).getByRole("combobox", { name: "Platform" }),
+    ).toHaveTextContent("Telegram");
+    expect(screen.getByLabelText("Tên gói")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /^Hub William/ }));
+    await choosePlatform(user, "Hub William");
 
     expect(
       within(dialog()).getByRole("heading", { name: "Thêm hàng Hub William" }),
     ).toBeInTheDocument();
+    expect(
+      within(dialog()).getByRole("combobox", { name: "Platform" }),
+    ).toHaveTextContent("Hub William");
     expect(screen.queryByLabelText("Tên gói")).not.toBeInTheDocument();
+
+    await choosePlatform(user, "Telegram");
+
+    expect(screen.getByLabelText("Tên gói")).toBeInTheDocument();
+    expect(
+      within(dialog()).getByRole("combobox", { name: "Platform" }),
+    ).toHaveTextContent("Telegram");
+  });
+
+  it("lets go of an account connected here when the form is swapped for the Telegram one", async () => {
+    const user = await setup();
+    const disconnect = vi.spyOn(fakeAgentConnectionService, "disconnect");
+
+    await verifyDeepseek(user);
+    await choosePlatform(user, "Telegram");
+
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText("Tên gói")).toBeInTheDocument();
+  });
+
+  it("has no platform to choose when a package is added from a provider's card", async () => {
+    const user = await setup();
+
+    // Claude has a card of each stock; the Telegram one is the one that has "Telegram" on it.
+    const telegramCard = screen
+      .getAllByRole("button", { name: "Thêm gói cho Claude" })
+      .map((button) => button.closest("section") as HTMLElement)
+      .find((section) => within(section).queryByText("Telegram"));
+
+    await user.click(
+      within(telegramCard as HTMLElement).getByRole("button", {
+        name: "Thêm gói cho Claude",
+      }),
+    );
+
+    expect(screen.getByLabelText("Tên gói")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("combobox", { name: "Platform" }),
+    ).not.toBeInTheDocument();
   });
 
   it("starts with an agent to choose from a fixed list, 7 days, and no price", async () => {

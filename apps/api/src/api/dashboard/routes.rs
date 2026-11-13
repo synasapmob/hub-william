@@ -13,6 +13,7 @@ use crate::{
 
 use super::{
     dashboard_session,
+    icons::{MAXIMUM_ICON_BYTES, assign_icon, delete_icon, icon_library, list_icons, upload_icon},
     images::{MAXIMUM_IMAGE_BYTES, get_image, upload_image},
     orders::{cancel_order, list_orders, list_sales, pay_order},
     push::announce,
@@ -67,6 +68,16 @@ pub(crate) fn routes(state: &AppState) -> Router<AppState> {
             post(upload_image).layer(DefaultBodyLimit::max(MAXIMUM_IMAGE_BYTES + 1024)),
         )
         .route("/dashboard/images/{id}", get(get_image))
+        // An icon is a picture too, kept in the icon bucket and not in the database.
+        .route(
+            "/dashboard/icons",
+            get(list_icons)
+                .post(upload_icon)
+                .layer(DefaultBodyLimit::max(MAXIMUM_ICON_BYTES + 1024)),
+        )
+        .route("/dashboard/icons/library", get(icon_library))
+        .route("/dashboard/icons/{name}", delete(delete_icon))
+        .route("/dashboard/icons/providers/{provider}", put(assign_icon))
         .route("/dashboard/telegram/announcements", post(announce))
         .route("/dashboard/telegram/orders", get(list_orders))
         .route(
@@ -118,6 +129,11 @@ pub(crate) fn routes(state: &AppState) -> Router<AppState> {
         super::stock::delete_product,
         super::images::upload_image,
         super::images::get_image,
+        super::icons::list_icons,
+        super::icons::icon_library,
+        super::icons::upload_icon,
+        super::icons::assign_icon,
+        super::icons::delete_icon,
         super::push::announce,
         super::orders::list_orders,
         super::orders::pay_order,
@@ -142,6 +158,15 @@ pub(crate) fn routes(state: &AppState) -> Router<AppState> {
         super::DashboardSession,
         super::access::Permission,
         super::access::Role,
+        super::icons::AssignIcon,
+        super::icons::DashboardIcons,
+        super::icons::IconAssigned,
+        super::icons::IconDeleted,
+        super::icons::IconUser,
+        super::icons::IconAssignment,
+        super::icons::IconLibrary,
+        super::icons::LibraryIcon,
+        super::icons::UploadedIcon,
         super::images::UploadedImage,
         super::orders::DashboardOrder,
         super::orders::DashboardOrders,

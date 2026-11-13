@@ -5,6 +5,7 @@ import { tv } from "tailwind-variants";
 
 import { AccountsChangeConfirm } from "@/components/account-editor-dialog";
 import { useDashboardSession } from "@/components/dashboard-shell/dashboard-session-context";
+import { useProviderIcons } from "@/components/provider-icons-context";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,7 +35,11 @@ import {
   serviceProviderLabels,
   warrantyLabels,
 } from "@/services/sales/sales-labels";
-import type { TelegramProduct, Warranty } from "@/services/sales/sales-types";
+import type {
+  StockType,
+  TelegramProduct,
+  Warranty,
+} from "@/services/sales/sales-types";
 import {
   stockService,
   type AccountsEdited,
@@ -53,6 +58,8 @@ import {
   composePackageName,
   parsePackageName,
 } from "./package-name";
+import PlatformSelect from "./platform-select";
+import ProviderIconChoice from "./provider-icon-choice";
 import StockAccounts from "./stock-accounts";
 import StockAccountsEditor, {
   type OpenedAccounts,
@@ -81,8 +88,17 @@ const MAX_NOTE = 200;
 // The longest package guide `apps/api` stores.
 const MAX_GUIDE = 1_000;
 
+// The provider is chosen from a list; this is the choice that is none of them, for a
+// provider the shop does not have yet, which is then named in the form.
+const NEW_PROVIDER = "__new__";
+
 interface Draft {
+  /** A provider of the list, or `NEW_PROVIDER`. */
   provider: string;
+  /** The name of a provider that is new, once `NEW_PROVIDER` is chosen. */
+  newProvider: string;
+  /** The icon in the bucket that the new provider is given; none when null. */
+  icon: string | null;
   /** The plan and, in brackets at the end, the variant: `Plus 1 tháng (Gia đình)`. */
   name: string;
   warranty: Warranty;
@@ -114,6 +130,8 @@ interface Draft {
 function draftOf(item: TelegramProduct | null, provider: string): Draft {
   return {
     provider: item?.provider ?? provider,
+    newProvider: "",
+    icon: null,
     name: item ? composePackageName(item) : "",
     warranty: item?.warranty ?? "WF",
     note: item?.warranty_note ?? "",
@@ -141,18 +159,25 @@ interface StockFormDialogProps {
   providers: string[];
   /** Slugs that already exist, since a duplicate is a conflict. */
   takenSlugs: string[];
+  /**
+   * Given when the form is opened from "Thêm hàng": it then starts with the choice of
+   * platform, and choosing Hub William swaps this form for Hub William's.
+   */
+  onPlatform?: (type: StockType) => void;
   onClose: () => void;
   onDelete: () => void;
   /**
    * `message` is what the bot sends to Telegram on save; empty sends nothing.
    * `accounts` is what is loaded into stock on save; empty loads nothing.
    * `block` is the owner's edit of the accounts they opened, null if none.
+   * `icon` is the icon of a provider made in this form, null for none.
    */
   onSave: (
     item: TelegramProduct,
     change: {
       accounts: string;
       block: { ids: string[]; text: string } | null;
+      icon: string | null;
       message: string;
     },
   ) => Promise<void>;
@@ -163,12 +188,14 @@ export default function StockFormDialog({
   item,
   onClose,
   onDelete,
+  onPlatform,
   onSave,
   provider,
   providers,
   takenSlugs,
 }: StockFormDialogProps) {
   const session = useDashboardSession();
+  const { enabled: iconsEnabled } = useProviderIcons();
   const [draft, setDraft] = useState(() => draftOf(item, provider));
   const [saving, setSaving] = useState(false);
   // The accounts the owner opened to edit as a block, and what saving it would do.
@@ -187,7 +214,11 @@ export default function StockFormDialog({
       ? item
       : parsePackageName(draft.name);
   const nameProblem = checkPackageName({ plan, variant });
-  const slug = item ? item.slug : slugify(draft.provider, plan, variant);
+  const creating = draft.provider === NEW_PROVIDER;
+  const providerName = creating
+    ? draft.newProvider.trim()
+    : draft.provider.trim();
+  const slug = item ? item.slug : slugify(providerName, plan, variant);
   const adjust = Number(draft.adjust);
   const price = Number(draft.price);
   // A package that hands out accounts counts the accounts loaded, so the stepper
@@ -233,6 +264,12 @@ export default function StockFormDialog({
       )
       .map((known) => ({ icon: known, label: known, value: known })),
   ];
+  // The shop has this provider already, however it is spelt.
+  const providerTaken =
+    creating &&
+    providerOptions.some(
+      (option) => slugify(option.label) === slugify(providerName),
+    );
   const priceValid =
     draft.price.trim() !== "" &&
     Number.isInteger(price) &&
@@ -249,7 +286,11 @@ export default function StockFormDialog({
     messageValid &&
     noteValid &&
     guideValid &&
-    draft.provider.trim() !== "" &&
+    providerName !== "" &&
+    slugify(providerName) !== "" &&
+    !providerTaken &&
+    // A provider is made with an icon: there is none to show in its place.
+    (!creating || draft.icon !== null) &&
     plan !== "" &&
     nameProblem === null &&
     slug !== "" &&
@@ -260,7 +301,7 @@ export default function StockFormDialog({
   const product: TelegramProduct = {
     type: "telegram",
     slug,
-    provider: draft.provider.trim(),
+    provider: providerName,
     plan,
     variant,
     warranty: draft.warranty,
@@ -314,6 +355,7 @@ export default function StockFormDialog({
           opened && blockChanged
             ? { ids: opened.ids, text: draft.block }
             : null,
+        icon: creating ? draft.icon : null,
         message,
       });
     } catch {
@@ -375,11 +417,30 @@ export default function StockFormDialog({
         </DialogHeader>
 
         <div className="space-y-4">
+          {onPlatform && (
+            <div className="space-y-1.5">
+              <Label htmlFor="stock-platform">Platform</Label>
+
+              <PlatformSelect
+                disabled={saving}
+                id="stock-platform"
+                value="telegram"
+                onChange={onPlatform}
+              />
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="stock-provider">Nhà cung cấp</Label>
 
               <ProviderSelect
+                // Only where an icon can be chosen, since a new provider needs one.
+                extra={
+                  iconsEnabled
+                    ? { label: "Nhà cung cấp mới", value: NEW_PROVIDER }
+                    : undefined
+                }
                 id="stock-provider"
                 options={providerOptions}
                 value={draft.provider}
@@ -407,6 +468,40 @@ export default function StockFormDialog({
                 </SelectContent>
               </Select>
             </div>
+
+            {creating && (
+              <div className={cell({ full: true })}>
+                <Label htmlFor="stock-new-provider">Tên nhà cung cấp mới</Label>
+
+                <Input
+                  id="stock-new-provider"
+                  aria-invalid={providerTaken}
+                  autoComplete="off"
+                  autoFocus
+                  maxLength={64}
+                  value={draft.newProvider}
+                  onChange={(event) => set("newProvider", event.target.value)}
+                />
+
+                {providerTaken && (
+                  <p className="text-xs text-destructive">
+                    Đã có nhà cung cấp này. Chọn họ trong danh sách.
+                  </p>
+                )}
+
+                <ProviderIconChoice
+                  name={providerName || "Icon"}
+                  selected={draft.icon}
+                  onSelect={(key) => set("icon", key)}
+                />
+
+                {draft.icon === null && (
+                  <p className="text-xs text-muted-foreground">
+                    Chọn hoặc tải lên một icon cho nhà cung cấp mới.
+                  </p>
+                )}
+              </div>
+            )}
 
             <div className="col-span-2 space-y-1.5">
               <Label htmlFor="stock-plan">Tên gói</Label>

@@ -1,12 +1,12 @@
 import { Plus } from "lucide-react";
 
-import ProviderIcon from "@/components/provider-icon";
 import StockTypeBadge from "@/components/stock-type-badge";
 import { Button } from "@/components/ui/button";
 import Flex from "@/components/ui/flex";
 import type { TelegramProduct } from "@/services/sales/sales-types";
 import { availableStock } from "@/utils/utils.format";
 
+import ProviderIconButton from "./provider-icon-button";
 import StockRow from "./stock-row";
 
 interface StockProviderCardProps {
@@ -27,7 +27,7 @@ export default function StockProviderCard({
   return (
     <section className="flex flex-col overflow-hidden rounded-xl border bg-card">
       <header className="flex items-center gap-3 border-b px-4 py-3">
-        <ProviderIcon provider={provider} />
+        <ProviderIconButton provider={provider} />
 
         <div className="min-w-0 flex-1 space-y-1">
           <h2 className="truncate text-sm font-semibold">{provider}</h2>
