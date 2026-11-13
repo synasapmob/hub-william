@@ -5,6 +5,7 @@
 //! wording) stay in their feature rather than gaining flags here.
 
 mod database;
+pub(crate) mod object_storage;
 pub(crate) mod provider_catalogue;
 
 pub(crate) use database::database_error;

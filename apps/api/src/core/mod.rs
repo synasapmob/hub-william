@@ -10,7 +10,7 @@ pub(crate) mod rate_limit;
 mod state;
 
 pub(crate) use config::TELEGRAM_KEY_NAME;
-pub use config::{AppConfig, ShopKey};
+pub use config::{AppConfig, IconStorage, ShopKey};
 pub(crate) use cors::browser_origins;
 pub(crate) use error::GatewayAuthFailed;
 pub use error::{ApiError, ErrorResponse};

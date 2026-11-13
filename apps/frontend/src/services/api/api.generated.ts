@@ -292,6 +292,70 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/dashboard/icons": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["list_icons"];
+    put?: never;
+    post: operations["upload_icon"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/dashboard/icons/library": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["icon_library"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/dashboard/icons/providers/{provider}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put: operations["assign_icon"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/dashboard/icons/{name}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete: operations["delete_icon"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/dashboard/images": {
     parameters: {
       query?: never;
@@ -1528,6 +1592,13 @@ export interface components {
       /** @description Plain text, up to 4,096 characters. The bot sends it as it is. */
       text: string;
     };
+    AssignIcon: {
+      /**
+       * @description The icon's name in the bucket. A provider always has one to show, so there is
+       *     no way to ask for none: choose another.
+       */
+      key: string;
+    };
     AuthenticatedUser: {
       /** Format: uuid */
       id: string;
@@ -1633,6 +1704,11 @@ export interface components {
       /** Format: uuid */
       id: string;
       username: string;
+    };
+    DashboardIcons: {
+      assignments: components["schemas"]["IconAssignment"][];
+      /** @description Whether the bucket is set up. When it is not, no icon is shown or changed. */
+      enabled: boolean;
     };
     /** @description A ticket that has not been sold: for sale, or kept off sale until its owner fixes it. */
     DashboardListing: {
@@ -1963,11 +2039,50 @@ export interface components {
       service: string;
       status: string;
     };
+    IconAssigned: {
+      key: string;
+      provider: string;
+      url: string;
+    };
+    IconAssignment: {
+      /** @description The icon's name in the bucket. */
+      key: string;
+      /** @description The provider's slug. */
+      provider: string;
+      /** @description Where a browser loads it from. */
+      url: string;
+    };
+    IconDeleted: {
+      /** @description The slugs of the providers that showed it and now show their first letter. */
+      cleared: string[];
+      key: string;
+    };
+    IconLibrary: {
+      icons: components["schemas"]["LibraryIcon"][];
+    };
+    /** @description A provider that shows an icon. */
+    IconUser: {
+      /**
+       * @description The provider's name when the shop sells under it on Telegram; the agents of
+       *     Hub William are named by the dashboard.
+       */
+      name?: string | null;
+      /** @description The provider's slug. */
+      provider: string;
+    };
     InviteAgentPoolMember: {
       username: string;
     };
     InviteOrganizationMember: {
       username: string;
+    };
+    LibraryIcon: {
+      key: string;
+      /** Format: int64 */
+      size: number;
+      url: string;
+      /** @description The providers that show this icon, so deleting it can say who it affects. */
+      used_by: components["schemas"]["IconUser"][];
     };
     /**
      * @description A block of accounts to load. It is not `Debug` on purpose: a derived
@@ -2645,6 +2760,10 @@ export interface components {
        *     it was a warranty note; the warranty itself is said by `warranty`.)
        */
       warranty_note?: string | null;
+    };
+    UploadedIcon: {
+      key: string;
+      url: string;
     };
     UploadedImage: {
       /** Format: uuid */
@@ -3409,6 +3528,311 @@ export interface operations {
       };
       /** @description Access session missing or expired; a refresh session may restore it */
       401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  list_icons: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The icon each provider shows */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DashboardIcons"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not a member of staff */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  upload_icon: {
+    parameters: {
+      query?: {
+        /** @description What to start the icon's name with, such as the provider it is for. */
+        name?: string | null;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description A PNG, JPEG, GIF or WebP picture of at most 256 KiB */
+    requestBody: {
+      content: {
+        "application/octet-stream": number[];
+      };
+    };
+    responses: {
+      /** @description The icon is in the bucket */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UploadedIcon"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not manage stock */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The picture is over 256 KiB */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description The body is not a PNG, JPEG, GIF or WebP picture */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The icon bucket is not set up */
+      501: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The bucket did not answer */
+      502: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  icon_library: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The icons in the bucket, to choose from */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["IconLibrary"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not manage stock */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The icon bucket is not set up */
+      501: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The bucket did not answer */
+      502: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  assign_icon: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The provider's slug */
+        provider: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AssignIcon"];
+      };
+    };
+    responses: {
+      /** @description The provider now shows this icon */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["IconAssigned"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not manage stock */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not a provider's slug or an icon's name, or no icon */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The icon bucket is not set up */
+      501: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  delete_icon: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The icon's name in the bucket, without `icons/` */
+        name: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The icon is gone from the bucket, and from the providers that showed it */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["IconDeleted"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not manage stock */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not an icon's name */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The icon bucket is not set up */
+      501: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The bucket did not answer */
+      502: {
         headers: {
           [name: string]: unknown;
         };

@@ -9,6 +9,7 @@ import userEvent from "@testing-library/user-event";
 import { toast } from "sonner";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import ProviderIcons from "@/components/provider-icons";
 import { ServiceError } from "@/services/api/api-client";
 import type { Role } from "@/services/sales/sales-types";
 import {
@@ -21,6 +22,7 @@ import {
   fakeServiceStockService,
   resetFakeServiceStock,
 } from "@/test/fake-service-stock-service";
+import { fakeIconAssignments, resetFakeIcons } from "@/test/fake-icon-service";
 import renderPage from "@/test/render-page";
 import slugify from "@/utils/utils.slug";
 
@@ -43,6 +45,12 @@ vi.mock("@/services/stock/stock-service", async () => {
   return { stockService: fakeStockService };
 });
 
+// The icons of the providers: the bucket is a fake in memory too.
+vi.mock("@/services/icons/icon-service", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/services/icons/icon-service")>()),
+  iconService: (await import("@/test/fake-icon-service")).fakeIconService,
+}));
+
 vi.mock("@/services/service-stock/service-stock-service", async () => {
   const { fakeServiceStockService } =
     await import("@/test/fake-service-stock-service");
@@ -55,6 +63,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   resetFakeStock();
   resetFakeServiceStock();
+  resetFakeIcons();
 });
 
 type User = ReturnType<typeof userEvent.setup>;
@@ -77,10 +86,9 @@ async function chooseProvider(user: User, name: string) {
   await user.click(screen.getByRole("option", { name }));
 }
 
-/** Presses the header's "Thêm hàng" and then Telegram, the first step being the kind. */
+/** Presses the header's "Thêm hàng", which opens the form of a Telegram package. */
 async function openTelegramForm(user: User) {
   await user.click(screen.getByRole("button", { name: "Thêm hàng" }));
-  await user.click(screen.getByRole("button", { name: /^Telegram/ }));
 }
 
 /** The card of a provider of the given type, found by its name. */
@@ -2428,5 +2436,129 @@ describe("PosRoute, who may open it", () => {
       screen.queryByRole("button", { name: "Thêm hàng" }),
     ).not.toBeInTheDocument();
     expect(list).not.toHaveBeenCalled();
+  });
+});
+
+describe("PosRoute, a provider the shop does not have yet", () => {
+  async function setupWithIcons() {
+    const user = userEvent.setup();
+
+    renderPage(
+      <ProviderIcons>
+        <PosRoute />
+      </ProviderIcons>,
+    );
+    await screen.findByRole("button", { name: /Claude Pro 1 tháng/ });
+
+    return user;
+  }
+
+  /** Chooses the last choice of the provider list, which makes a provider of its own. */
+  async function chooseNewProvider(user: User) {
+    await user.click(screen.getByRole("combobox", { name: "Nhà cung cấp" }));
+    await user.click(screen.getByRole("option", { name: "Nhà cung cấp mới" }));
+  }
+
+  it("is named in the package form, given an icon, and gets its card with its first package", async () => {
+    const create = vi.spyOn(fakeStockService, "create");
+    const user = await setupWithIcons();
+
+    await user.click(screen.getByRole("button", { name: "Thêm hàng" }));
+    expect(
+      screen.queryByLabelText("Tên nhà cung cấp mới"),
+    ).not.toBeInTheDocument();
+
+    await chooseNewProvider(user);
+    await user.type(
+      screen.getByLabelText("Tên nhà cung cấp mới"),
+      "Perplexity",
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "claude-0f1e2d3c.png" }),
+    );
+    await user.type(screen.getByLabelText("Tên gói"), "Pro 1 tháng");
+    await user.type(screen.getByLabelText("Giá (₫)"), "450000");
+    await user.click(screen.getByRole("button", { name: "Thêm" }));
+
+    await waitFor(() =>
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          plan: "Pro 1 tháng",
+          provider: "Perplexity",
+        }),
+      ),
+    );
+    await waitFor(() => expect(cardNames()).toContain("Perplexity"));
+    expect(fakeIconAssignments()).toContainEqual(
+      expect.objectContaining({
+        key: "icons/claude-0f1e2d3c.png",
+        provider: "perplexity",
+      }),
+    );
+  });
+
+  it("cannot be added without an icon, which it is told to choose, and can once one is", async () => {
+    const create = vi.spyOn(fakeStockService, "create");
+    const user = await setupWithIcons();
+
+    await user.click(screen.getByRole("button", { name: "Thêm hàng" }));
+    await chooseNewProvider(user);
+    await user.type(
+      screen.getByLabelText("Tên nhà cung cấp mới"),
+      "Perplexity",
+    );
+    await user.type(screen.getByLabelText("Tên gói"), "Pro 1 tháng");
+    await user.type(screen.getByLabelText("Giá (₫)"), "450000");
+
+    expect(
+      screen.getByText("Chọn hoặc tải lên một icon cho nhà cung cấp mới."),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Thêm" })).toBeDisabled();
+    expect(create).not.toHaveBeenCalled();
+
+    await user.click(
+      await screen.findByRole("button", { name: "claude-0f1e2d3c.png" }),
+    );
+
+    expect(
+      screen.queryByText("Chọn hoặc tải lên một icon cho nhà cung cấp mới."),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Thêm" })).toBeEnabled();
+  });
+
+  it("cannot be added until it has a name that is not a provider the shop has, under whatever spelling", async () => {
+    const user = await setupWithIcons();
+
+    await user.click(screen.getByRole("button", { name: "Thêm hàng" }));
+    await chooseNewProvider(user);
+    await user.type(screen.getByLabelText("Tên gói"), "Pro 1 tháng");
+    await user.type(screen.getByLabelText("Giá (₫)"), "450000");
+
+    // No name yet.
+    expect(screen.getByRole("button", { name: "Thêm" })).toBeDisabled();
+
+    await user.type(screen.getByLabelText("Tên nhà cung cấp mới"), " claude ");
+
+    expect(screen.getByText(/Đã có nhà cung cấp này/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Thêm" })).toBeDisabled();
+
+    await user.clear(screen.getByLabelText("Tên nhà cung cấp mới"));
+    await user.type(screen.getByLabelText("Tên nhà cung cấp mới"), "Claude AI");
+    await user.click(
+      await screen.findByRole("button", { name: "claude-0f1e2d3c.png" }),
+    );
+
+    expect(screen.getByRole("button", { name: "Thêm" })).toBeEnabled();
+  });
+
+  it("is not offered while the bucket is not set up, since it could not be given an icon", async () => {
+    const user = await setup();
+
+    await user.click(screen.getByRole("button", { name: "Thêm hàng" }));
+    await user.click(screen.getByRole("combobox", { name: "Nhà cung cấp" }));
+
+    expect(
+      screen.queryByRole("option", { name: "Nhà cung cấp mới" }),
+    ).not.toBeInTheDocument();
   });
 });
