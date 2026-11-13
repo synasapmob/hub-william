@@ -28,7 +28,10 @@ listening. `PROVIDER_CREDENTIAL_ENCRYPTION_KEY` must be an unpadded URL-safe
 base64 encoding of exactly 32 random bytes. `STOCK_ENCRYPTION_KEY` is optional
 and has the same form: it encrypts the accounts a Telegram package hands to a
 buyer, and without it the service runs but cannot load accounts. Give it a key of
-its own, different in each environment. `GEMINI_OAUTH_CLIENT_SECRET` must
+its own, different in each environment. The five `R2_*` variables, set together or
+not at all, point the API at the Cloudflare R2 bucket the dashboard keeps its icons
+in; with one missing or unusable the API starts anyway and its log says which.
+`GEMINI_OAUTH_CLIENT_SECRET` must
 contain the AGY OAuth client credential and must remain in the runtime secret
 store; it is sent for both authorization-code exchange and token refresh.
 `PORT` defaults to `8080`;
