@@ -1,6 +1,5 @@
 import { useProviderIcons } from "@/components/provider-icons-context";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { providerIconUrl } from "@/utils/utils.provider-icon";
 
 interface ProviderIconProps {
   provider: string;
@@ -11,8 +10,8 @@ interface ProviderIconProps {
 }
 
 /**
- * An agent's icon, or its first letter when it has none: the one the shop chose
- * for it, else the one Hub William ships with.
+ * A provider's icon, the one the shop chose for it (kept in the icon bucket), or its
+ * first letter while it has none, the bucket is not set up, or the picture does not load.
  */
 export default function ProviderIcon({
   label,
@@ -20,7 +19,7 @@ export default function ProviderIcon({
   size = "lg",
 }: ProviderIconProps) {
   const { iconOf } = useProviderIcons();
-  const url = iconOf(provider)?.url ?? providerIconUrl(provider);
+  const url = iconOf(provider)?.url;
 
   return (
     <Avatar className="rounded-md after:rounded-md after:border-0" size={size}>
