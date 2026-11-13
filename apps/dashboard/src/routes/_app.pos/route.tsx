@@ -10,6 +10,7 @@ import PermissionGate from "@/components/permission-gate";
 import { Button } from "@/components/ui/button";
 import Flex from "@/components/ui/flex";
 import { Input } from "@/components/ui/input";
+import { serviceProviderLabels } from "@/services/sales/sales-labels";
 import type {
   ServiceListing,
   ServiceProvider,
@@ -30,6 +31,7 @@ import {
 import { formatUsd, stockItemTitle } from "@/utils/utils.format";
 
 import AddStockKindDialog from "./add-stock-kind-dialog";
+import ProviderCreateDialog from "./provider-create-dialog";
 import ServiceListingDialog from "./service-listing-dialog";
 import ServiceListingFormDialog, {
   type NewListing,
@@ -47,6 +49,7 @@ import StockTypeFilter, {
 // may start from a provider, when it is added from that provider's card.
 type OpenDialog =
   | { kind: "choose" }
+  | { kind: "provider" }
   | { kind: "form"; item: TelegramProduct | null; provider: string }
   | { kind: "delete"; item: TelegramProduct }
   | { kind: "listing-form"; provider: ServiceProvider | null }
@@ -175,6 +178,15 @@ export default function PosRoute() {
           <Flex className="items-center gap-3">
             <StockTypeFilter value={type} onValueChange={setType} />
 
+            <Button
+              size="lg"
+              variant="outline"
+              onClick={() => setDialog({ kind: "provider" })}
+            >
+              <Plus data-icon="inline-start" />
+              Thêm nhà cung cấp
+            </Button>
+
             <Button size="lg" onClick={() => setDialog({ kind: "choose" })}>
               <Plus data-icon="inline-start" />
               Thêm hàng
@@ -214,7 +226,13 @@ export default function PosRoute() {
           <StockFormDialog
             item={dialog.item}
             provider={dialog.provider}
-            providers={[...new Set(items.map((item) => item.provider))]}
+            providers={[
+              ...new Set([
+                ...items.map((item) => item.provider),
+                // A provider that was just named has no package yet.
+                ...(dialog.provider ? [dialog.provider] : []),
+              ]),
+            ]}
             takenSlugs={items.map((item) => item.slug)}
             onClose={() => setDialog(null)}
             onDelete={() =>
@@ -315,6 +333,19 @@ export default function PosRoute() {
                 });
               }
             }}
+          />
+        )}
+
+        {dialog?.kind === "provider" && (
+          <ProviderCreateDialog
+            known={[
+              ...Object.values(serviceProviderLabels),
+              ...items.map((item) => item.provider),
+            ]}
+            onClose={() => setDialog(null)}
+            onContinue={(provider) =>
+              setDialog({ kind: "form", item: null, provider })
+            }
           />
         )}
 

@@ -9,6 +9,7 @@ import userEvent from "@testing-library/user-event";
 import { toast } from "sonner";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import ProviderIcons from "@/components/provider-icons";
 import { ServiceError } from "@/services/api/api-client";
 import type { Role } from "@/services/sales/sales-types";
 import {
@@ -21,6 +22,7 @@ import {
   fakeServiceStockService,
   resetFakeServiceStock,
 } from "@/test/fake-service-stock-service";
+import { fakeIconAssignments, resetFakeIcons } from "@/test/fake-icon-service";
 import renderPage from "@/test/render-page";
 import slugify from "@/utils/utils.slug";
 
@@ -43,6 +45,12 @@ vi.mock("@/services/stock/stock-service", async () => {
   return { stockService: fakeStockService };
 });
 
+// The icons of the providers: the bucket is a fake in memory too.
+vi.mock("@/services/icons/icon-service", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/services/icons/icon-service")>()),
+  iconService: (await import("@/test/fake-icon-service")).fakeIconService,
+}));
+
 vi.mock("@/services/service-stock/service-stock-service", async () => {
   const { fakeServiceStockService } =
     await import("@/test/fake-service-stock-service");
@@ -55,6 +63,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   resetFakeStock();
   resetFakeServiceStock();
+  resetFakeIcons();
 });
 
 type User = ReturnType<typeof userEvent.setup>;
@@ -2428,5 +2437,69 @@ describe("PosRoute, who may open it", () => {
       screen.queryByRole("button", { name: "Thêm hàng" }),
     ).not.toBeInTheDocument();
     expect(list).not.toHaveBeenCalled();
+  });
+});
+
+describe("PosRoute, a provider the shop does not have yet", () => {
+  async function setupWithIcons() {
+    const user = userEvent.setup();
+
+    renderPage(
+      <ProviderIcons>
+        <PosRoute />
+      </ProviderIcons>,
+    );
+    await screen.findByRole("button", { name: /Claude Pro 1 tháng/ });
+
+    return user;
+  }
+
+  it("is named, given an icon and then given its first package, which makes its card", async () => {
+    const create = vi.spyOn(fakeStockService, "create");
+    const user = await setupWithIcons();
+
+    await user.click(screen.getByRole("button", { name: "Thêm nhà cung cấp" }));
+    await user.type(screen.getByLabelText("Tên nhà cung cấp"), "Perplexity");
+    await user.click(
+      await screen.findByRole("button", { name: "claude-0f1e2d3c.png" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Tiếp tục" }));
+
+    // The package form opens with the new provider already chosen.
+    expect(
+      await screen.findByRole("combobox", { name: "Nhà cung cấp" }),
+    ).toHaveTextContent("Perplexity");
+
+    await user.type(screen.getByLabelText("Tên gói"), "Pro 1 tháng");
+    await user.type(screen.getByLabelText("Giá (₫)"), "450000");
+    await user.click(screen.getByRole("button", { name: "Thêm" }));
+
+    await waitFor(() =>
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          plan: "Pro 1 tháng",
+          provider: "Perplexity",
+        }),
+      ),
+    );
+    await waitFor(() => expect(cardNames()).toContain("Perplexity"));
+    expect(fakeIconAssignments()).toContainEqual(
+      expect.objectContaining({
+        key: "icons/claude-0f1e2d3c.png",
+        provider: "perplexity",
+      }),
+    );
+  });
+
+  it("is not made twice: a provider the shop has is told so", async () => {
+    const user = await setupWithIcons();
+
+    await user.click(screen.getByRole("button", { name: "Thêm nhà cung cấp" }));
+    await user.type(screen.getByLabelText("Tên nhà cung cấp"), "claude");
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Đã có nhà cung cấp này.",
+    );
+    expect(screen.getByRole("button", { name: "Tiếp tục" })).toBeDisabled();
   });
 });
