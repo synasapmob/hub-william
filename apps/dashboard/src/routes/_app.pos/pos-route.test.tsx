@@ -86,10 +86,9 @@ async function chooseProvider(user: User, name: string) {
   await user.click(screen.getByRole("option", { name }));
 }
 
-/** Presses the header's "Thêm hàng" and then Telegram, the first step being the kind. */
+/** Presses the header's "Thêm hàng", which opens the form of a Telegram package. */
 async function openTelegramForm(user: User) {
   await user.click(screen.getByRole("button", { name: "Thêm hàng" }));
-  await user.click(screen.getByRole("button", { name: /^Telegram/ }));
 }
 
 /** The card of a provider of the given type, found by its name. */
@@ -422,6 +421,7 @@ describe("PosRoute, adding", () => {
       "DeepSeek",
       "Grok",
       "Groq",
+      "Nhà cung cấp mới",
     ]);
   });
 
@@ -442,6 +442,7 @@ describe("PosRoute, adding", () => {
       "Grok",
       "Groq",
       "Acme",
+      "Nhà cung cấp mới",
     ]);
   });
 
@@ -2454,22 +2455,29 @@ describe("PosRoute, a provider the shop does not have yet", () => {
     return user;
   }
 
-  it("is named, given an icon and then given its first package, which makes its card", async () => {
+  /** Chooses the last choice of the provider list, which makes a provider of its own. */
+  async function chooseNewProvider(user: User) {
+    await user.click(screen.getByRole("combobox", { name: "Nhà cung cấp" }));
+    await user.click(screen.getByRole("option", { name: "Nhà cung cấp mới" }));
+  }
+
+  it("is named in the package form, given an icon, and gets its card with its first package", async () => {
     const create = vi.spyOn(fakeStockService, "create");
     const user = await setupWithIcons();
 
-    await user.click(screen.getByRole("button", { name: "Thêm nhà cung cấp" }));
-    await user.type(screen.getByLabelText("Tên nhà cung cấp"), "Perplexity");
+    await user.click(screen.getByRole("button", { name: "Thêm hàng" }));
+    expect(
+      screen.queryByLabelText("Tên nhà cung cấp mới"),
+    ).not.toBeInTheDocument();
+
+    await chooseNewProvider(user);
+    await user.type(
+      screen.getByLabelText("Tên nhà cung cấp mới"),
+      "Perplexity",
+    );
     await user.click(
       await screen.findByRole("button", { name: "claude-0f1e2d3c.png" }),
     );
-    await user.click(screen.getByRole("button", { name: "Tiếp tục" }));
-
-    // The package form opens with the new provider already chosen.
-    expect(
-      await screen.findByRole("combobox", { name: "Nhà cung cấp" }),
-    ).toHaveTextContent("Perplexity");
-
     await user.type(screen.getByLabelText("Tên gói"), "Pro 1 tháng");
     await user.type(screen.getByLabelText("Giá (₫)"), "450000");
     await user.click(screen.getByRole("button", { name: "Thêm" }));
@@ -2491,15 +2499,57 @@ describe("PosRoute, a provider the shop does not have yet", () => {
     );
   });
 
-  it("is not made twice: a provider the shop has is told so", async () => {
+  it("can be saved without an icon, which then gives it none", async () => {
+    const create = vi.spyOn(fakeStockService, "create");
     const user = await setupWithIcons();
 
-    await user.click(screen.getByRole("button", { name: "Thêm nhà cung cấp" }));
-    await user.type(screen.getByLabelText("Tên nhà cung cấp"), "claude");
-
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "Đã có nhà cung cấp này.",
+    await user.click(screen.getByRole("button", { name: "Thêm hàng" }));
+    await chooseNewProvider(user);
+    await user.type(
+      screen.getByLabelText("Tên nhà cung cấp mới"),
+      "Perplexity",
     );
-    expect(screen.getByRole("button", { name: "Tiếp tục" })).toBeDisabled();
+    await user.type(screen.getByLabelText("Tên gói"), "Pro 1 tháng");
+    await user.type(screen.getByLabelText("Giá (₫)"), "450000");
+    await user.click(screen.getByRole("button", { name: "Thêm" }));
+
+    await waitFor(() => expect(create).toHaveBeenCalled());
+    expect(fakeIconAssignments().map(({ provider }) => provider)).toEqual([
+      "chatgpt",
+    ]);
+  });
+
+  it("cannot be added until it has a name that is not a provider the shop has, under whatever spelling", async () => {
+    const user = await setupWithIcons();
+
+    await user.click(screen.getByRole("button", { name: "Thêm hàng" }));
+    await chooseNewProvider(user);
+    await user.type(screen.getByLabelText("Tên gói"), "Pro 1 tháng");
+    await user.type(screen.getByLabelText("Giá (₫)"), "450000");
+
+    // No name yet.
+    expect(screen.getByRole("button", { name: "Thêm" })).toBeDisabled();
+
+    await user.type(screen.getByLabelText("Tên nhà cung cấp mới"), " claude ");
+
+    expect(screen.getByText(/Đã có nhà cung cấp này/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Thêm" })).toBeDisabled();
+
+    await user.clear(screen.getByLabelText("Tên nhà cung cấp mới"));
+    await user.type(screen.getByLabelText("Tên nhà cung cấp mới"), "Claude AI");
+
+    expect(screen.getByRole("button", { name: "Thêm" })).toBeEnabled();
+  });
+
+  it("has no icon to choose while the bucket is not set up", async () => {
+    const user = await setup();
+
+    await user.click(screen.getByRole("button", { name: "Thêm hàng" }));
+    await chooseNewProvider(user);
+
+    expect(screen.getByLabelText("Tên nhà cung cấp mới")).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Tải icon mới" }),
+    ).not.toBeInTheDocument();
   });
 });

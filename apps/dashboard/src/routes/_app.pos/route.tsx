@@ -10,11 +10,9 @@ import PermissionGate from "@/components/permission-gate";
 import { Button } from "@/components/ui/button";
 import Flex from "@/components/ui/flex";
 import { Input } from "@/components/ui/input";
-import { serviceProviderLabels } from "@/services/sales/sales-labels";
 import type {
   ServiceListing,
   ServiceProvider,
-  StockType,
   TelegramProduct,
 } from "@/services/sales/sales-types";
 import {
@@ -28,10 +26,10 @@ import {
   type AccountsLoaded,
   type Announced,
 } from "@/services/stock/stock-service";
+import { iconService } from "@/services/icons/icon-service";
 import { formatUsd, stockItemTitle } from "@/utils/utils.format";
+import slugify from "@/utils/utils.slug";
 
-import AddStockKindDialog from "./add-stock-kind-dialog";
-import ProviderCreateDialog from "./provider-create-dialog";
 import ServiceListingDialog from "./service-listing-dialog";
 import ServiceListingFormDialog, {
   type NewListing,
@@ -46,13 +44,22 @@ import StockTypeFilter, {
 } from "./stock-type-filter";
 
 // What the open dialog is about; at most one is open at a time. A new package
-// may start from a provider, when it is added from that provider's card.
+// may start from a provider, when it is added from that provider's card. Opened from
+// "Thêm hàng" (`platform`), a form starts with the choice of platform, and choosing
+// the other one swaps one form for the other.
 type OpenDialog =
-  | { kind: "choose" }
-  | { kind: "provider" }
-  | { kind: "form"; item: TelegramProduct | null; provider: string }
+  | {
+      kind: "form";
+      item: TelegramProduct | null;
+      provider: string;
+      platform?: boolean;
+    }
   | { kind: "delete"; item: TelegramProduct }
-  | { kind: "listing-form"; provider: ServiceProvider | null }
+  | {
+      kind: "listing-form";
+      provider: ServiceProvider | null;
+      platform?: boolean;
+    }
   | { kind: "listing"; listing: ServiceListing };
 
 function messageOf(error: unknown) {
@@ -180,14 +187,15 @@ export default function PosRoute() {
 
             <Button
               size="lg"
-              variant="outline"
-              onClick={() => setDialog({ kind: "provider" })}
+              onClick={() =>
+                setDialog({
+                  kind: "form",
+                  item: null,
+                  platform: true,
+                  provider: "",
+                })
+              }
             >
-              <Plus data-icon="inline-start" />
-              Thêm nhà cung cấp
-            </Button>
-
-            <Button size="lg" onClick={() => setDialog({ kind: "choose" })}>
               <Plus data-icon="inline-start" />
               Thêm hàng
             </Button>
@@ -234,16 +242,35 @@ export default function PosRoute() {
               ]),
             ]}
             takenSlugs={items.map((item) => item.slug)}
+            onPlatform={
+              dialog.platform
+                ? () =>
+                    setDialog({
+                      kind: "listing-form",
+                      platform: true,
+                      provider: null,
+                    })
+                : undefined
+            }
             onClose={() => setDialog(null)}
             onDelete={() =>
               dialog.item && setDialog({ kind: "delete", item: dialog.item })
             }
-            onSave={async (saved, { accounts, block, message }) => {
+            onSave={async (saved, { accounts, block, icon, message }) => {
               const title = `${dialog.item ? "Đã lưu" : "Đã thêm"} ${stockItemTitle(saved)}`;
 
               let stocked;
 
               try {
+                // A provider made in the form takes its icon before its first package
+                // is saved, so its card has the icon when it first appears.
+                if (icon) {
+                  await iconService.assign(slugify(saved.provider), icon);
+                  void queryClient.invalidateQueries({
+                    queryKey: iconService.queryKey,
+                  });
+                }
+
                 stocked = await save.mutateAsync({
                   previous: dialog.item,
                   saved,
@@ -336,35 +363,20 @@ export default function PosRoute() {
           />
         )}
 
-        {dialog?.kind === "provider" && (
-          <ProviderCreateDialog
-            known={[
-              ...Object.values(serviceProviderLabels),
-              ...items.map((item) => item.provider),
-            ]}
-            onClose={() => setDialog(null)}
-            onContinue={(provider) =>
-              setDialog({ kind: "form", item: null, provider })
-            }
-          />
-        )}
-
-        {dialog?.kind === "choose" && (
-          <AddStockKindDialog
-            onClose={() => setDialog(null)}
-            onChoose={(chosen: StockType) =>
-              setDialog(
-                chosen === "telegram"
-                  ? { kind: "form", item: null, provider: "" }
-                  : { kind: "listing-form", provider: null },
-              )
-            }
-          />
-        )}
-
         {dialog?.kind === "listing-form" && (
           <ServiceListingFormDialog
             provider={dialog.provider}
+            onPlatform={
+              dialog.platform
+                ? () =>
+                    setDialog({
+                      kind: "form",
+                      item: null,
+                      platform: true,
+                      provider: "",
+                    })
+                : undefined
+            }
             onClose={() => setDialog(null)}
             onSave={async (input) => {
               let added;
