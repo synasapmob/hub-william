@@ -66,20 +66,23 @@ function stubLoadingImages() {
 }
 
 describe("ProviderIcon", () => {
-  it("shows the first letter for a provider with no icon", () => {
-    render(<ProviderIcon provider="Perplexity" />);
+  it("shows an empty frame, and no letter, for a provider with no icon", () => {
+    const { container } = render(<ProviderIcon provider="Perplexity" />);
 
-    expect(screen.getByText("P")).toBeVisible();
+    expect(screen.queryByText("P")).not.toBeInTheDocument();
+    expect(container.querySelector("img")).not.toBeInTheDocument();
+    expect(container.querySelector("svg")).toBeInTheDocument();
   });
 
-  it("shows the first letter of the label when it is given, until the icon loads", () => {
-    renderWithIcons(
+  it("shows the empty frame, and no letter, until the picture loads", () => {
+    const { container } = renderWithIcons(
       { chatgpt: "https://cdn.example.com/icons/chatgpt-1.webp" },
-      <ProviderIcon label="ChatGPT" provider="chatgpt" />,
+      <ProviderIcon provider="ChatGPT" />,
     );
 
-    // Nothing is fetched in a test, so the image never loads and the letter shows.
-    expect(screen.getByText("C")).toBeVisible();
+    // Nothing is fetched in a test, so the image never loads.
+    expect(screen.queryByText("C")).not.toBeInTheDocument();
+    expect(container.querySelector("svg")).toBeInTheDocument();
   });
 
   it("shows the picture the shop chose once it has loaded, from where the bucket is public", async () => {
@@ -120,6 +123,6 @@ describe("ProviderIcon", () => {
     await Promise.resolve();
 
     expect(container.querySelector("img")).not.toBeInTheDocument();
-    expect(screen.getByText("P")).toBeVisible();
+    expect(screen.queryByText("P")).not.toBeInTheDocument();
   });
 });

@@ -1593,8 +1593,11 @@ export interface components {
       text: string;
     };
     AssignIcon: {
-      /** @description The icon's name in the bucket, or `null` for none. */
-      key?: string | null;
+      /**
+       * @description The icon's name in the bucket. A provider always has one to show, so there is
+       *     no way to ask for none: choose another.
+       */
+      key: string;
     };
     AuthenticatedUser: {
       /** Format: uuid */
@@ -2037,9 +2040,9 @@ export interface components {
       status: string;
     };
     IconAssigned: {
-      key?: string | null;
+      key: string;
       provider: string;
-      url?: string | null;
+      url: string;
     };
     IconAssignment: {
       /** @description The icon's name in the bucket. */
@@ -3724,7 +3727,7 @@ export interface operations {
       };
     };
     responses: {
-      /** @description The provider now shows this icon, or none */
+      /** @description The provider now shows this icon */
       200: {
         headers: {
           [name: string]: unknown;
@@ -3751,7 +3754,7 @@ export interface operations {
           "application/json": components["schemas"]["ErrorResponse"];
         };
       };
-      /** @description Not a provider's slug or an icon's name */
+      /** @description Not a provider's slug or an icon's name, or no icon */
       422: {
         headers: {
           [name: string]: unknown;

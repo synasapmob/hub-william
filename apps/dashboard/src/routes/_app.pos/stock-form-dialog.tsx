@@ -289,6 +289,8 @@ export default function StockFormDialog({
     providerName !== "" &&
     slugify(providerName) !== "" &&
     !providerTaken &&
+    // A provider is made with an icon: there is none to show in its place.
+    (!creating || draft.icon !== null) &&
     plan !== "" &&
     nameProblem === null &&
     slug !== "" &&
@@ -433,7 +435,12 @@ export default function StockFormDialog({
               <Label htmlFor="stock-provider">Nhà cung cấp</Label>
 
               <ProviderSelect
-                extra={{ label: "Nhà cung cấp mới", value: NEW_PROVIDER }}
+                // Only where an icon can be chosen, since a new provider needs one.
+                extra={
+                  iconsEnabled
+                    ? { label: "Nhà cung cấp mới", value: NEW_PROVIDER }
+                    : undefined
+                }
                 id="stock-provider"
                 options={providerOptions}
                 value={draft.provider}
@@ -482,12 +489,16 @@ export default function StockFormDialog({
                   </p>
                 )}
 
-                {iconsEnabled && (
-                  <ProviderIconChoice
-                    name={providerName || "Icon"}
-                    selected={draft.icon}
-                    onSelect={(key) => set("icon", key)}
-                  />
+                <ProviderIconChoice
+                  name={providerName || "Icon"}
+                  selected={draft.icon}
+                  onSelect={(key) => set("icon", key)}
+                />
+
+                {draft.icon === null && (
+                  <p className="text-xs text-muted-foreground">
+                    Chọn hoặc tải lên một icon cho nhà cung cấp mới.
+                  </p>
                 )}
               </div>
             )}

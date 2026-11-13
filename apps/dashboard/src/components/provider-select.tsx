@@ -54,11 +54,7 @@ export default function ProviderSelect({
           <SelectItem key={option.value} value={option.value}>
             {/* The icon is for the eye; the agent's name is what the option is called. */}
             <span aria-hidden={true} className="contents">
-              <ProviderIcon
-                label={option.label}
-                provider={option.icon}
-                size="sm"
-              />
+              <ProviderIcon provider={option.icon} size="sm" />
             </span>
 
             {option.label}

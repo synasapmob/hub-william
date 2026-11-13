@@ -9,7 +9,7 @@ import ProviderIconDialog from "./provider-icon-dialog";
 
 interface ProviderIconButtonProps {
   provider: string;
-  /** The name to show when there is no icon, when it differs from the provider. */
+  /** What to call the provider, when it differs from how it is written. */
   label?: string;
 }
 
@@ -21,23 +21,23 @@ export default function ProviderIconButton({
   label,
   provider,
 }: ProviderIconButtonProps) {
-  const { enabled } = useProviderIcons();
+  const { enabled, iconOf } = useProviderIcons();
   const { can } = useDashboardSession();
   const [open, setOpen] = useState(false);
 
   if (!enabled || !can("stock") || !slugify(provider)) {
-    return <ProviderIcon label={label} provider={provider} />;
+    return <ProviderIcon provider={provider} />;
   }
 
   return (
     <>
       <button
-        aria-label={`Đổi icon ${label ?? provider}`}
+        aria-label={`${iconOf(provider) ? "Đổi" : "Chọn"} icon ${label ?? provider}`}
         className="rounded-md outline-none hover:opacity-80 focus-visible:ring-3 focus-visible:ring-ring/50"
         type="button"
         onClick={() => setOpen(true)}
       >
-        <ProviderIcon label={label} provider={provider} />
+        <ProviderIcon provider={provider} />
       </button>
 
       {open && (

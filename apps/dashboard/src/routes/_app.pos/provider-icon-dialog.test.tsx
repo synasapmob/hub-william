@@ -42,9 +42,10 @@ const png = (name = "logo.png", size = 1024) =>
 async function openFor(
   user: ReturnType<typeof userEvent.setup>,
   provider = "ChatGPT",
+  verb: "Đổi" | "Chọn" = "Đổi",
 ) {
   await user.click(
-    await screen.findByRole("button", { name: `Đổi icon ${provider}` }),
+    await screen.findByRole("button", { name: `${verb} icon ${provider}` }),
   );
 
   return screen.findByRole("dialog", { name: `Icon của ${provider}` });
@@ -81,22 +82,22 @@ describe("the icon of a provider's card", () => {
 
   it("is only a picture for a role that may not manage stock", async () => {
     const read = iconsRead();
-    card("ChatGPT", "cashier");
+    const { container } = card("ChatGPT", "cashier");
 
     // The bucket is set up and the icons are in; it is the role that decides.
     await read();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
-    expect(screen.getByText("C")).toBeVisible();
+    expect(container.querySelector("svg")).toBeInTheDocument();
   });
 
   it("is only a picture while the bucket is not set up", async () => {
     disableFakeIcons();
     const read = iconsRead();
-    card();
+    const { container } = card();
 
     await read();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
-    expect(screen.getByText("C")).toBeVisible();
+    expect(container.querySelector("svg")).toBeInTheDocument();
   });
 
   it("finds a provider's icon by its slug, however the shop wrote the name", async () => {
@@ -130,10 +131,69 @@ describe("choosing an icon", () => {
     expect(
       within(dialog).getByRole("button", { name: "claude-0f1e2d3c.png" }),
     ).toHaveAttribute("aria-pressed", "false");
+    // A provider has an icon: there is no choice of none to take it away with.
     expect(
-      within(dialog).getByRole("button", { name: "Không dùng icon" }),
-    ).toHaveAttribute("aria-pressed", "false");
+      within(dialog).queryByRole("button", { name: "Không dùng icon" }),
+    ).not.toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Lưu" })).toBeDisabled();
+  });
+
+  it("wraps onto as many lines as the icons need, and scrolls when there are many", async () => {
+    const user = userEvent.setup();
+    card();
+    const dialog = await openFor(user);
+    await within(dialog).findByRole("button", { name: "claude-0f1e2d3c.png" });
+
+    expect(within(dialog).getByRole("list")).toHaveClass(
+      "flex-wrap",
+      "overflow-y-auto",
+    );
+  });
+
+  it("gives an icon to a provider that has none, and the button says to choose one", async () => {
+    const user = userEvent.setup();
+    card("Perplexity");
+
+    const dialog = await openFor(user, "Perplexity", "Chọn");
+    const save = within(dialog).getByRole("button", { name: "Lưu" });
+
+    // Nothing is picked, and nothing can be saved until something is.
+    expect(save).toBeDisabled();
+    await user.click(
+      await within(dialog).findByRole("button", {
+        name: "claude-0f1e2d3c.png",
+      }),
+    );
+    expect(save).toBeEnabled();
+    await user.click(save);
+
+    await waitFor(() =>
+      expect(fakeIconAssignments()).toContainEqual(
+        expect.objectContaining({
+          key: "icons/claude-0f1e2d3c.png",
+          provider: "perplexity",
+        }),
+      ),
+    );
+  });
+
+  it("says there is nothing to pick from when the bucket is empty", async () => {
+    const user = userEvent.setup();
+    card();
+    const dialog = await openFor(user);
+    await within(dialog).findByRole("button", { name: "claude-0f1e2d3c.png" });
+    const emptied = vi.spyOn(fakeIconService, "library").mockResolvedValue([]);
+
+    // Asked again: the bucket now has none.
+    await user.click(within(dialog).getByRole("button", { name: "Hủy" }));
+    await openFor(user);
+
+    expect(
+      await screen.findByText(
+        "Chưa có icon nào trong bucket. Tải icon mới lên để chọn.",
+      ),
+    ).toBeVisible();
+    emptied.mockRestore();
   });
 
   it("gives the provider another icon once saved, and not before", async () => {
@@ -163,19 +223,6 @@ describe("choosing an icon", () => {
     await waitFor(() =>
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
     );
-  });
-
-  it("takes the icon away with the choice of none", async () => {
-    const user = userEvent.setup();
-    card();
-    const dialog = await openFor(user);
-
-    await user.click(
-      await within(dialog).findByRole("button", { name: "Không dùng icon" }),
-    );
-    await user.click(within(dialog).getByRole("button", { name: "Lưu" }));
-
-    await waitFor(() => expect(fakeIconAssignments()).toEqual([]));
   });
 
   it("changes nothing when it is closed with Hủy", async () => {
@@ -317,7 +364,7 @@ describe("deleting an icon", () => {
       name: "Xóa icon này?",
     });
     expect(confirm).toHaveTextContent("đang được dùng bởi ChatGPT");
-    expect(confirm).toHaveTextContent("hiện chữ cái đầu");
+    expect(confirm).toHaveTextContent("phải chọn icon khác");
     expect(confirm).toHaveTextContent("không hoàn tác được");
     expect(remove).not.toHaveBeenCalled();
   });
@@ -363,8 +410,8 @@ describe("deleting an icon", () => {
     expect(
       within(
         screen.getByRole("dialog", { name: "Icon của ChatGPT" }),
-      ).getByRole("button", { name: "Không dùng icon" }),
-    ).toHaveAttribute("aria-pressed", "true");
+      ).getByRole("button", { name: "Lưu" }),
+    ).toBeDisabled();
   });
 
   it("deletes nothing when it is not confirmed", async () => {

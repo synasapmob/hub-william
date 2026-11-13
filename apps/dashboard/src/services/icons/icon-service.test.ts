@@ -175,18 +175,12 @@ describe("iconService.assign", () => {
     expect(JSON.parse(request.body as string)).toEqual({ key: "icons/a.png" });
   });
 
-  it("sends null to take the icon away", async () => {
-    const spy = answer(json(200, { key: null, provider: "claude", url: null }));
-
-    await iconService.assign("claude", null);
-
-    expect(JSON.parse((await sent(spy)).body as string)).toEqual({ key: null });
-  });
-
   it("says it could not reach the server when it cannot", async () => {
     answer(new TypeError("Failed to fetch"));
 
-    await expect(iconService.assign("claude", null)).rejects.toMatchObject({
+    await expect(
+      iconService.assign("claude", "icons/a.png"),
+    ).rejects.toMatchObject({
       message: "Không kết nối được tới máy chủ.",
     });
   });

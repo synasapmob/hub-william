@@ -377,15 +377,16 @@ pub async fn delete_icon(
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct AssignIcon {
-    /// The icon's name in the bucket, or `null` for none.
-    pub key: Option<String>,
+    /// The icon's name in the bucket. A provider always has one to show, so there is
+    /// no way to ask for none: choose another.
+    pub key: String,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct IconAssigned {
     pub provider: String,
-    pub key: Option<String>,
-    pub url: Option<String>,
+    pub key: String,
+    pub url: String,
 }
 
 #[utoipa::path(
@@ -394,10 +395,10 @@ pub struct IconAssigned {
     params(("provider" = String, Path, description = "The provider's slug")),
     request_body = AssignIcon,
     responses(
-        (status = 200, description = "The provider now shows this icon, or none", body = IconAssigned),
+        (status = 200, description = "The provider now shows this icon", body = IconAssigned),
         (status = 401, description = "Hub login required", body = crate::core::ErrorResponse),
         (status = 403, description = "The role may not manage stock", body = crate::core::ErrorResponse),
-        (status = 422, description = "Not a provider's slug or an icon's name", body = crate::core::ErrorResponse),
+        (status = 422, description = "Not a provider's slug or an icon's name, or no icon", body = crate::core::ErrorResponse),
         (status = 501, description = "The icon bucket is not set up", body = crate::core::ErrorResponse)
     ),
     tag = "dashboard"
@@ -415,19 +416,7 @@ pub async fn assign_icon(
         return Err(ApiError::Validation("That is not a provider's slug."));
     }
 
-    let Some(key) = payload.key else {
-        sqlx::query("DELETE FROM dashboard_provider_icons WHERE provider = $1")
-            .bind(&provider)
-            .execute(&state.pool)
-            .await
-            .map_err(database_error)?;
-
-        return Ok(Json(IconAssigned {
-            provider,
-            key: None,
-            url: None,
-        }));
-    };
+    let key = payload.key;
     if !is_icon_key(&key) {
         return Err(ApiError::Validation("That is not an icon's name."));
     }
@@ -444,8 +433,8 @@ pub async fn assign_icon(
 
     Ok(Json(IconAssigned {
         provider,
-        url: Some(icon_url(storage, &key)),
-        key: Some(key),
+        url: icon_url(storage, &key),
+        key,
     }))
 }
 

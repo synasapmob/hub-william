@@ -92,8 +92,8 @@ class IconService {
     });
   }
 
-  /** Makes a provider show this icon, or none for `null`. */
-  async assign(provider: string, key: string | null): Promise<void> {
+  /** Makes a provider show this icon. */
+  async assign(provider: string, key: string): Promise<void> {
     return guarded(async () => {
       const { data, error, response } = await apiClient.PUT(
         "/dashboard/icons/providers/{provider}",

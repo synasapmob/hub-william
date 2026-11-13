@@ -20,20 +20,17 @@ interface ProviderIconGridProps {
   /** Null while the bucket is being read, the icons once it answered. */
   icons: LibraryIcon[] | null;
   failed: boolean;
-  /** The name in the bucket of the icon that is picked; null for none. */
+  /** The name in the bucket of the icon that is picked; null while none is. */
   selected: string | null;
-  /** What shows when there is no icon: the provider's first letter. */
-  letter: string;
   onDelete: (icon: LibraryIcon) => void;
   onRetry: () => void;
   onSelect: (key: string | null) => void;
 }
 
-/** What is in the bucket, to pick one from, and the choice of none. */
+/** What is in the bucket, to pick one from, wrapping onto as many lines as it takes. */
 export default function ProviderIconGrid({
   failed,
   icons,
-  letter,
   onDelete,
   onRetry,
   onSelect,
@@ -53,7 +50,7 @@ export default function ProviderIconGrid({
 
   if (!icons) {
     return (
-      <div aria-busy="true" className="flex flex-wrap gap-2">
+      <div aria-busy="true" className="flex flex-wrap gap-2 p-1.5">
         {Array.from({ length: 4 }, (_, index) => (
           <Skeleton key={index} className="size-14 rounded-lg" />
         ))}
@@ -61,20 +58,19 @@ export default function ProviderIconGrid({
     );
   }
 
-  return (
-    <ul className="flex flex-wrap gap-2">
-      <li>
-        <button
-          aria-label="Không dùng icon"
-          aria-pressed={selected === null}
-          className={tile({ selected: selected === null })}
-          type="button"
-          onClick={() => onSelect(null)}
-        >
-          {letter}
-        </button>
-      </li>
+  if (icons.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Chưa có icon nào trong bucket. Tải icon mới lên để chọn.
+      </p>
+    );
+  }
 
+  return (
+    // As many as there are, wrapping onto the next line and then scrolling, so a
+    // bucket with dozens does not push the buttons of the dialog off the screen. The
+    // padding keeps the trash buttons on the corners from being cut off.
+    <ul className="flex max-h-64 flex-wrap gap-2 overflow-y-auto p-1.5">
       {icons.map((icon) => (
         <li key={icon.key} className="group relative">
           <button

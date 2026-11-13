@@ -26,7 +26,8 @@ interface ProviderIconDialogProps {
 }
 
 /**
- * Changes the icon of a provider. Nothing changes until "Lưu".
+ * Changes the icon of a provider, or gives one to a provider that lost its own.
+ * Nothing changes until "Lưu", and there is no choice of none: a provider has an icon.
  */
 export default function ProviderIconDialog({
   name,
@@ -40,7 +41,7 @@ export default function ProviderIconDialog({
   const [problem, setProblem] = useState<string | null>(null);
 
   const save = useMutation({
-    mutationFn: () => iconService.assign(slugify(provider), selected),
+    mutationFn: () => iconService.assign(slugify(provider), selected as string),
     onError: (error) => setProblem(error.message),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: iconService.queryKey });
@@ -79,7 +80,9 @@ export default function ProviderIconDialog({
           </Button>
 
           <Button
-            disabled={selected === current || save.isPending}
+            disabled={
+              selected === null || selected === current || save.isPending
+            }
             onClick={() => save.mutate()}
           >
             Lưu

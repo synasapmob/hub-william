@@ -211,7 +211,7 @@ async fn the_library_is_what_the_bucket_holds_under_icons(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn a_provider_shows_the_icon_it_was_given_until_it_is_given_another_or_none(pool: PgPool) {
+async fn a_provider_shows_the_icon_it_was_given_until_it_is_given_another(pool: PgPool) {
     clear_seeded_icons(&pool).await;
     let (_bucket, storage) = FakeBucket::start().await;
     let owner = account(&pool, Some(("manager", true))).await;
@@ -267,12 +267,19 @@ async fn a_provider_shows_the_icon_it_was_given_until_it_is_given_another_or_non
         ] })
     );
 
-    let (status, body) = assign("chatgpt", Value::Null).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(
-        body,
-        json!({ "provider": "chatgpt", "key": null, "url": null })
-    );
+    // None cannot be asked for: a provider always has an icon to show.
+    for refused in [json!({ "key": null }), json!({})] {
+        let (status, _) = call(
+            &state,
+            "PUT",
+            "/dashboard/icons/providers/chatgpt",
+            Some(&owner.cookie),
+            Some(refused),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    }
     let (_, body) = call(
         &state,
         "GET",
@@ -281,7 +288,7 @@ async fn a_provider_shows_the_icon_it_was_given_until_it_is_given_another_or_non
         None,
     )
     .await;
-    assert_eq!(body["assignments"].as_array().unwrap().len(), 1);
+    assert_eq!(body["assignments"].as_array().unwrap().len(), 2);
 }
 
 #[sqlx::test]

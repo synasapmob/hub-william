@@ -1086,7 +1086,7 @@
         },
         "responses": {
           "200": {
-            "description": "The provider now shows this icon, or none",
+            "description": "The provider now shows this icon",
             "content": {
               "application/json": {
                 "schema": {
@@ -1116,7 +1116,7 @@
             }
           },
           "422": {
-            "description": "Not a provider's slug or an icon's name",
+            "description": "Not a provider's slug or an icon's name, or no icon",
             "content": {
               "application/json": {
                 "schema": {
@@ -5843,10 +5843,11 @@
       },
       "AssignIcon": {
         "type": "object",
+        "required": ["key"],
         "properties": {
           "key": {
-            "type": ["string", "null"],
-            "description": "The icon's name in the bucket, or `null` for none."
+            "type": "string",
+            "description": "The icon's name in the bucket. A provider always has one to show, so there is\nno way to ask for none: choose another."
           }
         }
       },
@@ -6797,16 +6798,16 @@
       },
       "IconAssigned": {
         "type": "object",
-        "required": ["provider"],
+        "required": ["provider", "key", "url"],
         "properties": {
           "key": {
-            "type": ["string", "null"]
+            "type": "string"
           },
           "provider": {
             "type": "string"
           },
           "url": {
-            "type": ["string", "null"]
+            "type": "string"
           }
         }
       },

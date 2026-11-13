@@ -53,7 +53,7 @@ export default function ProviderIconDeleteDialog({
 
           <DialogDescription>
             {users.length > 0
-              ? `Icon đang được dùng bởi ${users.join(", ")}. Xóa thì ${users.length > 1 ? "các nhà cung cấp này" : "nhà cung cấp này"} mất icon và hiện chữ cái đầu của tên. `
+              ? `Icon đang được dùng bởi ${users.join(", ")}. Xóa thì ${users.length > 1 ? "các nhà cung cấp này" : "nhà cung cấp này"} mất icon và phải chọn icon khác. `
               : "Chưa nhà cung cấp nào dùng icon này. "}
             Ảnh bị xóa khỏi bucket và không hoàn tác được.
           </DialogDescription>

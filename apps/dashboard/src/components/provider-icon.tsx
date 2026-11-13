@@ -1,3 +1,5 @@
+import { ImageIcon } from "lucide-react";
+
 import { useProviderIcons } from "@/components/provider-icons-context";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
@@ -5,16 +7,14 @@ interface ProviderIconProps {
   provider: string;
   /** `lg` unless it sits in a list of agents, where `sm` fits a row. */
   size?: "default" | "sm" | "lg";
-  /** The label to show, as the first letter, when there is no icon. */
-  label?: string;
 }
 
 /**
- * A provider's icon, the one the shop chose for it (kept in the icon bucket), or its
- * first letter while it has none, the bucket is not set up, or the picture does not load.
+ * A provider's icon: the one the shop chose for it, kept in the icon bucket. A
+ * provider is made with one, so an empty frame means it was lost (the picture was
+ * deleted, or the bucket is not set up) and not that the shop never gave it one.
  */
 export default function ProviderIcon({
-  label,
   provider,
   size = "lg",
 }: ProviderIconProps) {
@@ -27,8 +27,8 @@ export default function ProviderIcon({
         <AvatarImage alt="" className="rounded-md object-contain" src={url} />
       )}
 
-      <AvatarFallback className="rounded-md">
-        {(label ?? provider).trim().charAt(0).toUpperCase()}
+      <AvatarFallback className="rounded-md border border-dashed bg-muted/40 text-muted-foreground">
+        <ImageIcon aria-hidden={true} className="size-1/2" />
       </AvatarFallback>
     </Avatar>
   );

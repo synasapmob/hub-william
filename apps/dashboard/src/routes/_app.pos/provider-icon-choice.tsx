@@ -13,9 +13,9 @@ import ProviderIconDeleteDialog from "./provider-icon-delete-dialog";
 import ProviderIconGrid from "./provider-icon-grid";
 
 interface ProviderIconChoiceProps {
-  /** What to call the provider: an uploaded icon's name starts with it, and its first letter stands for no icon. */
+  /** What to call the provider: an uploaded icon's name starts with it. */
   name: string;
-  /** The name in the bucket of the icon that is picked; null for none. */
+  /** The name in the bucket of the icon that is picked; null while none is. */
   selected: string | null;
   onSelect: (key: string | null) => void;
 }
@@ -56,7 +56,6 @@ export default function ProviderIconChoice({
       <ProviderIconGrid
         failed={library.isError}
         icons={library.data ?? null}
-        letter={name.trim().charAt(0).toUpperCase()}
         selected={selected}
         onDelete={setDeleting}
         onRetry={() => void library.refetch()}
