@@ -24,6 +24,14 @@ fn state_with_icons(pool: PgPool, storage: Option<IconStorage>) -> AppState {
     }
 }
 
+/// The icons the migrations give the six agents, taken away, for a test that counts them.
+async fn clear_seeded_icons(pool: &PgPool) {
+    sqlx::query("DELETE FROM dashboard_provider_icons")
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
 async fn upload(state: &AppState, cookie: &str, name: &str, bytes: Vec<u8>) -> (StatusCode, Value) {
     let (status, body, _) = send(
         state,
@@ -204,6 +212,7 @@ async fn the_library_is_what_the_bucket_holds_under_icons(pool: PgPool) {
 
 #[sqlx::test]
 async fn a_provider_shows_the_icon_it_was_given_until_it_is_given_another_or_none(pool: PgPool) {
+    clear_seeded_icons(&pool).await;
     let (_bucket, storage) = FakeBucket::start().await;
     let owner = account(&pool, Some(("manager", true))).await;
     let cashier = account(&pool, Some(("cashier", true))).await;
@@ -277,6 +286,7 @@ async fn a_provider_shows_the_icon_it_was_given_until_it_is_given_another_or_non
 
 #[sqlx::test]
 async fn a_provider_or_an_icon_that_is_not_a_name_is_refused(pool: PgPool) {
+    clear_seeded_icons(&pool).await;
     let (_bucket, storage) = FakeBucket::start().await;
     let owner = account(&pool, Some(("owner", true))).await;
     let state = state_with_icons(pool.clone(), Some(storage));
@@ -309,6 +319,7 @@ async fn a_provider_or_an_icon_that_is_not_a_name_is_refused(pool: PgPool) {
 
 #[sqlx::test]
 async fn without_a_bucket_nothing_is_shown_and_nothing_can_be_changed(pool: PgPool) {
+    clear_seeded_icons(&pool).await;
     let owner = account(&pool, Some(("owner", true))).await;
     // An assignment made while the bucket was set up must not leak an address now.
     sqlx::query("INSERT INTO dashboard_provider_icons (provider, icon) VALUES ('claude', 'icons/claude-1.png')")
@@ -440,6 +451,7 @@ async fn the_library_says_which_providers_show_each_icon(pool: PgPool) {
 async fn deleting_an_icon_takes_it_from_the_bucket_and_from_every_provider_that_showed_it(
     pool: PgPool,
 ) {
+    clear_seeded_icons(&pool).await;
     let (bucket, storage) = FakeBucket::start().await;
     let owner = account(&pool, Some(("stock-keeper", true))).await;
     let state = state_with_icons(pool, Some(storage));
@@ -528,6 +540,7 @@ async fn a_name_that_is_not_an_icons_is_refused_and_nothing_is_deleted(pool: PgP
 async fn a_bucket_that_does_not_answer_leaves_the_icon_and_its_providers_as_they_were(
     pool: PgPool,
 ) {
+    clear_seeded_icons(&pool).await;
     let (bucket, storage) = FakeBucket::start().await;
     let owner = account(&pool, Some(("owner", true))).await;
     let state = state_with_icons(pool, Some(storage));
@@ -559,4 +572,71 @@ async fn without_a_bucket_nothing_can_be_deleted(pool: PgPool) {
     let (status, _) = delete_icon(&state, Some(&owner.cookie), "claude-1.png").await;
 
     assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+}
+
+#[sqlx::test]
+async fn the_six_agents_start_with_the_icons_that_were_uploaded_for_them(pool: PgPool) {
+    let (_bucket, storage) = FakeBucket::start().await;
+    let cashier = account(&pool, Some(("cashier", true))).await;
+    let state = state_with_icons(pool, Some(storage));
+
+    let (status, body) = call(
+        &state,
+        "GET",
+        "/dashboard/icons",
+        Some(&cashier.cookie),
+        None,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    let shown: Vec<(&str, &str)> = body["assignments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|icon| {
+            (
+                icon["provider"].as_str().unwrap(),
+                icon["key"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        shown,
+        [
+            ("chatgpt", "icons/chatgpt-770d4f42.webp"),
+            ("claude", "icons/claude-3995378b.png"),
+            ("deepseek", "icons/deepseek-f5e23767.png"),
+            ("gemini", "icons/gemini-7a6ae22a.png"),
+            ("grok", "icons/grok-6d2ebb55.png"),
+            ("groq", "icons/groq-5524bc44.png"),
+        ]
+    );
+    // Addressed where the bucket is public, as any other icon is.
+    assert_eq!(
+        body["assignments"][0]["url"],
+        "https://cdn.test/icons/chatgpt-770d4f42.webp"
+    );
+}
+
+#[sqlx::test]
+async fn a_provider_that_chose_its_own_icon_before_the_seed_keeps_it(pool: PgPool) {
+    // What the seed does to a database where the shop already chose: the migration is
+    // run again here on a row that exists, and must leave it.
+    sqlx::query(
+        "UPDATE dashboard_provider_icons SET icon = 'icons/mine-1.png' WHERE provider = 'claude'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let seed = include_str!("../../../../migrations/20261113000038_seed_provider_icons.sql");
+    sqlx::raw_sql(seed).execute(&pool).await.unwrap();
+
+    let claude: String =
+        sqlx::query_scalar("SELECT icon FROM dashboard_provider_icons WHERE provider = 'claude'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+    assert_eq!(claude, "icons/mine-1.png");
 }
