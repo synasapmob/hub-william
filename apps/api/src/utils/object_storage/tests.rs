@@ -7,7 +7,7 @@ use axum::{
     Router,
     body::{Body, to_bytes},
     extract::State,
-    http::{Request, StatusCode},
+    http::{Method, Request, StatusCode},
     response::{IntoResponse, Response},
 };
 use chrono::{NaiveDateTime, TimeZone, Utc};
@@ -16,8 +16,8 @@ use tokio::net::TcpListener;
 use crate::core::IconStorage;
 
 use super::{
-    StorageError, StoredObject, authorization, list_objects, parse_listing, put_object, sha256_hex,
-    uri_encode,
+    StorageError, StoredObject, authorization, delete_object, list_objects, parse_listing,
+    put_object, sha256_hex, uri_encode,
 };
 
 const ACCESS_KEY_ID: &str = "test-access-key-id";
@@ -137,6 +137,11 @@ async fn handle(State(bucket): State<FakeBucket>, request: Request<Body>) -> Res
     let Some(key) = path.strip_prefix(&format!("/{BUCKET}/")) else {
         return list(&bucket, parts.uri.query().unwrap_or(""));
     };
+    if parts.method == Method::DELETE {
+        bucket.objects.lock().unwrap().remove(key);
+
+        return StatusCode::NO_CONTENT.into_response();
+    }
     bucket.objects.lock().unwrap().insert(
         key.to_owned(),
         (
@@ -325,4 +330,47 @@ async fn a_refusal_carries_the_status_and_nothing_the_bucket_said() {
         .unwrap_err();
 
     assert_eq!(error.to_string(), "the bucket answered 503");
+}
+
+#[tokio::test]
+async fn an_object_that_is_deleted_is_gone_and_deleting_it_again_is_not_an_error() {
+    let (bucket, storage) = FakeBucket::start().await;
+    let http = reqwest::Client::new();
+    put_object(
+        &http,
+        &storage,
+        "icons/a.png",
+        "image/png",
+        "no-cache",
+        vec![1],
+    )
+    .await
+    .unwrap();
+    put_object(
+        &http,
+        &storage,
+        "icons/b.png",
+        "image/png",
+        "no-cache",
+        vec![2],
+    )
+    .await
+    .unwrap();
+
+    delete_object(&http, &storage, "icons/a.png").await.unwrap();
+    delete_object(&http, &storage, "icons/a.png").await.unwrap();
+
+    assert_eq!(bucket.keys(), ["icons/b.png"]);
+}
+
+#[tokio::test]
+async fn a_delete_the_bucket_refuses_is_an_error_with_its_status() {
+    let (bucket, storage) = FakeBucket::start().await;
+    bucket.refuse_with(StatusCode::FORBIDDEN);
+
+    let error = delete_object(&reqwest::Client::new(), &storage, "icons/a.png")
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.to_string(), "the bucket answered 403");
 }

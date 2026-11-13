@@ -298,3 +298,122 @@ describe("uploading an icon", () => {
     expect(within(dialog).getByRole("button", { name: "Lưu" })).toBeDisabled();
   });
 });
+
+describe("deleting an icon", () => {
+  /** The icon of a provider is shown by ChatGPT only; Claude's is not used. */
+  const trash = (name: string) =>
+    screen.getByRole("button", { name: `Xóa icon ${name}` });
+
+  it("asks first, and says who shows the icon and that they lose it", async () => {
+    const user = userEvent.setup();
+    const remove = vi.spyOn(fakeIconService, "remove");
+    card();
+    const dialog = await openFor(user);
+    await within(dialog).findByRole("button", { name: "claude-0f1e2d3c.png" });
+
+    await user.click(trash("chatgpt-ba7816bf.png"));
+
+    const confirm = await screen.findByRole("dialog", {
+      name: "Xóa icon này?",
+    });
+    expect(confirm).toHaveTextContent("đang được dùng bởi ChatGPT");
+    expect(confirm).toHaveTextContent("hiện chữ cái đầu");
+    expect(confirm).toHaveTextContent("không hoàn tác được");
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it("says when nobody shows the icon", async () => {
+    const user = userEvent.setup();
+    card();
+    const dialog = await openFor(user);
+    await within(dialog).findByRole("button", { name: "claude-0f1e2d3c.png" });
+
+    await user.click(trash("claude-0f1e2d3c.png"));
+
+    expect(
+      await screen.findByRole("dialog", { name: "Xóa icon này?" }),
+    ).toHaveTextContent("Chưa nhà cung cấp nào dùng icon này.");
+  });
+
+  it("deletes the icon once confirmed, and the providers that showed it lose it", async () => {
+    const user = userEvent.setup();
+    const remove = vi.spyOn(fakeIconService, "remove");
+    card();
+    const dialog = await openFor(user);
+    await within(dialog).findByRole("button", { name: "claude-0f1e2d3c.png" });
+
+    await user.click(trash("chatgpt-ba7816bf.png"));
+    await user.click(
+      within(
+        await screen.findByRole("dialog", { name: "Xóa icon này?" }),
+      ).getByRole("button", { name: "Xóa icon" }),
+    );
+
+    await waitFor(() =>
+      expect(remove).toHaveBeenCalledWith("icons/chatgpt-ba7816bf.png"),
+    );
+    expect(toast.success).toHaveBeenCalledWith("Đã xóa icon");
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "chatgpt-ba7816bf.png" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(fakeIconAssignments()).toEqual([]);
+    // The one that was picked is gone, so nothing is picked and there is nothing to save.
+    expect(
+      within(
+        screen.getByRole("dialog", { name: "Icon của ChatGPT" }),
+      ).getByRole("button", { name: "Không dùng icon" }),
+    ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("deletes nothing when it is not confirmed", async () => {
+    const user = userEvent.setup();
+    const remove = vi.spyOn(fakeIconService, "remove");
+    card();
+    const dialog = await openFor(user);
+    await within(dialog).findByRole("button", { name: "claude-0f1e2d3c.png" });
+
+    await user.click(trash("chatgpt-ba7816bf.png"));
+    await user.click(
+      within(
+        await screen.findByRole("dialog", { name: "Xóa icon này?" }),
+      ).getByRole("button", { name: "Hủy" }),
+    );
+
+    expect(remove).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Xóa icon này?" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.getByRole("button", { name: "chatgpt-ba7816bf.png" }),
+    ).toBeVisible();
+    expect(fakeIconAssignments()).toHaveLength(1);
+  });
+
+  it("says why when it could not, and keeps the icon", async () => {
+    const user = userEvent.setup();
+    card();
+    const dialog = await openFor(user);
+    await within(dialog).findByRole("button", { name: "claude-0f1e2d3c.png" });
+    refuseNextFakeIcon("remove", "The icon storage did not answer.");
+
+    await user.click(trash("claude-0f1e2d3c.png"));
+    await user.click(
+      within(
+        await screen.findByRole("dialog", { name: "Xóa icon này?" }),
+      ).getByRole("button", { name: "Xóa icon" }),
+    );
+
+    expect(
+      await screen.findByText("The icon storage did not answer."),
+    ).toBeVisible();
+    expect(screen.getByRole("dialog", { name: "Xóa icon này?" })).toBeVisible();
+    // Behind the question, which hides the form from a reader while it is open.
+    expect(
+      screen.getByRole("button", { hidden: true, name: "claude-0f1e2d3c.png" }),
+    ).toBeInTheDocument();
+  });
+});

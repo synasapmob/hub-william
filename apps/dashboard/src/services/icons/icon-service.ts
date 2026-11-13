@@ -7,11 +7,16 @@ import {
 import type { components } from "@/services/api/api.generated";
 import { apiUrl } from "@/utils/utils.api-url";
 
+import { iconName } from "./icon-labels";
+
 /** The icon a provider shows: where to load it, and its name in the bucket. */
 export type IconAssignment = components["schemas"]["IconAssignment"];
 
-/** An icon in the bucket, to choose from. */
+/** An icon in the bucket, to choose from, with the providers that show it. */
 export type LibraryIcon = components["schemas"]["LibraryIcon"];
+
+/** A provider that shows an icon. */
+export type IconUser = components["schemas"]["IconUser"];
 
 /** What the dashboard shows beside each provider. */
 export interface ProviderIcons {
@@ -96,6 +101,23 @@ class IconService {
       );
 
       if (!data) throw serviceError(response, error, "Không đổi được icon.");
+    });
+  }
+
+  /**
+   * Deletes an icon from the bucket, and so from every provider that showed it.
+   * Answers the slugs of the providers that did.
+   */
+  async remove(key: string): Promise<string[]> {
+    return guarded(async () => {
+      const { data, error, response } = await apiClient.DELETE(
+        "/dashboard/icons/{name}",
+        { params: { path: { name: iconName(key) } } },
+      );
+
+      if (!data) throw serviceError(response, error, "Không xóa được icon.");
+
+      return data.cleared;
     });
   }
 }

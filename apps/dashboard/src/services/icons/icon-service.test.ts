@@ -191,3 +191,37 @@ describe("iconService.assign", () => {
     });
   });
 });
+
+describe("iconService.remove", () => {
+  it("deletes the icon by its name in the bucket and answers who showed it", async () => {
+    const spy = answer(
+      json(200, {
+        cleared: ["chatgpt", "claude"],
+        key: "icons/claude-0f1e2d3c.png",
+      }),
+    );
+
+    await expect(
+      iconService.remove("icons/claude-0f1e2d3c.png"),
+    ).resolves.toEqual(["chatgpt", "claude"]);
+
+    expect(await sent(spy)).toMatchObject({
+      method: "DELETE",
+      path: "/dashboard/icons/claude-0f1e2d3c.png",
+    });
+  });
+
+  it("passes on why the bucket would not", async () => {
+    answer(
+      json(502, {
+        code: "provider_unavailable",
+        message: "The icon storage did not answer. Try again in a moment.",
+      }),
+    );
+
+    await expect(iconService.remove("icons/a.png")).rejects.toMatchObject({
+      message: "The icon storage did not answer. Try again in a moment.",
+      status: 502,
+    });
+  });
+});

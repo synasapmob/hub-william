@@ -1,5 +1,5 @@
 //! A bucket reached through the S3 API, the way Cloudflare R2 offers it: put an
-//! object and list the ones under a prefix. Every request is signed with AWS
+//! object, remove one and list the ones under a prefix. Every request is signed with AWS
 //! Signature Version 4, which R2 accepts with the region `auto`.
 
 use std::{fmt, time::Duration};
@@ -238,6 +238,33 @@ pub(crate) async fn put_object(
                 ("content-type", content_type),
             ],
             body,
+        },
+    )
+    .await?;
+
+    if response.status().is_success() {
+        Ok(())
+    } else {
+        Err(StorageError::Refused(response.status().as_u16()))
+    }
+}
+
+/// Removes the object. An object that is not there is not an error: asking again
+/// after an answer was lost leaves the bucket as wanted.
+pub(crate) async fn delete_object(
+    http: &Client,
+    storage: &IconStorage,
+    key: &str,
+) -> Result<(), StorageError> {
+    let response = send(
+        http,
+        storage,
+        Call {
+            method: Method::DELETE,
+            query: "",
+            path: object_path(storage, key),
+            headers: &[],
+            body: Vec::new(),
         },
     )
     .await?;

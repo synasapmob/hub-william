@@ -6,8 +6,10 @@ import {
   ICON_TYPES,
   MAXIMUM_ICON_BYTES,
   iconService,
+  type LibraryIcon,
 } from "@/services/icons/icon-service";
 
+import ProviderIconDeleteDialog from "./provider-icon-delete-dialog";
 import ProviderIconGrid from "./provider-icon-grid";
 
 interface ProviderIconChoiceProps {
@@ -30,6 +32,8 @@ export default function ProviderIconChoice({
 }: ProviderIconChoiceProps) {
   const queryClient = useQueryClient();
   const [problem, setProblem] = useState<string | null>(null);
+  // The icon that is asked about deleting, once its trash is pressed.
+  const [deleting, setDeleting] = useState<LibraryIcon | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const library = useQuery({
@@ -54,6 +58,7 @@ export default function ProviderIconChoice({
         icons={library.data ?? null}
         letter={name.trim().charAt(0).toUpperCase()}
         selected={selected}
+        onDelete={setDeleting}
         onRetry={() => void library.refetch()}
         onSelect={onSelect}
       />
@@ -103,6 +108,22 @@ export default function ProviderIconChoice({
       >
         {upload.isPending ? "Đang tải lên…" : "Tải icon mới"}
       </Button>
+
+      {deleting && (
+        <ProviderIconDeleteDialog
+          icon={deleting}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => {
+            // Deleted while picked, there is nothing to pick any more.
+            if (selected === deleting.key) onSelect(null);
+
+            setDeleting(null);
+            void queryClient.invalidateQueries({
+              queryKey: iconService.libraryKey,
+            });
+          }}
+        />
+      )}
     </div>
   );
 }

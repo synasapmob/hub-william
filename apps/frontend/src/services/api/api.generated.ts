@@ -340,6 +340,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/dashboard/icons/{name}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete: operations["delete_icon"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/dashboard/images": {
     parameters: {
       query?: never;
@@ -2033,8 +2049,23 @@ export interface components {
       /** @description Where a browser loads it from. */
       url: string;
     };
+    IconDeleted: {
+      /** @description The slugs of the providers that showed it and now show their first letter. */
+      cleared: string[];
+      key: string;
+    };
     IconLibrary: {
       icons: components["schemas"]["LibraryIcon"][];
+    };
+    /** @description A provider that shows an icon. */
+    IconUser: {
+      /**
+       * @description The provider's name when the shop sells under it on Telegram; the agents of
+       *     Hub William are named by the dashboard.
+       */
+      name?: string | null;
+      /** @description The provider's slug. */
+      provider: string;
     };
     InviteAgentPoolMember: {
       username: string;
@@ -2047,6 +2078,8 @@ export interface components {
       /** Format: int64 */
       size: number;
       url: string;
+      /** @description The providers that show this icon, so deleting it can say who it affects. */
+      used_by: components["schemas"]["IconUser"][];
     };
     /**
      * @description A block of accounts to load. It is not `Debug` on purpose: a derived
@@ -3729,6 +3762,74 @@ export interface operations {
       };
       /** @description The icon bucket is not set up */
       501: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  delete_icon: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The icon's name in the bucket, without `icons/` */
+        name: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The icon is gone from the bucket, and from the providers that showed it */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["IconDeleted"];
+        };
+      };
+      /** @description Hub login required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The role may not manage stock */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not an icon's name */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The icon bucket is not set up */
+      501: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The bucket did not answer */
+      502: {
         headers: {
           [name: string]: unknown;
         };

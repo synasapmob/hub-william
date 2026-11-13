@@ -370,3 +370,193 @@ async fn a_bucket_that_does_not_answer_is_a_bad_gateway_and_leaves_the_shop_as_i
     let (status, _) = call(&state, "GET", "/dashboard/icons", Some(&owner.cookie), None).await;
     assert_eq!(status, StatusCode::OK);
 }
+
+async fn delete_icon(state: &AppState, cookie: Option<&str>, name: &str) -> (StatusCode, Value) {
+    call(
+        state,
+        "DELETE",
+        &format!("/dashboard/icons/{name}"),
+        cookie,
+        None,
+    )
+    .await
+}
+
+fn name_of(key: &Value) -> &str {
+    key.as_str().unwrap().strip_prefix("icons/").unwrap()
+}
+
+#[sqlx::test]
+async fn the_library_says_which_providers_show_each_icon(pool: PgPool) {
+    let (_bucket, storage) = FakeBucket::start().await;
+    let owner = account(&pool, Some(("owner", true))).await;
+    // The shop starts with some providers, ChatGPT among them; Claude's slug has none here.
+    let chatgpt: String =
+        sqlx::query_scalar("SELECT name FROM telegram_providers WHERE slug = 'chatgpt'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    sqlx::query("DELETE FROM telegram_providers WHERE slug = 'claude'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let state = state_with_icons(pool, Some(storage));
+    let (_, shared) = upload(&state, &owner.cookie, "ChatGPT", PNG.to_vec()).await;
+    let (_, unused) = upload(&state, &owner.cookie, "Groq", [PNG, &[1]].concat()).await;
+    for provider in ["chatgpt", "claude"] {
+        call(
+            &state,
+            "PUT",
+            &format!("/dashboard/icons/providers/{provider}"),
+            Some(&owner.cookie),
+            Some(json!({ "key": shared["key"] })),
+        )
+        .await;
+    }
+
+    let (_, body) = call(
+        &state,
+        "GET",
+        "/dashboard/icons/library",
+        Some(&owner.cookie),
+        None,
+    )
+    .await;
+
+    let icons = body["icons"].as_array().unwrap();
+    let of = |key: &Value| icons.iter().find(|icon| icon["key"] == *key).unwrap();
+    // The name is the Telegram provider's, when there is one, and null for the rest.
+    assert_eq!(
+        of(&shared["key"])["used_by"],
+        json!([
+            { "provider": "chatgpt", "name": chatgpt },
+            { "provider": "claude", "name": null },
+        ])
+    );
+    assert_eq!(of(&unused["key"])["used_by"], json!([]));
+}
+
+#[sqlx::test]
+async fn deleting_an_icon_takes_it_from_the_bucket_and_from_every_provider_that_showed_it(
+    pool: PgPool,
+) {
+    let (bucket, storage) = FakeBucket::start().await;
+    let owner = account(&pool, Some(("stock-keeper", true))).await;
+    let state = state_with_icons(pool, Some(storage));
+    let (_, gone) = upload(&state, &owner.cookie, "ChatGPT", PNG.to_vec()).await;
+    let (_, kept) = upload(&state, &owner.cookie, "Groq", [PNG, &[1]].concat()).await;
+    for (provider, icon) in [("chatgpt", &gone), ("claude", &gone), ("groq", &kept)] {
+        call(
+            &state,
+            "PUT",
+            &format!("/dashboard/icons/providers/{provider}"),
+            Some(&owner.cookie),
+            Some(json!({ "key": icon["key"] })),
+        )
+        .await;
+    }
+
+    let (status, body) = delete_icon(&state, Some(&owner.cookie), name_of(&gone["key"])).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body,
+        json!({ "key": gone["key"], "cleared": ["chatgpt", "claude"] })
+    );
+    assert_eq!(bucket.keys(), [kept["key"].as_str().unwrap()]);
+    let (_, shown) = call(&state, "GET", "/dashboard/icons", Some(&owner.cookie), None).await;
+    let providers: Vec<&str> = shown["assignments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|assignment| assignment["provider"].as_str().unwrap())
+        .collect();
+    assert_eq!(providers, ["groq"]);
+}
+
+#[sqlx::test]
+async fn deleting_an_icon_again_is_not_an_error_and_clears_nobody(pool: PgPool) {
+    let (bucket, storage) = FakeBucket::start().await;
+    let owner = account(&pool, Some(("owner", true))).await;
+    let state = state_with_icons(pool, Some(storage));
+    let (_, icon) = upload(&state, &owner.cookie, "Claude", PNG.to_vec()).await;
+
+    for _ in 0..2 {
+        let (status, body) = delete_icon(&state, Some(&owner.cookie), name_of(&icon["key"])).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["cleared"], json!([]));
+    }
+    assert!(bucket.keys().is_empty());
+}
+
+#[sqlx::test]
+async fn only_staff_who_manage_stock_may_delete_an_icon(pool: PgPool) {
+    let (bucket, storage) = FakeBucket::start().await;
+    let owner = account(&pool, Some(("owner", true))).await;
+    let cashier = account(&pool, Some(("cashier", true))).await;
+    let stranger = account(&pool, None).await;
+    let state = state_with_icons(pool, Some(storage));
+    let (_, icon) = upload(&state, &owner.cookie, "Claude", PNG.to_vec()).await;
+    let name = name_of(&icon["key"]);
+
+    for who in [&cashier, &stranger] {
+        let (status, _) = delete_icon(&state, Some(&who.cookie), name).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+    let (status, _) = delete_icon(&state, None, name).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(bucket.keys().len(), 1);
+}
+
+#[sqlx::test]
+async fn a_name_that_is_not_an_icons_is_refused_and_nothing_is_deleted(pool: PgPool) {
+    let (bucket, storage) = FakeBucket::start().await;
+    let owner = account(&pool, Some(("owner", true))).await;
+    let state = state_with_icons(pool, Some(storage));
+    let _ = upload(&state, &owner.cookie, "Claude", PNG.to_vec()).await;
+
+    for name in ["Bad.png", "-a.png", "a%20b.png", "..", "a%2Fb.png"] {
+        let (status, _) = delete_icon(&state, Some(&owner.cookie), name).await;
+
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{name}");
+    }
+    assert_eq!(bucket.keys().len(), 1);
+}
+
+#[sqlx::test]
+async fn a_bucket_that_does_not_answer_leaves_the_icon_and_its_providers_as_they_were(
+    pool: PgPool,
+) {
+    let (bucket, storage) = FakeBucket::start().await;
+    let owner = account(&pool, Some(("owner", true))).await;
+    let state = state_with_icons(pool, Some(storage));
+    let (_, icon) = upload(&state, &owner.cookie, "Claude", PNG.to_vec()).await;
+    call(
+        &state,
+        "PUT",
+        "/dashboard/icons/providers/claude",
+        Some(&owner.cookie),
+        Some(json!({ "key": icon["key"] })),
+    )
+    .await;
+    let kept = bucket.keys();
+    bucket.refuse_with(StatusCode::FORBIDDEN);
+
+    let (status, _) = delete_icon(&state, Some(&owner.cookie), name_of(&icon["key"])).await;
+
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    let (_, shown) = call(&state, "GET", "/dashboard/icons", Some(&owner.cookie), None).await;
+    assert_eq!(shown["assignments"].as_array().unwrap().len(), 1);
+    assert_eq!(bucket.keys(), kept);
+}
+
+#[sqlx::test]
+async fn without_a_bucket_nothing_can_be_deleted(pool: PgPool) {
+    let owner = account(&pool, Some(("owner", true))).await;
+    let state = state_with_icons(pool, None);
+
+    let (status, _) = delete_icon(&state, Some(&owner.cookie), "claude-1.png").await;
+
+    assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+}

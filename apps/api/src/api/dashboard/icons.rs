@@ -4,6 +4,8 @@
 //! provider shows which. Without the bucket configured the dashboard still works and
 //! shows each provider's first letter.
 
+use std::collections::HashMap;
+
 use axum::{
     Json,
     body::Bytes,
@@ -168,11 +170,23 @@ pub async fn list_icons(
     }))
 }
 
+/// A provider that shows an icon.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct IconUser {
+    /// The provider's slug.
+    pub provider: String,
+    /// The provider's name when the shop sells under it on Telegram; the agents of
+    /// Hub William are named by the dashboard.
+    pub name: Option<String>,
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct LibraryIcon {
     pub key: String,
     pub url: String,
     pub size: u64,
+    /// The providers that show this icon, so deleting it can say who it affects.
+    pub used_by: Vec<IconUser>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -199,18 +213,37 @@ pub async fn icon_library(
     authorize(&state, &jar, Permission::Stock).await?;
     let storage = storage(&state)?;
 
-    let mut icons: Vec<LibraryIcon> =
-        object_storage::list_objects(&state.http, storage, ICON_PREFIX)
-            .await
-            .map_err(|error| storage_error("listing", error))?
-            .into_iter()
-            .filter(|object| is_icon_key(&object.key))
-            .map(|object| LibraryIcon {
-                url: icon_url(storage, &object.key),
-                key: object.key,
-                size: object.size,
-            })
-            .collect();
+    let objects = object_storage::list_objects(&state.http, storage, ICON_PREFIX)
+        .await
+        .map_err(|error| storage_error("listing", error))?;
+
+    let users = sqlx::query_as::<_, (String, String, Option<String>)>(
+        "SELECT icon.icon, icon.provider, provider.name
+         FROM dashboard_provider_icons AS icon
+         LEFT JOIN telegram_providers AS provider ON provider.slug = icon.provider
+         ORDER BY icon.provider",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .map_err(database_error)?;
+    let mut used_by: HashMap<String, Vec<IconUser>> = HashMap::new();
+    for (icon, provider, name) in users {
+        used_by
+            .entry(icon)
+            .or_default()
+            .push(IconUser { provider, name });
+    }
+
+    let mut icons: Vec<LibraryIcon> = objects
+        .into_iter()
+        .filter(|object| is_icon_key(&object.key))
+        .map(|object| LibraryIcon {
+            url: icon_url(storage, &object.key),
+            used_by: used_by.remove(&object.key).unwrap_or_default(),
+            key: object.key,
+            size: object.size,
+        })
+        .collect();
     icons.sort_by(|a, b| a.key.cmp(&b.key));
 
     Ok(Json(IconLibrary { icons }))
@@ -281,6 +314,65 @@ pub async fn upload_icon(
             key,
         }),
     ))
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct IconDeleted {
+    pub key: String,
+    /// The slugs of the providers that showed it and now show their first letter.
+    pub cleared: Vec<String>,
+}
+
+#[utoipa::path(
+    delete,
+    path = "/dashboard/icons/{name}",
+    params(("name" = String, Path, description = "The icon's name in the bucket, without `icons/`")),
+    responses(
+        (status = 200, description = "The icon is gone from the bucket, and from the providers that showed it", body = IconDeleted),
+        (status = 401, description = "Hub login required", body = crate::core::ErrorResponse),
+        (status = 403, description = "The role may not manage stock", body = crate::core::ErrorResponse),
+        (status = 422, description = "Not an icon's name", body = crate::core::ErrorResponse),
+        (status = 501, description = "The icon bucket is not set up", body = crate::core::ErrorResponse),
+        (status = 502, description = "The bucket did not answer", body = crate::core::ErrorResponse)
+    ),
+    tag = "dashboard"
+)]
+pub async fn delete_icon(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path(name): Path<String>,
+) -> Result<Json<IconDeleted>, ApiError> {
+    authorize(&state, &jar, Permission::Stock).await?;
+    let storage = storage(&state)?;
+
+    let key = format!("{ICON_PREFIX}{name}");
+    if !is_icon_key(&key) {
+        return Err(ApiError::Validation("That is not an icon's name."));
+    }
+
+    // The picture goes first. If the bucket does not answer nothing has changed,
+    // and if the providers cannot be cleared after, asking again finishes it: a
+    // delete of a picture that is already gone is not an error.
+    object_storage::delete_object(&state.http, storage, &key)
+        .await
+        .map_err(|error| storage_error("delete", error))?;
+
+    let cleared = sqlx::query_scalar::<_, String>(
+        "DELETE FROM dashboard_provider_icons WHERE icon = $1 RETURNING provider",
+    )
+    .bind(&key)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(database_error)?;
+
+    Ok(Json(IconDeleted {
+        key,
+        cleared: {
+            let mut cleared = cleared;
+            cleared.sort();
+            cleared
+        },
+    }))
 }
 
 #[derive(Debug, Deserialize, ToSchema)]

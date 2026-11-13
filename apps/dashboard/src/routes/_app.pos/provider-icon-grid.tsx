@@ -1,8 +1,9 @@
+import { Trash2 } from "lucide-react";
 import { tv } from "tailwind-variants";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { iconName } from "@/services/icons/icon-labels";
+import { iconName, iconUserName } from "@/services/icons/icon-labels";
 import type { LibraryIcon } from "@/services/icons/icon-service";
 
 const tile = tv({
@@ -23,6 +24,7 @@ interface ProviderIconGridProps {
   selected: string | null;
   /** What shows when there is no icon: the provider's first letter. */
   letter: string;
+  onDelete: (icon: LibraryIcon) => void;
   onRetry: () => void;
   onSelect: (key: string | null) => void;
 }
@@ -32,6 +34,7 @@ export default function ProviderIconGrid({
   failed,
   icons,
   letter,
+  onDelete,
   onRetry,
   onSelect,
   selected,
@@ -73,12 +76,16 @@ export default function ProviderIconGrid({
       </li>
 
       {icons.map((icon) => (
-        <li key={icon.key}>
+        <li key={icon.key} className="group relative">
           <button
             aria-label={iconName(icon.key)}
             aria-pressed={selected === icon.key}
             className={tile({ selected: selected === icon.key })}
-            title={iconName(icon.key)}
+            title={
+              icon.used_by.length > 0
+                ? `${iconName(icon.key)}, đang dùng bởi ${icon.used_by.map(iconUserName).join(", ")}`
+                : iconName(icon.key)
+            }
             type="button"
             onClick={() => onSelect(icon.key)}
           >
@@ -87,6 +94,15 @@ export default function ProviderIconGrid({
               className="size-full rounded-md object-contain"
               src={icon.url}
             />
+          </button>
+
+          <button
+            aria-label={`Xóa icon ${iconName(icon.key)}`}
+            className="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border bg-background text-muted-foreground opacity-0 shadow-sm outline-none group-hover:opacity-100 hover:text-destructive focus-visible:opacity-100 focus-visible:ring-3 focus-visible:ring-ring/50 [@media(hover:none)]:opacity-100"
+            type="button"
+            onClick={() => onDelete(icon)}
+          >
+            <Trash2 aria-hidden={true} className="size-3" />
           </button>
         </li>
       ))}

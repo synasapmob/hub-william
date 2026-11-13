@@ -13,7 +13,7 @@ use crate::{
 
 use super::{
     dashboard_session,
-    icons::{MAXIMUM_ICON_BYTES, assign_icon, icon_library, list_icons, upload_icon},
+    icons::{MAXIMUM_ICON_BYTES, assign_icon, delete_icon, icon_library, list_icons, upload_icon},
     images::{MAXIMUM_IMAGE_BYTES, get_image, upload_image},
     orders::{cancel_order, list_orders, list_sales, pay_order},
     push::announce,
@@ -76,6 +76,7 @@ pub(crate) fn routes(state: &AppState) -> Router<AppState> {
                 .layer(DefaultBodyLimit::max(MAXIMUM_ICON_BYTES + 1024)),
         )
         .route("/dashboard/icons/library", get(icon_library))
+        .route("/dashboard/icons/{name}", delete(delete_icon))
         .route("/dashboard/icons/providers/{provider}", put(assign_icon))
         .route("/dashboard/telegram/announcements", post(announce))
         .route("/dashboard/telegram/orders", get(list_orders))
@@ -132,6 +133,7 @@ pub(crate) fn routes(state: &AppState) -> Router<AppState> {
         super::icons::icon_library,
         super::icons::upload_icon,
         super::icons::assign_icon,
+        super::icons::delete_icon,
         super::push::announce,
         super::orders::list_orders,
         super::orders::pay_order,
@@ -159,6 +161,8 @@ pub(crate) fn routes(state: &AppState) -> Router<AppState> {
         super::icons::AssignIcon,
         super::icons::DashboardIcons,
         super::icons::IconAssigned,
+        super::icons::IconDeleted,
+        super::icons::IconUser,
         super::icons::IconAssignment,
         super::icons::IconLibrary,
         super::icons::LibraryIcon,

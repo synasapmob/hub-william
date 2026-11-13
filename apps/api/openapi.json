@@ -1138,6 +1138,85 @@
         }
       }
     },
+    "/dashboard/icons/{name}": {
+      "delete": {
+        "tags": ["dashboard"],
+        "operationId": "delete_icon",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The icon's name in the bucket, without `icons/`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The icon is gone from the bucket, and from the providers that showed it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IconDeleted"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not manage stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Not an icon's name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "The icon bucket is not set up",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The bucket did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboard/images": {
       "post": {
         "tags": ["dashboard"],
@@ -6749,6 +6828,22 @@
           }
         }
       },
+      "IconDeleted": {
+        "type": "object",
+        "required": ["key", "cleared"],
+        "properties": {
+          "cleared": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The slugs of the providers that showed it and now show their first letter."
+          },
+          "key": {
+            "type": "string"
+          }
+        }
+      },
       "IconLibrary": {
         "type": "object",
         "required": ["icons"],
@@ -6758,6 +6853,21 @@
             "items": {
               "$ref": "#/components/schemas/LibraryIcon"
             }
+          }
+        }
+      },
+      "IconUser": {
+        "type": "object",
+        "description": "A provider that shows an icon.",
+        "required": ["provider"],
+        "properties": {
+          "name": {
+            "type": ["string", "null"],
+            "description": "The provider's name when the shop sells under it on Telegram; the agents of\nHub William are named by the dashboard."
+          },
+          "provider": {
+            "type": "string",
+            "description": "The provider's slug."
           }
         }
       },
@@ -6781,7 +6891,7 @@
       },
       "LibraryIcon": {
         "type": "object",
-        "required": ["key", "url", "size"],
+        "required": ["key", "url", "size", "used_by"],
         "properties": {
           "key": {
             "type": "string"
@@ -6793,6 +6903,13 @@
           },
           "url": {
             "type": "string"
+          },
+          "used_by": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IconUser"
+            },
+            "description": "The providers that show this icon, so deleting it can say who it affects."
           }
         }
       },
