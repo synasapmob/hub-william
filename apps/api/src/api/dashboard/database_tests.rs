@@ -20,6 +20,7 @@ mod accounts;
 mod announcements;
 mod delivery;
 mod guide;
+mod icons;
 mod late_transfer;
 mod orders;
 mod revenue;

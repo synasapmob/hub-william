@@ -867,6 +867,277 @@
         }
       }
     },
+    "/dashboard/icons": {
+      "get": {
+        "tags": ["dashboard"],
+        "operationId": "list_icons",
+        "responses": {
+          "200": {
+            "description": "The icon each provider shows",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardIcons"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a member of staff",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["dashboard"],
+        "operationId": "upload_icon",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "description": "What to start the icon's name with, such as the provider it is for.",
+            "required": false,
+            "schema": {
+              "type": ["string", "null"]
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "A PNG, JPEG, GIF or WebP picture of at most 256 KiB",
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The icon is in the bucket",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadedIcon"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not manage stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The picture is over 256 KiB"
+          },
+          "422": {
+            "description": "The body is not a PNG, JPEG, GIF or WebP picture",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "The icon bucket is not set up",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The bucket did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/icons/library": {
+      "get": {
+        "tags": ["dashboard"],
+        "operationId": "icon_library",
+        "responses": {
+          "200": {
+            "description": "The icons in the bucket, to choose from",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IconLibrary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not manage stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "The icon bucket is not set up",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The bucket did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/icons/providers/{provider}": {
+      "put": {
+        "tags": ["dashboard"],
+        "operationId": "assign_icon",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "The provider's slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignIcon"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The provider now shows this icon, or none",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IconAssigned"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Hub login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The role may not manage stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Not a provider's slug or an icon's name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "The icon bucket is not set up",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboard/images": {
       "post": {
         "tags": ["dashboard"],
@@ -5491,6 +5762,15 @@
           }
         }
       },
+      "AssignIcon": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": ["string", "null"],
+            "description": "The icon's name in the bucket, or `null` for none."
+          }
+        }
+      },
       "AuthenticatedUser": {
         "type": "object",
         "required": ["id", "username"],
@@ -5729,6 +6009,22 @@
           },
           "username": {
             "type": "string"
+          }
+        }
+      },
+      "DashboardIcons": {
+        "type": "object",
+        "required": ["enabled", "assignments"],
+        "properties": {
+          "assignments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IconAssignment"
+            }
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the bucket is set up. When it is not, no icon is shown or changed."
           }
         }
       },
@@ -6420,6 +6716,51 @@
           }
         }
       },
+      "IconAssigned": {
+        "type": "object",
+        "required": ["provider"],
+        "properties": {
+          "key": {
+            "type": ["string", "null"]
+          },
+          "provider": {
+            "type": "string"
+          },
+          "url": {
+            "type": ["string", "null"]
+          }
+        }
+      },
+      "IconAssignment": {
+        "type": "object",
+        "required": ["provider", "key", "url"],
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "The icon's name in the bucket."
+          },
+          "provider": {
+            "type": "string",
+            "description": "The provider's slug."
+          },
+          "url": {
+            "type": "string",
+            "description": "Where a browser loads it from."
+          }
+        }
+      },
+      "IconLibrary": {
+        "type": "object",
+        "required": ["icons"],
+        "properties": {
+          "icons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryIcon"
+            }
+          }
+        }
+      },
       "InviteAgentPoolMember": {
         "type": "object",
         "required": ["username"],
@@ -6434,6 +6775,23 @@
         "required": ["username"],
         "properties": {
           "username": {
+            "type": "string"
+          }
+        }
+      },
+      "LibraryIcon": {
+        "type": "object",
+        "required": ["key", "url", "size"],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "url": {
             "type": "string"
           }
         }
@@ -8015,6 +8373,18 @@
           "warranty_note": {
             "type": ["string", "null"],
             "description": "The package note: what a buyer reads when they open the package in the bot,\nup to 200 characters (line breaks count), kept as typed: line breaks, blank\nlines and spacing survive. Blank clears it. Absent leaves the note as it\nis, whatever else changes. (The field keeps the name it was made with, when\nit was a warranty note; the warranty itself is said by `warranty`.)"
+          }
+        }
+      },
+      "UploadedIcon": {
+        "type": "object",
+        "required": ["key", "url"],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
           }
         }
       },

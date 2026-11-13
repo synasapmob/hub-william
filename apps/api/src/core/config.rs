@@ -143,6 +143,9 @@ pub struct IconStorage {
     /// its name in the bucket and shown at this address, so a move to another domain
     /// changes this one value and no row.
     pub public_url: String,
+    /// Where the S3 API is: the account's R2 address unless `R2_ENDPOINT` says
+    /// otherwise, which only a local fake of the bucket does. No trailing slash.
+    pub endpoint: String,
 }
 
 /// The variables `IconStorage` is read from, in the order they are checked.
@@ -153,6 +156,22 @@ const ICON_STORAGE_VARIABLES: [&str; 5] = [
     "R2_BUCKET",
     "R2_PUBLIC_URL",
 ];
+
+/// An address a browser or the API may be sent to: `https`, or `http` for this
+/// machine alone, so a fake bucket can stand in locally. No login, query or fragment.
+fn is_plain_address(address: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(address) else {
+        return false;
+    };
+    let loopback = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
+
+    (url.scheme() == "https" || (url.scheme() == "http" && loopback))
+        && url.host_str().is_some()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.query().is_none()
+        && url.fragment().is_none()
+}
 
 /// Reads the `R2_*` variables through `lookup`. All five unset is a shop with no
 /// icon storage and says nothing; some set and some not, or a value that cannot be
@@ -217,16 +236,22 @@ fn parse_icon_storage(
         problems.push("R2_BUCKET is not a bucket name".to_owned());
     }
     let public_url = public_url.trim_end_matches('/');
-    match reqwest::Url::parse(public_url) {
-        Ok(url)
-            if url.scheme() == "https"
-                && url.host_str().is_some()
-                && url.username().is_empty()
-                && url.password().is_none()
-                && url.query().is_none()
-                && url.fragment().is_none() => {}
-        _ => problems.push("R2_PUBLIC_URL must be an https address with no query".to_owned()),
+    if !is_plain_address(public_url) {
+        problems.push("R2_PUBLIC_URL must be an https address with no query".to_owned());
     }
+    // Not one of the five: only a fake bucket on this machine is reached elsewhere.
+    // The account's own address is built from an id already checked above.
+    let endpoint = match lookup("R2_ENDPOINT") {
+        Some(custom) => {
+            let custom = custom.trim_end_matches('/').to_owned();
+            if !is_plain_address(&custom) {
+                problems.push("R2_ENDPOINT must be an https address with no query".to_owned());
+            }
+
+            custom
+        }
+        None => format!("https://{account_id}.r2.cloudflarestorage.com"),
+    };
 
     if !problems.is_empty() {
         return (None, problems);
@@ -239,6 +264,7 @@ fn parse_icon_storage(
             secret_access_key: secret_access_key.clone(),
             bucket: bucket.clone(),
             public_url: public_url.to_owned(),
+            endpoint,
         }),
         Vec::new(),
     )
@@ -593,7 +619,8 @@ mod tests {
                     "R2_ACCESS_KEY_ID" => "key-id-1",
                     "R2_SECRET_ACCESS_KEY" => SECRET,
                     "R2_BUCKET" => "hub-william-icons",
-                    _ => "https://pub-example.r2.dev/",
+                    "R2_PUBLIC_URL" => "https://pub-example.r2.dev/",
+                    _ => return None,
                 }
                 .to_owned(),
             )
@@ -609,6 +636,37 @@ mod tests {
         assert_eq!(storage.account_id, "0123abcd");
         assert_eq!(storage.bucket, "hub-william-icons");
         assert_eq!(storage.public_url, "https://pub-example.r2.dev");
+    }
+
+    #[test]
+    fn the_s3_address_is_the_accounts_unless_a_local_fake_is_named() {
+        let (storage, _) = r2(&[]);
+        assert_eq!(
+            storage.expect("complete").endpoint,
+            "https://0123abcd.r2.cloudflarestorage.com"
+        );
+
+        let (storage, problems) = r2(&[("R2_ENDPOINT", Some("http://127.0.0.1:9000/"))]);
+        assert!(problems.is_empty());
+        assert_eq!(storage.expect("complete").endpoint, "http://127.0.0.1:9000");
+
+        let (storage, problems) = r2(&[("R2_ENDPOINT", Some("http://example.com"))]);
+        assert!(storage.is_none());
+        assert_eq!(problems.len(), 1);
+    }
+
+    #[test]
+    fn plain_http_is_for_this_machine_only() {
+        assert!(
+            r2(&[("R2_PUBLIC_URL", Some("http://localhost:9000/bucket"))])
+                .0
+                .is_some()
+        );
+        assert!(
+            r2(&[("R2_PUBLIC_URL", Some("http://cdn.example.com"))])
+                .0
+                .is_none()
+        );
     }
 
     #[test]
