@@ -866,7 +866,8 @@ enum Outcome {
     Replace(Reply),
 }
 
-/// Draws a shop screen again from the API. A package that has gone, been hidden
+/// Draws a shop screen again from the API: the provider menu, a provider's list or
+/// a package's prompt. A package that has gone, been hidden
 /// or sold out since the buyer opened it is shown where it now stands: in its
 /// provider's list, or in the menu when the provider has gone too.
 async fn refresh_outcome(
@@ -877,7 +878,11 @@ async fn refresh_outcome(
     language: Language,
     screen: &str,
 ) -> Result<Outcome, StatusCode> {
-    let edit = if let Some(slug) = screen.strip_prefix("provider:") {
+    let edit = if screen == view::MENU_SCREEN {
+        let catalogue = fetch_catalogue(state).await?;
+
+        view::edit_menu(chat_id, message_id, language, &catalogue)
+    } else if let Some(slug) = screen.strip_prefix("provider:") {
         let catalogue = fetch_catalogue(state).await?;
 
         match catalogue.provider(slug) {
@@ -1566,7 +1571,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_menu_lists_providers_and_nothing_else() {
+    async fn the_menu_lists_providers_and_a_refresh_below_them_and_nothing_else() {
         let shop = Shop::open().await;
         let response = shop.update_json(callback_update("language:vi")).await;
         let keyboard = response["reply_markup"]["inline_keyboard"]
@@ -1575,11 +1580,33 @@ mod tests {
 
         assert_eq!(response["method"], "editMessageText");
         assert_eq!(response["text"], "Hub William shop\n\nChọn nhà cung cấp.");
-        assert_eq!(keyboard.len(), 3);
+        assert_eq!(keyboard.len(), 4);
         assert_eq!(keyboard[0][0]["text"], "ChatGPT");
         assert_eq!(keyboard[0][0]["callback_data"], "provider:chatgpt");
         assert_eq!(keyboard[1][0]["text"], "Claude");
         assert_eq!(keyboard[2][0]["text"], "Grok");
+        assert_eq!(keyboard[3][0]["text"], "🔄 Tải lại");
+        assert_eq!(keyboard[3][0]["callback_data"], "refresh:menu");
+        assert_eq!(keyboard[3].as_array().map(Vec::len), Some(1));
+    }
+
+    #[tokio::test]
+    async fn refreshing_the_menu_draws_it_again_and_says_so() {
+        let shop = Shop::open().await;
+        let opened = shop.update_json(callback_update("menu")).await;
+        let refreshed = shop.update_json(callback_update("refresh:menu")).await;
+
+        assert_eq!(refreshed["method"], "editMessageText");
+        assert_eq!(refreshed["text"], opened["text"]);
+        assert_eq!(
+            refreshed["reply_markup"]["inline_keyboard"],
+            opened["reply_markup"]["inline_keyboard"]
+        );
+
+        // A toast that fades by itself, not a popup to dismiss.
+        let answer = shop.last_answer();
+        assert_eq!(answer["text"], "✅ Đã tải lại");
+        assert!(answer.get("show_alert").is_none());
     }
 
     #[tokio::test]

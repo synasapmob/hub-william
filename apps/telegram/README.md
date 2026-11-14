@@ -114,8 +114,9 @@ numbers whenever anything is held.
 A tapped button is left unacknowledged until its work finishes, so Telegram
 keeps its own loading state on the button rather than looking frozen; a plain
 message that needs an API round trip gets the typing indicator instead.
-The package list and the quantity prompt end with "Quay trở lại" and, below it, "Tải lại", which
-draws the screen again so a count or a price that changed shows up. Every back button says the
+The provider menu ends with "Tải lại" below the providers, and the package list and the
+quantity prompt end with "Quay trở lại" and, below it, "Tải lại". It draws the screen again so
+a provider, a count or a price that changed shows up. Every back button says the
 same thing, wherever it goes back to.
 Browsing the shop rewrites one message in place, so nothing stacks up and the
 shop never moves to the end of the chat. Only a payment panel replaces the
