@@ -16,13 +16,16 @@ pub fn language_picker(chat_id: i64) -> SendMessage {
 
 pub fn menu(chat_id: i64, language: Language, catalogue: &Catalogue) -> SendMessage {
     SendMessage::new(chat_id, menu_text(language, catalogue))
-        .with_keyboard(menu_keyboard(catalogue))
+        .with_keyboard(menu_keyboard(language, catalogue))
 }
 
 /// Every shop screen is text, so a button rewrites the message it belongs to
 /// rather than replacing it — nothing moves to the end of the chat.
 /// What a refresh button's data starts with; the rest says which screen to draw.
 pub const REFRESH_PREFIX: &str = "refresh:";
+
+/// The screen a refresh button opens for the provider menu, after the prefix.
+pub const MENU_SCREEN: &str = "menu";
 
 /// The most Telegram allows in the data of one button.
 const MAXIMUM_CALLBACK_DATA_BYTES: usize = 64;
@@ -34,7 +37,7 @@ pub fn edit_menu(
     catalogue: &Catalogue,
 ) -> EditMessageText {
     EditMessageText::new(chat_id, message_id, menu_text(language, catalogue))
-        .with_keyboard(menu_keyboard(catalogue))
+        .with_keyboard(menu_keyboard(language, catalogue))
 }
 
 pub fn edit_provider(
@@ -597,8 +600,10 @@ fn language_keyboard() -> InlineKeyboardMarkup {
 }
 
 /// The providers are the whole menu: language stays on /lang so the shop list
-/// carries nothing but the shop.
-fn menu_keyboard(catalogue: &Catalogue) -> InlineKeyboardMarkup {
+/// carries nothing but the shop. Below them, a refresh, so a provider that was
+/// listed or sold out since the menu was opened shows up, and an empty menu can be
+/// asked again.
+fn menu_keyboard(language: Language, catalogue: &Catalogue) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup {
         inline_keyboard: catalogue
             .providers
@@ -609,6 +614,7 @@ fn menu_keyboard(catalogue: &Catalogue) -> InlineKeyboardMarkup {
                     format!("provider:{}", provider.slug),
                 )]
             })
+            .chain(refresh_button(language, MENU_SCREEN).map(|button| vec![button]))
             .collect(),
     }
 }
