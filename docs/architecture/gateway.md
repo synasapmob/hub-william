@@ -321,7 +321,8 @@ metadata and the current lineup. Key clients and the Playground share
 - The official-docs lineup is parsed from the provider's docs page
   (`fetch_or_cached_openai_catalogue`, `fetch_or_cached_claude_catalogue`):
   ChatGPT's "Recommended models" section (slugs plus the GPT families named in the
-  rollout paragraph) and Claude's "Compare models" table. Each result is cached for
+  rollout paragraph) and Claude's models table, which is found by its "Claude API
+  ID" row rather than by its heading. Each result is cached for
   one hour, the fetch times out after 6 s, a stale copy is served when a fetch
   fails, and the bundled catalogue is the last fallback. A model that appears in the
   docs and in the live list is offered without a code change.

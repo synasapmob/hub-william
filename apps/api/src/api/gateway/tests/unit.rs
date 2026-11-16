@@ -556,11 +556,11 @@ fn subscriber_catalogue_keeps_only_models_the_account_lists() {
 #[test]
 fn subscriber_catalogue_keeps_current_metadata_for_claude_models() {
     let current = default_claude_model_catalogue();
-    let live = json!({ "data": [{ "id": "claude-sonnet-5" }, { "id": "claude-old" }] });
+    let live = json!({ "data": [{ "id": "claude-sonnet-5-5" }, { "id": "claude-old" }] });
     let filtered = intersect_live_catalogue(&current, &live).unwrap();
     let models = filtered["data"].as_array().unwrap();
     assert_eq!(models.len(), 1);
-    assert_eq!(models[0]["id"], "claude-sonnet-5");
+    assert_eq!(models[0]["id"], "claude-sonnet-5-5");
     assert_eq!(models[0]["capabilities"]["effort"]["supported"], true);
 }
 
@@ -578,42 +578,86 @@ fn default_claude_model_catalogue_includes_current_models_and_sonnet_effort() {
     assert_eq!(catalogue["object"], "list");
     let models = catalogue["data"].as_array().unwrap();
     assert_eq!(models.len(), 4);
-    assert_eq!(models[0]["id"], "claude-fable-5-1");
-    assert_eq!(models[0]["display_name"], "Claude Fable 5.1");
+    assert_eq!(models[0]["id"], "claude-fable-5-2");
+    assert_eq!(models[0]["display_name"], "Claude Fable 5.2");
     assert_eq!(models[0]["capabilities"]["effort"]["supported"], true);
     assert_eq!(models[1]["id"], "claude-opus-5-5");
     assert_eq!(models[1]["display_name"], "Claude Opus 5.5");
     assert_eq!(models[1]["capabilities"]["effort"]["supported"], true);
-    assert_eq!(models[2]["id"], "claude-sonnet-5");
+    assert_eq!(models[2]["id"], "claude-sonnet-5-5");
     assert_eq!(models[2]["capabilities"]["effort"]["supported"], true);
-    assert_eq!(models[3]["id"], "claude-haiku-4-5-20251001");
+    assert_eq!(models[3]["id"], "claude-haiku-5-5");
+    assert_eq!(models[3]["capabilities"]["effort"]["supported"], true);
 }
 
 #[test]
 fn parse_claude_models_markdown_extracts_models_and_effort() {
     let markdown = r#"
-## Compare models
+# Models overview
 
-| Feature | Claude Fable 5.1 | Claude Opus 5.5 | Claude Sonnet 5 | Claude Haiku 4.5 |
+## Latest models
+
+If you're unsure which model to use, start with Claude Opus 5.5.
+
+| Feature | Claude Fable 5.2 | Claude Opus 5.5 | Claude Sonnet 5.5 | Claude Haiku 5.5 |
 | :--- | :--- | :--- | :--- | :--- |
-| Claude API ID | `claude-fable-5-1` | `claude-opus-5-5` | `claude-sonnet-5` | `claude-haiku-4-5-20251001` |
-| [Default effort](https://platform.claude.com/effort) | `high` | `medium` | `high` | Not supported |
-| Claude API alias | `claude-fable-5-1` | `claude-opus-5-5` | `claude-sonnet-5` | `claude-haiku-4-5` |
+| Claude API ID | `claude-fable-5-2` | `claude-opus-5-5` | `claude-sonnet-5-5` | `claude-haiku-5-5` |
+| [Default effort](https://platform.claude.com/effort) | `high` | `medium` | `high` | `medium` |
+| Claude API alias | `claude-fable-5-2` | `claude-opus-5-5` | `claude-sonnet-5-5` | `claude-haiku-5-5` |
 
-Legacy models (still available): [Claude Fable 5](https://platform.claude.com/docs/en/models/fable-5/overview), [Claude Opus 5](https://platform.claude.com/docs/en/models/opus-5/overview), [Claude Opus 4.8](https://platform.claude.com/docs/en/models/opus-4-8/overview).
+## All models
+
+| Model | Capabilities: Context window | Capabilities: Max output |
+| :--- | :--- | :--- |
+| [Claude Fable 5.1](https://platform.claude.com/docs/en/models/fable-5-1/overview) | 1M tokens | 128K tokens |
 "#;
     let parsed = parse_claude_models_markdown(markdown).unwrap();
     assert_eq!(parsed["object"], "list");
     let models = parsed["data"].as_array().unwrap();
-    assert_eq!(models[0]["id"], "claude-fable-5-1");
-    assert_eq!(models[0]["display_name"], "Claude Fable 5.1");
+    assert_eq!(models.len(), 4);
+    assert_eq!(models[0]["id"], "claude-fable-5-2");
+    assert_eq!(models[0]["display_name"], "Claude Fable 5.2");
     assert_eq!(models[0]["capabilities"]["effort"]["supported"], true);
     assert_eq!(models[1]["id"], "claude-opus-5-5");
     assert_eq!(models[1]["display_name"], "Claude Opus 5.5");
     assert_eq!(models[1]["capabilities"]["effort"]["supported"], true);
-    assert_eq!(models[3]["id"], "claude-haiku-4-5-20251001");
-    assert!(models[3].get("capabilities").is_none());
-    assert_eq!(models.len(), 4);
+    assert_eq!(models[3]["id"], "claude-haiku-5-5");
+    assert_eq!(models[3]["display_name"], "Claude Haiku 5.5");
+    assert_eq!(models[3]["capabilities"]["effort"]["supported"], true);
+}
+
+#[test]
+fn parse_claude_models_markdown_finds_the_table_under_any_heading() {
+    for heading in ["## Compare models", "## Latest models", "## Models"] {
+        let markdown = format!(
+            r#"
+{heading}
+
+| Feature | Claude Fable 5.2 | Claude Haiku 4.5 |
+| :--- | :--- | :--- |
+| Claude API ID | `claude-fable-5-2` | `claude-haiku-4-5-20251001` |
+| [Default effort](https://platform.claude.com/effort) | `high` | Not supported |
+"#
+        );
+        let parsed = parse_claude_models_markdown(&markdown).unwrap();
+        let models = parsed["data"].as_array().unwrap();
+        assert_eq!(models.len(), 2, "{heading}");
+        assert_eq!(models[0]["id"], "claude-fable-5-2", "{heading}");
+        assert_eq!(models[1]["id"], "claude-haiku-4-5-20251001", "{heading}");
+        assert!(models[1].get("capabilities").is_none(), "{heading}");
+    }
+}
+
+#[test]
+fn parse_claude_models_markdown_is_none_without_the_api_id_row() {
+    let markdown = r#"
+## Latest models
+
+| Feature | Claude Fable 5.2 |
+| :--- | :--- |
+| Context window | 1M tokens |
+"#;
+    assert!(parse_claude_models_markdown(markdown).is_none());
 }
 
 #[test]
