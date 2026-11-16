@@ -226,7 +226,7 @@ const providerCatalogue: ProviderCatalogue = {
           auth: "auth_token",
           effort_option: "effort",
           metadata_adapter: null,
-          preferred_models: ["claude-opus-5-5", "claude-sonnet-5"],
+          preferred_models: ["claude-opus-5-5", "claude-sonnet-5-5"],
         },
         omp: {
           api: "anthropic-messages",
@@ -234,8 +234,8 @@ const providerCatalogue: ProviderCatalogue = {
       },
       models: [
         {
-          id: "claude-fable-5-1",
-          name: "Claude Fable 5.1",
+          id: "claude-fable-5-2",
+          name: "Claude Fable 5.2",
           status: "current",
           capabilities: ["chat", "image_input"],
           reasoning_efforts: ["low", "medium", "high", "xhigh", "max"],
@@ -248,17 +248,18 @@ const providerCatalogue: ProviderCatalogue = {
           reasoning_efforts: ["low", "medium", "high", "xhigh", "max"],
         },
         {
-          id: "claude-sonnet-5",
-          name: "Claude Sonnet 5",
+          id: "claude-sonnet-5-5",
+          name: "Claude Sonnet 5.5",
           status: "current",
           capabilities: ["chat", "image_input"],
           reasoning_efforts: ["low", "medium", "high", "xhigh", "max"],
         },
         {
-          id: "claude-haiku-4-5-20251001",
-          name: "Claude Haiku 4.5",
+          id: "claude-haiku-5-5",
+          name: "Claude Haiku 5.5",
           status: "current",
           capabilities: ["chat", "image_input"],
+          reasoning_efforts: ["low", "medium", "high", "xhigh", "max"],
         },
       ],
       native_cli: {

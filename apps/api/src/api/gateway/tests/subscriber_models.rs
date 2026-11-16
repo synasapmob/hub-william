@@ -90,7 +90,7 @@ async fn claude_models_upstream(
     (
         StatusCode::OK,
         Json(json!({ "data": [
-            { "id": "claude-sonnet-5", "display_name": "Claude Sonnet 5" },
+            { "id": "claude-sonnet-5-5", "display_name": "Claude Sonnet 5.5" },
             { "id": "claude-retired-3" }
         ] })),
     )
@@ -242,7 +242,7 @@ async fn claude_key_lists_only_models_the_subscription_has(pool: PgPool) {
     let response = claude_models(State(harness.state.clone()), key_headers())
         .await
         .unwrap();
-    assert_eq!(ids(response).await, ["claude-sonnet-5"]);
+    assert_eq!(ids(response).await, ["claude-sonnet-5-5"]);
     assert_eq!(
         *harness.fake.tokens.lock().unwrap(),
         ["Bearer claude-token"]
@@ -260,7 +260,7 @@ async fn account_without_access_gets_an_error_not_the_catalogue(pool: PgPool) {
     let body = to_bytes(response.into_body(), 1_000_000).await.unwrap();
     let text = String::from_utf8_lossy(&body);
     assert!(
-        !text.contains("claude-sonnet-5") && !text.contains("claude-opus"),
+        !text.contains("claude-sonnet-5-5") && !text.contains("claude-opus"),
         "no catalogue fallback: {text}"
     );
 }
