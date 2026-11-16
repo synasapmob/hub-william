@@ -154,7 +154,7 @@ PROVIDER_CATALOGUE = json.loads(r'''
     "metadata_adapter": null,
     "preferred_models": [
       "claude-opus-5-5",
-      "claude-sonnet-5"
+      "claude-sonnet-5-5"
     ]
   },
   "gemini": {

@@ -200,9 +200,25 @@ pub(crate) fn default_claude_model_catalogue() -> Value {
     crate::utils::provider_catalogue::default_model_catalogue(AgentProvider::Claude)
 }
 
+/// The first cell of a markdown table row, without the link around it.
+fn table_row_label(line: &str) -> &str {
+    let label = line
+        .split('|')
+        .nth(1)
+        .unwrap_or_default()
+        .trim()
+        .trim_start_matches('[');
+    label.split(']').next().unwrap_or(label).trim()
+}
+
 pub(crate) fn parse_claude_models_markdown(content: &str) -> Option<Value> {
-    let current = content.split_once("## Compare models")?.1;
-    let current = current.split("\n## ").next().unwrap_or(current);
+    // The docs renamed this table's heading from "Compare models" to "Latest
+    // models" and parsing stopped, so find the section by its "Claude API ID" row.
+    let current = content.split("\n## ").find(|section| {
+        section
+            .lines()
+            .any(|line| table_row_label(line) == "Claude API ID")
+    })?;
     let mut header_cols: Vec<String> = Vec::new();
     let mut id_cols: Vec<String> = Vec::new();
     let mut effort_cols: Vec<String> = Vec::new();
@@ -210,8 +226,7 @@ pub(crate) fn parse_claude_models_markdown(content: &str) -> Option<Value> {
     for line in current.lines() {
         let parts: Vec<&str> = line.split('|').map(str::trim).collect();
         if parts.len() > 2 {
-            let label = parts[1].trim_start_matches('[');
-            let label = label.split(']').next().unwrap_or(label).trim();
+            let label = table_row_label(line);
             if label == "Feature" {
                 header_cols = parts[2..parts.len() - 1]
                     .iter()

@@ -194,10 +194,10 @@ fn current_lineup_only_includes_ids_advertised_by_selected_account() {
         &json!({"data":[
             {"id":"claude-opus-4-5-20251101"},
             {"id":"claude-opus-5"},
-            {"id":"claude-fable-5-1"},
+            {"id":"claude-fable-5-2"},
             {"id":"claude-opus-5-5"},
-            {"id":"claude-sonnet-5"},
-            {"id":"claude-haiku-4-5-20251001"}
+            {"id":"claude-sonnet-5-5"},
+            {"id":"claude-haiku-5-5"}
         ]}),
         Some(&gateway::default_claude_model_catalogue()),
     )
@@ -205,10 +205,10 @@ fn current_lineup_only_includes_ids_advertised_by_selected_account() {
     assert_eq!(
         claude.into_iter().map(|model| model.id).collect::<Vec<_>>(),
         [
-            "claude-fable-5-1",
+            "claude-fable-5-2",
             "claude-opus-5-5",
-            "claude-sonnet-5",
-            "claude-haiku-4-5-20251001",
+            "claude-sonnet-5-5",
+            "claude-haiku-5-5",
         ]
     );
 
