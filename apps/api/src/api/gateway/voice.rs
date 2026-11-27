@@ -86,7 +86,7 @@ async fn create_session(
     }
 
     if saw_rate_limit {
-        Err(ApiError::RateLimited)
+        Err(ApiError::RateLimited(None))
     } else if saw_reauthorization {
         Err(ApiError::Provider(
             "Reconnect this account before starting a voice call.".into(),
@@ -385,7 +385,7 @@ mod tests {
         set("other-voice-token", 429);
         assert!(matches!(
             create_session(&state, selection, body, &url).await,
-            Err(ApiError::RateLimited)
+            Err(ApiError::RateLimited(None))
         ));
         assert_eq!(take(), ["Bearer other-voice-token"]);
         task.abort();

@@ -11,6 +11,8 @@ mod organization_database;
 #[cfg(feature = "database-tests")]
 mod subscriber_models;
 #[cfg(feature = "database-tests")]
+mod upstream_status;
+#[cfg(feature = "database-tests")]
 mod usage_events;
 #[cfg(feature = "database-tests")]
 mod usage_report;

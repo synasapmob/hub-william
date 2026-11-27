@@ -5,6 +5,7 @@ mod keys;
 mod models;
 mod providers;
 mod proxy;
+mod rate_limit;
 mod selection;
 mod usage;
 mod usage_report;

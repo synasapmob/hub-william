@@ -472,11 +472,19 @@ async fn error_code(response: axum::response::Response) -> String {
     body["code"].as_str().unwrap().to_owned()
 }
 
-/// (availability_status, failure_message, still cooling down for 25+ minutes)
+/// The message of the provider's own error body, when the provider's answer
+/// was relayed to the client unchanged.
+async fn relayed_provider_message(response: axum::response::Response) -> String {
+    let body: Value = serde_json::from_str(&body_text(response).await).unwrap();
+    body["error"]["message"].as_str().unwrap().to_owned()
+}
+
+/// (availability_status, failure_message, resting for about the default minute)
 async fn availability(pool: &PgPool, connection_id: Uuid) -> (String, Option<String>, bool) {
     sqlx::query_as(
         "SELECT availability_status, failure_message,
-                COALESCE(rate_limited_until > NOW() + INTERVAL '25 minutes', FALSE)
+                COALESCE(rate_limited_until > NOW() + INTERVAL '30 seconds'
+                         AND rate_limited_until <= NOW() + INTERVAL '65 seconds', FALSE)
          FROM agent_connections WHERE id = $1",
     )
     .bind(connection_id)
@@ -539,9 +547,15 @@ async fn organization_chat_fails_over_from_rate_limited_preferred_share_to_teamm
     let stream = body_text(response).await;
     assert!(stream.contains("Served by key-b"), "{stream}");
     assert!(!stream.contains("key-a"));
+    // The preferred share gets its two retries before the teammate's serves.
     assert_eq!(
         upstream.calls(),
-        [called("/responses", "key-a"), called("/responses", "key-b")]
+        [
+            called("/responses", "key-a"),
+            called("/responses", "key-a"),
+            called("/responses", "key-a"),
+            called("/responses", "key-b")
+        ]
     );
     assert_eq!(
         availability(&state.pool, preferred).await,
@@ -578,6 +592,8 @@ async fn organization_chat_fails_over_from_rate_limited_preferred_share_to_teamm
         upstream.calls(),
         [
             called("/responses", "key-a"),
+            called("/responses", "key-a"),
+            called("/responses", "key-a"),
             called("/responses", "key-b"),
             called("/responses", "key-b")
         ]
@@ -611,12 +627,18 @@ async fn organization_chat_is_rate_limited_without_touching_members_personal_acc
         .oneshot(chat_request(&member_cookie, preferred, Some(org)))
         .await
         .unwrap();
+    // Both shares answered 429, so the provider's own 429 is what the client gets.
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(served_by(&response), None);
-    assert_eq!(error_code(response).await, "all_pools_rate_limited");
+    assert_eq!(relayed_provider_message(response).await, "unavailable");
     assert_eq!(
         upstream.calls(),
-        [called("/responses", "key-a"), called("/responses", "key-b")],
+        [
+            called("/responses", "key-a"),
+            called("/responses", "key-a"),
+            called("/responses", "key-a"),
+            called("/responses", "key-b")
+        ],
         "Organization failover stays inside the organization's shares"
     );
     for share in [preferred, teammate] {
@@ -684,6 +706,8 @@ async fn personal_chat_fails_over_only_to_own_accounts_and_accepted_pools(pool: 
         upstream.calls(),
         [
             called("/responses", "key-own"),
+            called("/responses", "key-own"),
+            called("/responses", "key-own"),
             called("/responses", "key-pool")
         ]
     );
@@ -701,11 +725,17 @@ async fn personal_chat_fails_over_only_to_own_accounts_and_accepted_pools(pool: 
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(error_code(response).await, "all_pools_rate_limited");
+    assert_eq!(relayed_provider_message(response).await, "unavailable");
+    // The resting own account is skipped; the pool's account, the last to try,
+    // is sent the request and its two retries.
     assert_eq!(
         upstream.calls(),
         [
             called("/responses", "key-own"),
+            called("/responses", "key-own"),
+            called("/responses", "key-own"),
+            called("/responses", "key-pool"),
+            called("/responses", "key-pool"),
             called("/responses", "key-pool"),
             called("/responses", "key-pool")
         ]
