@@ -142,14 +142,12 @@ class PlaygroundService {
     onDelta,
     connectionId,
     organizationId,
-    service,
     ...input
   }: PlaygroundChatOptions): Promise<PlaygroundChatResult> {
     const body = {
       ...input,
-      connection_id: service ? undefined : connectionId,
+      connection_id: connectionId,
       organization_id: organizationId,
-      service: service || undefined,
     };
     if (new Blob([JSON.stringify(body)]).size > 32 * 1024 * 1024)
       throw new PlaygroundServiceError(
