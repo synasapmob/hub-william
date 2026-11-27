@@ -19,8 +19,7 @@ export const meta: Route.MetaFunction = () => [
   { title: "Hub William · Dashboard" },
   {
     name: "description",
-    content:
-      "Bán hàng, kho, đơn hàng và doanh thu của Hub William và Telegram shop.",
+    content: "Bán hàng, kho, đơn hàng và doanh thu của Telegram shop.",
   },
   { name: "viewport", content: "width=device-width, initial-scale=1" },
   { charSet: "utf-8" },

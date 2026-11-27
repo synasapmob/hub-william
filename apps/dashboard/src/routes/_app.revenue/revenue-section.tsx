@@ -3,9 +3,8 @@ import RevenueChart, { type RevenuePoint } from "@/components/revenue-chart";
 import StatCard from "@/components/stat-card";
 import StockTypeBadge from "@/components/stock-type-badge";
 import Flex from "@/components/ui/flex";
-import { stockTypeCurrency } from "@/services/sales/sales-labels";
 import type { StockType } from "@/services/sales/sales-types";
-import { formatMoney } from "@/utils/utils.format";
+import { formatVnd } from "@/utils/utils.format";
 
 interface RevenueSectionProps {
   type: StockType;
@@ -30,7 +29,6 @@ export default function RevenueSection({
   points,
   type,
 }: RevenueSectionProps) {
-  const currency = stockTypeCurrency[type];
   const current = points.slice(-days);
   const previous = points.slice(-2 * days, -days);
   const total = sum(current, "total");
@@ -42,7 +40,7 @@ export default function RevenueSection({
         <StockTypeBadge type={type} />
 
         <span className="text-xs text-muted-foreground">
-          Tính bằng {currency === "VND" ? "đồng (VND)" : "đô la (USD)"}
+          Tính bằng đồng (VND)
         </span>
       </Flex>
 
@@ -50,7 +48,7 @@ export default function RevenueSection({
         <StatCard
           change={change(total, sum(previous, "total"))}
           label="Doanh thu"
-          value={formatMoney(total, currency)}
+          value={formatVnd(total)}
         />
 
         <StatCard
@@ -61,10 +59,7 @@ export default function RevenueSection({
 
         <StatCard
           label="Trung bình mỗi đơn"
-          value={formatMoney(
-            orders === 0 ? 0 : Math.round(total / orders),
-            currency,
-          )}
+          value={formatVnd(orders === 0 ? 0 : Math.round(total / orders))}
         />
       </div>
 

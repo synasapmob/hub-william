@@ -4,13 +4,11 @@ import type { TelegramProduct } from "@/services/sales/sales-types";
 
 import {
   availableStock,
-  formatCompactUsd,
   formatCompactVnd,
   formatDateTime,
   formatDay,
   formatDuration,
   formatTokens,
-  formatUsd,
   formatVnd,
   initials,
   productTitle,
@@ -43,23 +41,12 @@ describe("money", () => {
     expect(plain(formatVnd(1_890_000))).toBe("1.890.000 ₫");
   });
 
-  it("writes micro-dollars as dollars", () => {
-    expect(formatUsd(20_000_000)).toBe("$20.00");
-    expect(formatUsd(226_200)).toBe("$0.23");
-  });
-
   it("shortens đồng for axes and tiles", () => {
     expect(formatCompactVnd(850_000)).toBe("850k");
     expect(formatCompactVnd(1_200_000)).toBe("1,2 tr");
     expect(formatCompactVnd(2_000_000)).toBe("2 tr");
     expect(formatCompactVnd(3_400_000_000)).toBe("3,4 tỷ");
     expect(formatCompactVnd(0)).toBe("0");
-  });
-
-  it("shortens micro-dollars for axes and tiles", () => {
-    expect(formatCompactUsd(500_000)).toBe("$0.5");
-    expect(formatCompactUsd(12_000_000)).toBe("$12");
-    expect(formatCompactUsd(1_500_000_000)).toBe("$1.5K");
   });
 
   it("rounds a token count to the unit a person quotes", () => {

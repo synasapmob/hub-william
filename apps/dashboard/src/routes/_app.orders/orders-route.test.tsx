@@ -153,7 +153,7 @@ describe("OrdersRoute, the list", () => {
     );
   });
 
-  it("shows no type column and no Hub William order", async () => {
+  it("shows no type column and no type filter", async () => {
     await setup();
 
     expect(

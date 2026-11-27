@@ -1,4 +1,4 @@
-import { Bot, Send } from "lucide-react";
+import { Send } from "lucide-react";
 import { tv } from "tailwind-variants";
 
 import { stockTypeLabels } from "@/services/sales/sales-labels";
@@ -9,18 +9,15 @@ const badge = tv({
   variants: {
     type: {
       telegram: "border-sky-200 bg-sky-50 text-sky-700",
-      "hub-william": "border-indigo-200 bg-indigo-50 text-indigo-700",
     },
   },
 });
 
-/** Which side of the business an item or an order belongs to. */
+/** Where an item or an order is sold. */
 export default function StockTypeBadge({ type }: { type: StockType }) {
-  const Icon = type === "telegram" ? Send : Bot;
-
   return (
     <span className={badge({ type })}>
-      <Icon aria-hidden={true} className="size-3" />
+      <Send aria-hidden={true} className="size-3" />
 
       {stockTypeLabels[type]}
     </span>

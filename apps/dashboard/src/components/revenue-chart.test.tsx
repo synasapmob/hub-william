@@ -60,17 +60,6 @@ describe("RevenueChart", () => {
     expect(screen.getAllByRole("row")[1]).toHaveTextContent("05/11");
   });
 
-  it("writes Hub William takings in dollars", () => {
-    render(
-      <RevenueChart
-        points={[{ date: "2026-11-05", orders: 2, total: 30_000_000 }]}
-        type="hub-william"
-      />,
-    );
-
-    expect(screen.getByText(/Cao nhất \$30\.00/)).toBeInTheDocument();
-  });
-
   it("says so when there is nothing to draw", () => {
     render(<RevenueChart points={[]} type="telegram" />);
 

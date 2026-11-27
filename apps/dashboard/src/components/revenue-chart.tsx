@@ -11,13 +11,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { stockTypeCurrency } from "@/services/sales/sales-labels";
 import type { StockType } from "@/services/sales/sales-types";
-import {
-  formatCompactMoney,
-  formatDay,
-  formatMoney,
-} from "@/utils/utils.format";
+import { formatCompactVnd, formatDay, formatVnd } from "@/utils/utils.format";
 
 const column = tv({
   slots: {
@@ -27,7 +22,6 @@ const column = tv({
   variants: {
     type: {
       telegram: { bar: "bg-chart-4", key: "bg-chart-4" },
-      "hub-william": { bar: "bg-chart-1", key: "bg-chart-1" },
     },
   },
 });
@@ -35,7 +29,7 @@ const column = tv({
 export interface RevenuePoint {
   /** `YYYY-MM-DD`, in shop time. */
   date: string;
-  /** Takings of the day, in the currency of the chart's type. */
+  /** Takings of the day, in đồng. */
   total: number;
   orders: number;
 }
@@ -61,7 +55,6 @@ function niceCeil(value: number) {
 function RevenueChartColumns({ points, type }: RevenueChartProps) {
   const [active, setActive] = useState<number | null>(null);
 
-  const currency = stockTypeCurrency[type];
   const { bar, key } = column({ type });
   const top = niceCeil(Math.max(...points.map((point) => point.total)));
   // Label about seven days, always ending on the latest one.
@@ -77,7 +70,7 @@ function RevenueChartColumns({ points, type }: RevenueChartProps) {
             className="absolute right-0 -translate-y-1/2"
             style={{ top: `${(1 - share) * 100}%` }}
           >
-            {formatCompactMoney(top * share, currency)}
+            {formatCompactVnd(top * share)}
           </span>
         ))}
       </div>
@@ -96,7 +89,7 @@ function RevenueChartColumns({ points, type }: RevenueChartProps) {
             {points.map((point, index) => (
               <button
                 key={point.date}
-                aria-label={`${formatDay(point.date)}: ${formatMoney(point.total, currency)}, ${point.orders} đơn`}
+                aria-label={`${formatDay(point.date)}: ${formatVnd(point.total)}, ${point.orders} đơn`}
                 className="group relative flex h-full min-w-0 flex-1 items-end justify-center px-px outline-none"
                 onBlur={() => setActive(null)}
                 onFocus={() => setActive(index)}
@@ -127,7 +120,7 @@ function RevenueChartColumns({ points, type }: RevenueChartProps) {
                 <span className={key()} />
 
                 <span className="text-sm font-semibold tabular-nums">
-                  {formatMoney(activePoint.total, currency)}
+                  {formatVnd(activePoint.total)}
                 </span>
               </Flex>
 
@@ -154,9 +147,7 @@ function RevenueChartColumns({ points, type }: RevenueChartProps) {
   );
 }
 
-function RevenueChartTable({ points, type }: RevenueChartProps) {
-  const currency = stockTypeCurrency[type];
-
+function RevenueChartTable({ points }: Pick<RevenueChartProps, "points">) {
   return (
     <div className="max-h-64 overflow-auto rounded-lg border">
       <Table>
@@ -180,7 +171,7 @@ function RevenueChartTable({ points, type }: RevenueChartProps) {
               </TableCell>
 
               <TableCell className="text-right tabular-nums">
-                {formatMoney(point.total, currency)}
+                {formatVnd(point.total)}
               </TableCell>
             </TableRow>
           ))}
@@ -194,7 +185,6 @@ function RevenueChartTable({ points, type }: RevenueChartProps) {
 export default function RevenueChart({ points, type }: RevenueChartProps) {
   const [view, setView] = useState<ChartView>("chart");
 
-  const currency = stockTypeCurrency[type];
   const peak = points.reduce<RevenuePoint | null>(
     (best, point) => (!best || point.total > best.total ? point : best),
     null,
@@ -212,7 +202,7 @@ export default function RevenueChart({ points, type }: RevenueChartProps) {
     <div className="space-y-3">
       <Flex className="items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">
-          Cao nhất {formatMoney(peak.total, currency)} · {formatDay(peak.date)}
+          Cao nhất {formatVnd(peak.total)} · {formatDay(peak.date)}
         </p>
 
         <Tabs value={view} onValueChange={(next) => setView(next as ChartView)}>
@@ -227,7 +217,7 @@ export default function RevenueChart({ points, type }: RevenueChartProps) {
       {view === "chart" ? (
         <RevenueChartColumns points={points} type={type} />
       ) : (
-        <RevenueChartTable points={points} type={type} />
+        <RevenueChartTable points={points} />
       )}
     </div>
   );
