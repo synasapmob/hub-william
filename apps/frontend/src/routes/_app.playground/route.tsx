@@ -14,14 +14,9 @@ import playgroundMedia, {
 
 import PlaygroundWorkspace from "./playground-workspace";
 
-// Whose accounts a chat uses: the user's own, an organization's, or the
-// platform's, which are paid for.
-export type PlaygroundKind = "workspace" | "organization" | "service";
-
 export interface PlaygroundFormValues {
   attachments: PlaygroundAttachment[];
   connectionId: string;
-  kind: PlaygroundKind;
   organizationId: string;
   provider: string;
   model: string;
@@ -33,17 +28,10 @@ export default function PlaygroundRoute() {
   const session = useWorkspaceSession();
   const [searchParams] = useSearchParams();
   const organizationFromUrl = searchParams.get("organization") ?? "";
-  const kindFromUrl: PlaygroundKind =
-    searchParams.get("kind") === "service"
-      ? "service"
-      : organizationFromUrl
-        ? "organization"
-        : "workspace";
   const connectionFromUrl = searchParams.get("connection") ?? "";
   const providerFromUrl = searchParams.get("provider") ?? "chatgpt";
   const schema = z.object({
     connectionId: z.string(),
-    kind: z.enum(["workspace", "organization", "service"]),
     organizationId: z.string(),
     provider: z.string(),
     model: z.string(),
@@ -72,7 +60,6 @@ export default function PlaygroundRoute() {
     defaultValues: {
       attachments: [],
       connectionId: connectionFromUrl,
-      kind: kindFromUrl,
       organizationId: organizationFromUrl,
       provider: providerFromUrl,
       model: "",
@@ -84,7 +71,6 @@ export default function PlaygroundRoute() {
     control: form.control,
     name: "organizationId",
   });
-  const kind = useWatch({ control: form.control, name: "kind" });
 
   const previousUserId = useRef(session.user?.id);
   const { reset } = form;
@@ -92,18 +78,11 @@ export default function PlaygroundRoute() {
     form.setValue("mode", playgroundMedia.readMode());
   }, [form]);
   useEffect(() => {
-    form.setValue("kind", kindFromUrl);
     form.setValue("organizationId", organizationFromUrl);
     form.setValue("connectionId", connectionFromUrl);
     form.setValue("provider", providerFromUrl);
     form.setValue("model", "");
-  }, [
-    connectionFromUrl,
-    form,
-    kindFromUrl,
-    organizationFromUrl,
-    providerFromUrl,
-  ]);
+  }, [connectionFromUrl, form, organizationFromUrl, providerFromUrl]);
   useEffect(() => {
     if (previousUserId.current && previousUserId.current !== session.user?.id) {
       reset();
@@ -120,13 +99,13 @@ export default function PlaygroundRoute() {
         </h1>
 
         <p className="text-sm text-muted-foreground">
-          Choose a kind, then Chat, Call Live or Call Whisper, an account and a
-          model. A Service chat is paid for from your balance and has Chat only.
+          Choose Chat, Call Live or Call Whisper, then select an account and
+          model.
         </p>
       </header>
 
       <PlaygroundWorkspace
-        key={`${session.user?.id ?? "guest"}:${kind}:${organizationId}`}
+        key={`${session.user?.id ?? "guest"}:${organizationId}`}
         form={form}
       />
     </section>

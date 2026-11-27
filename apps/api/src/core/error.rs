@@ -27,8 +27,6 @@ pub enum ApiError {
     Exists(&'static str),
     Forbidden,
     GatewayUnauthorized,
-    /// The wallet cannot cover the amount asked for.
-    InsufficientBalance,
     InvalidCredentials,
     NotAvailable(&'static str),
     NotFound,
@@ -92,13 +90,6 @@ impl IntoResponse for ApiError {
                     },
                 )
             }
-            Self::InsufficientBalance => (
-                StatusCode::PAYMENT_REQUIRED,
-                ErrorResponse {
-                    code: "insufficient_balance".to_owned(),
-                    message: "Insufficient balance.".to_owned(),
-                },
-            ),
             Self::NotAvailable(message) => (
                 StatusCode::NOT_IMPLEMENTED,
                 ErrorResponse {

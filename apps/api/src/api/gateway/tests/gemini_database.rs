@@ -216,7 +216,6 @@ async fn blocked_gemini_accounts_fail_over_within_scope_but_invalid_requests_do_
         user_id,
         connection_id: Some(blocked_id),
         organization_id: None,
-        service: false,
     };
     let response = generation(&state, preferred).await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -335,7 +334,6 @@ async fn blocked_gemini_accounts_fail_over_within_scope_but_invalid_requests_do_
             user_id,
             connection_id: Some(blocked_id),
             organization_id,
-            service: false,
         };
         let models =
             crate::api::gateway::providers::gemini::gemini_models_for_user(&state, preferred)
@@ -383,7 +381,6 @@ async fn blocked_gemini_accounts_fail_over_within_scope_but_invalid_requests_do_
             user_id,
             connection_id: Some(blocked_id),
             organization_id,
-            service: false,
         };
         let models =
             crate::api::gateway::providers::gemini::gemini_models_for_user(&state, preferred).await;

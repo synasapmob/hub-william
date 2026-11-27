@@ -20,17 +20,16 @@ availability state machine are in [accounts-and-pools.md](./accounts-and-pools.m
 - Why: a prompt must not pay an extra network hop. Extracting the gateway into
   its own service needs an explicit internal contract that keeps this property.
 - Every request carries a `GatewaySelection`: the user, an optional preferred
-  `connection_id`, an optional `organization_id` and a `service` flag. One
-  function, `connected_provider_candidates`, turns it into the accounts to try:
-  the platform's stock when `service`, the organization's shared agents when
-  `organization_id` is set, the user's own accounts and joined pools otherwise.
+  `connection_id` and an optional `organization_id`. One function,
+  `connected_provider_candidates`, turns it into the accounts to try: the
+  organization's shared agents when `organization_id` is set, the user's own
+  accounts and joined pools otherwise.
 
-| Caller        | Authentication   | Preferred account               | Scope                                                           |
-| ------------- | ---------------- | ------------------------------- | --------------------------------------------------------------- |
-| Coding client | Workspace key    | none                            | personal                                                        |
-| Coding client | Organization key | none                            | one organization's shared agents                                |
-| Coding client | Service key      | none                            | the platform's stock, charged                                   |
-| Playground    | session cookie   | the chosen account, tried first | personal, one organization's pools, or (Kind Service) the stock |
+| Caller        | Authentication   | Preferred account               | Scope                                 |
+| ------------- | ---------------- | ------------------------------- | ------------------------------------- |
+| Coding client | Workspace key    | none                            | personal                              |
+| Coding client | Organization key | none                            | one organization's shared agents      |
+| Playground    | session cookie   | the chosen account, tried first | personal, or one organization's pools |
 
 ## Routes
 
@@ -61,19 +60,16 @@ behind the Hub-key limiter, with the request-body limit disabled.
 Key management and the usage read-back use the session cookie and are the
 gateway surface in `apps/api/openapi.json`: `GET`/`POST /gateway-keys` and
 `DELETE /gateway-keys/{key_id}` for Workspace keys, the same three under
-`/organizations/{id}/gateway-keys` for organization keys, `/service/keys` for
-service keys, and `GET /gateway-usage`. A key is a Workspace key (`hw_live_…`),
-an organization key (`hw_org_…`) or a service key (`hw_svc_…`). The same provider
-routes serve all three and the key decides: a Workspace key is served by its
-owner's own accounts and costs nothing, an organization key only by the agents
-shared with its organization (and stops working when its owner leaves it), a
-service key only by the platform's stock, held to the price list before a request
-goes out and charged when it ends, see [Service](./service.md#service-keys). Each
-list shows only its own kind.
+`/organizations/{id}/gateway-keys` for organization keys, and
+`GET /gateway-usage`. A key is a Workspace key (`hw_live_…`) or an organization
+key (`hw_org_…`). The same provider routes serve both and the key decides: a
+Workspace key is served by its owner's own accounts, an organization key only by
+the agents shared with its organization (and stops working when its owner leaves
+it). Neither costs anything. Each list shows only its own kind.
 
 ## Keys and limits
 
-- A key is its prefix (`hw_live_`, `hw_org_` or `hw_svc_`) plus 32 random bytes in
+- A key is its prefix (`hw_live_` or `hw_org_`) plus 32 random bytes in
   base64url. The database stores its
   SHA-256 hash, `last_four`, `created_at`, `last_used_at` (touched on every
   successful authorization) and a soft `revoked_at`. A key has no expiry and is
@@ -346,7 +342,7 @@ recorded.
 | ------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
 | `user_id`                                        | The owner of the key, or the signed-in user. Several keys of one user all count for that user. |
 | `gateway_key_id`                                 | The key that sent the request; `NULL` for a browser session or after the key is deleted.       |
-| `scope`                                          | `workspace`, `organization` or `service`: which product the request belonged to.               |
+| `scope`                                          | `workspace` or `organization`: which scope the request belonged to.                            |
 | `org_id`, `connection_id`                        | The organization scope and the account that answered; `NULL` when absent or deleted.           |
 | `provider`, `model`                              | The provider and the model named in the request body.                                          |
 | `input_tokens`, `output_tokens`, `cached_tokens` | From the provider's usage object; `NULL` when missing, which is distinct from zero.            |
@@ -373,9 +369,9 @@ on them.
 one entry per day with empty days present, and a breakdown by key, provider and
 model. Workspace keys and the Playground are counted together, so a user's several
 keys add up to one user; only the `workspace` scope is counted. The
-`organization` scope is shown by the organization's usage and the `service` scope
-by `GET /service/usage`. Rows of other users are never read. The route is not rate limited, like the other session
-`GET` routes.
+`organization` scope is shown by the organization's usage. Rows of other users
+are never read. The route is not rate limited, like the other session `GET`
+routes.
 
 ## Organization usage recording
 

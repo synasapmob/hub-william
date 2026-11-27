@@ -90,11 +90,10 @@ describe("RevenueRoute", () => {
     expect(within(sellers).getByText("14 đơn")).toBeVisible();
   });
 
-  it("shows only Telegram, in đồng, since Hub William is not connected", async () => {
+  it("shows Telegram's takings, in đồng", async () => {
     renderPage(<RevenueRoute />);
     await figure("Doanh thu");
 
-    expect(screen.queryByText("Hub William")).not.toBeInTheDocument();
     expect(screen.getAllByText("Telegram")).toHaveLength(1);
     expect(screen.queryByText(/USD|\$/)).not.toBeInTheDocument();
   });

@@ -5,7 +5,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{
-    api::gateway::{UsageScope, usage_report::usage_for_user},
+    api::gateway::usage_report::usage_for_user,
     core::{ApiError, AppConfig, AppState},
 };
 
@@ -113,9 +113,7 @@ async fn usage_covers_only_the_users_own_requests_inside_the_period(pool: PgPool
     )
     .await;
 
-    let usage = usage_for_user(&state(pool), me, Some(7), UsageScope::Workspace)
-        .await
-        .unwrap();
+    let usage = usage_for_user(&state(pool), me, Some(7)).await.unwrap();
 
     assert_eq!(usage.period_days, 7);
     assert_eq!(usage.requests, 5);
@@ -168,9 +166,7 @@ async fn usage_defaults_to_thirty_days_and_rejects_a_period_out_of_range(pool: P
     let me = user(&pool).await;
     let state = state(pool);
 
-    let usage = usage_for_user(&state, me, None, UsageScope::Workspace)
-        .await
-        .unwrap();
+    let usage = usage_for_user(&state, me, None).await.unwrap();
     assert_eq!(usage.period_days, 30);
     assert_eq!(usage.daily_usage.len(), 30);
     assert_eq!((usage.requests, usage.breakdown.len()), (0, 0));
@@ -178,15 +174,11 @@ async fn usage_defaults_to_thirty_days_and_rejects_a_period_out_of_range(pool: P
     for days in [0, -1, 366] {
         assert!(
             matches!(
-                usage_for_user(&state, me, Some(days), UsageScope::Workspace).await,
+                usage_for_user(&state, me, Some(days)).await,
                 Err(ApiError::Validation(_))
             ),
             "{days} days must be rejected"
         );
     }
-    assert!(
-        usage_for_user(&state, me, Some(365), UsageScope::Workspace)
-            .await
-            .is_ok()
-    );
+    assert!(usage_for_user(&state, me, Some(365)).await.is_ok());
 }

@@ -104,14 +104,14 @@ describe("HistoryRoute", () => {
     );
   });
 
-  it("starts on Telegram's history, in đồng, with Hub William's one choice away", async () => {
+  it("shows Telegram's history, in đồng, with no type to choose", async () => {
     await setup();
 
     expect(
-      screen.getByRole("combobox", { name: "Loại hàng" }),
-    ).toHaveTextContent("Telegram");
+      screen.queryByRole("combobox", { name: "Loại hàng" }),
+    ).not.toBeInTheDocument();
     expect(screen.getByText("Số đơn đã bán")).toBeInTheDocument();
-    // The two are never added together: Telegram's figures are all in đồng.
+    // Telegram's figures are all in đồng.
     expect(screen.queryByText(/\$/)).not.toBeInTheDocument();
   });
 

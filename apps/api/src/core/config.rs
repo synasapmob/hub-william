@@ -27,19 +27,6 @@ pub struct AppConfig {
     /// Where `apps/telegram` listens, so the dashboard can have the bot send a
     /// message. Unset, the dashboard can read and change the shop but not announce.
     pub telegram_adapter_url: Option<reqwest::Url>,
-    /// Usernames that are always owners of the dashboard, so the first owner
-    /// needs no row in `dashboard_staff`.
-    /// Lets the service wallet be topped up without a payment. For staging only:
-    /// production leaves it off until payments exist.
-    pub service_test_top_up: bool,
-    /// The Stripe secret key (`sk_test_…` in test mode) the service wallet is paid
-    /// in with. Unset, a wallet cannot be paid in by card.
-    pub stripe_secret_key: Option<String>,
-    /// The signing secret (`whsec_…`) of the webhook endpoint Stripe reports a
-    /// payment to. Set together with the secret key.
-    pub stripe_webhook_secret: Option<String>,
-    /// Where Stripe's API is. Only tests change it.
-    pub stripe_api_url: String,
     /// Read the client IP from `client_ip_header` instead of the socket peer.
     /// Only safe behind a proxy that overwrites that header.
     pub trust_proxy_headers: bool,
@@ -390,14 +377,6 @@ impl AppConfig {
             eprintln!("icon storage is on, in the bucket {}", storage.bucket);
         }
 
-        let stripe_secret_key = non_empty_env("STRIPE_SECRET_KEY");
-        let stripe_webhook_secret = non_empty_env("STRIPE_WEBHOOK_SECRET");
-        if stripe_secret_key.is_some() != stripe_webhook_secret.is_some() {
-            return Err(ConfigError(
-                "STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET must be set together".to_owned(),
-            ));
-        }
-
         Ok(Self {
             client_ip_header,
             cookie_secure,
@@ -417,13 +396,6 @@ impl AppConfig {
                 })
                 .transpose()?,
             trust_proxy_headers,
-            service_test_top_up: env::var("SERVICE_TEST_TOP_UP")
-                .map(|value| value.eq_ignore_ascii_case("true") || value == "1")
-                .unwrap_or(false),
-            stripe_secret_key,
-            stripe_webhook_secret,
-            stripe_api_url: env::var("STRIPE_API_URL")
-                .unwrap_or_else(|_| "https://api.stripe.com".to_owned()),
             codex_client_version: env::var("CODEX_CLIENT_VERSION")
                 .unwrap_or_else(|_| "0.156.0".to_owned()),
             codex_issuer: env::var("CODEX_AUTH_ISSUER")
@@ -494,10 +466,6 @@ impl Default for AppConfig {
             icon_storage: None,
             telegram_adapter_url: None,
             trust_proxy_headers: false,
-            service_test_top_up: false,
-            stripe_secret_key: None,
-            stripe_webhook_secret: None,
-            stripe_api_url: "https://api.stripe.com".to_owned(),
             codex_client_version: "0.156.0".to_owned(),
             codex_issuer: "https://auth.openai.com".to_owned(),
             claude_authorize_url: "https://claude.com/cai/oauth/authorize".to_owned(),

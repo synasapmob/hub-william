@@ -18,10 +18,6 @@ import {
   fakeStockServiceProducts,
   resetFakeStock,
 } from "@/test/fake-stock-service";
-import {
-  fakeServiceStockService,
-  resetFakeServiceStock,
-} from "@/test/fake-service-stock-service";
 import { fakeIconAssignments, resetFakeIcons } from "@/test/fake-icon-service";
 import renderPage from "@/test/render-page";
 import slugify from "@/utils/utils.slug";
@@ -51,18 +47,10 @@ vi.mock("@/services/icons/icon-service", async (importOriginal) => ({
   iconService: (await import("@/test/fake-icon-service")).fakeIconService,
 }));
 
-vi.mock("@/services/service-stock/service-stock-service", async () => {
-  const { fakeServiceStockService } =
-    await import("@/test/fake-service-stock-service");
-
-  return { serviceStockService: fakeServiceStockService };
-});
-
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.clearAllMocks();
   resetFakeStock();
-  resetFakeServiceStock();
   resetFakeIcons();
 });
 
@@ -97,8 +85,6 @@ const providerCard = (name: string, type = "Telegram") =>
     .getAllByRole("heading", { name })
     .map((heading) => heading.closest("section") as HTMLElement)
     .find((card) => within(card).queryByText(type)) as HTMLElement;
-// The agents that have a ticket on sale, in Hub William's own order.
-const HUB_WILLIAM_AGENTS = ["ChatGPT", "Claude"];
 /** The names of the cards of a type, in the order they are shown. */
 const cardNames = (type = "Telegram") =>
   screen
@@ -139,10 +125,7 @@ describe("PosRoute, the list", () => {
 
     expect(list).toHaveBeenCalledTimes(1);
     expect(cardNames()).toEqual(["ChatGPT", "Claude", "Gemini"]);
-    // The packages: a ticket of Hub William's is edited as "Sửa gói …", so it is not one.
-    expect(
-      screen.getAllByRole("button", { name: /^Sửa (?!gói )/ }),
-    ).toHaveLength(7);
+    expect(screen.getAllByRole("button", { name: /^Sửa / })).toHaveLength(7);
     // Each card says what it holds, and what it is.
     expect(providerCard("Claude")).toHaveTextContent("2 gói");
     expect(providerCard("Claude")).toHaveTextContent("10 còn");
@@ -274,80 +257,6 @@ describe("PosRoute, the list", () => {
       expect(screen.getByText(/Không có hàng nào khớp/)).toBeInTheDocument();
     });
   });
-
-  describe("filter by type", () => {
-    const typeFilter = () =>
-      screen.getByRole("combobox", { name: "Lọc theo loại" });
-
-    it("starts on every type and offers each", async () => {
-      const user = await setup();
-
-      expect(typeFilter()).toHaveTextContent("Mọi loại");
-
-      await user.click(typeFilter());
-
-      expect(
-        screen.getAllByRole("option").map((option) => option.textContent),
-      ).toEqual(["Mọi loại", "Telegram", "Hub William"]);
-    });
-
-    it("keeps the packages on Telegram", async () => {
-      const user = await setup();
-
-      await user.click(typeFilter());
-      await user.click(screen.getByRole("option", { name: "Telegram" }));
-
-      expect(screen.getAllByRole("button", { name: /^Sửa / })).toHaveLength(7);
-    });
-
-    it("shows Hub William's own stock, and no package, for Hub William", async () => {
-      const user = await setup();
-
-      await user.click(typeFilter());
-      await user.click(screen.getByRole("option", { name: "Hub William" }));
-
-      // Only the agents that have a ticket on sale have a card, in Hub William's
-      // own order.
-      expect(cardNames("Hub William")).toEqual(HUB_WILLIAM_AGENTS);
-      expect(cardNames("Telegram")).toEqual([]);
-      expect(
-        screen.queryByRole("button", { name: /^Sửa (?!gói )/ }),
-      ).not.toBeInTheDocument();
-      // Adding is one button, whatever is shown: it first asks which of the two.
-      expect(
-        screen.getByRole("button", { name: "Thêm hàng" }),
-      ).toBeInTheDocument();
-    });
-
-    it("shows only the packages for Telegram, and both for every type", async () => {
-      const user = await setup();
-
-      expect(cardNames("Hub William")).toEqual(HUB_WILLIAM_AGENTS);
-      expect(cardNames("Telegram")).toEqual(["ChatGPT", "Claude", "Gemini"]);
-
-      await user.click(typeFilter());
-      await user.click(screen.getByRole("option", { name: "Telegram" }));
-
-      expect(cardNames("Hub William")).toEqual([]);
-      expect(cardNames("Telegram")).toEqual(["ChatGPT", "Claude", "Gemini"]);
-    });
-
-    it("shows no card at all when nothing is on sale, and still lets a ticket be added from the header", async () => {
-      vi.spyOn(fakeServiceStockService, "listings").mockResolvedValue([]);
-      const user = await setup();
-
-      await user.click(typeFilter());
-      await user.click(screen.getByRole("option", { name: "Hub William" }));
-
-      expect(cardNames("Hub William")).toEqual([]);
-      expect(
-        screen.getByText("Chưa có hàng nào trong mục này."),
-      ).toBeInTheDocument();
-      expect(
-        screen.getByRole("button", { name: "Thêm hàng" }),
-      ).toBeInTheDocument();
-    });
-  });
 });
 
 describe("PosRoute, adding", () => {
@@ -409,7 +318,7 @@ describe("PosRoute, adding", () => {
     ).toHaveFocus();
   });
 
-  it("offers the agents Hub William supports as a fixed list, in its own order", async () => {
+  it("offers the agents as a fixed list, in a set order", async () => {
     const user = await openAdd();
 
     await user.click(screen.getByRole("combobox", { name: "Nhà cung cấp" }));
@@ -463,19 +372,14 @@ describe("PosRoute, adding", () => {
 
     await screen.findByRole("button", { name: /DeepSeek Pro 1 tháng/ });
 
-    // A card of Telegram's, beside the one of Hub William's it already had.
     expect(cardNames()).toEqual(["ChatGPT", "Claude", "Gemini", "DeepSeek"]);
     expect(providerCard("DeepSeek")).toHaveTextContent("1 gói");
   });
 
-  it("opens an empty form for a Telegram package, with no type to choose", async () => {
+  it("opens an empty form for a Telegram package", async () => {
     await openAdd();
 
     expect(dialog()).toHaveTextContent("Thêm hàng");
-    expect(
-      screen.queryByRole("combobox", { name: "Loại hàng" }),
-    ).not.toBeInTheDocument();
-    expect(dialog()).not.toHaveTextContent("Hub William");
     expect(screen.getByLabelText("Tên gói")).toHaveValue("");
     expect(screen.getByRole("button", { name: "Thêm" })).toBeDisabled();
   });

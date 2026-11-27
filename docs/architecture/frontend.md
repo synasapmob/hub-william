@@ -6,17 +6,15 @@ The frontend is a React Router SPA in `apps/frontend`. It renders the Hub Willia
 
 Routes are file-based (`flatRoutes()` in `src/routes.ts`). Every page renders inside the `_app` layout.
 
-| Path                                                     | Route module                | Purpose                                                                                                     |
-| -------------------------------------------------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `/`                                                      | `_app._index`               | Home, a static white paper about sharing tools and agents                                                   |
-| `/tools`, `/tools/:contributor`                          | `_app.tools.($contributor)` | Tool catalogue, see [Tools](./tools.md)                                                                     |
-| `/agents`                                                | `_app.agents`               | Provider and account explorer, join requests, Workspace key dialog                                          |
-| `/playground`                                            | `_app.playground`           | Chat and calls, see [Playground](./playground.md)                                                           |
-| `/organization`                                          | `_app.organization` layout  | Wraps the four pages below, see [Organizations](./organizations.md)                                         |
-| `/organization` (index), `/agents`, `/members`, `/usage` | `_app.organization.*`       | Overview, shared agents, members, usage                                                                     |
-| `/service`                                               | `_app.service` layout       | Keeps the balance and the Top up button on top of the two pages below                                       |
-| `/service/pricing`, `/service/usage`, `/service/keys`    | `_app.service.*`            | Tickets for sale and the ones bought, usage and what it cost, and service keys, see [Service](./service.md) |
-| any other URL                                            | `$.tsx`                     | `<Navigate replace to="/" />`                                                                               |
+| Path                                                     | Route module                | Purpose                                                             |
+| -------------------------------------------------------- | --------------------------- | ------------------------------------------------------------------- |
+| `/`                                                      | `_app._index`               | Home, a static white paper about sharing tools and agents           |
+| `/tools`, `/tools/:contributor`                          | `_app.tools.($contributor)` | Tool catalogue, see [Tools](./tools.md)                             |
+| `/agents`                                                | `_app.agents`               | Provider and account explorer, join requests, Workspace key dialog  |
+| `/playground`                                            | `_app.playground`           | Chat and calls, see [Playground](./playground.md)                   |
+| `/organization`                                          | `_app.organization` layout  | Wraps the four pages below, see [Organizations](./organizations.md) |
+| `/organization` (index), `/agents`, `/members`, `/usage` | `_app.organization.*`       | Overview, shared agents, members, usage                             |
+| any other URL                                            | `$.tsx`                     | `<Navigate replace to="/" />`                                       |
 
 For an unknown URL nginx serves `/__spa-fallback.html`, and the `$.tsx` splat route redirects the client to `/`.
 
@@ -26,7 +24,7 @@ For an unknown URL nginx serves `/__spa-fallback.html`, and the `$.tsx` splat ro
 
 - **Layout.** From the `md` breakpoint up, `WorkspaceShellDesktop` pins a 256px sidebar. Below `md`, `WorkspaceShellMobile` shows a sticky header with a menu button that opens the same sidebar in a `Sheet` drawer. Both consume `workspace-shell-navigation-items.ts`, so every page is reachable on either layout.
 - **Contained pages.** `useMatch("/agents")` switches the shell to `h-svh overflow-hidden`. The Agents explorer owns its scroll container, so the page header and mobile header stay visible. Every other page scrolls inside `main`.
-- **Navigation groups.** Workspace lists Home, Tools, Agents and Playground. Service, the third group below Organization, lists Pricing, Usage and Keys. A guest can open Pricing; Usage and Keys, which a navigation item marks with `requiresSession`, are disabled buttons for a guest, and their URLs send a guest to Pricing. Organization lists Overview, Agents, Members and Usage. Only Overview is a link until the organizations query returns at least one organization; the other three render as disabled buttons.
+- **Navigation groups.** Workspace lists Home, Tools, Agents and Playground. Organization lists Overview, Agents, Members and Usage. Only Overview is a link until the organizations query returns at least one organization; the other three render as disabled buttons.
 - **Notifications.** For a signed-in user a bell sits beside Log out in the sidebar and lists pending organization invitations. Each entry links to `/organization?tab=my-organization`, where the user accepts or declines it. Invitations are the only notification type.
 - **Account area.** A guest sees a Login button (disabled while the session check runs). A signed-in user sees an avatar, the username, the notification bell and Log out. The avatar is `https://github.com/<username>.png` when the username is a valid GitHub login (`authService.githubAvatarUrl`), otherwise the first three letters of the username. It is display-only and proves nothing about identity.
 

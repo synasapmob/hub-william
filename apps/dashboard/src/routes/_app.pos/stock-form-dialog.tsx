@@ -32,14 +32,10 @@ import ProviderSelect, {
   type ProviderOption,
 } from "@/components/provider-select";
 import {
-  serviceProviderLabels,
+  agentProviderLabels,
   warrantyLabels,
 } from "@/services/sales/sales-labels";
-import type {
-  StockType,
-  TelegramProduct,
-  Warranty,
-} from "@/services/sales/sales-types";
+import type { TelegramProduct, Warranty } from "@/services/sales/sales-types";
 import {
   stockService,
   type AccountsEdited,
@@ -58,7 +54,6 @@ import {
   composePackageName,
   parsePackageName,
 } from "./package-name";
-import PlatformSelect from "./platform-select";
 import ProviderIconChoice from "./provider-icon-choice";
 import StockAccounts from "./stock-accounts";
 import StockAccountsEditor, {
@@ -155,15 +150,10 @@ interface StockFormDialogProps {
   item: TelegramProduct | null;
   /** The provider a new package starts under, when it is added from its card. */
   provider: string;
-  /** The providers the shop has, so one that is not an agent Hub William supports can still be edited. */
+  /** The providers the shop has, so one that is not one of the agents can still be edited. */
   providers: string[];
   /** Slugs that already exist, since a duplicate is a conflict. */
   takenSlugs: string[];
-  /**
-   * Given when the form is opened from "Thêm hàng": it then starts with the choice of
-   * platform, and choosing Hub William swaps this form for Hub William's.
-   */
-  onPlatform?: (type: StockType) => void;
   onClose: () => void;
   onDelete: () => void;
   /**
@@ -188,7 +178,6 @@ export default function StockFormDialog({
   item,
   onClose,
   onDelete,
-  onPlatform,
   onSave,
   provider,
   providers,
@@ -246,11 +235,11 @@ export default function StockFormDialog({
   const guideLength = [...guide].length;
   const guideValid = guideLength <= MAX_GUIDE;
   const slugTaken = !editing && takenSlugs.includes(slug);
-  // The agents Hub William supports, chosen from and never typed, so a provider
+  // The agents the shop sells accounts of, chosen from and never typed, so a provider
   // cannot be misspelt into a card of its own. A provider the shop already has
   // under another name stays choosable, so what it has can still be edited.
   const providerOptions: ProviderOption[] = [
-    ...Object.values(serviceProviderLabels).map((label) => ({
+    ...Object.values(agentProviderLabels).map((label) => ({
       icon: label,
       label,
       value: label,
@@ -258,7 +247,7 @@ export default function StockFormDialog({
     ...providers
       .filter(
         (known) =>
-          !Object.values(serviceProviderLabels).some(
+          !Object.values(agentProviderLabels).some(
             (label) => label.toLowerCase() === known.trim().toLowerCase(),
           ),
       )
@@ -417,19 +406,6 @@ export default function StockFormDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          {onPlatform && (
-            <div className="space-y-1.5">
-              <Label htmlFor="stock-platform">Platform</Label>
-
-              <PlatformSelect
-                disabled={saving}
-                id="stock-platform"
-                value="telegram"
-                onChange={onPlatform}
-              />
-            </div>
-          )}
-
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="stock-provider">Nhà cung cấp</Label>

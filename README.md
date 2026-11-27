@@ -107,8 +107,7 @@ the Tools page.
   everything it stores.
 - **Dashboard:** React · TypeScript · Vite · React Router · Tailwind CSS · Vitest.
   A sales dashboard for the shop and its staff: orders, stock, revenue and
-  staff, and the agent accounts the shop sells as tickets. It runs on the real
-  API.
+  staff. It runs on the real API.
 - **Installers:** Python (`gateway.py`, `opencode.py`, `omp.py`) and Bash
   (`download-reel.sh`, `link.sh`)
 - **Hosting:** Railway

@@ -18,8 +18,6 @@ mod orders;
 mod push;
 mod revenue;
 mod routes;
-mod service_listings;
-mod service_prices;
 mod staff;
 mod stock;
 pub(crate) use routes::{DashboardApi, routes};

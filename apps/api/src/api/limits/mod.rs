@@ -53,7 +53,6 @@ pub(crate) enum Limit {
     ReelMedia,
     ReelResolve,
     SecretReveal,
-    ServiceWallet,
     Tts,
 }
 
@@ -74,8 +73,7 @@ impl Limit {
             | Self::PartnerFailedAuth
             | Self::PartnerKey
             | Self::PoolInvite
-            | Self::PoolRequest
-            | Self::ServiceWallet => 10,
+            | Self::PoolRequest => 10,
             // Each try needs the owner's password, so a stolen session cannot guess
             // it fast.
             Self::SecretReveal => 5,

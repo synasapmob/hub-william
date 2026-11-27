@@ -32,7 +32,7 @@ interface ProviderSelectProps {
   disabled?: boolean;
 }
 
-/** The agents Hub William supports, to pick one from: a fixed list, not typed. */
+/** The agents the shop sells accounts of, to pick one from: a fixed list, not typed. */
 export default function ProviderSelect({
   disabled,
   extra,

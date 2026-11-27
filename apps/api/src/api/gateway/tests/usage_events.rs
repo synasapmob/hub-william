@@ -10,7 +10,7 @@ use axum::{
     response::Response,
     routing::get,
 };
-use futures_util::{StreamExt, stream};
+use futures_util::{FutureExt, StreamExt, stream};
 use serde_json::Value;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -90,7 +90,6 @@ fn event(pool: &PgPool, fixture: &Fixture, organization: bool) -> UsageEvent {
         connection_id: fixture.connection_id,
         provider: AgentProvider::Chatgpt,
         model: Some("gpt-test".to_owned()),
-        service: false,
     }
 }
 
@@ -242,6 +241,54 @@ async fn a_response_the_client_abandons_is_recorded_as_incomplete(pool: PgPool) 
     assert_eq!(
         organization_rows, 0,
         "organizations still count only finished requests"
+    );
+}
+
+/// A provider answer that finishes, with 1,000,000 input tokens of which 800,000
+/// cached, and 100,000 output tokens.
+const FINISHED: &str = concat!(
+    "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{",
+    "\"input_tokens\":1000000,\"output_tokens\":100000,",
+    "\"input_tokens_details\":{\"cached_tokens\":800000}}}}\n\n",
+);
+
+#[sqlx::test]
+async fn a_finished_request_is_recorded_even_if_the_client_leaves_as_the_stream_ends(pool: PgPool) {
+    let fixture = fixture(&pool).await;
+    let base = serve(Router::new().route(
+        "/done",
+        get(|| async { ([(header::CONTENT_TYPE, "text/event-stream")], FINISHED) }),
+    ))
+    .await;
+    let upstream = reqwest::get(format!("{base}/done")).await.unwrap();
+    let response = upstream_response_with_usage(upstream, Some(event(&pool, &fixture, false)))
+        .await
+        .unwrap();
+    let mut body = response.into_body().into_data_stream();
+    assert!(body.next().await.unwrap().is_ok());
+
+    // The Playground stops reading and closes the connection as soon as it has seen
+    // the completion event, while the server is still recording the request.
+    assert!(body.next().now_or_never().is_none());
+    drop(body);
+
+    wait_for_events(&pool, fixture.user_id, 1).await;
+    let row: (String, Option<i64>, Option<i64>, Option<i64>) = sqlx::query_as(
+        "SELECT outcome, input_tokens, output_tokens, cached_tokens
+         FROM gateway_usage_events WHERE user_id = $1",
+    )
+    .bind(fixture.user_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        row,
+        (
+            "completed".to_owned(),
+            Some(1_000_000),
+            Some(100_000),
+            Some(800_000)
+        )
     );
 }
 
