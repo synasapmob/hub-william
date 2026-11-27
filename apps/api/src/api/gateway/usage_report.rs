@@ -1,6 +1,6 @@
 //! What the signed-in user has used through the gateway, read back from
-//! `gateway_usage_events`. The Workspace and the Service each read their own
-//! requests: those of Hub keys and of the Playground, or those of service keys.
+//! `gateway_usage_events`: the requests of Hub keys and of the Playground in the
+//! Workspace.
 
 use std::collections::HashMap;
 
@@ -52,18 +52,12 @@ pub struct GatewayUsageBreakdown {
     pub known_input_tokens: i64,
     pub known_output_tokens: i64,
     pub known_cached_tokens: i64,
-    /// What these requests were charged to the service wallet, in micro-dollars;
-    /// zero for the Workspace, whose requests are free.
-    pub spent_micro: i64,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct GatewayUsage {
     pub period_days: i64,
     pub requests: i64,
-    /// What the requests were charged to the service wallet, in micro-dollars;
-    /// zero for the Workspace, whose requests are free.
-    pub spent_micro: i64,
     /// Requests the provider finished; the rest were abandoned or failed.
     pub completed_requests: i64,
     pub token_known_requests: i64,
@@ -104,27 +98,6 @@ struct BreakdownRow {
     known_input_tokens: i64,
     known_output_tokens: i64,
     known_cached_tokens: i64,
-    spent_micro: i64,
-}
-
-/// Whose requests a read-back counts.
-#[derive(Clone, Copy)]
-pub(crate) enum UsageScope {
-    /// The Workspace's own requests, which are free: workspace keys and the
-    /// Playground on the user's own accounts.
-    Workspace,
-    /// Service keys, which are charged.
-    Service,
-}
-
-impl UsageScope {
-    /// A condition on `gateway_usage_events` that keeps this scope's requests.
-    fn filter(self) -> &'static str {
-        match self {
-            Self::Workspace => "AND scope = 'workspace'",
-            Self::Service => "AND scope = 'service'",
-        }
-    }
 }
 
 struct Period {
@@ -158,7 +131,7 @@ fn period(days: Option<i64>) -> Result<Period, ApiError> {
     path = "/gateway-usage",
     params(GatewayUsageQuery),
     responses(
-        (status = 200, description = "Requests the signed-in user sent through the gateway with Hub keys and in the Playground; service keys are not counted", body = GatewayUsage),
+        (status = 200, description = "Requests the signed-in user sent through the gateway with Hub keys and in the Playground", body = GatewayUsage),
         (status = 401, description = "Hub login required", body = crate::core::ErrorResponse),
         (status = 422, description = "days is out of range", body = crate::core::ErrorResponse)
     ),
@@ -171,21 +144,17 @@ pub async fn gateway_usage(
 ) -> Result<Json<GatewayUsage>, ApiError> {
     let user_id = authenticated_user_id(&state, &jar).await?;
 
-    usage_for_user(&state, user_id, query.days, UsageScope::Workspace)
-        .await
-        .map(Json)
+    usage_for_user(&state, user_id, query.days).await.map(Json)
 }
 
 pub(crate) async fn usage_for_user(
     state: &AppState,
     user_id: Uuid,
     days: Option<i64>,
-    scope: UsageScope,
 ) -> Result<GatewayUsage, ApiError> {
     let period = period(days)?;
-    let scope_filter = scope.filter();
 
-    let totals_sql = format!(
+    let totals = sqlx::query_as::<_, TotalsRow>(
         "SELECT COUNT(*) AS requests,
                 COUNT(*) FILTER (WHERE outcome = 'completed') AS completed_requests,
                 COUNT(*) FILTER (WHERE input_tokens IS NOT NULL
@@ -194,17 +163,17 @@ pub(crate) async fn usage_for_user(
                 COALESCE(SUM(output_tokens), 0)::bigint AS known_output_tokens,
                 COALESCE(SUM(cached_tokens), 0)::bigint AS known_cached_tokens
          FROM gateway_usage_events
-         WHERE user_id = $1 AND created_at >= $2 AND created_at < $3 {scope_filter}"
-    );
-    let totals = sqlx::query_as::<_, TotalsRow>(&totals_sql)
-        .bind(user_id)
-        .bind(period.start)
-        .bind(period.end)
-        .fetch_one(&state.pool)
-        .await
-        .map_err(database_error)?;
+         WHERE user_id = $1 AND created_at >= $2 AND created_at < $3
+               AND scope = 'workspace'",
+    )
+    .bind(user_id)
+    .bind(period.start)
+    .bind(period.end)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(database_error)?;
 
-    let daily_sql = format!(
+    let days_with_requests = sqlx::query_as::<_, DayRow>(
         "SELECT (created_at AT TIME ZONE 'UTC')::date AS date,
                 COUNT(*) AS requests,
                 COALESCE(SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0))
@@ -213,16 +182,16 @@ pub(crate) async fn usage_for_user(
                 COUNT(*) FILTER (WHERE input_tokens IS NOT NULL
                                  AND output_tokens IS NOT NULL) AS token_known_requests
          FROM gateway_usage_events
-         WHERE user_id = $1 AND created_at >= $2 AND created_at < $3 {scope_filter}
-         GROUP BY 1"
-    );
-    let days_with_requests = sqlx::query_as::<_, DayRow>(&daily_sql)
-        .bind(user_id)
-        .bind(period.start)
-        .bind(period.end)
-        .fetch_all(&state.pool)
-        .await
-        .map_err(database_error)?;
+         WHERE user_id = $1 AND created_at >= $2 AND created_at < $3
+               AND scope = 'workspace'
+         GROUP BY 1",
+    )
+    .bind(user_id)
+    .bind(period.start)
+    .bind(period.end)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(database_error)?;
     let mut by_date: HashMap<NaiveDate, DayRow> = days_with_requests
         .into_iter()
         .map(|row| (row.date, row))
@@ -242,7 +211,7 @@ pub(crate) async fn usage_for_user(
         })
         .collect();
 
-    let breakdown_sql = format!(
+    let breakdown = sqlx::query_as::<_, BreakdownRow>(
         "SELECT events.gateway_key_id, keys.last_four AS key_last_four,
                 events.provider, events.model,
                 COUNT(*) AS requests,
@@ -251,27 +220,23 @@ pub(crate) async fn usage_for_user(
                                  AND events.output_tokens IS NOT NULL) AS token_known_requests,
                 COALESCE(SUM(events.input_tokens), 0)::bigint AS known_input_tokens,
                 COALESCE(SUM(events.output_tokens), 0)::bigint AS known_output_tokens,
-                COALESCE(SUM(events.cached_tokens), 0)::bigint AS known_cached_tokens,
-                COALESCE(SUM(charges.amount_micro), 0)::bigint AS spent_micro
+                COALESCE(SUM(events.cached_tokens), 0)::bigint AS known_cached_tokens
          FROM gateway_usage_events AS events
          LEFT JOIN gateway_keys AS keys ON keys.id = events.gateway_key_id
-         LEFT JOIN service_ledger AS charges ON charges.usage_event_id = events.id
          WHERE events.user_id = $1 AND events.created_at >= $2 AND events.created_at < $3
-               {scope_filter}
+               AND events.scope = 'workspace'
          GROUP BY events.gateway_key_id, keys.last_four, events.provider, events.model
-         ORDER BY requests DESC, events.provider, events.model, keys.last_four"
-    );
-    let breakdown = sqlx::query_as::<_, BreakdownRow>(&breakdown_sql)
-        .bind(user_id)
-        .bind(period.start)
-        .bind(period.end)
-        .fetch_all(&state.pool)
-        .await
-        .map_err(database_error)?;
+         ORDER BY requests DESC, events.provider, events.model, keys.last_four",
+    )
+    .bind(user_id)
+    .bind(period.start)
+    .bind(period.end)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(database_error)?;
 
     Ok(GatewayUsage {
         period_days: period.days,
-        spent_micro: breakdown.iter().map(|row| row.spent_micro).sum(),
         requests: totals.requests,
         completed_requests: totals.completed_requests,
         token_known_requests: totals.token_known_requests,
@@ -292,7 +257,6 @@ pub(crate) async fn usage_for_user(
                 known_input_tokens: row.known_input_tokens,
                 known_output_tokens: row.known_output_tokens,
                 known_cached_tokens: row.known_cached_tokens,
-                spent_micro: row.spent_micro,
             })
             .collect(),
     })

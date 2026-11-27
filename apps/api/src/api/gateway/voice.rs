@@ -33,7 +33,6 @@ pub(crate) async fn create_voice_session_for_user(
             user_id,
             connection_id: Some(connection_id),
             organization_id,
-            service: false,
         },
         body,
         CODEX_VOICE_URL,
@@ -87,7 +86,7 @@ async fn create_session(
     }
 
     if saw_rate_limit {
-        Err(ApiError::RateLimited)
+        Err(ApiError::RateLimited(None))
     } else if saw_reauthorization {
         Err(ApiError::Provider(
             "Reconnect this account before starting a voice call.".into(),
@@ -307,7 +306,6 @@ mod tests {
             user_id: owner,
             connection_id: Some(selected),
             organization_id: None,
-            service: false,
         };
         let set = |token: &str, status: u16| {
             statuses
@@ -387,7 +385,7 @@ mod tests {
         set("other-voice-token", 429);
         assert!(matches!(
             create_session(&state, selection, body, &url).await,
-            Err(ApiError::RateLimited)
+            Err(ApiError::RateLimited(None))
         ));
         assert_eq!(take(), ["Bearer other-voice-token"]);
         task.abort();
@@ -486,7 +484,6 @@ mod credential_failover_tests {
             user_id: owner,
             connection_id: Some(expiring),
             organization_id: None,
-            service: false,
         };
         let body = json!({"sdp":"v=0\r\nm=audio 9 RTP/SAVPF 111\r\n", "session":{"model":"gpt-live-1-codex"}});
 

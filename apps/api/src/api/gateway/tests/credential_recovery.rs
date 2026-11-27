@@ -394,7 +394,6 @@ fn browser(user_id: Uuid, connection_id: Uuid) -> GatewaySelection {
         user_id,
         connection_id: Some(connection_id),
         organization_id: None,
-        service: false,
     }
 }
 
@@ -414,6 +413,13 @@ fn served_connection(response: &Response) -> Option<String> {
         .headers()
         .get(SERVED_CONNECTION_HEADER)
         .map(|value| value.to_str().unwrap().to_owned())
+}
+
+/// The message of the provider's own error body, as it reached the client.
+async fn refusal_text(response: Response) -> String {
+    let body = to_bytes(response.into_body(), 1_000_000).await.unwrap();
+    let payload: Value = serde_json::from_slice(&body).unwrap();
+    payload["error"]["message"].as_str().unwrap().to_owned()
 }
 
 async fn reply_text(response: Response) -> String {
@@ -760,7 +766,10 @@ async fn failover_budget_grows_with_the_pool_so_a_fifth_account_can_serve(pool: 
         .await
         .unwrap();
         assert_eq!(status, "rate_limited");
-        assert!(until.unwrap() >= started + chrono::Duration::minutes(29));
+        // Google named no delay, so each rests for the default minute.
+        let until = until.unwrap();
+        assert!(until >= started + chrono::Duration::seconds(55));
+        assert!(until <= Utc::now() + chrono::Duration::seconds(61));
     }
     assert_eq!(availability(state, healthy).await, active());
     assert!(fake.token_requests().is_empty());
@@ -835,36 +844,41 @@ async fn organization_selection_fails_over_only_to_that_organizations_shares(poo
         user_id: member,
         connection_id: Some(shared_a),
         organization_id: Some(org_id),
-        service: false,
     };
     let key_client = GatewaySelection {
         key_id: None,
         user_id: member,
         connection_id: None,
         organization_id: Some(org_id),
-        service: false,
     };
 
     // Failover inside the organization still works.
     fake.answer("shared-a", StatusCode::TOO_MANY_REQUESTS);
     let response = generation(state, preferred).await.unwrap();
     assert_eq!(served_connection(&response), Some(shared_b.to_string()));
-    assert_eq!(fake.take_generation_tokens(), ["shared-a", "shared-b"]);
+    // The limited share gets its two retries before the next one serves.
+    assert_eq!(
+        fake.take_generation_tokens(),
+        ["shared-a", "shared-a", "shared-a", "shared-b"]
+    );
 
     // Once every share is unavailable the request fails, even though the
     // member's own healthy account could have answered.
     reset_availability(state).await;
     fake.answer("shared-b", StatusCode::TOO_MANY_REQUESTS);
     for selection in [preferred, key_client] {
-        let result = generation(state, selection).await;
-        assert!(
-            matches!(result, Err(ApiError::RateLimited)),
-            "unexpected result: {:?}",
-            result.map(|response| response.status())
+        // Both shares really answered 429, so the client gets Google's own 429
+        // from the last account tried, not a gateway-made one.
+        let response = generation(state, selection).await.unwrap();
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        // Three sends to the first share, then the budget's last send to the other.
+        let tokens = fake.take_generation_tokens();
+        assert_eq!(tokens.len(), 4);
+        assert!(tokens[0] == tokens[1] && tokens[1] == tokens[2] && tokens[2] != tokens[3]);
+        assert_eq!(
+            refusal_text(response).await,
+            format!("refused {}", tokens.last().unwrap())
         );
-        let mut tokens = fake.take_generation_tokens();
-        tokens.sort();
-        assert_eq!(tokens, ["shared-a", "shared-b"]);
         reset_availability(state).await;
     }
 
@@ -876,7 +890,6 @@ async fn organization_selection_fails_over_only_to_that_organizations_shares(poo
             user_id: member,
             connection_id: Some(personal),
             organization_id: Some(org_id),
-            service: false,
         },
     )
     .await;
@@ -913,7 +926,12 @@ async fn personal_selection_fails_over_only_to_own_and_joined_pool_accounts(pool
     assert_eq!(served_connection(&response), Some(joined_pool.to_string()));
     assert_eq!(
         fake.take_generation_tokens(),
-        ["member-personal", "joined-pool"]
+        [
+            "member-personal",
+            "member-personal",
+            "member-personal",
+            "joined-pool"
+        ]
     );
 
     // Once every personal account is unavailable the request fails, even
@@ -921,15 +939,17 @@ async fn personal_selection_fails_over_only_to_own_and_joined_pool_accounts(pool
     reset_availability(state).await;
     fake.answer("joined-pool", StatusCode::TOO_MANY_REQUESTS);
     for selection in [browser(member, personal), GatewaySelection::from(member)] {
-        let result = generation(state, selection).await;
-        assert!(
-            matches!(result, Err(ApiError::RateLimited)),
-            "unexpected result: {:?}",
-            result.map(|response| response.status())
-        );
+        let response = generation(state, selection).await.unwrap();
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(refusal_text(response).await, "refused joined-pool");
         assert_eq!(
             fake.take_generation_tokens(),
-            ["member-personal", "joined-pool"]
+            [
+                "member-personal",
+                "member-personal",
+                "member-personal",
+                "joined-pool"
+            ]
         );
         reset_availability(state).await;
     }

@@ -16,7 +16,6 @@ mod partner;
 mod playground;
 mod reel;
 mod router;
-mod service;
 mod telegram;
 #[cfg(test)]
 mod tests;

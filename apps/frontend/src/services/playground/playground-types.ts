@@ -24,11 +24,8 @@ export interface PlaygroundMessage {
 }
 
 export interface PlaygroundChatOptions {
-  // The account to try first; a Service chat has none.
-  connectionId?: string;
+  connectionId: string;
   organizationId?: string;
-  // Chat in the Service's scope: charged to the wallet, served by the stock.
-  service?: boolean;
   provider: PlaygroundProviderId;
   model: string;
   messages: PlaygroundMessage[];

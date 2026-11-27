@@ -2,14 +2,14 @@
 //! (rate limited, needs reauthorization, back to active).
 
 use axum::{
-    http::{HeaderName, HeaderValue},
+    http::{HeaderName, HeaderValue, StatusCode, header::RETRY_AFTER},
     response::Response,
 };
 use chrono::{DateTime, Duration, Utc};
 use sqlx::FromRow;
 use uuid::Uuid;
 
-use super::{database_error, keys::AuthorizedGatewayKey};
+use super::{database_error, keys::AuthorizedGatewayKey, rate_limit::cooldown_for};
 use crate::{
     api::agent::{PROVIDER_LOGIN_REQUIRED_MESSAGE, mark_reauthorization_required_if_current},
     core::{ApiError, AppState},
@@ -18,9 +18,8 @@ use crate::{
 
 /// A browser request names the account to try first; key clients do not. Both
 /// fail over across the same provider's accounts in their scope (personal
-/// accounts and joined pools, or one organization's shared agents, or for a
-/// service key the platform's stock) and only fail once every account there is
-/// unavailable.
+/// accounts and joined pools, or one organization's shared agents) and only
+/// fail once every account there is unavailable.
 #[derive(Clone, Copy)]
 pub(super) struct GatewaySelection {
     pub(super) user_id: Uuid,
@@ -28,9 +27,6 @@ pub(super) struct GatewaySelection {
     pub(super) key_id: Option<Uuid>,
     pub(super) connection_id: Option<Uuid>,
     pub(super) organization_id: Option<Uuid>,
-    /// The request is a service key's: served only by the platform's stock of
-    /// accounts, and charged to the key owner's service wallet.
-    pub(super) service: bool,
 }
 
 /// Names the account that served a browser request after automatic failover.
@@ -73,7 +69,6 @@ impl From<Uuid> for GatewaySelection {
             key_id: None,
             connection_id: None,
             organization_id: None,
-            service: false,
         }
     }
 }
@@ -85,7 +80,6 @@ impl From<AuthorizedGatewayKey> for GatewaySelection {
             key_id: Some(key.id),
             connection_id: None,
             organization_id: key.organization_id,
-            service: key.is_service(),
         }
     }
 }
@@ -124,73 +118,6 @@ pub(super) async fn connected_provider_candidates(
     selection: GatewaySelection,
     provider: AgentProvider,
 ) -> Result<Vec<ProviderCandidate>, ApiError> {
-    // A ticket key is served by the one account its listing sold, and by no other:
-    // not the buyer's own accounts, not a pool, not the platform's stock.
-    if let Some(key_id) = selection.key_id
-        && !selection.service
-    {
-        let ticket =
-            sqlx::query_as::<_, (bool, Option<Uuid>, Option<String>, Option<DateTime<Utc>>)>(
-                "SELECT keys.kind = 'ticket', connections.id, connections.availability_status,
-                    connections.rate_limited_until
-             FROM gateway_keys AS keys
-             LEFT JOIN service_listings AS listings ON listings.id = keys.listing_id
-             LEFT JOIN agent_connections AS connections
-               ON connections.id = listings.connection_id
-              AND connections.provider = $2
-              AND connections.status = 'connected'
-             WHERE keys.id = $1",
-            )
-            .bind(key_id)
-            .bind(provider.to_string())
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(database_error)?;
-        if let Some((true, connection, availability_status, rate_limited_until)) = ticket {
-            return match (connection, availability_status) {
-                (Some(id), Some(availability_status)) => Ok(vec![ProviderCandidate {
-                    availability_status,
-                    id,
-                    rate_limited_until,
-                }]),
-                _ => Err(ApiError::Provider(
-                    "The account behind this key is not available right now.".to_owned(),
-                )),
-            };
-        }
-    }
-    if selection.service {
-        // The platform's stock, and nothing else: not the owner's own accounts,
-        // not a pool, not an organization.
-        let candidates = sqlx::query_as::<_, ProviderCandidate>(
-            "SELECT connections.id, connections.availability_status,
-                    connections.rate_limited_until
-             FROM agent_connections AS connections
-             WHERE connections.provider = $1
-               AND connections.status = 'connected'
-               AND connections.service_stock
-             ORDER BY CASE
-                        WHEN connections.availability_status = 'half_open'
-                             AND connections.retry_claimed_at IS NULL THEN 0
-                        WHEN connections.availability_status = 'rate_limited'
-                             AND connections.rate_limited_until <= NOW() THEN 1
-                        WHEN connections.availability_status = 'active' THEN 2
-                        ELSE 3
-                      END,
-                      connections.updated_at DESC,
-                      connections.id",
-        )
-        .bind(provider.to_string())
-        .fetch_all(&state.pool)
-        .await
-        .map_err(database_error)?;
-        if candidates.is_empty() {
-            return Err(ApiError::Provider(
-                "The service has no capacity for this provider right now.".to_owned(),
-            ));
-        }
-        return Ok(candidates);
-    }
     if let Some(organization_id) = selection.organization_id {
         let candidates = sqlx::query_as::<_, ProviderCandidate>(
             "SELECT connections.id, connections.availability_status,
@@ -312,11 +239,20 @@ pub(super) async fn claim_candidate(
     }
 }
 
+/// Rest an account for the default time after a rate limit that named no delay.
 pub(super) async fn mark_rate_limited(
     state: &AppState,
     connection_id: Uuid,
 ) -> Result<(), ApiError> {
-    let retry_at = Utc::now() + rate_limit_cooldown();
+    mark_rate_limited_for(state, connection_id, cooldown_for(None)).await
+}
+
+pub(super) async fn mark_rate_limited_for(
+    state: &AppState,
+    connection_id: Uuid,
+    cooldown: Duration,
+) -> Result<(), ApiError> {
+    let retry_at = Utc::now() + cooldown;
     sqlx::query(
         "UPDATE agent_connections
          SET availability_status = 'rate_limited', rate_limited_until = $2,
@@ -374,6 +310,115 @@ pub(super) async fn release_probe(state: &AppState, connection_id: Uuid) -> Resu
     Ok(())
 }
 
-pub(super) fn rate_limit_cooldown() -> Duration {
-    Duration::minutes(30)
+/// How a request fared across the provider's accounts, and what to answer when
+/// none served it. What the provider said during this request outranks what the
+/// gateway remembers about accounts it did not call, so an old cooldown on one
+/// account never hides a fresh 401 or 403 from another. Each state has its own
+/// status: only a provider's 429, or accounts all still resting after one, is a 429.
+#[derive(Default)]
+pub(super) struct Failover {
+    /// The provider rejected a login, or asked for verification, in this request.
+    login_rejected: bool,
+    /// A reply of the provider's own, relayed as it came; the last one wins.
+    answer: Option<Response>,
+    /// The request's own failure: the provider never answered, or the stored
+    /// credential was unusable.
+    error: Option<ApiError>,
+    /// An account was not called because another request is probing it.
+    probing: bool,
+    /// The first moment an account that is resting after a rate limit is due.
+    cooling_until: Option<DateTime<Utc>>,
+    /// An account was not called because its owner has to reconnect it.
+    needs_reconnect: bool,
+}
+
+impl Failover {
+    /// An account this request could not claim, so did not call.
+    pub(super) fn skipped(&mut self, candidate: &ProviderCandidate) {
+        match candidate.availability_status.as_str() {
+            "reauth_required" => self.needs_reconnect = true,
+            "rate_limited" => match candidate.rate_limited_until {
+                Some(until) if until > Utc::now() => {
+                    self.cooling_until =
+                        Some(self.cooling_until.map_or(until, |due| due.min(until)));
+                }
+                // Its rest is over and another request won the probe.
+                _ => self.probing = true,
+            },
+            _ => self.probing = true,
+        }
+    }
+
+    /// An account whose stored login is already known to need its owner.
+    pub(super) fn needs_reconnect(&mut self) {
+        self.needs_reconnect = true;
+    }
+
+    pub(super) fn login_rejected(&mut self) {
+        self.login_rejected = true;
+    }
+
+    pub(super) fn answered(&mut self, response: Response) {
+        self.answer = Some(response);
+    }
+
+    /// An account this request just put to rest after the provider's 429.
+    pub(super) fn rested(&mut self, cooldown: Duration) {
+        let due = Utc::now() + cooldown;
+        self.cooling_until = Some(self.cooling_until.map_or(due, |first| first.min(due)));
+    }
+
+    pub(super) fn failed(&mut self, error: ApiError) {
+        self.error = Some(error);
+    }
+
+    pub(super) fn into_response(self, selection: GatewaySelection) -> Result<Response, ApiError> {
+        if !self.login_rejected
+            && let Some(mut answer) = self.answer
+        {
+            // A provider's 429 that named no wait still tells the client when the
+            // first account can be tried again.
+            if answer.status() == StatusCode::TOO_MANY_REQUESTS
+                && !answer.headers().contains_key(RETRY_AFTER)
+                && let Some(due) = self.cooling_until
+            {
+                answer
+                    .headers_mut()
+                    .insert(RETRY_AFTER, HeaderValue::from(seconds_until(due)));
+            }
+            return Ok(answer);
+        }
+        Err(Failover {
+            answer: None,
+            ..self
+        }
+        .into_error(selection))
+    }
+
+    /// For a request that has nothing of the provider's to relay.
+    pub(super) fn into_error(self, selection: GatewaySelection) -> ApiError {
+        if self.login_rejected {
+            reauthorization_error(selection)
+        } else if let Some(error) = self.error {
+            error
+        } else if self.probing {
+            ApiError::Recovering
+        } else if let Some(due) = self.cooling_until {
+            ApiError::RateLimited(Some(seconds_until(due)))
+        } else if self.needs_reconnect {
+            reauthorization_error(selection)
+        } else {
+            ApiError::Forbidden
+        }
+    }
+}
+
+/// Whole seconds until `due`, rounded up so a client that waits them is served.
+fn seconds_until(due: DateTime<Utc>) -> u64 {
+    (due - Utc::now())
+        .num_milliseconds()
+        .max(0)
+        .cast_unsigned()
+        .div_ceil(1000)
+        .max(1)
 }

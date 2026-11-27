@@ -110,12 +110,15 @@ use crate::api::gateway::providers::gemini::{
     gemini_model_catalogue, gemini_upstream_disposition, parse_gemini_operation,
     unwrap_gemini_response,
 };
+use crate::api::gateway::proxy::may_send_again;
 use crate::api::gateway::proxy::{
     UpstreamDisposition, chatgpt_account_id, ensure_claude_billing_header, grok_proxy_headers,
     merged_anthropic_beta, retry_delay, should_retry_same_candidate,
     strip_unsupported_codex_fields, upstream_disposition,
 };
-use crate::api::gateway::selection::rate_limit_cooldown;
+use crate::api::gateway::rate_limit::{
+    body_preview, cooldown_for, rate_limit_retry, requested_delay,
+};
 use crate::api::gateway::usage::{
     MAX_USAGE_PAYLOAD_BYTES, TokenUsage, UsageObserver, quota_snapshot,
 };
@@ -295,8 +298,116 @@ fn chatgpt_account_id_can_be_read_from_trusted_token_claims() {
 }
 
 #[test]
-fn rate_limited_pools_cool_down_for_thirty_minutes() {
-    assert_eq!(rate_limit_cooldown().num_minutes(), 30);
+fn a_rate_limited_pool_rests_a_minute_unless_the_provider_asked_for_another_wait() {
+    use chrono::Duration;
+
+    assert_eq!(cooldown_for(None).num_seconds(), 60);
+    assert_eq!(cooldown_for(Some(Duration::seconds(34))).num_seconds(), 34);
+    // A delay of zero still rests the pool for a moment.
+    assert_eq!(cooldown_for(Some(Duration::zero())).num_seconds(), 1);
+    // A provider that asks for more than the default is believed, up to half an hour.
+    assert_eq!(cooldown_for(Some(Duration::minutes(10))).num_minutes(), 10);
+    assert_eq!(cooldown_for(Some(Duration::hours(5))).num_minutes(), 30);
+}
+
+#[test]
+fn a_429_is_retried_twice_unless_the_provider_asked_for_a_long_wait_or_it_was_a_probe() {
+    use chrono::Duration;
+
+    let wait = |asked: Option<Duration>, retries_done: usize, probe: bool| {
+        rate_limit_retry(asked, retries_done, probe).map(|wait| wait.as_millis())
+    };
+
+    // Two retries after the first send, each waiting longer than the last (±20%).
+    assert!((400..=600).contains(&wait(None, 0, false).unwrap()));
+    assert!((800..=1_200).contains(&wait(None, 1, false).unwrap()));
+    assert_eq!(wait(None, 2, false), None, "three sends in all");
+    // A probe is a single call.
+    assert_eq!(wait(None, 0, true), None);
+    // A short ask is waited out; a long one is believed, not asked again.
+    assert_eq!(
+        wait(Some(Duration::milliseconds(1_500)), 0, false),
+        Some(1_500)
+    );
+    assert_eq!(wait(Some(Duration::seconds(7)), 0, false), None);
+}
+
+#[test]
+fn a_429_retry_goes_to_the_same_account_only_while_the_budget_leaves_one_for_each_other_account() {
+    // One account may use the whole of its three sends.
+    assert!(may_send_again(3, 1, 1, 0, 1));
+    assert!(may_send_again(3, 2, 2, 0, 1));
+    assert!(
+        !may_send_again(3, 4, 4, 0, 1),
+        "the budget of four is spent"
+    );
+    // With three accounts the budget is four sends: the first account may retry
+    // once, then must leave a send for each of the others.
+    assert!(may_send_again(3, 1, 1, 0, 3));
+    assert!(!may_send_again(3, 2, 2, 0, 3));
+}
+
+#[test]
+fn the_providers_own_retry_delay_is_read_from_its_header_and_error_details() {
+    use axum::http::{HeaderMap, HeaderValue, header::RETRY_AFTER};
+
+    let millis = |headers: &HeaderMap, body: &[u8]| {
+        requested_delay(headers, body).map(|delay| delay.num_milliseconds())
+    };
+    let none = HeaderMap::new();
+    let mut retry_after = HeaderMap::new();
+    retry_after.insert(RETRY_AFTER, HeaderValue::from_static("34"));
+
+    assert_eq!(millis(&retry_after, b""), Some(34_000));
+    assert_eq!(
+        millis(
+            &none,
+            br#"{"error":{"code":429,"status":"RESOURCE_EXHAUSTED","details":[
+                {"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"1.5s"}]}}"#
+        ),
+        Some(1_500)
+    );
+    assert_eq!(
+        millis(
+            &none,
+            br#"{"error":{"details":[
+                {"@type":"type.googleapis.com/google.rpc.ErrorInfo",
+                 "metadata":{"quotaResetDelay":"2m30.5s"}}]}}"#
+        ),
+        Some(150_500)
+    );
+    assert_eq!(
+        millis(&none, br#"{"error":{"details":[{"retryDelay":"250ms"}]}}"#),
+        Some(250)
+    );
+    // The longest ask wins, whether it is the header or a detail.
+    assert_eq!(
+        millis(
+            &retry_after,
+            br#"{"error":{"details":[{"retryDelay":"90s"},{"retryDelay":"5s"}]}}"#
+        ),
+        Some(90_000)
+    );
+    // Nothing usable means the provider did not say.
+    assert_eq!(millis(&none, b"not json"), None);
+    assert_eq!(millis(&none, br#"{"error":{"message":"slow down"}}"#), None);
+    assert_eq!(
+        millis(
+            &none,
+            br#"{"error":{"details":[{"retryDelay":"soon"},{"retryDelay":"12"}]}}"#
+        ),
+        None
+    );
+}
+
+#[test]
+fn a_log_preview_is_one_short_line() {
+    assert_eq!(
+        body_preview(b"{\n  \"error\": {\n    \"code\": 429\n  }\n}"),
+        r#"{ "error": { "code": 429 } }"#
+    );
+    assert_eq!(body_preview(&[b'x'; 1_000]).len(), 300);
+    assert_eq!(body_preview(b""), "");
 }
 
 #[test]

@@ -9,7 +9,7 @@ use crate::core::{AppState, cors};
 
 use super::{
     ApiDoc, agent, auth, dashboard, gateway, health, organizations, partner, playground, reel,
-    service, telegram, tts,
+    telegram, tts,
 };
 
 pub fn app(state: AppState) -> Router {
@@ -32,7 +32,6 @@ pub fn app(state: AppState) -> Router {
         .merge(agent::routes(&state))
         .merge(gateway::routes(&state))
         .merge(playground::routes(&state))
-        .merge(service::routes(&state))
         .merge(dashboard::routes(&state))
         .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(cors)

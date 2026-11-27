@@ -1,24 +1,10 @@
-import type { Currency, TelegramProduct } from "@/services/sales/sales-types";
+import type { TelegramProduct } from "@/services/sales/sales-types";
 
-const MICRO_PER_DOLLAR = 1_000_000;
 const SHOP_TIME_ZONE = "Asia/Ho_Chi_Minh";
 
 const vnd = new Intl.NumberFormat("vi-VN", {
   currency: "VND",
   maximumFractionDigits: 0,
-  style: "currency",
-});
-
-const usd = new Intl.NumberFormat("en-US", {
-  currency: "USD",
-  style: "currency",
-});
-
-// A price of a million tokens can be a fraction of a cent: $0.006, $0.075.
-const usdPrice = new Intl.NumberFormat("en-US", {
-  currency: "USD",
-  maximumFractionDigits: 6,
-  minimumFractionDigits: 2,
   style: "currency",
 });
 
@@ -46,19 +32,6 @@ export function formatVnd(amount: number) {
   return vnd.format(amount);
 }
 
-export function formatUsd(micro: number) {
-  return usd.format(micro / MICRO_PER_DOLLAR);
-}
-
-/** What a million tokens cost, to the last micro-dollar: `$0.075`, `$10.00`. */
-export function formatPricePerMillion(micro: number) {
-  return usdPrice.format(micro / MICRO_PER_DOLLAR);
-}
-
-export function formatMoney(amount: number, currency: Currency) {
-  return currency === "VND" ? formatVnd(amount) : formatUsd(amount);
-}
-
 // One decimal at most, written with a comma and without a trailing ",0".
 function trimmed(value: number) {
   return value.toFixed(1).replace(/\.0$/, "").replace(".", ",");
@@ -75,22 +48,6 @@ export function formatCompactVnd(amount: number) {
   if (size >= 1_000) return `${trimmed(amount / 1_000)}k`;
 
   return String(amount);
-}
-
-/** Axis labels and tiles: $0.5, $12, $1.2K. */
-export function formatCompactUsd(micro: number) {
-  const dollars = micro / MICRO_PER_DOLLAR;
-
-  if (Math.abs(dollars) >= 1_000)
-    return `$${(dollars / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
-
-  return `$${Number.isInteger(dollars) ? dollars : dollars.toFixed(1)}`;
-}
-
-export function formatCompactMoney(amount: number, currency: Currency) {
-  return currency === "VND"
-    ? formatCompactVnd(amount)
-    : formatCompactUsd(amount);
 }
 
 /** 44,2M tokens; the number the shop quotes, not an exact count. */

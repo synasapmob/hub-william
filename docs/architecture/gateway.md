@@ -20,17 +20,16 @@ availability state machine are in [accounts-and-pools.md](./accounts-and-pools.m
 - Why: a prompt must not pay an extra network hop. Extracting the gateway into
   its own service needs an explicit internal contract that keeps this property.
 - Every request carries a `GatewaySelection`: the user, an optional preferred
-  `connection_id`, an optional `organization_id` and a `service` flag. One
-  function, `connected_provider_candidates`, turns it into the accounts to try:
-  the platform's stock when `service`, the organization's shared agents when
-  `organization_id` is set, the user's own accounts and joined pools otherwise.
+  `connection_id` and an optional `organization_id`. One function,
+  `connected_provider_candidates`, turns it into the accounts to try: the
+  organization's shared agents when `organization_id` is set, the user's own
+  accounts and joined pools otherwise.
 
-| Caller        | Authentication   | Preferred account               | Scope                                                           |
-| ------------- | ---------------- | ------------------------------- | --------------------------------------------------------------- |
-| Coding client | Workspace key    | none                            | personal                                                        |
-| Coding client | Organization key | none                            | one organization's shared agents                                |
-| Coding client | Service key      | none                            | the platform's stock, charged                                   |
-| Playground    | session cookie   | the chosen account, tried first | personal, one organization's pools, or (Kind Service) the stock |
+| Caller        | Authentication   | Preferred account               | Scope                                 |
+| ------------- | ---------------- | ------------------------------- | ------------------------------------- |
+| Coding client | Workspace key    | none                            | personal                              |
+| Coding client | Organization key | none                            | one organization's shared agents      |
+| Playground    | session cookie   | the chosen account, tried first | personal, or one organization's pools |
 
 ## Routes
 
@@ -61,19 +60,16 @@ behind the Hub-key limiter, with the request-body limit disabled.
 Key management and the usage read-back use the session cookie and are the
 gateway surface in `apps/api/openapi.json`: `GET`/`POST /gateway-keys` and
 `DELETE /gateway-keys/{key_id}` for Workspace keys, the same three under
-`/organizations/{id}/gateway-keys` for organization keys, `/service/keys` for
-service keys, and `GET /gateway-usage`. A key is a Workspace key (`hw_live_…`),
-an organization key (`hw_org_…`) or a service key (`hw_svc_…`). The same provider
-routes serve all three and the key decides: a Workspace key is served by its
-owner's own accounts and costs nothing, an organization key only by the agents
-shared with its organization (and stops working when its owner leaves it), a
-service key only by the platform's stock, held to the price list before a request
-goes out and charged when it ends, see [Service](./service.md#service-keys). Each
-list shows only its own kind.
+`/organizations/{id}/gateway-keys` for organization keys, and
+`GET /gateway-usage`. A key is a Workspace key (`hw_live_…`) or an organization
+key (`hw_org_…`). The same provider routes serve both and the key decides: a
+Workspace key is served by its owner's own accounts, an organization key only by
+the agents shared with its organization (and stops working when its owner leaves
+it). Neither costs anything. Each list shows only its own kind.
 
 ## Keys and limits
 
-- A key is its prefix (`hw_live_`, `hw_org_` or `hw_svc_`) plus 32 random bytes in
+- A key is its prefix (`hw_live_` or `hw_org_`) plus 32 random bytes in
   base64url. The database stores its
   SHA-256 hash, `last_four`, `created_at`, `last_used_at` (touched on every
   successful authorization) and a soft `revoked_at`. A key has no expiry and is
@@ -93,13 +89,14 @@ list shows only its own kind.
   authentications per minute per client address. An address with an exhausted
   failure budget is refused before any key lookup.
 
-| Code                     | HTTP                    | When                                                                                                 |
-| ------------------------ | ----------------------- | ---------------------------------------------------------------------------------------------------- |
-| `invalid_gateway_key`    | 401                     | missing, malformed, unknown or revoked key                                                           |
-| `forbidden`              | 403                     | no connected account of that provider in scope; a browser request named an account outside its scope |
-| `all_pools_rate_limited` | 429                     | every candidate is cooling down or already being probed                                              |
-| `provider_unavailable`   | 502                     | network failure, an unrecoverable rejected login, or every account needs reconnect                   |
-| `rate_limited`           | 429, with `Retry-After` | a per-key or per-address limit is exceeded                                                           |
+| Code                     | HTTP                    | When                                                                                                                              |
+| ------------------------ | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `invalid_gateway_key`    | 401                     | missing, malformed, unknown or revoked key                                                                                        |
+| `forbidden`              | 403                     | no connected account of that provider in scope; a browser request named an account outside its scope                              |
+| `all_pools_rate_limited` | 429, with `Retry-After` | nothing was sent to the provider and every candidate is resting after a provider 429; the wait is the time until the first is due |
+| `pool_recovering`        | 503, with `Retry-After` | nothing was sent to the provider and the accounts left are being probed by another request                                        |
+| `provider_unavailable`   | 502                     | network failure, an unrecoverable rejected login, or every account needs reconnect                                                |
+| `rate_limited`           | 429, with `Retry-After` | a per-key or per-address limit is exceeded                                                                                        |
 
 An upstream error response that the gateway does not act on (for example `400`)
 is returned unchanged.
@@ -142,7 +139,10 @@ Before sending, `claim_candidate` decides whether an account is usable:
 - `half_open` is claimable when unclaimed or when its claim is older than five
   minutes.
 - A cooling-down account, a `reauth_required` account or a `half_open` account
-  claimed elsewhere is skipped and counted as rate-limited or needing reconnect.
+  claimed elsewhere is skipped without calling the provider, and each is kept
+  apart: resting after a 429 (with the time it is due), being probed, or needing
+  its owner. An account whose rest has ended but whose probe another request won
+  counts as being probed.
 
 A probe that ends without success or `429` is released (`release_probe`).
 
@@ -154,11 +154,32 @@ route) and sends the request with the provider's headers.
 
 | Upstream result                                                               | Action                                                                                          |
 | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `429`                                                                         | Mark the account `rate_limited` for 30 minutes and try the next account.                        |
+| `429`                                                                         | Retry the same account up to twice, then keep the response, rest it and try the next account.   |
 | `401`; Grok `403`                                                             | Refresh the credential once and retry the same account; see below.                              |
 | `402` or `403` (Gemini: `403` only; Grok `403` is a login failure)            | Keep the response, try the next account.                                                        |
 | `408`, `500`, `502`, `503`, `504`, or a network error before response headers | Retry with backoff; see below.                                                                  |
 | Anything else                                                                 | Return it to the client. The account is marked `active`, which clears `half_open` and cooldown. |
+
+**A provider 429.** The response is read (the start of the body is logged with the
+account, the status and the attempt) and kept to be relayed unchanged: status,
+body and headers. The gateway never changes what the provider said into a 429 of
+its own, and never turns another status into one.
+
+The same account is sent the request again up to twice, so a request makes three
+sends in all counting the first, logged as `retry 1/2` and `retry 2/2`. A retry
+waits 500 ms and then 1 s (±20%), or the delay the provider asked for when that is
+longer. No retry goes out when the provider asked for more than 2 s (it is
+believed), when the request is the probe of a recovering account (a probe is one
+call), or when the budget would no longer leave a send for each account still to
+try. The retries count against the attempt budget below.
+
+When the retries are spent the account rests for as long as the provider asked,
+taken from the longest of the `Retry-After` header, an error detail's `retryDelay`
+and a detail's `quotaResetDelay`, kept between one second and 30 minutes. A 429
+that names no delay rests it for **one minute**: a 429 can belong to one request
+and not to the account, and the probe after the minute finds out. A relayed 429
+that carried no `Retry-After` gets one, set to the time until the first account in
+reach is due.
 
 **Rejected login.** `handle_rejected_credential` refreshes the credential once
 (or picks up a token another request already rotated) and retries the same
@@ -171,7 +192,8 @@ without marking.
 **Attempt budget.** A request makes at most `max(4, number of candidates)`
 upstream sends, so a large pool can reach every account.
 
-**Retrying one account.** An account gets at most two sends. The last remaining
+**Retrying one account.** For transient statuses and network errors an account
+gets at most two sends (a 429 gets up to three, see above). The last remaining
 candidate may use the rest of the budget. An earlier candidate retries only while
 the budget leaves at least one send for each candidate still to try.
 
@@ -184,12 +206,21 @@ the same 2 s cap; the larger of the two applies.
 response is returned unchanged. When the candidates run out instead, the first
 rule that applies wins:
 
-1. `all_pools_rate_limited` (`429`) if any account was cooling down or rate
-   limited.
-2. A `provider_unavailable` error saying every account needs to reconnect, if any
-   account was `reauth_required`.
-3. The last kept `402`/`403` response, unchanged.
-4. The last error (a network or credential failure), or `forbidden`.
+What the provider said during this request outranks what the gateway remembers
+about accounts it did not call, so an old cooldown on one account never hides a
+fresh `401` or `403` from another:
+
+1. A `provider_unavailable` error saying every account needs to reconnect, if the
+   provider rejected a login or asked for account verification in this request.
+2. The last kept response (`402`, `403` or `429`), unchanged.
+3. The last error of this request (a network or credential failure).
+4. Of the accounts that were not called: `pool_recovering` (`503`) if any is being
+   probed, else `all_pools_rate_limited` (`429`, `Retry-After` set to the time
+   until the first is due) if any is resting after a 429, else the
+   `provider_unavailable` reconnect error if any was `reauth_required`.
+5. `forbidden`.
+
+Only a provider's 429, or every account still resting after one, is a `429`.
 
 **Never after the response starts.** Retry and failover happen only before the
 gateway returns a response. Once a candidate answers with anything that is not
@@ -346,7 +377,7 @@ recorded.
 | ------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
 | `user_id`                                        | The owner of the key, or the signed-in user. Several keys of one user all count for that user. |
 | `gateway_key_id`                                 | The key that sent the request; `NULL` for a browser session or after the key is deleted.       |
-| `scope`                                          | `workspace`, `organization` or `service`: which product the request belonged to.               |
+| `scope`                                          | `workspace` or `organization`: which scope the request belonged to.                            |
 | `org_id`, `connection_id`                        | The organization scope and the account that answered; `NULL` when absent or deleted.           |
 | `provider`, `model`                              | The provider and the model named in the request body.                                          |
 | `input_tokens`, `output_tokens`, `cached_tokens` | From the provider's usage object; `NULL` when missing, which is distinct from zero.            |
@@ -373,9 +404,9 @@ on them.
 one entry per day with empty days present, and a breakdown by key, provider and
 model. Workspace keys and the Playground are counted together, so a user's several
 keys add up to one user; only the `workspace` scope is counted. The
-`organization` scope is shown by the organization's usage and the `service` scope
-by `GET /service/usage`. Rows of other users are never read. The route is not rate limited, like the other session
-`GET` routes.
+`organization` scope is shown by the organization's usage. Rows of other users
+are never read. The route is not rate limited, like the other session `GET`
+routes.
 
 ## Organization usage recording
 

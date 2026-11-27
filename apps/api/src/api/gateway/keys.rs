@@ -1,9 +1,7 @@
 //! Gateway keys: create, list and revoke them, and authenticate a request by its
-//! key. A key belongs to one product. A workspace key is served by its owner's
-//! own accounts and pools, and an organization key by the agents that
-//! organization shares; both cost nothing. A service key is served only by the
-//! platform's stock of accounts and is charged to its owner's service wallet. A
-//! request is told apart by the key it presents.
+//! key. A workspace key is served by its owner's own accounts and pools, and an
+//! organization key by the agents that organization shares. A request is told
+//! apart by the key it presents.
 
 use axum::{
     Json,
@@ -26,17 +24,13 @@ use crate::{
     core::{ApiError, AppState},
 };
 
-/// The product a key belongs to.
+/// The scope a key belongs to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum KeyKind {
     /// The Workspace's: the owner's own accounts and pools.
     Workspace,
     /// An organization's: the agents that organization shares.
     Organization,
-    /// The Service's: the platform's stock, charged to the owner's wallet.
-    Service,
-    /// A ticket's: the one account its listing sold, free, until it expires.
-    Ticket,
 }
 
 impl KeyKind {
@@ -44,8 +38,6 @@ impl KeyKind {
         match self {
             Self::Workspace => "workspace",
             Self::Organization => "organization",
-            Self::Service => "service",
-            Self::Ticket => "ticket",
         }
     }
 
@@ -54,8 +46,6 @@ impl KeyKind {
         match self {
             Self::Workspace => "hw_live_",
             Self::Organization => "hw_org_",
-            Self::Service => "hw_svc_",
-            Self::Ticket => "hw_tkt_",
         }
     }
 }
@@ -88,14 +78,6 @@ pub(super) struct AuthorizedGatewayKey {
     pub(super) id: Uuid,
     pub(super) user_id: Uuid,
     pub(super) organization_id: Option<Uuid>,
-    kind: String,
-}
-
-impl AuthorizedGatewayKey {
-    /// Whether the key is a service key.
-    pub(super) fn is_service(&self) -> bool {
-        self.kind == KeyKind::Service.as_str()
-    }
 }
 
 /// Creates a key of `kind` for `user_id` and returns it; the key itself is shown
@@ -129,45 +111,6 @@ pub(crate) async fn create_key_of_kind(
     .bind(kind.as_str())
     .bind(organization_id)
     .fetch_one(pool)
-    .await
-    .map_err(database_error)?;
-
-    Ok(CreatedGatewayKey {
-        metadata: gateway_key_from_row(row),
-        key,
-    })
-}
-
-/// Makes the key a customer gets for the ticket `listing_id`, inside the
-/// transaction that charges them for it, so a key never exists without its sale. It
-/// belongs to `user_id` and stops working at `expires_at`; it is shown once, here.
-pub(crate) async fn create_ticket_key(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    user_id: Uuid,
-    listing_id: Uuid,
-    expires_at: DateTime<Utc>,
-) -> Result<CreatedGatewayKey, ApiError> {
-    let key = generate_gateway_key(KeyKind::Ticket);
-    let last_four: String = key
-        .chars()
-        .rev()
-        .take(4)
-        .collect::<String>()
-        .chars()
-        .rev()
-        .collect();
-    let row = sqlx::query_as::<_, GatewayKeyRow>(
-        "INSERT INTO gateway_keys (id, user_id, key_hash, last_four, kind, listing_id, expires_at)
-         VALUES ($1, $2, $3, $4, 'ticket', $5, $6)
-         RETURNING id, last_four, created_at, last_used_at",
-    )
-    .bind(Uuid::new_v4())
-    .bind(user_id)
-    .bind(hash_gateway_key(&key))
-    .bind(last_four)
-    .bind(listing_id)
-    .bind(expires_at)
-    .fetch_one(&mut **transaction)
     .await
     .map_err(database_error)?;
 
@@ -325,14 +268,9 @@ pub(crate) fn gateway_key_from_headers(headers: &HeaderMap) -> Option<&str> {
         })
         .filter(|value| {
             value.len() > 24
-                && [
-                    KeyKind::Workspace,
-                    KeyKind::Organization,
-                    KeyKind::Service,
-                    KeyKind::Ticket,
-                ]
-                .iter()
-                .any(|kind| value.starts_with(kind.prefix()))
+                && [KeyKind::Workspace, KeyKind::Organization]
+                    .iter()
+                    .any(|kind| value.starts_with(kind.prefix()))
         })
 }
 
@@ -343,9 +281,8 @@ pub(super) async fn authorize_gateway_key(
     let key = gateway_key_from_headers(headers).ok_or(ApiError::GatewayUnauthorized)?;
     let key_hash = hash_gateway_key(key);
     let authorized = sqlx::query_as::<_, AuthorizedGatewayKey>(
-        "SELECT id, user_id, organization_id, kind FROM gateway_keys
-         WHERE key_hash = $1 AND revoked_at IS NULL
-           AND (expires_at IS NULL OR expires_at > NOW())",
+        "SELECT id, user_id, organization_id FROM gateway_keys
+         WHERE key_hash = $1 AND revoked_at IS NULL",
     )
     .bind(key_hash)
     .fetch_optional(&state.pool)

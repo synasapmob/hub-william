@@ -8,6 +8,9 @@ use axum::{
 use serde::Serialize;
 use utoipa::ToSchema;
 
+/// A probe of a recovered account answers within a few seconds.
+const RECOVERING_RETRY_SECONDS: u64 = 2;
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ErrorResponse {
     pub code: String,
@@ -27,15 +30,19 @@ pub enum ApiError {
     Exists(&'static str),
     Forbidden,
     GatewayUnauthorized,
-    /// The wallet cannot cover the amount asked for.
-    InsufficientBalance,
     InvalidCredentials,
     NotAvailable(&'static str),
     NotFound,
     /// A request to a partner route without a key issued in `SHOP_KEYS`.
     PartnerUnauthorized,
     Provider(String),
-    RateLimited,
+    /// The provider rate-limited every account the request may use and none can be
+    /// tried yet. Carries the whole seconds until the first one can, when known.
+    /// Only the gateway's own answer: a provider's 429 is relayed as it came.
+    RateLimited(Option<u64>),
+    /// The only accounts left are being checked by another request after a rate
+    /// limit, so nothing was sent to the provider; a retry in a moment is served.
+    Recovering,
     /// Carries the whole seconds the caller should wait before retrying.
     TooManyRequests(u64),
     Unauthorized,
@@ -92,13 +99,6 @@ impl IntoResponse for ApiError {
                     },
                 )
             }
-            Self::InsufficientBalance => (
-                StatusCode::PAYMENT_REQUIRED,
-                ErrorResponse {
-                    code: "insufficient_balance".to_owned(),
-                    message: "Insufficient balance.".to_owned(),
-                },
-            ),
             Self::NotAvailable(message) => (
                 StatusCode::NOT_IMPLEMENTED,
                 ErrorResponse {
@@ -127,13 +127,31 @@ impl IntoResponse for ApiError {
                     message,
                 },
             ),
-            Self::RateLimited => (
-                StatusCode::TOO_MANY_REQUESTS,
-                ErrorResponse {
-                    code: "all_pools_rate_limited".to_owned(),
-                    message: "Every accessible pool for this provider is cooling down.".to_owned(),
-                },
-            ),
+            Self::RateLimited(wait) => {
+                retry_after = wait;
+                (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    ErrorResponse {
+                        code: "all_pools_rate_limited".to_owned(),
+                        message: match wait {
+                            Some(seconds) => format!(
+                                "The provider rate-limited every accessible account for this provider. The first can be tried again in {seconds} seconds."
+                            ),
+                            None => "The provider rate-limited every accessible account for this provider.".to_owned(),
+                        },
+                    },
+                )
+            }
+            Self::Recovering => {
+                retry_after = Some(RECOVERING_RETRY_SECONDS);
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    ErrorResponse {
+                        code: "pool_recovering".to_owned(),
+                        message: "Another request is checking whether the account recovered from a rate limit. Nothing was sent to the provider; retry in a few seconds.".to_owned(),
+                    },
+                )
+            }
             Self::TooManyRequests(seconds) => {
                 retry_after = Some(seconds);
                 (

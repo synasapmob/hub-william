@@ -1,24 +1,16 @@
 import type {
-  Currency,
-  ListingStatus,
+  AgentProvider,
   OrderStatus,
   PaymentMethod,
   Permission,
   Role,
   SaleOrder,
-  ServiceProvider,
   StockType,
   Warranty,
 } from "./sales-types";
 
 export const stockTypeLabels: Record<StockType, string> = {
   telegram: "Telegram",
-  "hub-william": "Hub William",
-};
-
-export const stockTypeCurrency: Record<StockType, Currency> = {
-  telegram: "VND",
-  "hub-william": "USD",
 };
 
 export const orderStatusLabels: Record<OrderStatus, string> = {
@@ -39,16 +31,8 @@ export const warrantyLabels: Record<Warranty, string> = {
   NW: "Không bảo hành",
 };
 
-/** What a ticket that is not for sale says about why. */
-export const listingStatusLabels: Record<ListingStatus, string> = {
-  for_sale: "Đang bán",
-  hidden: "Đang ẩn",
-  needs_reconnect: "Cần kết nối lại",
-  disconnected: "Account đã gỡ",
-};
-
-/** The agents Hub William supports, in the order its Pricing page lists them. */
-export const serviceProviderLabels: Record<ServiceProvider, string> = {
+/** The agents the shop sells accounts of, in the order a provider is chosen from. */
+export const agentProviderLabels: Record<AgentProvider, string> = {
   chatgpt: "ChatGPT",
   gemini: "Gemini",
   claude: "Claude",

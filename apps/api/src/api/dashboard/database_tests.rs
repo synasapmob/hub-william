@@ -25,7 +25,6 @@ mod late_transfer;
 mod orders;
 mod revenue;
 mod sales;
-mod service;
 mod staff;
 mod support;
 

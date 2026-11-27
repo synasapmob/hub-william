@@ -12,8 +12,6 @@ import { useWorkspaceSession } from "./workspace-shell-session-context";
 import {
   navigationItems,
   organizationNavigationItems,
-  serviceNavigationItems,
-  type NavigationItem,
 } from "./workspace-shell-navigation-items";
 
 const navigationLinkVariants = tv({
@@ -36,25 +34,6 @@ const navigationIconVariants = tv({
     disabled: { true: "text-zinc-300" },
   },
 });
-
-// An item that cannot be opened yet: the look of a link, but a disabled button.
-function DisabledNavigationLink({ item }: { item: NavigationItem }) {
-  const Icon = item.icon;
-
-  return (
-    <button
-      className={navigationLinkVariants({ active: false, disabled: true })}
-      disabled
-      type="button"
-    >
-      <Icon
-        aria-hidden={true}
-        className={navigationIconVariants({ active: false, disabled: true })}
-      />
-      <span>{item.label}</span>
-    </button>
-  );
-}
 
 interface WorkspaceBrandProps {
   onNavigate?: () => void;
@@ -89,30 +68,20 @@ function WorkspaceBrand({ onNavigate }: WorkspaceBrandProps) {
   );
 }
 
-interface NavigationGroupProps {
-  items: NavigationItem[];
-  label: string;
+interface WorkspaceNavigationProps {
   onNavigate?: () => void;
 }
 
-// A titled list of plain links, the shape Workspace and Service share. An item
-// that needs a session is disabled for a guest.
-function NavigationGroup({ items, label, onNavigate }: NavigationGroupProps) {
-  const session = useWorkspaceSession();
-
+function WorkspaceNavigation({ onNavigate }: WorkspaceNavigationProps) {
   return (
-    <nav aria-label={label}>
+    <nav aria-label="Workspace">
       <div className="space-y-1">
         <p className="px-2 pb-2 font-mono text-[10px] tracking-widest text-muted-foreground uppercase">
-          {label}
+          Workspace
         </p>
 
-        {items.map((item) => {
+        {navigationItems.map((item) => {
           const Icon = item.icon;
-
-          if (item.requiresSession && session.status === "guest") {
-            return <DisabledNavigationLink key={item.href} item={item} />;
-          }
 
           return (
             <NavLink
@@ -169,7 +138,26 @@ function OrganizationNavigation({ onNavigate }: OrganizationNavigationProps) {
           const Icon = item.icon;
 
           if (item.href !== "/organization" && !canOpenSections) {
-            return <DisabledNavigationLink key={item.href} item={item} />;
+            return (
+              <button
+                key={item.href}
+                className={navigationLinkVariants({
+                  active: false,
+                  disabled: true,
+                })}
+                disabled
+                type="button"
+              >
+                <Icon
+                  aria-hidden={true}
+                  className={navigationIconVariants({
+                    active: false,
+                    disabled: true,
+                  })}
+                />
+                <span>{item.label}</span>
+              </button>
+            );
           }
 
           return (
@@ -222,19 +210,9 @@ export default function WorkspaceShellSidebar({
       </div>
 
       <div className="flex-1 space-y-7 overflow-y-auto">
-        <NavigationGroup
-          items={navigationItems}
-          label="Workspace"
-          onNavigate={onNavigate}
-        />
+        <WorkspaceNavigation onNavigate={onNavigate} />
 
         <OrganizationNavigation onNavigate={onNavigate} />
-
-        <NavigationGroup
-          items={serviceNavigationItems}
-          label="Service"
-          onNavigate={onNavigate}
-        />
       </div>
 
       <WorkspaceShellAccount onNavigate={onNavigate} />
