@@ -114,11 +114,11 @@ describe("supported tool catalogue", () => {
 });
 
 describe("contributed skills", () => {
-  it("shows a contributor's skills and link script as plain tool cards", () => {
+  it("shows a contributor's skills, link script, memory and job crawler as plain tool cards", () => {
     expect(catalogService.contributors()).toContain("synasapmob");
     expect(
       catalogService.collections("synasapmob").map((tool) => tool.id),
-    ).toEqual(["skills", "link-skills", "memory"]);
+    ).toEqual(["skills", "link-skills", "memory", "job-crawler"]);
     expect(catalogService.findCollection("skills")).toBeNull();
   });
 

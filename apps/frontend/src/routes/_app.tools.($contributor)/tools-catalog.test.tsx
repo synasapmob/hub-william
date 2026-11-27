@@ -194,13 +194,14 @@ describe("ToolsCatalog", () => {
     expect(screen.getByRole("button", { name: "Copied" })).toBeVisible();
   });
 
-  it("lists a contributor's skills, link script and memory tool as plain cards", () => {
+  it("lists a contributor's skills, link script, memory and job crawler tools as plain cards", () => {
     renderTools("/tools/synasapmob", "synasapmob");
 
     expect(screen.getByRole("heading", { name: "SKILLS" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "LINK SKILLS" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "MEMORY" })).toBeVisible();
-    expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(3);
+    expect(screen.getByRole("heading", { name: "JOB CRAWLER" })).toBeVisible();
+    expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(4);
   });
 
   it("keeps every skill in one sheet with a single download", () => {
