@@ -18,11 +18,6 @@ use super::{
     orders::{cancel_order, list_orders, list_sales, pay_order},
     push::announce,
     revenue::revenue,
-    service_listings::{
-        create_service_listing, delete_service_listing, list_service_listings, list_service_sales,
-        update_service_listing, verify_service_account,
-    },
-    service_prices::{list_service_models, save_service_model},
     staff::{add_staff, change_role, list_staff, remove_staff},
     stock::{
         add_accounts, change_stock, create_product, delete_account, delete_product, edit_accounts,
@@ -90,20 +85,6 @@ pub(crate) fn routes(state: &AppState) -> Router<AppState> {
         )
         .route("/dashboard/telegram/sales", get(list_sales))
         .route("/dashboard/telegram/revenue", get(revenue))
-        .route(
-            "/dashboard/service/listings",
-            get(list_service_listings).post(create_service_listing),
-        )
-        .route(
-            "/dashboard/service/listings/{id}",
-            put(update_service_listing).delete(delete_service_listing),
-        )
-        .route("/dashboard/service/verify", post(verify_service_account))
-        .route("/dashboard/service/sales", get(list_service_sales))
-        .route(
-            "/dashboard/service/models",
-            get(list_service_models).put(save_service_model),
-        )
         .route("/dashboard/staff", get(list_staff).post(add_staff))
         .route(
             "/dashboard/staff/{user_id}",
@@ -140,14 +121,6 @@ pub(crate) fn routes(state: &AppState) -> Router<AppState> {
         super::orders::cancel_order,
         super::orders::list_sales,
         super::revenue::revenue,
-        super::service_prices::list_service_models,
-        super::service_prices::save_service_model,
-        super::service_listings::list_service_listings,
-        super::service_listings::verify_service_account,
-        super::service_listings::create_service_listing,
-        super::service_listings::update_service_listing,
-        super::service_listings::delete_service_listing,
-        super::service_listings::list_service_sales,
         super::staff::list_staff,
         super::staff::add_staff,
         super::staff::change_role,
@@ -181,17 +154,6 @@ pub(crate) fn routes(state: &AppState) -> Router<AppState> {
         super::revenue::RevenueDay,
         super::revenue::RevenueItem,
         super::revenue::RevenueSeller,
-        super::service_listings::CreateListing,
-        super::service_listings::DashboardListing,
-        super::service_listings::DashboardListings,
-        super::service_listings::DashboardTicketSale,
-        super::service_listings::DashboardTicketSales,
-        super::service_listings::UpdateListing,
-        super::service_listings::VerifiedAccount,
-        super::service_listings::VerifyAccount,
-        super::service_prices::SaveServiceModel,
-        super::service_prices::DashboardServiceModel,
-        super::service_prices::DashboardServiceModels,
         super::staff::AddStaff,
         super::staff::ChangeRole,
         super::staff::StaffList,

@@ -33,7 +33,6 @@ pub(crate) async fn create_voice_session_for_user(
             user_id,
             connection_id: Some(connection_id),
             organization_id,
-            service: false,
         },
         body,
         CODEX_VOICE_URL,
@@ -307,7 +306,6 @@ mod tests {
             user_id: owner,
             connection_id: Some(selected),
             organization_id: None,
-            service: false,
         };
         let set = |token: &str, status: u16| {
             statuses
@@ -486,7 +484,6 @@ mod credential_failover_tests {
             user_id: owner,
             connection_id: Some(expiring),
             organization_id: None,
-            service: false,
         };
         let body = json!({"sdp":"v=0\r\nm=audio 9 RTP/SAVPF 111\r\n", "session":{"model":"gpt-live-1-codex"}});
 

@@ -1,11 +1,11 @@
 mod unit;
 
 #[cfg(feature = "database-tests")]
-mod billing;
-#[cfg(feature = "database-tests")]
 mod credential_recovery;
 #[cfg(feature = "database-tests")]
 mod gemini_database;
+#[cfg(feature = "database-tests")]
+mod key_scopes;
 #[cfg(feature = "database-tests")]
 mod organization_database;
 #[cfg(feature = "database-tests")]
