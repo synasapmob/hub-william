@@ -15,9 +15,10 @@ use uuid::Uuid;
 use super::{
     CLAUDE_COUNT_TOKENS_URL, CLAUDE_MESSAGES_URL, GROK_RESPONSES_URL, OPENAI_RESPONSES_URL,
     keys::authorize_gateway_key,
+    rate_limit::{RATE_LIMIT_RETRIES, cooldown_for, rate_limit_retry, relay_rate_limited},
     selection::{
-        GatewaySelection, claim_candidate, mark_active, mark_rate_limited, mark_reauth_required,
-        reauthorization_error, release_probe, selected_provider_candidates, served_by,
+        Failover, GatewaySelection, claim_candidate, mark_active, mark_rate_limited_for,
+        mark_reauth_required, release_probe, selected_provider_candidates, served_by,
     },
     upstream_network_error,
     usage::{UsageEvent, UsageGuard, UsageObserver, usage_event},
@@ -222,10 +223,7 @@ pub(super) async fn proxy_request_for_user(
     let expected_provider = upstream.provider;
     let candidates = selected_provider_candidates(state, selection, expected_provider).await?;
     let upstream_url = append_query(upstream.url, original_uri.query());
-    let mut saw_rate_limit = false;
-    let mut saw_reauthorization = false;
-    let mut last_error = None;
-    let mut last_pool_response = None;
+    let mut failover = Failover::default();
     let candidate_count = candidates.len();
     let budget = attempt_budget(candidate_count);
     let mut attempts_used = 0;
@@ -237,11 +235,7 @@ pub(super) async fn proxy_request_for_user(
         let claimed_probe = match claim_candidate(state, &candidate).await {
             Ok(Some(claimed_probe)) => claimed_probe,
             Ok(None) => {
-                if candidate.availability_status == "reauth_required" {
-                    saw_reauthorization = true;
-                } else {
-                    saw_rate_limit = true;
-                }
+                failover.skipped(&candidate);
                 continue;
             }
             Err(error) => return Err(error),
@@ -249,14 +243,14 @@ pub(super) async fn proxy_request_for_user(
         let (credential_provider, token) = match gateway_credential(state, candidate.id).await {
             Ok(CredentialLookup::Ready(provider, token)) => (provider, token),
             Ok(CredentialLookup::ReauthorizationRequired) => {
-                saw_reauthorization = true;
+                failover.needs_reconnect();
                 continue;
             }
             Err(error) => {
                 if claimed_probe {
                     release_probe(state, candidate.id).await?;
                 }
-                last_error = Some(error);
+                failover.failed(error);
                 continue;
             }
         };
@@ -264,7 +258,7 @@ pub(super) async fn proxy_request_for_user(
             if claimed_probe {
                 release_probe(state, candidate.id).await?;
             }
-            last_error = Some(ApiError::Forbidden);
+            failover.failed(ApiError::Forbidden);
             continue;
         }
         let mut token = token;
@@ -274,12 +268,13 @@ pub(super) async fn proxy_request_for_user(
                 if claimed_probe {
                     release_probe(state, candidate.id).await?;
                 }
-                last_error = Some(ApiError::Forbidden);
+                failover.failed(ApiError::Forbidden);
                 continue;
             }
         };
         let mut credential_retried = false;
         let mut candidate_attempts = 0;
+        let mut rate_limit_retries = 0;
         loop {
             attempts_used += 1;
             candidate_attempts += 1;
@@ -338,7 +333,7 @@ pub(super) async fn proxy_request_for_user(
             let upstream = match request.send().await {
                 Ok(upstream) => upstream,
                 Err(error) => {
-                    last_error = Some(upstream_network_error(expected_provider, error));
+                    failover.failed(upstream_network_error(expected_provider, error));
                     if attempts_used >= budget {
                         if claimed_probe {
                             release_probe(state, candidate.id).await?;
@@ -382,8 +377,41 @@ pub(super) async fn proxy_request_for_user(
             };
             match disposition {
                 UpstreamDisposition::RateLimit => {
-                    mark_rate_limited(state, candidate.id).await?;
-                    saw_rate_limit = true;
+                    let status = upstream.status();
+                    let answer = relay_rate_limited(expected_provider, upstream).await?;
+                    let requested_model = request_model(&body);
+                    let requested_model = requested_model.as_deref().unwrap_or("-");
+                    if let Some(wait) =
+                        rate_limit_retry(answer.delay, rate_limit_retries, claimed_probe)
+                        && may_send_again(
+                            1 + RATE_LIMIT_RETRIES,
+                            attempts_used,
+                            candidate_attempts,
+                            candidate_index,
+                            candidate_count,
+                        )
+                    {
+                        rate_limit_retries += 1;
+                        eprintln!(
+                            "{expected_provider} gateway: account {} answered HTTP {status} for {requested_model}; retry {rate_limit_retries}/{RATE_LIMIT_RETRIES} in {} ms; body: {}",
+                            candidate.id,
+                            wait.as_millis(),
+                            answer.preview
+                        );
+                        tokio::time::sleep(wait).await;
+                        continue;
+                    }
+                    let cooldown = cooldown_for(answer.delay);
+                    mark_rate_limited_for(state, candidate.id, cooldown).await?;
+                    eprintln!(
+                        "{expected_provider} gateway: account {} answered HTTP {status} for {requested_model} after {} attempt(s); resting {} s; body: {}",
+                        candidate.id,
+                        rate_limit_retries + 1,
+                        cooldown.num_seconds(),
+                        answer.preview
+                    );
+                    failover.rested(cooldown);
+                    failover.answered(answer.response);
                     continue 'candidates;
                 }
                 UpstreamDisposition::Reauthorize => {
@@ -411,14 +439,14 @@ pub(super) async fn proxy_request_for_user(
                             continue;
                         }
                         RejectedCredential::ReauthorizationRequired => {
-                            saw_reauthorization = true;
+                            failover.login_rejected();
                             continue 'candidates;
                         }
                         RejectedCredential::NextAccount(error) => {
                             if claimed_probe {
                                 release_probe(state, candidate.id).await?;
                             }
-                            last_error = Some(error);
+                            failover.failed(error);
                             continue 'candidates;
                         }
                     }
@@ -458,7 +486,7 @@ pub(super) async fn proxy_request_for_user(
                     if claimed_probe {
                         release_probe(state, candidate.id).await?;
                     }
-                    last_pool_response = Some(upstream_response(upstream).await?);
+                    failover.answered(upstream_response(upstream).await?);
                     continue 'candidates;
                 }
                 UpstreamDisposition::Return => {}
@@ -485,15 +513,7 @@ pub(super) async fn proxy_request_for_user(
         }
     }
 
-    if saw_rate_limit {
-        Err(ApiError::RateLimited)
-    } else if saw_reauthorization {
-        Err(reauthorization_error(selection))
-    } else if let Some(response) = last_pool_response {
-        Ok(response)
-    } else {
-        Err(last_error.unwrap_or(ApiError::Forbidden))
-    }
+    failover.into_response(selection)
 }
 
 async fn upstream_response(upstream: reqwest::Response) -> Result<Response, ApiError> {
@@ -597,13 +617,32 @@ pub(super) fn should_retry_same_candidate(
     candidate_index: usize,
     candidate_count: usize,
 ) -> bool {
+    may_send_again(
+        MAX_SAME_CANDIDATE_ATTEMPTS,
+        attempts_used,
+        candidate_attempts,
+        candidate_index,
+        candidate_count,
+    )
+}
+
+/// Whether the budget lets one more send go to the same account: it may use up to
+/// `max_candidate_attempts` sends while the budget still leaves one for each
+/// account yet to be tried. The last account may use all that is left.
+pub(super) fn may_send_again(
+    max_candidate_attempts: usize,
+    attempts_used: usize,
+    candidate_attempts: usize,
+    candidate_index: usize,
+    candidate_count: usize,
+) -> bool {
     let budget = attempt_budget(candidate_count);
     if attempts_used >= budget {
         return false;
     }
     let remaining_candidates = candidate_count.saturating_sub(candidate_index + 1);
     remaining_candidates == 0
-        || (candidate_attempts < MAX_SAME_CANDIDATE_ATTEMPTS
+        || (candidate_attempts < max_candidate_attempts
             && budget - attempts_used > remaining_candidates)
 }
 

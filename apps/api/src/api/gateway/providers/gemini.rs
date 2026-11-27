@@ -24,12 +24,13 @@ use crate::{
             keys::authorize_gateway_key,
             proxy::{
                 RejectedCredential, UpstreamDisposition, attempt_budget,
-                handle_rejected_credential, retry_delay, should_forward_response_header,
-                should_retry_same_candidate, upstream_disposition,
+                handle_rejected_credential, may_send_again, retry_delay,
+                should_forward_response_header, should_retry_same_candidate, upstream_disposition,
             },
+            rate_limit::{RATE_LIMIT_RETRIES, cooldown_for, rate_limit_retry, relay_rate_limited},
             selection::{
-                GatewaySelection, claim_candidate, mark_active, mark_rate_limited,
-                reauthorization_error, release_probe, selected_provider_candidates, served_by,
+                Failover, GatewaySelection, claim_candidate, mark_active, mark_rate_limited_for,
+                release_probe, selected_provider_candidates, served_by,
             },
             upstream_network_error,
             usage::{UsageEvent, UsageObserver, UsageOutcome, quota_snapshot, usage_event},
@@ -62,9 +63,7 @@ pub(crate) async fn gemini_models_for_user(
     selection: GatewaySelection,
 ) -> Result<Json<Value>, ApiError> {
     let candidates = selected_provider_candidates(state, selection, AgentProvider::Gemini).await?;
-    let mut saw_rate_limit = false;
-    let mut saw_reauthorization = false;
-    let mut last_error = None;
+    let mut failover = Failover::default();
     let candidate_count = candidates.len();
     let budget = attempt_budget(candidate_count);
     let mut attempts_used = 0;
@@ -76,11 +75,7 @@ pub(crate) async fn gemini_models_for_user(
         let claimed_probe = match claim_candidate(state, &candidate).await {
             Ok(Some(claimed_probe)) => claimed_probe,
             Ok(None) => {
-                if candidate.availability_status == "reauth_required" {
-                    saw_reauthorization = true;
-                } else {
-                    saw_rate_limit = true;
-                }
+                failover.skipped(&candidate);
                 continue;
             }
             Err(error) => return Err(error),
@@ -88,14 +83,14 @@ pub(crate) async fn gemini_models_for_user(
         let (credential_provider, token) = match gateway_credential(state, candidate.id).await {
             Ok(CredentialLookup::Ready(provider, token)) => (provider, token),
             Ok(CredentialLookup::ReauthorizationRequired) => {
-                saw_reauthorization = true;
+                failover.needs_reconnect();
                 continue;
             }
             Err(error) => {
                 if claimed_probe {
                     release_probe(state, candidate.id).await?;
                 }
-                last_error = Some(error);
+                failover.failed(error);
                 continue;
             }
         };
@@ -109,14 +104,14 @@ pub(crate) async fn gemini_models_for_user(
             if claimed_probe {
                 release_probe(state, candidate.id).await?;
             }
-            last_error = Some(ApiError::Forbidden);
+            failover.failed(ApiError::Forbidden);
             continue;
         };
         if credential_provider != AgentProvider::Gemini {
             if claimed_probe {
                 release_probe(state, candidate.id).await?;
             }
-            last_error = Some(ApiError::Forbidden);
+            failover.failed(ApiError::Forbidden);
             continue;
         }
         let mut access_token = access_token;
@@ -141,7 +136,7 @@ pub(crate) async fn gemini_models_for_user(
             {
                 Ok(upstream) => upstream,
                 Err(error) => {
-                    last_error = Some(upstream_network_error(AgentProvider::Gemini, error));
+                    failover.failed(upstream_network_error(AgentProvider::Gemini, error));
                     if attempts_used >= budget {
                         if claimed_probe {
                             release_probe(state, candidate.id).await?;
@@ -166,8 +161,19 @@ pub(crate) async fn gemini_models_for_user(
             };
             match gemini_upstream_disposition(upstream.status()) {
                 UpstreamDisposition::RateLimit => {
-                    mark_rate_limited(state, candidate.id).await?;
-                    saw_rate_limit = true;
+                    let status = upstream.status();
+                    let answer = relay_rate_limited(AgentProvider::Gemini, upstream).await?;
+                    let cooldown = cooldown_for(answer.delay);
+                    mark_rate_limited_for(state, candidate.id, cooldown).await?;
+                    eprintln!(
+                        "Gemini model discovery: account {} answered HTTP {status}; resting {} s; body: {}",
+                        candidate.id,
+                        cooldown.num_seconds(),
+                        answer.preview
+                    );
+                    failover.failed(ApiError::RateLimited(Some(
+                        cooldown.num_seconds().max(1).cast_unsigned(),
+                    )));
                     continue 'candidates;
                 }
                 UpstreamDisposition::Reauthorize => {
@@ -192,20 +198,20 @@ pub(crate) async fn gemini_models_for_user(
                             continue;
                         }
                         RejectedCredential::ReauthorizationRequired => {
-                            saw_reauthorization = true;
+                            failover.login_rejected();
                             continue 'candidates;
                         }
                         RejectedCredential::NextAccount(error) => {
                             if claimed_probe {
                                 release_probe(state, candidate.id).await?;
                             }
-                            last_error = Some(error);
+                            failover.failed(error);
                             continue 'candidates;
                         }
                     }
                 }
                 UpstreamDisposition::RetryTransient => {
-                    last_error = Some(ApiError::Provider(format!(
+                    failover.failed(ApiError::Provider(format!(
                         "Google model discovery returned HTTP {} after {attempts_used} attempts.",
                         upstream.status()
                     )));
@@ -240,7 +246,7 @@ pub(crate) async fn gemini_models_for_user(
                         if claimed_probe {
                             release_probe(state, candidate.id).await?;
                         }
-                        last_error = Some(ApiError::Provider(format!(
+                        failover.failed(ApiError::Provider(format!(
                             "Google model discovery returned HTTP {}.",
                             upstream.status()
                         )));
@@ -256,13 +262,7 @@ pub(crate) async fn gemini_models_for_user(
         }
     }
 
-    if saw_rate_limit {
-        Err(ApiError::RateLimited)
-    } else if saw_reauthorization {
-        Err(reauthorization_error(selection))
-    } else {
-        Err(last_error.unwrap_or(ApiError::Forbidden))
-    }
+    Err(failover.into_error(selection))
 }
 
 #[derive(Clone, Copy)]
@@ -342,10 +342,7 @@ pub(crate) async fn gemini_proxy_request_for_user(
     let candidates = selected_provider_candidates(state, selection, AgentProvider::Gemini).await?;
     let request_body: Value = serde_json::from_slice(&body)
         .map_err(|_| ApiError::Validation("The Gemini request body must be valid JSON."))?;
-    let mut saw_rate_limit = false;
-    let mut saw_reauthorization = false;
-    let mut last_error = None;
-    let mut last_pool_response = None;
+    let mut failover = Failover::default();
     let candidate_count = candidates.len();
     let budget = attempt_budget(candidate_count);
     let mut attempts_used = 0;
@@ -357,11 +354,7 @@ pub(crate) async fn gemini_proxy_request_for_user(
         let claimed_probe = match claim_candidate(state, &candidate).await {
             Ok(Some(claimed_probe)) => claimed_probe,
             Ok(None) => {
-                if candidate.availability_status == "reauth_required" {
-                    saw_reauthorization = true;
-                } else {
-                    saw_rate_limit = true;
-                }
+                failover.skipped(&candidate);
                 continue;
             }
             Err(error) => return Err(error),
@@ -369,14 +362,14 @@ pub(crate) async fn gemini_proxy_request_for_user(
         let (credential_provider, token) = match gateway_credential(state, candidate.id).await {
             Ok(CredentialLookup::Ready(provider, token)) => (provider, token),
             Ok(CredentialLookup::ReauthorizationRequired) => {
-                saw_reauthorization = true;
+                failover.needs_reconnect();
                 continue;
             }
             Err(error) => {
                 if claimed_probe {
                     release_probe(state, candidate.id).await?;
                 }
-                last_error = Some(error);
+                failover.failed(error);
                 continue;
             }
         };
@@ -384,7 +377,7 @@ pub(crate) async fn gemini_proxy_request_for_user(
             if claimed_probe {
                 release_probe(state, candidate.id).await?;
             }
-            last_error = Some(ApiError::Forbidden);
+            failover.failed(ApiError::Forbidden);
             continue;
         }
         let Some(mut access_token) = token
@@ -395,7 +388,7 @@ pub(crate) async fn gemini_proxy_request_for_user(
             if claimed_probe {
                 release_probe(state, candidate.id).await?;
             }
-            last_error = Some(ApiError::Forbidden);
+            failover.failed(ApiError::Forbidden);
             continue;
         };
         let Some(project) = token
@@ -405,7 +398,7 @@ pub(crate) async fn gemini_proxy_request_for_user(
             if claimed_probe {
                 release_probe(state, candidate.id).await?;
             }
-            last_error = Some(ApiError::Provider(
+            failover.failed(ApiError::Provider(
                 "The Gemini subscription did not return a Code Assist project. Reconnect it."
                     .to_owned(),
             ));
@@ -420,6 +413,7 @@ pub(crate) async fn gemini_proxy_request_for_user(
         );
         let mut credential_retried = false;
         let mut candidate_attempts = 0;
+        let mut rate_limit_retries = 0;
         loop {
             attempts_used += 1;
             candidate_attempts += 1;
@@ -435,7 +429,7 @@ pub(crate) async fn gemini_proxy_request_for_user(
             {
                 Ok(upstream) => upstream,
                 Err(error) => {
-                    last_error = Some(upstream_network_error(AgentProvider::Gemini, error));
+                    failover.failed(upstream_network_error(AgentProvider::Gemini, error));
                     if attempts_used >= budget {
                         if claimed_probe {
                             release_probe(state, candidate.id).await?;
@@ -468,8 +462,39 @@ pub(crate) async fn gemini_proxy_request_for_user(
             };
             match gemini_upstream_disposition(upstream.status()) {
                 UpstreamDisposition::RateLimit => {
-                    mark_rate_limited(state, candidate.id).await?;
-                    saw_rate_limit = true;
+                    let status = upstream.status();
+                    let answer = relay_rate_limited(AgentProvider::Gemini, upstream).await?;
+                    if let Some(wait) =
+                        rate_limit_retry(answer.delay, rate_limit_retries, claimed_probe)
+                        && may_send_again(
+                            1 + RATE_LIMIT_RETRIES,
+                            attempts_used,
+                            candidate_attempts,
+                            candidate_index,
+                            candidate_count,
+                        )
+                    {
+                        rate_limit_retries += 1;
+                        eprintln!(
+                            "Gemini gateway: account {} answered HTTP {status} for {model}; retry {rate_limit_retries}/{RATE_LIMIT_RETRIES} in {} ms; body: {}",
+                            candidate.id,
+                            wait.as_millis(),
+                            answer.preview
+                        );
+                        tokio::time::sleep(wait).await;
+                        continue;
+                    }
+                    let cooldown = cooldown_for(answer.delay);
+                    mark_rate_limited_for(state, candidate.id, cooldown).await?;
+                    eprintln!(
+                        "Gemini gateway: account {} answered HTTP {status} for {model} after {} attempt(s); resting {} s; body: {}",
+                        candidate.id,
+                        rate_limit_retries + 1,
+                        cooldown.num_seconds(),
+                        answer.preview
+                    );
+                    failover.rested(cooldown);
+                    failover.answered(answer.response);
                     continue 'candidates;
                 }
                 UpstreamDisposition::Reauthorize => {
@@ -494,14 +519,14 @@ pub(crate) async fn gemini_proxy_request_for_user(
                             continue;
                         }
                         RejectedCredential::ReauthorizationRequired => {
-                            saw_reauthorization = true;
+                            failover.login_rejected();
                             continue 'candidates;
                         }
                         RejectedCredential::NextAccount(error) => {
                             if claimed_probe {
                                 release_probe(state, candidate.id).await?;
                             }
-                            last_error = Some(error);
+                            failover.failed(error);
                             continue 'candidates;
                         }
                     }
@@ -518,7 +543,7 @@ pub(crate) async fn gemini_proxy_request_for_user(
                         )
                         .await?
                         {
-                            saw_reauthorization = true;
+                            failover.login_rejected();
                         } else if claimed_probe {
                             release_probe(state, candidate.id).await?;
                         }
@@ -526,7 +551,7 @@ pub(crate) async fn gemini_proxy_request_for_user(
                         if claimed_probe {
                             release_probe(state, candidate.id).await?;
                         }
-                        last_pool_response = Some(forwarded);
+                        failover.answered(forwarded);
                     }
                     continue 'candidates;
                 }
@@ -590,15 +615,7 @@ pub(crate) async fn gemini_proxy_request_for_user(
         }
     }
 
-    if saw_rate_limit {
-        Err(ApiError::RateLimited)
-    } else if saw_reauthorization {
-        Err(reauthorization_error(selection))
-    } else if let Some(response) = last_pool_response {
-        Ok(response)
-    } else {
-        Err(last_error.unwrap_or(ApiError::Forbidden))
-    }
+    failover.into_response(selection)
 }
 
 pub(crate) fn gemini_code_assist_request(

@@ -960,10 +960,11 @@ async fn organization_agent_reports_and_uses_the_live_workspace_state_and_creden
     // A rate limit observed through the organization is the Workspace
     // account's state, and both sides report the same cooldown.
     fake.respond(WORKSPACE_KEY, StatusCode::TOO_MANY_REQUESTS);
-    assert!(matches!(
-        organization_generation(&state, &member, org_id, connection_id).await,
-        Err(ApiError::RateLimited)
-    ));
+    // The provider's own 429 reaches the member as it came.
+    let response = organization_generation(&state, &member, org_id, connection_id)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
     let row = workspace_connection_row(&state.pool, connection_id)
         .await
         .unwrap();
