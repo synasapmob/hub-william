@@ -65,7 +65,7 @@ const COLLECTION_PRESENTATION: Record<string, CatalogCollectionPresentation> = {
   "job-crawler": {
     label: "Job crawler",
     summary:
-      "Collect IT jobs from ITviec, TopCV, CareerViet and company career pages into a spreadsheet on your own computer. Pick the sites, roles, places and dates, then copy the command and run it.",
+      "Collect IT jobs from ITviec, TopCV, CareerViet, Indeed and company career pages into a spreadsheet on your own computer. Pick the sites, roles, places and dates, then copy the command and run it.",
   },
 };
 

@@ -97,9 +97,10 @@ describe("toggledChoice", () => {
   it("keeps the order of the catalogue, not the order of the clicks", () => {
     const afterTopcv = toggledChoice(JOB_CRAWLER_SITES, [], "topcv");
     const afterItviec = toggledChoice(JOB_CRAWLER_SITES, afterTopcv, "itviec");
-    const afterAxon = toggledChoice(JOB_CRAWLER_SITES, afterItviec, "axon");
+    const afterIndeed = toggledChoice(JOB_CRAWLER_SITES, afterItviec, "indeed");
+    const afterAxon = toggledChoice(JOB_CRAWLER_SITES, afterIndeed, "axon");
 
-    expect(afterAxon).toEqual(["itviec", "topcv", "axon"]);
+    expect(afterAxon).toEqual(["itviec", "topcv", "indeed", "axon"]);
   });
 
   it("drops a value that is not one of the options", () => {

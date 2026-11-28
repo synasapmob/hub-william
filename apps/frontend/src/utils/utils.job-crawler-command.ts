@@ -8,6 +8,7 @@ export const JOB_CRAWLER_BOARDS: readonly JobCrawlerOption[] = [
   { value: "itviec", label: "ITviec" },
   { value: "topcv", label: "TopCV" },
   { value: "careerviet", label: "CareerViet" },
+  { value: "indeed", label: "Indeed" },
 ];
 
 /** Companies whose own career page the tool reads. */
