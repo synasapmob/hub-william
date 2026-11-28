@@ -1,6 +1,6 @@
 # JOB CRAWLER
 
-Collect IT job listings from the job boards ITviec, TopCV and CareerViet and from
+Collect IT job listings from the job boards ITviec, TopCV, CareerViet and Indeed and from
 the career pages of WorldQuant, Topicus Vietnam, Symbotic, Lecle Vietnam, Luce
 and Axon into a spreadsheet on your computer. It opens a real Chrome window,
 reads the job cards each page renders and writes `jobs.xlsx`, `jobs.csv` and a
@@ -47,7 +47,7 @@ tags, name the folder, and copy the command it builds.
 | Option                | Default            | What it does                                                    |
 | --------------------- | ------------------ | --------------------------------------------------------------- |
 | `--output-dir`        | `~/Documents/jobs` | Where the dated run folder is created                           |
-| `--sources`           | all                | Comma-separated sites: `itviec`, `topcv`, `careerviet`, `worldquant`, `topicus`, `symbotic`, `lecle`, `luce`, `axon` |
+| `--sources`           | all                | Comma-separated sites: `itviec`, `topcv`, `careerviet`, `indeed`, `worldquant`, `topicus`, `symbotic`, `lecle`, `luce`, `axon` |
 | `--keyword`           | none               | Search a job board for a word such as `python`; on a company page, keep titles and tags that contain it |
 | `--role`              | none               | Keep only jobs whose title has one of these roles (see Filters)  |
 | `--date`              | `30`               | Keep only jobs posted or edited in the last this many days, such as `60` or `90`; `0` keeps every date (see Filters) |
@@ -73,6 +73,49 @@ next page until there is none, and keeps the ones from the last 30 days. On
 CareerViet, so a full run takes a few minutes because of the pause between pages.
 The filters below are optional ways to narrow it down; `--date=0` keeps jobs of
 every date.
+
+## Indeed
+
+`indeed` reads `vn.indeed.com`. Indeed lists nothing without a search, so the tool
+searches:
+
+- each `--role` (Frontend as "frontend developer", Backend as "backend developer",
+  Fullstack, Mobile and Software Engineer likewise, any other role as typed), or
+  "software engineer" and "developer" when there is no `--role`; `--keyword`
+  replaces them;
+- in each `--location` (HCM as Ho Chi Minh, Hanoi as Ha Noi, Remote, Da Nang or
+  what you typed), or in all of Vietnam when there is none.
+
+Every search is read for at most 10 pages, about 150 jobs, because that is what
+Indeed's `robots.txt` allows (checked on 2026-11-28 for the `*` rules, longest rule
+wins): result pages such as `/jobs?q=...&l=...` are allowed, `&start=` is
+disallowed except `&start=0&` to `&start=90&` followed by another parameter, and
+the job pages `/viewjob` and `/rc/` are disallowed. So the tool writes page N as
+`...&start=<10 x (N-1)>&radius=25`, never goes past `start=90`, and never opens a
+job page: it reads the list cards and links each job as `/viewjob?jk=<id>`, which
+you open yourself from the sheet. Indeed shows more than the tool takes: many more
+jobs than the ten pages hold, so run a search per role and place, as above, rather
+than expect every IT job in Vietnam.
+
+- A card gives the title, the company, the place and, on some, a salary in dong
+  ("43,000,000 VNĐ - 55,000,000 VNĐ a month"). It gives no date, so `posted` is
+  empty and `--date` keeps those jobs, and no experience.
+- Every result page has one card that is never drawn (zero size, inside an
+  `aria-hidden` element) with a made-up job id, a decoy for scrapers. The tool
+  reads only the cards a person can see.
+- Up to 2 pages are read at once, whatever `--pages-at-once` says, and the tool
+  rests six times `--delay` (24 to 36 seconds at the default) between two searches,
+  because Indeed guards its pages against scripts: in a first full run with 3
+  windows and a 4 to 6 second rest, it read the whole first search (10 pages, 147
+  jobs) and then showed a Cloudflare check on the next search. A check needs a
+  click: a window comes forward for you, as on TopCV, and the site ends as
+  `challenge` if nobody clicks within `--challenge-wait`. If Indeed blocks the
+  windows, the tool waits a minute and reads the rest with 2. With the 2 windows
+  and the longer rest, a full run on 2026-11-28 read 4 searches (22 pages, 257 jobs)
+  without a check, in 4 minutes 8 seconds with the other sites.
+- On 2026-11-28 its result pages loaded in your own Chrome without a check each time
+  they were tried (about ten pages in several searches). A plain request without a
+  browser answers 403.
 
 ## Company career pages
 
@@ -313,8 +356,9 @@ history or passwords. A page sees a normal browser (`navigator.webdriver` is
   - `--pages-at-once` (default 5) reads several pages of one site together. Page 1
     says how many pages there are (ITviec "550 IT jobs" at 20 a page, TopCV
     "1 / 46 trang", CareerViet "441" at 50 a page), and pages 2 to N are then
-    opened by their numbers in the address (`?page=7`, `-trang-7-`). It works for
-    ITviec, TopCV and CareerViet. The company pages are one page each, and a
+    opened by their numbers in the address (`?page=7`, `-trang-7-`, `&start=60&`). It
+    works for ITviec, TopCV, CareerViet and Indeed (which gets 2 windows at most).
+    The company pages are one page each, and a
     site that scrolls without end has no page numbers, so those are read as before.
 
   Reading more pages of one site at once is faster but looks more like a robot, so a
@@ -457,10 +501,6 @@ and read `report.json` to see what was missed.
 
 ## Sites not included
 
-- **Indeed** (`vn.indeed.com`) loaded a first page on 2026-11-27, but its
-  `robots.txt` allows only a few numbered result pages (`start=0` to `start=90`)
-  and disallows many job paths, so a full crawl is not something the site permits.
-  It was not built.
 - **VietnamWorks** loaded, but its page uses generated class names, shows "100+"
   instead of a total and draws only some jobs at a time, so it needs a different
   approach (its own data requests) that has not been tried.
@@ -483,9 +523,12 @@ It visits only the public job list pages. On 2026-11-27 the `robots.txt` of ever
 site allowed the page the tool opens for a generic crawler (checked with Python's
 `robotparser`; Lecle has no `robots.txt`). ITviec disallows only
 `/subscriptions/new`; TopCV disallows its CV and private paths; CareerViet
-disallows `/api/`, `/vi/jobs/`, saved-job and résumé-search paths. The sites'
-terms of use were not reviewed, so read them before you use the data beyond your
-own search.
+disallows `/api/`, `/vi/jobs/`, saved-job and résumé-search paths. Indeed's
+`robots.txt` has wildcards, which `robotparser` does not read, so it was checked
+with a matcher that follows the standard (see Indeed). The sites' terms of use were
+not reviewed, so read them before you use the data beyond your own search. Indeed's
+terms were not read either and may forbid automated access, and Indeed protects its
+pages against scripts, so read them first and use it for your own search only.
 
 ## Exit status
 

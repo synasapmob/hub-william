@@ -228,7 +228,7 @@ class JobCrawlerTests(unittest.TestCase):
         self.assertEqual(options("--sources=TopCV, itviec,topcv", output_dir=self.root).sources, ["topcv", "itviec"])
         self.assertEqual(options("--keyword= react \n native ", output_dir=self.root).keyword, "react native")
         self.assertEqual(args.max_pages, 0)
-        for bad in ("--sources=indeed", "--max-pages=-1", "--max-pages=201", "--delay=0", "--keyword=a\x1bb"):
+        for bad in ("--sources=vietnamworks", "--max-pages=-1", "--max-pages=201", "--delay=0", "--keyword=a\x1bb"):
             with self.subTest(bad):
                 with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
                     options(bad, output_dir=self.root)
@@ -1929,10 +1929,109 @@ class JobCrawlerTests(unittest.TestCase):
         self.assertEqual(results["luce"]["status"], "ok")
         self.assertEqual([job["title"] for job in jobs], ["Go Dev"])
 
-    def test_the_page_count_readers_exist_for_the_three_boards_only(self):
-        for name in ("itviec", "topcv", "careerviet"):
+    INDEED = tool.SOURCES["indeed"]
+
+    def test_indeed_is_searched_for_each_role_in_each_place(self):
+        def searches(*args):
+            found = tool.search_terms(self.INDEED, options(*args, output_dir=self.root))
+            return [(str(search), search.place) for search in found]
+
+        self.assertEqual(searches(), [("software engineer", "Vietnam"), ("developer", "Vietnam")])  # it lists nothing without one
+        self.assertEqual(searches("--keyword=python"), [("python", "Vietnam")])
+        self.assertEqual(
+            searches("--role=Backend, Software Engineer, Product Owner"),
+            [("backend developer", "Vietnam"), ("software engineer", "Vietnam"), ("Product Owner", "Vietnam")])
+        self.assertEqual(
+            searches("--role=Front-end", "--location=Ho Chi Minh City, HCM, Remote, Hanoi, Da Nang"),
+            [("frontend developer", "Ho Chi Minh"), ("frontend developer", "Remote"), ("frontend developer", "Ha Noi"),
+             ("frontend developer", "Da Nang")])  # HCM and Ho Chi Minh City are one place
+        self.assertEqual(repr(tool.Search("a b", "Ha Noi")), "'a b' in 'Ha Noi'")
+        self.assertEqual(repr(tool.Search("a b")), "'a b'")
+        # the other sites are not searched this way
+        self.assertEqual(tool.search_terms(ITVIEC, options("--role=Backend", output_dir=self.root)), [""])
+
+    def test_an_indeed_search_is_a_result_page_of_its_own(self):
+        self.assertEqual(
+            self.INDEED.start_url(tool.Search("software engineer", "Ho Chi Minh")),
+            "https://vn.indeed.com/jobs?q=software+engineer&l=Ho+Chi+Minh")
+        self.assertEqual(self.INDEED.start_url("python"), "https://vn.indeed.com/jobs?q=python&l=Vietnam")
+
+    def test_indeed_pages_are_written_the_way_robots_txt_allows(self):
+        # `&start=` is disallowed unless it is 0 to 90 and another parameter follows; ten pages at most
+        template = tool.page_template("https://vn.indeed.com/jobs?q=a+b&l=Ho+Chi+Minh&start=10&radius=25")
+        urls = [template(number) for number in range(2, 11)]
+
+        self.assertEqual(urls[0], "https://vn.indeed.com/jobs?q=a+b&l=Ho+Chi+Minh&start=10&radius=25")
+        self.assertEqual(urls[-1], "https://vn.indeed.com/jobs?q=a+b&l=Ho+Chi+Minh&start=90&radius=25")
+        for url in urls:
+            self.assertRegex(url, r"&start=(?:[1-9]0)&")
+        self.assertIn("start <= 90", self.INDEED.next_page)  # no link beyond start=90 is followed
+        self.assertIn("&radius=25", self.INDEED.next_page)  # and start is never the last parameter
+        self.assertIn("Math.min(10", self.INDEED.total_pages)
+        self.assertIsNone(tool.page_template("https://vn.indeed.com/jobs?q=a&start=20&radius=25"))  # not page 2
+
+    def test_indeed_reads_only_the_cards_a_person_can_see_and_names_a_job_by_its_id(self):
+        # every page has a card that is never drawn, with a made-up id: a decoy
+        self.assertIn("getClientRects().length > 0", self.INDEED.extract)
+        self.assertIn("aria-hidden", self.INDEED.extract)
+        self.assertEqual(
+            tool.canonical_url("https://vn.indeed.com/viewjob?jk=636a85f7fba547af&from=serp&vjs=3"),
+            "https://vn.indeed.com/viewjob?jk=636a85f7fba547af")
+        self.assertNotEqual(  # two jobs with one title are two jobs
+            tool.canonical_url("https://vn.indeed.com/viewjob?jk=aaa"), tool.canonical_url("https://vn.indeed.com/viewjob?jk=bbb"))
+        self.assertEqual(tool.canonical_url("https://itviec.com/it-jobs/rust-dev-1?jk=zz&utm=1"), "https://itviec.com/it-jobs/rust-dev-1?jk=zz")
+
+    def indeed_site(self, pages):
+        search = "https://vn.indeed.com/jobs?q=software+engineer&l=Vietnam"
+        later = "https://vn.indeed.com/jobs?q=software+engineer&l=Vietnam&start=%d&radius=25"
+        site = {}
+        for number in range(1, pages + 1):
+            address = search if number == 1 else later % ((number - 1) * 10)
+            cards = [card("Dev %d%s" % (number, letter), url="https://vn.indeed.com/viewjob?jk=%d%s" % (number, letter), company="Acme") for letter in "ab"]
+            site[address] = {"cards": cards, "next": later % (number * 10) if number < pages else None, "total_pages": pages}
+        return site
+
+    def test_indeed_reads_its_pages_side_by_side_in_two_windows_at_most(self):
+        site = self.indeed_site(9)
+        context = FakeContext(site)
+        jobs, result = self.crawl(
+            FakePage(site), self.INDEED, "--my-chrome", "--keyword=software engineer", "--pages-at-once=5", context=context)
+        self.assertEqual((result["status"], result["pages"], len(jobs)), ("ok", 9, 18))  # every page, once
+        self.assertTrue(1 <= len(context.windows) <= 2)  # --pages-at-once=5, and Indeed gets no more than 2
+        self.assertEqual(
+            {address for window in context.windows for address in window.visited},
+            {"https://vn.indeed.com/jobs?q=software+engineer&l=Vietnam&start=%d&radius=25" % (number * 10) for number in range(1, 9)})
+        self.assertEqual(jobs[0]["url"].split("?")[0], "https://vn.indeed.com/viewjob")
+
+    def test_a_window_limit_of_a_site_also_limits_the_windows_of_a_retry(self):
+        site = self.indeed_site(9)
+        later = "https://vn.indeed.com/jobs?q=software+engineer&l=Vietnam&start=40&radius=25"
+        site = self.BlockedFirst(site, later, blocks=1)
+        context = FakeContext(site)
+        jobs, result = self.crawl(
+            FakePage(site), self.INDEED, "--my-chrome", "--keyword=software engineer", "--pages-at-once=5", context=context)
+        self.assertEqual((result["status"], result["pages"], len(jobs)), ("ok", 9, 18))
+        self.assertLessEqual(len(context.windows), 2 + 2)  # the windows of a retry do not add to the 2 of the first pass
+
+    def test_indeed_is_left_alone_for_longer_between_its_searches(self):
+        site = {
+            "https://vn.indeed.com/jobs?q=backend+developer&l=Vietnam": {"cards": [card("Backend Developer", url="https://vn.indeed.com/viewjob?jk=a")], "next": None},
+            "https://vn.indeed.com/jobs?q=frontend+developer&l=Vietnam": {"cards": [card("Frontend Developer", url="https://vn.indeed.com/viewjob?jk=b")], "next": None},
+        }
+        waits = []
+        with mock.patch.object(tool, "pause", side_effect=waits.append):
+            jobs, result = self.crawl(FakePage(site), self.INDEED, "--role=Backend, Frontend", "--delay=4")
+        self.assertEqual(sorted(job["title"] for job in jobs), ["Backend Developer", "Frontend Developer"])
+        # one rest between the two searches, six times the delay; the rests between pages are the delay itself
+        self.assertIn(4.0 * self.INDEED.search_pause, waits)
+        self.assertEqual(self.INDEED.search_pause, 6.0)
+        self.assertEqual(tool.SOURCES["itviec"].search_pause, 1.0)
+
+    def test_the_page_count_readers_exist_for_the_four_boards_only(self):
+        for name in ("itviec", "topcv", "careerviet", "indeed"):
             self.assertTrue(tool.SOURCES[name].total_pages.lstrip().startswith("() =>"))
-        self.assertEqual({name for name, source in tool.SOURCES.items() if source.total_pages}, {"itviec", "topcv", "careerviet"})
+        self.assertEqual(
+            {name for name, source in tool.SOURCES.items() if source.total_pages}, {"itviec", "topcv", "careerviet", "indeed"})
         args = options(output_dir=self.root)
         self.assertEqual((args.sites_at_once, args.pages_at_once), (3, 5))  # up to 15 windows at the same time
         self.assertEqual(options("--pages-at-once=10", output_dir=self.root).pages_at_once, 10)

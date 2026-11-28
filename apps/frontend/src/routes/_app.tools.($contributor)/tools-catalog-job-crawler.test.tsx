@@ -26,7 +26,14 @@ describe("ToolsCatalogJobCrawler", () => {
         "false",
       );
     }
-    for (const name of ["ITviec", "TopCV", "CareerViet", "Symbotic", "Axon"]) {
+    for (const name of [
+      "ITviec",
+      "TopCV",
+      "CareerViet",
+      "Indeed",
+      "Symbotic",
+      "Axon",
+    ]) {
       expect(screen.getByRole("button", { name })).toBeVisible();
     }
     for (const name of ["Fullstack", "Backend", "Mobile", "Product Owner"]) {

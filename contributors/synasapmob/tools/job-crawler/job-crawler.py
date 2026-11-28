@@ -2,7 +2,7 @@
 # job-crawler: collect IT job listings from job boards and company career pages into a spreadsheet on your computer
 #
 # Opens windows in your own Chrome (on a Mac; it finds the profile that has View > Developer > Allow JavaScript
-# from Apple Events turned on), loads the job lists of ITviec, TopCV, CareerViet and the career
+# from Apple Events turned on), loads the job lists of ITviec, TopCV, CareerViet, Indeed and the career
 # pages of WorldQuant, Topicus Vietnam, Symbotic, Lecle Vietnam, Luce and Axon and reads
 # the job cards each page renders: title, company, location, salary, experience, work model, posted
 # age, skills and the link. It writes a dated folder with jobs.xlsx (click a job's title to open it),
@@ -320,6 +320,9 @@ class Source:
     no_results: str = ""  # CSS selector of the page's own "no jobs" message, when it has one
     searchable: bool = True  # False for a company's own page: --keyword then filters titles and tags
     total_pages: str = ""  # JavaScript returning how many list pages there are, when page numbers are in the address
+    default_terms: tuple = ()  # for a site that lists nothing without a search: what to search with no --keyword or --role
+    max_windows: int = 0  # the most windows that read this site's pages at once; 0 is --pages-at-once
+    search_pause: float = 1.0  # how many times --delay a site is left alone between two of its searches
 
 
 def itviec_start(keyword):
@@ -341,6 +344,54 @@ def careerviet_start(keyword):
     return "https://careerviet.vn/viec-lam/cntt-phan-mem-c1-vi.html"
 
 
+# Indeed Vietnam. Its pages are read in the user's own Chrome, as a person sees them. robots.txt allows the
+# result pages, and `&start=` only for 0 to 90 followed by another parameter, so a search is read for ten pages
+# at most, each written as ...&start=N&radius=25 (Indeed's own "Next" link has start last, which is not in the
+# allowed form). The job pages (/viewjob, /rc/) are disallowed and are never opened: the tool reads the list.
+INDEED_EXTRACT = """() => {
+  const clean = (el) => (el ? el.textContent.replace(/\\s+/g, " ").trim() : "");
+  // Every page also holds a card that is never drawn (zero size, inside aria-hidden) with a made-up job id,
+  // a decoy for scrapers. Only the cards a person can see are read.
+  const shown = (card) => card.getClientRects().length > 0 && !card.closest("[aria-hidden='true']");
+  return [...document.querySelectorAll("div.job_seen_beacon")].filter(shown).map((card) => {
+    const link = card.querySelector("a.jcs-JobTitle");
+    const id = link ? link.getAttribute("data-jk") : "";
+    return {
+      title: clean(link),
+      url: id ? location.origin + "/viewjob?jk=" + id : "",
+      company: clean(card.querySelector("[data-testid='company-name']")),
+      location: clean(card.querySelector("[data-testid='text-location']")),
+      salary: clean(card.querySelector(".salary-snippet-container")),
+      tags: [],
+    };
+  });
+}"""
+
+INDEED_NEXT = """() => {
+  const next = document.querySelector("a[data-testid='pagination-page-next']");
+  if (!next) return null;
+  const url = new URL(next.getAttribute("href"), location.origin);
+  const start = Number(url.searchParams.get("start"));
+  if (!(start >= 10 && start <= 90)) return null;
+  url.searchParams.delete("start");
+  url.searchParams.delete("radius");
+  return url.origin + url.pathname + "?" + url.searchParams.toString() + "&start=" + start + "&radius=25";
+}"""
+
+# The page title says how many jobs the search found ("500+ Software Engineer Jobs, ..."); a page holds 15 and the
+# next starts ten on, and the pages stop at start=90.
+INDEED_TOTAL_PAGES = """() => {
+  const found = document.title.match(/^([\\d,.]+)\\+?\\s/);
+  if (!found) return null;
+  const jobs = Number(found[1].replace(/[,.]/g, ""));
+  return Math.min(10, jobs <= 15 ? 1 : Math.ceil((jobs - 15) / 10) + 1);
+}"""
+
+
+def indeed_start(keyword):
+    return "https://vn.indeed.com/jobs?" + urlencode({"q": str(keyword), "l": getattr(keyword, "place", "") or "Vietnam"})
+
+
 SOURCES = {
     # Searching an exact company name on ITviec opens that company's page with all its jobs, and
     # CareerViet's keyword search matches company names. TopCV's search box matches job titles:
@@ -356,6 +407,12 @@ SOURCES = {
     "careerviet": Source(
         "careerviet", "CareerViet", "careerviet.vn", careerviet_start, ".job-item", "",
         CAREERVIET_EXTRACT, CAREERVIET_NEXT, True, total_pages=CAREERVIET_TOTAL_PAGES,
+    ),
+    # Indeed lists nothing without a search: each --role (else "software engineer" and "developer") in each --location.
+    "indeed": Source(
+        "indeed", "Indeed", "vn.indeed.com", indeed_start, "div.job_seen_beacon", "",
+        INDEED_EXTRACT, INDEED_NEXT, False, total_pages=INDEED_TOTAL_PAGES,
+        default_terms=("software engineer", "developer"), max_windows=2, search_pause=6.0,
     ),
     # Companies' own career pages.
     "worldquant": Source(
@@ -399,14 +456,14 @@ def first_line(error):
 
 
 def canonical_url(url):
-    """The job's address without tracking parameters, so one job has one key. An `id`
-    parameter stays: on some career pages (WorldQuant) it is what names the job."""
+    """The job's address without tracking parameters, so one job has one key. An `id` or `jk`
+    parameter stays: on some career pages (WorldQuant) and on Indeed it is what names the job."""
     parts = urlparse(str(url or "").strip())
     if parts.scheme not in ("http", "https") or not parts.hostname:
         return ""
     path = parts.path.rstrip("/") or "/"
-    job_id = [value for name, value in parse_qsl(parts.query) if name == "id" and value][:1]
-    return "https://%s%s%s" % (parts.hostname.lower(), path, "?" + urlencode({"id": job_id[0]}) if job_id else "")
+    named = [(name, value) for name, value in parse_qsl(parts.query) if name in ("id", "jk") and value][:1]
+    return "https://%s%s%s" % (parts.hostname.lower(), path, "?" + urlencode(named) if named else "")
 
 
 def same_site(url, host):
@@ -1196,9 +1253,54 @@ def new_result():
     }
 
 
+class Search(str):
+    """What to search for. For a site that lists jobs by place (Indeed) it also says where."""
+
+    place = ""
+
+    def __new__(cls, words, place=""):
+        search = super().__new__(cls, words)
+        search.place = place
+        return search
+
+    def __repr__(self):
+        return "%s in %r" % (str.__repr__(self), self.place) if self.place else str.__repr__(self)
+
+
+# --role words that find more on a job site as a search than as typed: Indeed matches whole words of a title.
+ROLE_QUERIES = {
+    "frontend": "frontend developer", "backend": "backend developer", "fullstack": "fullstack developer",
+    "mobile": "mobile developer", "softwareengineer": "software engineer",
+}
+
+
+def indeed_place(text):
+    """A --location value as Indeed's location box takes it: Ho Chi Minh, Ha Noi, or what was typed."""
+    words = location_words(text)
+    if words == list(HO_CHI_MINH):
+        return "Ho Chi Minh"
+    if words == list(HA_NOI):
+        return "Ha Noi"
+    return clean(text)
+
+
+def place_searches(source, options):
+    """The searches of a site that lists nothing without one: --keyword, else a search for each --role, else
+    the site's default terms, each made in every --location (Vietnam when there is none)."""
+    queries = [options.keyword] if options.keyword else [ROLE_QUERIES.get(squash(role), role) for role in options.role]
+    places = []
+    for term in options.location:
+        place = indeed_place(term)
+        if place not in places:
+            places.append(place)
+    return [Search(query, place) for query in dict.fromkeys(queries or source.default_terms) for place in places or ["Vietnam"]]
+
+
 def search_terms(source, options):
     """The searches to run on a site: --keyword, else each --company where the site can find
     a company by name, else the whole list ("")."""
+    if source.default_terms:
+        return place_searches(source, options)
     if options.keyword:
         return [options.keyword] if source.searchable else [""]
     if source.company_search and options.company:
@@ -1245,10 +1347,14 @@ def fail_page(page, source, run_dir, result, number, state, message):
 
 def page_template(url):
     """From the address of page 2, a function that makes the address of page N; None if it has no number."""
-    for pattern in (r"([?&]page=)2(?=&|#|$)", r"(-trang-)2(?=-)"):  # ?page=2 (ITviec, TopCV), -trang-2- (CareerViet)
+    for pattern, offset in (
+        (r"([?&]page=)2(?=&|#|$)", lambda number: number),  # ?page=2 (ITviec, TopCV)
+        (r"(-trang-)2(?=-)", lambda number: number),  # -trang-2- (CareerViet)
+        (r"([?&]start=)10(?=&)", lambda number: (number - 1) * 10),  # &start=10& (Indeed): ten jobs on from a page
+    ):
         if re.search(pattern, url):
-            return lambda number, pattern=pattern: re.sub(
-                pattern, lambda found: "%s%d" % (found.group(1), number), url, count=1)
+            return lambda number, pattern=pattern, offset=offset: re.sub(
+                pattern, lambda found: "%s%d" % (found.group(1), offset(number)), url, count=1)
     return None
 
 
@@ -1280,17 +1386,17 @@ def crawl_pages_side_by_side(context, source, options, term, pages, jobs, seen, 
     is left alone for BLOCK_COOLDOWN seconds, and the pages that were not read are read with
     RETRY_WINDOWS windows, once. A second block ends the site, and the jobs already read are kept."""
     done = set()  # the numbers of the pages that were read
-    kept = _read_pages(context, source, options, term, pages, options.pages_at_once, jobs, seen, run_dir, result, done)
+    windows = min(options.pages_at_once, source.max_windows or options.pages_at_once)
+    kept = _read_pages(context, source, options, term, pages, windows, jobs, seen, run_dir, result, done)
     left = [item for item in pages if item[0] not in done]
     if left and result["status"] == "blocked":
         log("[%s] blocked: waiting %d s, then reading the %d pages left with %d windows" % (
-            source.name, BLOCK_COOLDOWN, len(left), min(RETRY_WINDOWS, options.pages_at_once)))
+            source.name, BLOCK_COOLDOWN, len(left), min(RETRY_WINDOWS, windows)))
         time.sleep(BLOCK_COOLDOWN)
         with _LOCK:
             result["status"], result["message"] = "ok", ""  # a second block is reported in its turn
         kept += _read_pages(
-            context, source, options, term, left, min(RETRY_WINDOWS, options.pages_at_once), jobs, seen, run_dir,
-            result, done)
+            context, source, options, term, left, min(RETRY_WINDOWS, windows), jobs, seen, run_dir, result, done)
     return kept
 
 
@@ -1398,7 +1504,7 @@ def crawl_source(page, source, options, jobs, seen, run_dir, result, context=Non
     terms = search_terms(source, options)
     for index, term in enumerate(terms):
         if index:
-            pause(options.delay)
+            pause(options.delay * source.search_pause)
         if not crawl_search(page, source, options, term, jobs, seen, run_dir, result, context) and term:
             if result["status"] == "ok":
                 result["no_jobs_for"].append(term)
