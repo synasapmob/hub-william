@@ -194,13 +194,14 @@ describe("ToolsCatalog", () => {
     expect(screen.getByRole("button", { name: "Copied" })).toBeVisible();
   });
 
-  it("lists a contributor's skills, link script and memory tool as plain cards", () => {
+  it("lists a contributor's skills, link script, memory and job crawler tools as plain cards", () => {
     renderTools("/tools/synasapmob", "synasapmob");
 
     expect(screen.getByRole("heading", { name: "SKILLS" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "LINK SKILLS" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "MEMORY" })).toBeVisible();
-    expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(3);
+    expect(screen.getByRole("heading", { name: "JOB CRAWLER" })).toBeVisible();
+    expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(4);
   });
 
   it("keeps every skill in one sheet with a single download", () => {
@@ -259,6 +260,39 @@ describe("ToolsCatalog", () => {
       "href",
       `${window.location.origin}/catalog/collections/synasapmob/tools/link-skills.zip`,
     );
+  });
+
+  it("builds the job crawler command from tags in the sheet", async () => {
+    const user = userEvent.setup();
+
+    renderTools("/tools/synasapmob?node=job-crawler", "synasapmob");
+
+    const scriptUrl = `${window.location.origin}/catalog/contributors/synasapmob/tools/job-crawler/job-crawler.py`;
+
+    expect(screen.getByRole("heading", { name: "Job crawler" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Files (2)" })).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: "Build your command" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("link", {
+        name: "contributors/synasapmob/tools/job-crawler/job-crawler.py",
+      }),
+    ).toBeVisible();
+    expect(screen.getByRole("link", { name: "Download all" })).toHaveAttribute(
+      "href",
+      `${window.location.origin}/catalog/collections/synasapmob/tools/job-crawler.zip`,
+    );
+    expect(screen.getByText(`curl -fsSL ${scriptUrl} | python3`)).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "HCM" }));
+    await user.click(screen.getByRole("button", { name: "TopCV" }));
+
+    expect(
+      screen.getByText(
+        `curl -fsSL ${scriptUrl} | python3 - --sources=topcv --location=HCM`,
+      ),
+    ).toBeVisible();
   });
 
   it("offers memory.py to run or to print as a table", () => {

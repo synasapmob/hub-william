@@ -114,11 +114,11 @@ describe("supported tool catalogue", () => {
 });
 
 describe("contributed skills", () => {
-  it("shows a contributor's skills and link script as plain tool cards", () => {
+  it("shows a contributor's skills, link script, memory and job crawler as plain tool cards", () => {
     expect(catalogService.contributors()).toContain("synasapmob");
     expect(
       catalogService.collections("synasapmob").map((tool) => tool.id),
-    ).toEqual(["skills", "link-skills", "memory"]);
+    ).toEqual(["skills", "link-skills", "memory", "job-crawler"]);
     expect(catalogService.findCollection("skills")).toBeNull();
   });
 
@@ -215,6 +215,19 @@ describe("contributed skills", () => {
     ).toBe(
       "https://hub.example/catalog/contributors/synasapmob/tools/link-skills/link.sh",
     );
+  });
+});
+
+describe("job crawler URL", () => {
+  it("serves the crawler from the published catalogue", () => {
+    expect(catalogService.jobCrawlerScriptUrl("https://hub.example")).toBe(
+      "https://hub.example/catalog/contributors/synasapmob/tools/job-crawler/job-crawler.py",
+    );
+  });
+
+  it("presents the crawler as a tool of its own, after memory", () => {
+    expect(collectionPresentation("job-crawler").label).toBe("Job crawler");
+    expect(compareCollectionIds("memory", "job-crawler")).toBeLessThan(0);
   });
 });
 

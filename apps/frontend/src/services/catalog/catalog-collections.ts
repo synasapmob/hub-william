@@ -8,6 +8,7 @@ export const TOOL_IDS = [
   "skills",
   "link-skills",
   "memory",
+  "job-crawler",
 ] as const;
 
 interface CatalogCollectionPresentation {
@@ -60,6 +61,11 @@ const COLLECTION_PRESENTATION: Record<string, CatalogCollectionPresentation> = {
     label: "Memory",
     summary:
       "See what Claude Code, Codex, Grok and agy remember and the rules and skills you give them, and check Downloads, Documents, Applications and login items for risky files. Browse it in a terminal and move what you pick to the Trash. Nothing leaves your computer unless you allow one optional hash lookup.",
+  },
+  "job-crawler": {
+    label: "Job crawler",
+    summary:
+      "Collect IT jobs from ITviec, TopCV, CareerViet and company career pages into a spreadsheet on your own computer. Pick the sites, roles, places and dates, then copy the command and run it.",
   },
 };
 
