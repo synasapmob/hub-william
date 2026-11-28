@@ -262,6 +262,39 @@ describe("ToolsCatalog", () => {
     );
   });
 
+  it("builds the job crawler command from tags in the sheet", async () => {
+    const user = userEvent.setup();
+
+    renderTools("/tools/synasapmob?node=job-crawler", "synasapmob");
+
+    const scriptUrl = `${window.location.origin}/catalog/contributors/synasapmob/tools/job-crawler/job-crawler.py`;
+
+    expect(screen.getByRole("heading", { name: "Job crawler" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Files (2)" })).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: "Build your command" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("link", {
+        name: "contributors/synasapmob/tools/job-crawler/job-crawler.py",
+      }),
+    ).toBeVisible();
+    expect(screen.getByRole("link", { name: "Download all" })).toHaveAttribute(
+      "href",
+      `${window.location.origin}/catalog/collections/synasapmob/tools/job-crawler.zip`,
+    );
+    expect(screen.getByText(`curl -fsSL ${scriptUrl} | python3`)).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "HCM" }));
+    await user.click(screen.getByRole("button", { name: "TopCV" }));
+
+    expect(
+      screen.getByText(
+        `curl -fsSL ${scriptUrl} | python3 - --sources=topcv --location=HCM`,
+      ),
+    ).toBeVisible();
+  });
+
   it("offers memory.py to run or to print as a table", () => {
     renderTools("/tools/synasapmob?node=memory", "synasapmob");
 

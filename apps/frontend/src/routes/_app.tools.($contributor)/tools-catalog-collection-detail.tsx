@@ -18,6 +18,7 @@ import type { CatalogCollection } from "@/services/catalog/catalog-types";
 import ToolsCatalogCollectionFiles from "./tools-catalog-collection-files";
 import ToolsCatalogDownloadReel from "./tools-catalog-download-reel";
 import ToolsCatalogEdgeTts from "./tools-catalog-edge-tts";
+import ToolsCatalogJobCrawler from "./tools-catalog-job-crawler";
 import ToolsCatalogToolUsage from "./tools-catalog-tool-usage";
 import ToolsCatalogVosk from "./tools-catalog-vosk";
 
@@ -147,6 +148,10 @@ export default function ToolsCatalogCollectionDetail({
                 <ToolsCatalogDownloadReel />
               </CollectionSection>
             </>
+          ) : shown.id === "job-crawler" ? (
+            <CollectionSection label="Build your command">
+              <ToolsCatalogJobCrawler />
+            </CollectionSection>
           ) : INSTALL_USAGE_IDS.includes(shown.id) ? (
             <CollectionSection label={usageSectionLabel(shown)}>
               <ToolsCatalogToolUsage collection={shown} />

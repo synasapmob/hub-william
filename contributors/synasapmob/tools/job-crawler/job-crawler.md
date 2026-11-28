@@ -38,6 +38,10 @@ curl -fsSL https://hub-william.site/catalog/contributors/synasapmob/tools/job-cr
 `curl` has its own `--output` option, so the tool's options go after
 `python3 -`. Run a downloaded copy with `python3 job-crawler.py --output-dir=...`.
 
+On the Tools page of Hub William you do not have to write the options: pick the
+location (HN, HCM, DA NANG, REMOTE), the role, the source and how far back with
+tags, name the folder, and copy the command it builds.
+
 ## Options
 
 | Option                | Default            | What it does                                                    |
