@@ -229,6 +229,16 @@ class CatalogService {
       origin,
     );
   }
+
+  /**
+   * The published script that collects IT jobs into a spreadsheet
+   */
+  jobCrawlerScriptUrl(origin?: string) {
+    return siteAssetUrl(
+      "catalog/contributors/synasapmob/tools/job-crawler/job-crawler.py",
+      origin,
+    );
+  }
 }
 
 export const catalogService = new CatalogService();
